@@ -236,10 +236,16 @@ public actor APNsPusher {
         if let identifier {
             request.setValue(identifier, forHTTPHeaderField: "apns-collapse-id")
         }
+        // A waiting cue also wakes the phone app in the background
+        // (`content-available`): it probes this Mac's reachability at the
+        // moment the request lands, delivers any decision it was holding, and
+        // warns the person — on the phone and the mirrored Watch — when a
+        // tap from here could not reach this Mac (ADR-0032).
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
                                                   sessionID: sessionID, localized: localized,
                                                   category: category, timeSensitive: timeSensitive,
-                                                  approvalId: approvalId).utf8)
+                                                  approvalId: approvalId,
+                                                  contentAvailable: category != nil).utf8)
         do {
             guard await validate() else {
                 return await finish(.init(outcome: .skipped, failureReason: "completionInvalidated"),
@@ -281,7 +287,8 @@ public actor APNsPusher {
                                          localized: PushLocalization? = nil,
                                          category: String? = nil,
                                          timeSensitive: Bool = false,
-                                         approvalId: String? = nil) -> String {
+                                         approvalId: String? = nil,
+                                         contentAvailable: Bool = false) -> String {
         var alert = #""title":"\#(escape(title))","body":"\#(escape(body))""#
         if let localized {
             let args = localized.titleArgs.map { #""\#(escape($0))""# }.joined(separator: ",")
@@ -294,9 +301,13 @@ public actor APNsPusher {
         let threadField = sessionID.map { #","thread-id":"\#(escape($0))""# } ?? ""
         let categoryField = category.map { #","category":"\#(escape($0))""# } ?? ""
         let interruptionField = timeSensitive ? #","interruption-level":"time-sensitive""# : ""
+        // `content-available` beside `alert` keeps the banner and also hands
+        // the phone app a background wake (`UIBackgroundModes:
+        // remote-notification`); the push type stays `alert`.
+        let wakeField = contentAvailable ? #","content-available":1"# : ""
         let sessionField = sessionID.map { #","sessionId":"\#(escape($0))""# } ?? ""
         let approvalField = approvalId.map { #","approvalId":"\#(escape($0))""# } ?? ""
-        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)\#(categoryField)\#(interruptionField)}\#(sessionField)\#(approvalField)}"#
+        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)\#(categoryField)\#(interruptionField)\#(wakeField)}\#(sessionField)\#(approvalField)}"#
     }
 
     /// APNs answers every failure with `{"reason":"…"}`; success bodies are empty.

@@ -42,7 +42,11 @@ public enum WaitActionResult: Sendable, Equatable {
     case accepted
     /// 404 or 409: the wait is already gone — open the session instead.
     case alreadyResolved
+    /// The Mac answered and refused, or the request could not be formed.
     case failed
+    /// No answer at all: nothing reached the Mac, so the decision may be held
+    /// and delivered later (ADR-0032).
+    case unreachable
 
     public init(statusCode: Int?) {
         guard let statusCode else { self = .failed; return }

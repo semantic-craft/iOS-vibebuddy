@@ -9,6 +9,12 @@ protocol DecisionClient: Sendable {
     func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation
     func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot?
     func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> PhoneActionResult
+    /// The same decision under an idempotency key. A held decision
+    /// (`PendingActionStore`) is retried under one `requestID`, and the Mac's
+    /// `ActionRequestLog` answers a repeat as it answered the first time
+    /// instead of resolving — or refusing — a second time (ADR-0032).
+    func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision,
+                       requestID: String) async -> PhoneActionResult
     /// Answer the session's current question. `requestID` identifies the *tap*:
     /// the daemon's `ActionRequestLog` de-duplicates on it, so one gesture
     /// replayed cannot answer twice. A caller with no gesture to name (the
@@ -26,6 +32,10 @@ protocol DecisionClient: Sendable {
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool
     /// Same POST as `decide`, but distinguishes 404/409 (wait already gone).
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult
+    /// The banner's decision under an idempotency key, and `.unreachable`
+    /// when nothing answered — the one result a decision may be held on.
+    func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision,
+                      requestID: String) async -> WaitActionResult
     /// Same POST as `answer`, but distinguishes 404/409 (wait already gone).
     @discardableResult
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult
@@ -70,6 +80,11 @@ extension DecisionClient {
     func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation { throw ContentRequestFailure.unavailable }
     func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? { nil }
     func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> PhoneActionResult { .failed }
+    /// A double that knows nothing of keys answers the keyless form.
+    func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision,
+                       requestID: String) async -> PhoneActionResult {
+        await phoneDecision(pairing, approvalId: approvalId, decision: decision)
+    }
     func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?,
                      answers: QuestionAnswers?, requestID: String) async -> PhoneActionResult { .failed }
 
@@ -88,6 +103,10 @@ extension DecisionClient {
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? { nil }
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
         await decide(pairing, approvalId: approvalId, decision: decision) ? .accepted : .failed
+    }
+    func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision,
+                      requestID: String) async -> WaitActionResult {
+        await decideResult(pairing, approvalId: approvalId, decision: decision)
     }
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer text: String) async -> WaitActionResult {
         return .failed
@@ -152,7 +171,29 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> PhoneActionResult {
-        await postAction(pairing, path: "decision", body: ["approvalId": approvalId, "decision": decision.rawValue])
+        await phoneDecision(pairing, approvalId: approvalId, decision: decision, requestID: UUID().uuidString)
+    }
+
+    func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision,
+                       requestID: String) async -> PhoneActionResult {
+        await postAction(pairing, path: "decision",
+                         body: ["approvalId": approvalId, "decision": decision.rawValue, "requestId": requestID])
+    }
+
+    /// The Mac's unauthenticated `/health`, with a short clock: whether this
+    /// phone has a road to the Mac right now, and if not, which link is out.
+    func probe(_ pairing: PairingPayload) async -> ReachabilityProbe {
+        guard let url = pairing.companionURL(path: "health") else { return .unreachable(.invalidAddress) }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 6)
+        request.httpMethod = "GET"
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if (response as? HTTPURLResponse)?.statusCode == 200 { return .reachable }
+            return .unreachable(.macUnreachable(host: pairing.host))
+        } catch {
+            return .unreachable(ConnectionDiagnosis.diagnose(
+                endpoint: pairing.endpoint, kind: .unreachable, phoneHasTailnet: PhoneNetwork.hasTailnetAddress()))
+        }
     }
 
     func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?,
@@ -275,14 +316,23 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
+        await decideResult(pairing, approvalId: approvalId, decision: decision, requestID: UUID().uuidString)
+    }
+
+    func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision,
+                      requestID: String) async -> WaitActionResult {
         guard let url = pairing.companionURL(path: "decision") else { return .failed }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
+        req.timeoutInterval = 15
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body = ["approvalId": approvalId, "decision": decision.rawValue]
+        let body = ["approvalId": approvalId, "decision": decision.rawValue, "requestId": requestID]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .failed }
+        // No answer at all — refused route, no route, timeout — is the one
+        // ending a decision may be held on. With the key on the wire, a
+        // timeout that did land is answered as a duplicate later, not applied.
+        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .unreachable }
         return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
     }
 

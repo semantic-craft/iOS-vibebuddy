@@ -36,6 +36,12 @@ final class DashboardStore: ObservableObject {
         // once this phone has seen the Mac drop (PLAN §2.3 of ios-usage-widgets).
         didSet { if case .failed = state { WidgetQuotaStore.markRelayOffline() } }
     }
+    /// Which link is missing while `state` is `.failed` (ADR-0032). Set
+    /// beside the message, cleared on the next snapshot.
+    @Published private(set) var failure: ConnectionFailureReason?
+    /// Decisions this phone accepted and could not deliver yet, for the
+    /// Inbox and the wrist. Mirrors `pendingActions.queue` for this pairing.
+    @Published private(set) var heldActions: [QueuedSessionAction] = []
     /// Set when a Live Activity / deep link asks to open a specific session; the
     /// dashboard scrolls to and highlights it, then clears it via `clearFocus()`.
     @Published var focusedSessionId: String?
@@ -394,12 +400,19 @@ final class DashboardStore: ObservableObject {
     /// repaired by the next reconnection after a Mac restart, without the user
     /// having to cold-launch this app.
     private let reportDevice: @MainActor (PairingPayload) -> Void
+    /// The queue of decisions the Mac could not be given (ADR-0032). Shared
+    /// with the banner path, which holds into it from the background.
+    private let pendingActions: PendingActionStore
+    /// Read live on every failure: whether this phone has a tailnet address.
+    private let phoneHasTailnet: () -> Bool
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier(),
          decisionClient: DecisionClient = HTTPDecisionClient(),
          watchRelay: WatchRelay? = WatchRelay(transport: WatchConnectivityTransport()),
          completionReads: PhoneCompletionReads = PhoneCompletionReads(),
+         pendingActions: PendingActionStore = .shared,
+         phoneHasTailnet: @escaping () -> Bool = { PhoneNetwork.hasTailnetAddress() },
          reportDevice: @escaping @MainActor (PairingPayload) -> Void = {
              PushRegistration.shared.update(pairing: $0)
          }) {
@@ -408,8 +421,12 @@ final class DashboardStore: ObservableObject {
         self.notifier = notifier
         self.decisionClient = decisionClient
         self.watchRelay = watchRelay
+        self.pendingActions = pendingActions
+        self.phoneHasTailnet = phoneHasTailnet
         self.reportDevice = reportDevice
         completionReads.onChange = { [weak self] in self?.objectWillChange.send() }
+        pendingActions.onEvent = { [weak self] event in self?.heldDecisionChanged(event) }
+        refreshHeldActions()
         if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] != "1" {
             notifier.requestAuthorization()
         }
@@ -468,7 +485,21 @@ final class DashboardStore: ObservableObject {
         func result(_ outcome: WatchSessionActionOutcome) -> WatchSessionActionResult {
             WatchSessionActionResult(attemptId: request.attemptId, outcome: outcome)
         }
-        guard isDemo || state == .connected else { return result(.failed) }
+        // No link to the Mac. An approval or an answer that the live sessions
+        // still admit is held on this phone under the tap's own id and
+        // delivered when the link returns; a stop is not, and the wrist is
+        // told which link is missing (ADR-0032).
+        guard isDemo || state == .connected else {
+            if case .refused = watchActions.admit(request, sessions: allSessions) {
+                return result(.refused)
+            }
+            if let reason = hold(request.action, sessionId: request.sessionId,
+                                 key: request.attemptId, origin: .watch) {
+                return WatchSessionActionResult(attemptId: request.attemptId, outcome: .queued, reason: reason)
+            }
+            return WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed,
+                                            reason: currentFailureReason())
+        }
         let admitted = watchActions.admit(request, sessions: allSessions)
         switch admitted {
         case .duplicate:
@@ -487,9 +518,19 @@ final class DashboardStore: ObservableObject {
             return result(.accepted)
         }
         guard let pairing else { return result(.failed) }
+        // The Mac went away between the tap and the read of its snapshot:
+        // nothing was sent, so hold, as above.
+        func heldOrFailed() -> WatchSessionActionResult {
+            if let reason = hold(request.action, sessionId: request.sessionId,
+                                 key: request.attemptId, origin: .watch) {
+                return WatchSessionActionResult(attemptId: request.attemptId, outcome: .queued, reason: reason)
+            }
+            return WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed,
+                                            reason: currentFailureReason())
+        }
         let epoch = pairingEpoch
         let generation = connectionGeneration
-        guard let snapshot = await decisionClient.actionSnapshot(pairing) else { return result(.failed) }
+        guard let snapshot = await decisionClient.actionSnapshot(pairing) else { return heldOrFailed() }
         // The Mac's own copy, read just now, is what the action is judged on —
         // and it has to be the same Mac, the same pairing and the same live
         // connection this phone was showing when the tap arrived.
@@ -500,8 +541,18 @@ final class DashboardStore: ObservableObject {
         let revalidated = watchActions.admit(request, sessions: snapshot.sessions)
         switch revalidated {
         case .decide(let approvalId, let decision):
-            guard await decisionClient.decide(pairing, approvalId: approvalId, decision: decision)
-            else { return result(.failed) }
+            // Under the tap's own id, so a receipt lost on the way back is
+            // retried as the same decision and answered as a duplicate.
+            // A Mac that answered — refused, or lost the receipt after
+            // possibly acting — is never replayed from here: `failed` may be
+            // tapped again, `unknown` may not, and neither is a hold.
+            switch await decisionClient.phoneDecision(pairing, approvalId: approvalId, decision: decision,
+                                                      requestID: request.attemptId) {
+            case .received: break
+            case .expired: return result(.refused)
+            case .unconfirmed: return result(.unknown)
+            case .failed, .sending, .notPaired, .held: return result(.failed)
+            }
         case .answer, .answerAll:
             // One string for a one-question wait; a checked set of picks, keyed
             // by question, for a prompt the wrist walked — the same structured
@@ -522,7 +573,7 @@ final class DashboardStore: ObservableObject {
             case .received: break
             case .expired: return result(.refused)
             case .unconfirmed: return result(.unknown)
-            default: return result(.failed)
+            case .failed, .sending, .notPaired, .held: return result(.failed)
             }
         case .stop:
             // `refused` and `failed` are both a 409 on the wire and they mean
@@ -709,6 +760,7 @@ final class DashboardStore: ObservableObject {
                 // background, and nothing else re-uploads the APNs token.
                 self.reportDevice(pairing)
                 var failure = String(localized: "Disconnected — reconnecting…")
+                var kind = ConnectionFailureKind.dropped
                 var requiresInput = false
                 do {
                     for try await snapshot in self.streamer.stream(pairing) {
@@ -717,16 +769,26 @@ final class DashboardStore: ObservableObject {
                     }
                 } catch CompanionConnectionFailure.authentication {
                     failure = String(localized: "Access refused. Check your pairing token, then reconnect.")
+                    kind = .authentication
                     requiresInput = true
                 } catch CompanionConnectionFailure.invalidAddress {
                     failure = String(localized: "Invalid Mac address. Pair again with a valid host and port.")
+                    kind = .invalidAddress
                     requiresInput = true
                 } catch {
-                    if (error as? URLError)?.code == .timedOut {
+                    kind = Self.failureKind(of: error)
+                    if kind == .unreachable {
                         failure = String(localized: "Mac did not respond — reconnecting…")
                     }
                 }
                 if Task.isCancelled || self.connectionGeneration != generation { return }
+                // Name the missing link, not just the fact of one (ADR-0032).
+                let reason = ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: kind,
+                                                          phoneHasTailnet: self.phoneHasTailnet())
+                self.failure = reason
+                if reason.needsTailnet {
+                    failure = ConnectionFailureCopy.title(reason, macName: pairing.macName)
+                }
                 self.state = .failed(failure)
                 self.relayToWatch(self.allSessions)
                 await self.liveActivity.sync(sessions: self.allSessions, allowsActions: false)
@@ -744,6 +806,7 @@ final class DashboardStore: ObservableObject {
         runTask?.cancel()
         runTask = nil
         state = .failed(String(localized: "Disconnected"))
+        failure = nil
         relayToWatch(allSessions)
         return Task { await liveActivity.end() }
     }
@@ -759,6 +822,9 @@ final class DashboardStore: ObservableObject {
         lastServerTime = .distantPast
         pairingEpoch = ConnectionStore.pairingEpoch
         state = .connecting
+        failure = nil
+        // A held decision was aimed at the old pairing; it cannot follow.
+        pendingActions.prune(epoch: pairingEpoch)
         groups = SessionGroups([])
         lastProviderQuota = []
         lastTokenConsumption = nil
@@ -857,7 +923,91 @@ final class DashboardStore: ObservableObject {
         // verdict: the Watch decides against its own clock.
         projection.categories = SoundPrefs.categories
         projection.quiet = WatchQuietSettings(manual: SoundPrefs.manualQuiet, hours: SoundPrefs.quietHours)
+        // What this phone is holding for the Mac, so the card that was tapped
+        // keeps saying so after a relaunch (ADR-0032).
+        projection.heldActions = isDemo ? [] : pendingActions.queue.watchProjection(epoch: pairingEpoch)
         watchRelay.publish(projection)
+    }
+
+    // MARK: - Held decisions (ADR-0032)
+
+    /// The queue changed. Mirror it for the Inbox and the wrist, tell the
+    /// person, and let the notifier report to the surface the tap came from.
+    private func heldDecisionChanged(_ event: HeldDeliveryEvent) {
+        refreshHeldActions()
+        relayToWatch(allSessions)
+        let action = event.action
+        switch event {
+        case .held(_, let reason):
+            if action.origin == .phone {
+                let why = reason.map { ConnectionFailureCopy.title($0, macName: pairing?.macName) }
+                    ?? String(localized: "Can't reach your Mac")
+                showToast(why + " " + String(localized: "Holding your decision; it will be sent when the Mac is reachable."))
+            }
+        case .delivered:
+            if action.origin == .phone { showToast(String(localized: "Held decision delivered to your Mac.")) }
+        case .gone:
+            if action.origin == .phone { showToast(String(localized: "The request was resolved before your held decision could be sent.")) }
+        case .dropped:
+            if action.origin == .phone { showToast(String(localized: "Your held decision could not be delivered. Decide again.")) }
+        case .stillHeld, .superseded, .cancelled:
+            break
+        }
+        // The wrist and the lock screen hear it as a notification; the app's
+        // own card already toasted.
+        if action.origin != .phone { notifier.reportDelivery(event, macName: pairing?.macName) }
+    }
+
+    private func refreshHeldActions() {
+        heldActions = pendingActions.queue.items.filter { $0.pairingEpoch == pairingEpoch }
+    }
+
+    /// The person asked from the Inbox: try now, whatever the stream says.
+    func retryHeldDecisions() async {
+        guard let pairing, !isDemo else { return }
+        await pendingActions.flush(pairing: pairing, epoch: pairingEpoch, client: decisionClient)
+    }
+
+    func cancelHeldDecision(id: String) {
+        pendingActions.cancel(id: id)
+    }
+
+    /// Why a decision could not be delivered just now, read from the live
+    /// state of this phone rather than guessed.
+    private func currentFailureReason() -> ConnectionFailureReason {
+        if let failure { return failure }
+        return ConnectionDiagnosis.diagnose(endpoint: pairing?.endpoint, kind: .unreachable,
+                                            phoneHasTailnet: phoneHasTailnet())
+    }
+
+    /// Keep a decision the Mac could not be given, if it is one that keeps.
+    /// Returns the reason it was held under, or nil when it was not held.
+    @discardableResult
+    private func hold(_ action: WatchSessionAction, sessionId: String, key: String,
+                      origin: QueuedSessionAction.Origin) -> ConnectionFailureReason? {
+        // A stopped store (no pairing, or the person disconnected) has no
+        // link to wait for; only a live pairing that is reconnecting holds.
+        guard !isDemo, !action.isDestructive, pairing != nil, runTask != nil else { return nil }
+        let reason = currentFailureReason()
+        guard reason.isRetryable else { return nil }
+        let session = allSessions.first { $0.id == sessionId }
+        pendingActions.hold(QueuedSessionAction(
+            id: key, sessionId: sessionId, action: action, origin: origin, pairingEpoch: pairingEpoch,
+            queuedAt: Date(), project: session?.project, agent: session?.agent), reason: reason)
+        return reason
+    }
+
+    /// The transport's error, in the three shapes the diagnosis reads.
+    nonisolated static func failureKind(of error: Error) -> ConnectionFailureKind {
+        guard let code = (error as? URLError)?.code else { return .dropped }
+        switch code {
+        case .cannotConnectToHost, .cannotFindHost, .timedOut, .notConnectedToInternet,
+             .dnsLookupFailed, .networkConnectionLost, .internationalRoamingOff, .callIsActive,
+             .dataNotAllowed:
+            return .unreachable
+        default:
+            return .dropped
+        }
     }
 
     /// The sessions the buddy is actually grounded in, honouring the scope toggles
@@ -1002,10 +1152,22 @@ final class DashboardStore: ObservableObject {
         if isDemo { return decideDemo(approvalId) }
         guard let session = allSessions.first(where: { $0.pendingApproval?.id == approvalId }),
               ApprovalEligibility.approval(for: session) != nil else { return .expired }
-        return await sendPhoneAction(session) { pairing, current in
+        // One key for the send and for the hold it may become (ADR-0032).
+        let key = UUID().uuidString
+        let result = await sendPhoneAction(session) { pairing, current in
             guard ApprovalEligibility.approval(for: current)?.id == approvalId else { return .expired }
-            return await self.decisionClient.phoneDecision(pairing, approvalId: approvalId, decision: decision)
+            return await self.decisionClient.phoneDecision(pairing, approvalId: approvalId, decision: decision,
+                                                           requestID: key)
         }
+        // Held only when nothing was sent because there was no link; a Mac
+        // that refused, or whose receipt was lost, is not replayed.
+        if result == .failed, state != .connected,
+           let choice = WatchApprovalChoice(decision),
+           hold(.approval(id: approvalId, choice: choice), sessionId: session.id, key: key, origin: .phone) != nil {
+            phoneActions[session.id] = .held
+            return .held
+        }
+        return result
     }
 
     @discardableResult
@@ -1060,10 +1222,24 @@ final class DashboardStore: ObservableObject {
             let spoken = text ?? answers?.values.flatMap { $0 }.joined(separator: ", ") ?? ""
             return answerDemo(sessionId, text: spoken) ? .received : .expired
         }
-        return await sendPhoneAction(session) { pairing, current in
+        // One key for the send and for the hold it may become (ADR-0032).
+        let key = UUID().uuidString
+        let result = await sendPhoneAction(session) { pairing, current in
             guard current.pendingQuestion != nil || SessionActionSupport.resolve(for: current).isAvailable else { return .expired }
-            return await self.decisionClient.phoneAnswer(pairing, session: current, text: text, answers: answers)
+            return await self.decisionClient.phoneAnswer(pairing, session: current, text: text, answers: answers,
+                                                         requestID: key)
         }
+        // Only an answer to a question is held: it names the question it is
+        // for. An instruction to a running turn is aimed at a moment.
+        if result == .failed, state != .connected, let question = session.pendingQuestion {
+            let action: WatchSessionAction? = if let answers { .answerAll(pendingId: question.id, answers: answers) }
+                else if let text { .answer(pendingId: question.id, text: text) } else { nil }
+            if let action, hold(action, sessionId: session.id, key: key, origin: .phone) != nil {
+                phoneActions[session.id] = .held
+                return .held
+            }
+        }
+        return result
     }
 
     @discardableResult
@@ -1442,8 +1618,21 @@ final class DashboardStore: ObservableObject {
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         let wasDisconnected = state != .connected
         state = .connected
+        if failure != nil {
+            failure = nil
+            notifier.withdraw([LocalNotifier.unreachableID])
+        }
         publishQuotaToWidgets()
         confirmConnectedPairing()
+        // The link is back: deliver what was held while it was down, once
+        // each, under the keys the Mac already knows (ADR-0032).
+        if wasDisconnected || !pendingActions.isEmpty, let pairing, !isDemo {
+            let epoch = pairingEpoch
+            Task { [weak self] in
+                guard let self else { return }
+                await self.pendingActions.flush(pairing: pairing, epoch: epoch, client: self.decisionClient)
+            }
+        }
         if sourceID != snapshot.sourceID { completionReads.pause() }
         if sourceID != snapshot.sourceID { recentOutputs = [:] }
         if let previousSource = speechAuthoritySourceID, previousSource != snapshot.sourceID { clearContentSource() }

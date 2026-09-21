@@ -26,7 +26,7 @@ struct WatchAnswerControl: View {
     /// place as every other action on this Watch.
     private var blocked: LocalizedStringResource? {
         if !store.canReachPhone { return "Can't reach your iPhone — answer there, or move closer." }
-        return WatchLinkBlock.message(store, now: Date())
+        return WatchLinkBlock.message(store, now: Date(), holdable: true)
     }
 
     private var phase: WatchSessionActionAttempt.Phase? {
@@ -66,7 +66,7 @@ struct WatchAnswerControl: View {
                     }
                 }
 
-                WatchAnswerStatusLine(phase: phase)
+                WatchAnswerStatusLine(phase: phase, reason: store.pendingAction.action?.reason)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // One sheet for the whole control: every way in leads to the same
@@ -130,6 +130,8 @@ struct WatchAnswerControl: View {
 /// picks, the sentence is the same because what happened to it is the same.
 struct WatchAnswerStatusLine: View {
     let phase: WatchSessionActionAttempt.Phase?
+    /// The iPhone's diagnosis when the phase is `failed` or `queued`.
+    var reason: ConnectionFailureReason? = nil
 
     var body: some View {
         if let message = statusText {
@@ -147,11 +149,15 @@ struct WatchAnswerStatusLine: View {
     /// disappears when a later snapshot says the agent moved on.
     private var statusText: LocalizedStringResource? {
         switch phase {
-        case .sending: return "Sending…"
-        case .awaitingResolution: return "Sent. Waiting for your Mac to confirm."
+        case .sending: return "Sending to your iPhone…"
+        case .awaitingResolution: return "Your Mac has it. Waiting for the agent to move on."
         // The answer never left the wrist, or the iPhone said it could not
         // deliver it. Either way nothing was said to the agent.
-        case .failed: return "Couldn't send that. Try again."
+        case .failed:
+            if let reason { return WatchLinkCopy.failed(reason) }
+            return "Couldn't send that. Try again."
+        // The iPhone has it and will deliver it when it can reach the Mac.
+        case .queued: return WatchLinkCopy.held(reason)
         // It went out and the receipt was lost. Whether the agent has it is not
         // something this Watch knows, so it says so and sends nothing again.
         case .unknown: return "Couldn't confirm that. Check the task."

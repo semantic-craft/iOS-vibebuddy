@@ -110,6 +110,49 @@ struct ApprovalRoutesTests {
         #expect(await registry.claim(id: "expired") == false)
     }
 
+    @Test("a decision replayed under its request id lands once and is answered as it was")
+    func decisionReplayIsIdempotent() async throws {
+        let store = SessionStore()
+        await store.ingest(Data(bash("pwd").utf8), receivedAt: Date())
+        await store.beginApproval(sessionID: "s",
+            PendingApproval(id: "held", tool: "Bash", commandPreview: "pwd"), at: Date())
+        let registry = ApprovalRegistry()
+        await registry.prepare(id: "held")
+        let context = ApprovalContextStore()
+        await context.set(id: "held", sessionID: "s", rule: nil)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("held-approval-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let srv = VibeBuddyServer(store: store, token: "t0k", approvalRegistry: registry,
+                                 allowStore: VibeBuddyAllowStore(url: url), sessionAllow: SessionAllowList(),
+                                 approvalContext: context)
+        try await srv.buildApplication().test(.router) { client in
+            let tap = #"{"approvalId":"held","decision":"allow","requestId":"tap-1"}"#
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: tap)) { res in
+                #expect(res.status == .ok)
+            }
+            // The phone lost the receipt and sends the same tap again: still
+            // 200, and nothing is resolved twice.
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: tap)) { res in
+                #expect(res.status == .ok)
+            }
+            // A different tap at the prompt that is now gone is refused.
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"held","decision":"deny","requestId":"tap-2"}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+            // …and so is that refused tap when it is replayed.
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"held","decision":"deny","requestId":"tap-2"}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+        }
+        #expect(await registry.wait(id: "held", timeout: .seconds(1)) == .allow)
+    }
+
     @Test("sandbox cards reject persistent decisions without consuming the pending request", arguments: ["alwaysAllow", "allowSession"])
     func sandboxRejectsPersistentDecision(decision: String) async throws {
         let store = SessionStore()

@@ -424,7 +424,7 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// in flight does nothing — `WatchSessionActionState` refuses to start a
     /// new attempt — so the decision cannot be submitted twice.
     func submit(_ alert: WatchAlert, _ choice: WatchApprovalChoice) {
-        guard let state, isLive(state),
+        guard let state, canTravel(state, holdable: true),
               state.alerts.contains(where: { $0.sessionId == alert.sessionId && $0.approvalId == alert.approvalId }),
               let request = pendingAction.begin(alert: alert, choice: choice,
                                                 attemptId: UUID().uuidString)
@@ -459,7 +459,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         // Same order as a stop: the attempt exists before the link is judged,
         // so a confirmation tapped over a dead link leaves a sentence on screen
         // instead of dismissing in silence.
-        guard isLive(state) else {
+        guard canTravel(state, holdable: true) else {
             pendingAction.fail(attemptId: request.attemptId)
             return true
         }
@@ -486,7 +486,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         guard let request = pendingAction.begin(alert: current, answers: answers,
                                                 attemptId: UUID().uuidString)
         else { return false }
-        guard isLive(state) else {
+        guard canTravel(state, holdable: true) else {
             pendingAction.fail(attemptId: request.attemptId)
             return true
         }
@@ -531,6 +531,19 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// and the phone still talking to the Mac.
     private func isLive(_ state: WatchDashboardState) -> Bool {
         canReachPhone && state.connection(now: Date(), phoneReachable: canReachPhone) == .live
+    }
+
+    /// Whether an action is worth sending to the iPhone right now. A holdable
+    /// one — an approval, an answer — may go while the iPhone reports the Mac
+    /// out of reach: the iPhone holds it and delivers it later (ADR-0032). A
+    /// stop may not: it is bound to a turn that will not be there later.
+    private func canTravel(_ state: WatchDashboardState, holdable: Bool) -> Bool {
+        guard canReachPhone else { return false }
+        switch state.connection(now: Date(), phoneReachable: true) {
+        case .live: return true
+        case .macDisconnected: return holdable
+        case .phoneDisconnected, .watchUnreachable, .noData: return false
+        }
     }
 
     private func send(_ request: WatchSessionActionRequest) {

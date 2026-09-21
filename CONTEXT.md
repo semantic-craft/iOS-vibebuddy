@@ -298,6 +298,20 @@ code, and tests — don't drift to synonyms.
   **walks** — one question per screen, the whole set sent once as
   `WatchSessionAction.answerAll` and checked by `WatchQuestionSet` on both
   sides — and a prompt with any free-text question stays on the iPhone.
+- **Held decision** (ADR-0032) — an approval or answer the phone accepted and
+  could not give the Mac: kept in `SessionActionQueue` (`PendingActionStore`
+  on disk), one per target, a later decision replacing the earlier one, never
+  a stop. Its id is the idempotency key end to end — the wrist's `attemptId`,
+  the `requestId` on `/decision` and `/answer`, the Mac's `ActionRequestLog`
+  entry — so a retry after a lost receipt cannot apply twice. Delivered on
+  reconnect, on a push wake, or on *Retry* from the Inbox; reported as held /
+  delivered / gone / dropped on the surface the tap came from (a `queued`
+  reply with a `reason` on the wrist, a notification replaced in place for
+  the banner, a toast in the app). Beside it, **the missing link**
+  (`ConnectionFailureReason`): `tailnetOff` when the pairing is a
+  `100.64.0.0/10` address and no interface on the phone carries one,
+  `macUnreachable`, `authentication`, `invalidAddress`, `dropped` — named on
+  the phone's screens with the tap that fixes it (open Surge / Tailscale).
 - **Status line sample** — one status line JSON from Claude Code, copied to the
   daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
   `statusline`). It fills a known session's name, effort, cost, context, PR and

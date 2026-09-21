@@ -106,6 +106,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // No paid account / entitlement yet — expected until APNs is set up.
     }
 
+    /// The Mac's waiting cues carry `content-available` (ADR-0032). iOS grants
+    /// this wake at its own discretion and never to a force-quit app.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        let payload = userInfo.reduce(into: [String: String]()) { partial, entry in
+            if let key = entry.key as? String, let value = entry.value as? String { partial[key] = value }
+        }
+        let category = (userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String
+        Task {
+            var info: [AnyHashable: Any] = payload
+            if let category { info["aps"] = ["category": category] }
+            let result = await handleBackgroundPush(userInfo: info)
+            await MainActor.run { completionHandler(result) }
+        }
+    }
+
     func applicationDidBecomeActive(_ application: UIApplication) {
         Task { await PushCoverage.shared.noteActivated() }
     }
@@ -171,16 +188,50 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             return
         }
         let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
+        let epoch = await MainActor.run { ConnectionStore.pairingEpoch }
+        // A tap the Mac cannot be given is held under its own key and
+        // reported through a notification of its own — the tap was made on
+        // the wrist or the lock screen, where opening the app is no answer
+        // (ADR-0032). The queue's listener (the dashboard store) posts it.
         let outcome = await BannerActionRunner.perform(
             actionIdentifier: actionIdentifier,
             userInfo: userInfo,
             text: text,
             pairing: pairing,
-            client: HTTPDecisionClient())
-        if case .openSession(let id) = outcome {
+            client: HTTPDecisionClient(),
+            epoch: epoch,
+            hold: { action, reason in
+                Task { @MainActor in PendingActionStore.shared.hold(action, reason: reason) }
+            })
+        switch outcome {
+        case .openSession(let id):
             await MainActor.run {
                 _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
             }
+        case .held, .ignored:
+            break
+        }
+    }
+
+    /// A waiting cue's push woke the app (`content-available`). Ask the Mac
+    /// whether this phone can reach it right now: deliver what is held if
+    /// so, and if not, say which link is missing — before the person taps
+    /// Approve on a card that cannot be answered (ADR-0032).
+    nonisolated func handleBackgroundPush(userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        let category = (userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String
+        guard category != nil else { return .noData }
+        let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
+        guard let pairing else { return .noData }
+        let client = HTTPDecisionClient()
+        switch await client.probe(pairing) {
+        case .reachable:
+            let epoch = await MainActor.run { ConnectionStore.pairingEpoch }
+            await PendingActionStore.shared.flush(pairing: pairing, epoch: epoch, client: client)
+            return .newData
+        case .unreachable(let reason):
+            guard reason.isRetryable else { return .noData }
+            LocalNotifier().warnUnreachable(reason, macName: pairing.macName)
+            return .newData
         }
     }
 

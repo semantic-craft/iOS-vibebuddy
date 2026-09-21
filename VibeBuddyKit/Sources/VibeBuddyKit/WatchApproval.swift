@@ -44,6 +44,17 @@ public enum WatchApprovalChoice: String, Codable, Sendable, CaseIterable {
 
     /// The wire decision this becomes on the Mac's `/decision` route.
     public var decision: ApprovalDecision { self == .allow ? .allow : .deny }
+
+    /// The one-shot choice a phone decision is, or nil for the persisting
+    /// ones — which are exactly the ones that may not be held and replayed
+    /// later (ADR-0010, ADR-0032).
+    public init?(_ decision: ApprovalDecision) {
+        switch decision {
+        case .allow: self = .allow
+        case .deny: self = .deny
+        default: return nil
+        }
+    }
 }
 
 /// What one tap is for, and the identity it is bound to.
@@ -119,6 +130,12 @@ public enum WatchSessionActionOutcome: String, Codable, Sendable {
     /// Distinct from `failed` because "that didn't send" is the one thing
     /// nobody here can honestly say, and because it must not invite a retry.
     case unknown
+    /// The iPhone took it and cannot reach the Mac right now. It is holding
+    /// the decision (`SessionActionQueue`) and will deliver it, once, when
+    /// the link returns; `reason` says which link is missing. Not a failure
+    /// — nothing needs tapping again — and not `accepted` either, because
+    /// the Mac has not seen it.
+    case queued
 }
 
 public struct WatchSessionActionResult: Codable, Equatable, Sendable {
@@ -127,10 +144,16 @@ public struct WatchSessionActionResult: Codable, Equatable, Sendable {
 
     public var attemptId: String
     public var outcome: WatchSessionActionOutcome
+    /// Why a `failed` or `queued` outcome happened, when the iPhone knows:
+    /// the missing link, in the phone's own diagnosis. Optional on the wire
+    /// so an older Watch decodes the reply as before.
+    public var reason: ConnectionFailureReason?
 
-    public init(attemptId: String, outcome: WatchSessionActionOutcome) {
+    public init(attemptId: String, outcome: WatchSessionActionOutcome,
+                reason: ConnectionFailureReason? = nil) {
         self.attemptId = attemptId
         self.outcome = outcome
+        self.reason = reason
     }
 }
 
@@ -330,12 +353,18 @@ public struct WatchSessionActionAttempt: Equatable, Sendable {
         case unknown
         /// The iPhone would not act on it.
         case refused
+        /// The iPhone is holding it because the Mac is unreachable, and will
+        /// deliver it when the link returns. The card keeps saying so until
+        /// a snapshot shows the request resolved, or the phone gives up.
+        case queued
     }
 
     public var attemptId: String
     public var sessionId: String
     public var action: WatchSessionAction
     public var phase: Phase
+    /// The missing link, when the iPhone named one.
+    public var reason: ConnectionFailureReason?
 
     /// The approval this attempt is about, when it is about one — so an
     /// approval card can tell "my attempt" from a stop on the same session.
@@ -386,7 +415,10 @@ public struct WatchSessionActionState: Equatable, Sendable {
     public var isBusy: Bool {
         switch action?.phase {
         case .sending, .awaitingResolution: return true
-        case .failed, .unknown, .refused, nil: return false
+        // A held decision may be revised: the phone replaces the earlier one
+        // on the same target, so a second tap is a change of mind, not a
+        // second delivery.
+        case .failed, .unknown, .refused, .queued, nil: return false
         }
     }
 
@@ -472,8 +504,16 @@ public struct WatchSessionActionState: Equatable, Sendable {
         case .refused: current.phase = .refused
         case .failed: current.phase = .failed
         case .unknown: current.phase = .unknown
+        case .queued: current.phase = .queued
         }
+        current.reason = result.reason
         action = current
+    }
+
+    /// The Watch's own verdict that nothing could travel, with the link it
+    /// can prove is down. Same ending as `fail`, with a sentence attached.
+    public mutating func fail(attemptId: String, reason: ConnectionFailureReason?) {
+        apply(WatchSessionActionResult(attemptId: attemptId, outcome: .failed, reason: reason))
     }
 
     /// The tap never left the wrist: no link, nothing encodable, nothing sent.
@@ -519,7 +559,17 @@ public struct WatchSessionActionState: Equatable, Sendable {
                            - statusSince.timeIntervalSince1970) < WatchSessionActionGate.statusSinceTolerance
             } ?? false
         }
-        if !stillThere { action = nil }
+        if !stillThere { action = nil; return }
+        // A held decision the phone no longer lists — dropped after too many
+        // tries, or replaced from the phone — while the request itself is
+        // still waiting: the wrist must stop saying "holding" and offer the
+        // tap again. A relay that predates `heldActions` says nothing.
+        if current.phase == .queued, let held = state.heldActions,
+           !held.contains(where: { $0.id == current.attemptId }) {
+            var failed = current
+            failed.phase = .failed
+            action = failed
+        }
     }
 
     /// The user swiped away from the screen or dismissed a failure.

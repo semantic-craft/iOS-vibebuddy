@@ -37,6 +37,15 @@ targets:
         NSMicrophoneUsageDescription: "Talk to your agents by voice. With the optional voice companion, your microphone audio and selected session context are sent directly to the AI provider you choose (OpenAI, Google, Alibaba, or Volcengine) using your own API key — they never pass through a vibebuddy server."
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
+        # A waiting cue's push carries `content-available` (ADR-0032): the
+        # app wakes, probes the Mac, delivers held decisions and warns when
+        # the Mac cannot be reached.
+        UIBackgroundModes:
+          - remote-notification
+        # The "Turn on Surge or Tailscale" hint opens whichever is installed.
+        LSApplicationQueriesSchemes:
+          - surge
+          - tailscale
         CFBundleURLTypes:
           - CFBundleURLName: com.vibebuddy.app.deeplink
             CFBundleURLSchemes:

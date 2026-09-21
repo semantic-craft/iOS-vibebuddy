@@ -63,6 +63,20 @@ struct ActivityPushTests {
         #expect(!quiet.contains("approvalId"))
     }
 
+    @Test("a waiting cue wakes the phone app; a completion does not")
+    func alertPayloadContentAvailable() {
+        let waiting = APNsPusher.alertPayload(
+            title: "p needs permission", body: "rm -rf x", sound: "needs_approval.caf",
+            sessionID: "s1", category: NotificationCategoryID.approval.rawValue,
+            timeSensitive: true, approvalId: "ap-9", contentAvailable: true)
+        #expect(waiting.contains(#""content-available":1"#))
+        // Inside `aps`, after the interruption level, before the fields
+        // outside `aps` — where iOS reads it.
+        #expect(waiting.contains(#""interruption-level":"time-sensitive","content-available":1},"sessionId""#))
+        let done = APNsPusher.alertPayload(title: "t", body: "b", sound: "agent_done.caf", sessionID: "s")
+        #expect(!done.contains("content-available"))
+    }
+
     @Test("a localized push carries the phone's string keys next to the English copy")
     func alertPayloadLocalized() {
         let free = APNsPusher.alertPayload(

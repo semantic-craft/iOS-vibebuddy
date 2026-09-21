@@ -113,7 +113,8 @@ struct DashboardView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                 }
-                EmptyStateView(state: dashboard.state)
+                EmptyStateView(state: dashboard.state, failure: dashboard.failure,
+                               macName: connection.pairing?.macName)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -128,7 +129,10 @@ struct DashboardView: View {
                               openProject: { open(project: $0) },
                               showOlder: { filters.bucket = nil; filters.project = nil; filters.includeInactive = true; page = .list },
                               readPending: { readPending() },
-                              openRecap: { showRecap = true })
+                              openRecap: { showRecap = true },
+                              held: dashboard.heldActions,
+                              retryHeld: { Task { await dashboard.retryHeldDecisions() } },
+                              cancelHeld: { dashboard.cancelHeldDecision(id: $0) })
                     .listRowInsets(.init(top: 2, leading: 0, bottom: 12, trailing: 0))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -1140,6 +1144,7 @@ private struct StreamComposer: View {
         switch receipt {
         case .received, .sending: CompanionPalette.ink2
         case .unconfirmed, .notPaired, .expired, .failed: CompanionPalette.status(.error)
+        case .held: CompanionPalette.ink2
         }
     }
 
@@ -1168,7 +1173,11 @@ private struct StreamComposer: View {
 /// empty glyph on every status surface (ADR-0017 §2).
 private struct EmptyStateView: View {
     @State private var showMacHelp = false
+    @State private var showRemoteSetup = false
     let state: DashboardStore.ConnectionState
+    /// Which link is missing while `state` is `.failed` (ADR-0032).
+    var failure: ConnectionFailureReason? = nil
+    var macName: String? = nil
 
     var body: some View {
         switch state {
@@ -1180,13 +1189,36 @@ private struct EmptyStateView: View {
                             title: String(localized: "No active tasks"),
                             text: String(localized: "Start a Claude Code or Codex session and it'll show up here."))
         case .failed(let message):
-            PhoneEmptyState(symbol: "wifi.exclamationmark",
-                            title: String(localized: "Disconnected"),
-                            text: message + "\n" + String(localized: "Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings.")) {
-                Button("Need the Mac companion?") { showMacHelp = true }
-                    .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+            if let failure {
+                // Name the missing link rather than listing every possible
+                // one; a tailnet that is off gets the tap that turns it on.
+                PhoneEmptyState(symbol: failure.needsTailnet ? "lock.shield" : "wifi.exclamationmark",
+                                title: ConnectionFailureCopy.title(failure, macName: macName),
+                                text: ConnectionFailureCopy.detail(failure)) {
+                    if failure.needsTailnet {
+                        Button {
+                            if !VPNAppOpener.open() { showRemoteSetup = true }
+                        } label: {
+                            Label(ConnectionFailureCopy.vpnHint, systemImage: "arrow.up.forward.app")
+                        }
+                        .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                        .accessibilityIdentifier("connection-turn-on-vpn")
+                    } else {
+                        Button("Need the Mac companion?") { showMacHelp = true }
+                            .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                    }
+                }
+                .sheet(isPresented: $showMacHelp) { MacCompanionSetupSheet() }
+                .navigationDestination(isPresented: $showRemoteSetup) { RemoteConnectionView() }
+            } else {
+                PhoneEmptyState(symbol: "wifi.exclamationmark",
+                                title: String(localized: "Disconnected"),
+                                text: message + "\n" + String(localized: "Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings.")) {
+                    Button("Need the Mac companion?") { showMacHelp = true }
+                        .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                }
+                .sheet(isPresented: $showMacHelp) { MacCompanionSetupSheet() }
             }
-            .sheet(isPresented: $showMacHelp) { MacCompanionSetupSheet() }
         }
     }
 }

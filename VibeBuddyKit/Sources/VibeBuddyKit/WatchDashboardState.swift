@@ -248,6 +248,10 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     public var observedAt: Date
     /// Sample data, so the Watch can say so out loud.
     public var isDemo: Bool
+    /// Decisions the iPhone accepted and is holding until it can reach the
+    /// Mac (`SessionActionQueue`). Optional so an older relay or cache reads
+    /// as "unknown", never as "none".
+    public var heldActions: [WatchHeldAction]?
 
     public init(
         sourceID: String? = nil,
@@ -267,7 +271,8 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         recap: Recap? = nil,
         relay: WatchRelayState,
         observedAt: Date,
-        isDemo: Bool = false
+        isDemo: Bool = false,
+        heldActions: [WatchHeldAction]? = nil
     ) {
         self.sourceID = sourceID
         self.macName = macName
@@ -287,6 +292,17 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         self.relay = relay
         self.observedAt = observedAt
         self.isDemo = isDemo
+        self.heldActions = heldActions
+    }
+
+    /// The held decision aimed at this approval, if the phone is holding one.
+    public func heldAction(approvalId: String) -> WatchHeldAction? {
+        heldActions?.first { $0.approvalId == approvalId }
+    }
+
+    /// The held answer to this question, if the phone is holding one.
+    public func heldAction(sessionId: String, pendingId: String) -> WatchHeldAction? {
+        heldActions?.first { $0.sessionId == sessionId && $0.pendingId == pendingId }
     }
 
     /// Nothing has ever arrived from the iPhone.
