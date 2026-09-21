@@ -84,14 +84,24 @@ struct InboxProjection: Equatable {
     /// detail's "Next" and the Watch's home read.
     let pending: [AgentSession]
     let projects: [ProjectRow]
-    /// Current sessions exist at all; when false the home shows its empty state.
+    /// Current sessions exist in this scope; when false the home shows its
+    /// empty state under the agent strip, which stays put so the person can
+    /// step back out to the agent that does have something running.
     let hasCurrent: Bool
+    /// Any agent has something current — what tells "this one is quiet" apart
+    /// from "everything is quiet".
+    let fleetHasCurrent: Bool
 
     var firstUp: AgentSession? { pending.first }
     var pendingCount: Int { pending.count }
 
-    init(sessions: [AgentSession], now: Date) {
-        let current = SessionCurrency.current(sessions, now: now)
+    /// `agent` is the strip's choice (ADR-0031): every reading below — the
+    /// tiles, the queue, the projects — is that agent's, while the strip above
+    /// keeps counting the whole fleet.
+    init(sessions: [AgentSession], now: Date, agent: AgentKind? = nil) {
+        let fleet = SessionCurrency.current(sessions, now: now)
+        fleetHasCurrent = !fleet.isEmpty
+        let current = agent.map { kind in fleet.filter { $0.agent == kind } } ?? fleet
         summary = TaskPresentationSummary(sessions: current)
         pending = PendingTasks.ordered(current)
         hasCurrent = !current.isEmpty
@@ -139,6 +149,12 @@ struct InboxProjection: Equatable {
 struct InboxHomeView: View {
     let projection: InboxProjection
     let now: Date
+    /// The agent strip's entries and the allowances they are ringed by; the
+    /// strip counts the whole fleet while everything under it is scoped
+    /// (ADR-0031).
+    let roster: [AgentRoster.Item]
+    let quotas: [ProviderQuota]
+    @Binding var agent: AgentKind?
     let macName: String
     let statusLine: String
     let hiddenCount: Int
@@ -168,13 +184,22 @@ struct InboxHomeView: View {
             }
             .padding(.horizontal, PhoneMetrics.gutter)
             .padding(.top, 2)
+            PhoneAgentStrip(items: roster, quotas: quotas, selection: $agent, now: now)
+                .padding(.top, 10)
             if !projection.hasCurrent {
+                // One agent being quiet is not the fleet being quiet, and the
+                // strip above is the way back out, so say which one this is.
                 PhoneEmptyState(symbol: "moon.zzz",
-                                title: String(localized: "All quiet"),
-                                text: hiddenCount > 0
-                                    ? String(localized: "Nothing has moved in the last 24 hours.")
-                                    : String(localized: "Start a Claude Code or Codex session and it'll show up here.")) {
-                    if hiddenCount > 0 {
+                                title: agent.map { _ in String(localized: "Nothing running") }
+                                    ?? String(localized: "All quiet"),
+                                text: quietText) {
+                    if let agent, projection.fleetHasCurrent {
+                        Button { self.agent = nil } label: {
+                            Label("Show all agents", systemImage: "square.grid.2x2")
+                        }
+                        .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                        .accessibilityHint(Text(verbatim: agent.displayName))
+                    } else if hiddenCount > 0 {
                         Button { showOlder() } label: {
                             Label("Show \(hiddenCount) older", systemImage: "clock.arrow.circlepath")
                         }
@@ -211,6 +236,16 @@ struct InboxHomeView: View {
         } message: { path in
             Text(verbatim: path)
         }
+    }
+
+    /// Why this page is empty: this agent alone, the last day, or nothing yet.
+    private var quietText: String {
+        if let agent, projection.fleetHasCurrent {
+            return String(localized: "\(agent.displayName) has nothing running right now.")
+        }
+        return hiddenCount > 0
+            ? String(localized: "Nothing has moved in the last 24 hours.")
+            : String(localized: "Start a Claude Code or Codex session and it'll show up here.")
     }
 
     /// One line for the head of the pending queue: what it is and where it

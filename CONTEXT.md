@@ -141,6 +141,13 @@ code, and tests — don't drift to synonyms.
   grouped by **Needs you / Working / Unread results / Idle**
   (`DashboardAgentColumn`), with a project pill and the search field over them.
   The libraries stay fleet-wide; only the sessions below them are the agent's.
+- **Agent strip** — the iPhone hub's own first axis (`PhoneAgentStrip`,
+  ADR-0031): the rail's entries in a horizontal row under the Inbox title,
+  each a brand mark inside its allowance ring with an attention dot and its
+  session count, **All** leading. The choice scopes the hub's mood line, First
+  up, tiles and projects (`InboxProjection(sessions:now:agent:)`), carries into
+  the list page and into New task, and survives Back. `AgentRoster` (Kit) is
+  the one place both the rail and the strip get their tallies.
 - **Right slot** — the dashboard detail column's one place for a session's
   records that are not the conversation, after Cursor's right sidebar
   (`RightSlotState`, ticket 11): the **shelf** (the `On <project>` rows —

@@ -4,9 +4,10 @@
 - Date: 2026-09-21
 - Amends: ADR-0024's "the sidebar is organized by project" and its middle
   session-list column; keeps its three-column shape, its one reader for both
-  libraries and every reading rule. Keeps ADR-0017's tokens, flat register and
-  "quota detail lives on Usage". Adds the terms *Agent rail* and *Agent column*
-  to `CONTEXT.md`.
+  libraries and every reading rule. Amends ADR-0014's phone hub by putting the
+  agent above its tiles. Keeps ADR-0017's tokens, flat register and "quota
+  detail lives on Usage". Adds the terms *Agent rail*, *Agent column* and
+  *Agent strip* to `CONTEXT.md`.
 
 ## Context
 
@@ -63,6 +64,22 @@ the reader wanted.
 7. **Each library owns its project choice.** The column's pill narrows live
    sessions; History's own head carries the pill that narrows its index. They no
    longer track each other.
+8. **The phone wears the same axis, laid on its side.** The iPhone's inbox hub
+   carries an **agent strip** under its title (`PhoneAgentStrip`): the same
+   entries as the rail, each a brand mark inside its allowance ring with the
+   attention dot and the session count, **All** first. Choosing one scopes the
+   hub under it — the mood line, First up, the four tiles and the project list
+   (`InboxProjection(sessions:now:agent:)`) — and it carries into the list page
+   the tiles open, into what *Read pending* speaks, and into **New task**,
+   which starts in that agent's name. Back clears the bucket or project it
+   opened, never the agent. The strip keeps counting every agent while the page
+   under it is scoped, so "who else needs me" never leaves the screen; the
+   phone has no room for a second column, so the four tiles stay the phone's
+   attention grouping in place of the column's headings.
+9. **One roster, two platforms.** `AgentRoster` in the Kit computes the tallies
+   both surfaces wear, `ProviderQuota.tightest` the allowance both ring, and
+   `QuotaRing` draws it. The Mac keeps `DashboardAgentColumn.groups`, which
+   only it has the height to show.
 
 ## Consequences
 

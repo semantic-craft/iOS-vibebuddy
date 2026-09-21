@@ -115,6 +115,36 @@ public struct AgentAvatar: View {
     }
 }
 
+/// An allowance drawn around an agent's mark (ADR-0031): a hairline circle
+/// with the spent share swept over it in the reading's tint. The Mac's rail
+/// and the phone's agent strip wear the same ring. Non-text, so it carries a
+/// tooltip or an accessibility value rather than a number of its own.
+public struct QuotaRing: View {
+    /// The share already spent, 0…1.
+    public let fraction: Double
+    public let tint: Color
+    public var lineWidth: CGFloat
+
+    public init(fraction: Double, tint: Color, lineWidth: CGFloat = 2) {
+        self.fraction = fraction
+        self.tint = tint
+        self.lineWidth = lineWidth
+    }
+
+    public var body: some View {
+        ZStack {
+            Circle().strokeBorder(CompanionPalette.line, lineWidth: lineWidth)
+            Circle()
+                // A sliver still reads as "barely used"; an empty ring reads
+                // as "no reading", which is a different thing.
+                .trim(from: 0, to: max(0.015, min(1, fraction)))
+                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .padding(lineWidth / 2)
+                .rotationEffect(.degrees(-90))
+        }
+    }
+}
+
 /// The agent's short name in a small rounded badge — the rectangle of a
 /// state chip, not a pill, so it reads as a tag beside the title rather than
 /// as a control.

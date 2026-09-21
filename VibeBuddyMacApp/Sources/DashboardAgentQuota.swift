@@ -81,25 +81,3 @@ struct AgentQuotaReading {
         }
     }
 }
-
-/// The allowance drawn around an agent's mark: a hairline circle with the
-/// spent share swept over it in the reading's tint. Non-text, so it carries a
-/// tooltip and an accessibility value rather than a number of its own.
-struct QuotaRing: View {
-    let fraction: Double
-    let tint: Color
-    var lineWidth: CGFloat = 2
-
-    var body: some View {
-        ZStack {
-            Circle().strokeBorder(MacTheme.line, lineWidth: lineWidth)
-            Circle()
-                // A sliver still reads as "barely used"; an empty ring reads
-                // as "no reading", which is a different thing.
-                .trim(from: 0, to: max(0.015, min(1, fraction)))
-                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .padding(lineWidth / 2)
-                .rotationEffect(.degrees(-90))
-        }
-    }
-}

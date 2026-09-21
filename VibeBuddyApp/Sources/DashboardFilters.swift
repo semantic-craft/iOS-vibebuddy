@@ -56,8 +56,9 @@ struct DashboardFilters: Equatable {
 
     var isActive: Bool { bucket != nil || project != nil || status != nil || agent != nil || attention != nil }
     /// Customize's own picks, apart from the scope a tile or project row set:
-    /// the list page shows these as a chip under its title.
-    var hasCustomizePicks: Bool { status != nil || agent != nil || attention != nil }
+    /// the list page shows these as a chip under its title. The agent is not
+    /// one of them — it is the strip's axis, shown there (ADR-0031).
+    var hasCustomizePicks: Bool { status != nil || attention != nil }
 
     /// The list page's title: the bucket or project it was opened from, else
     /// every session.
@@ -153,10 +154,10 @@ struct DashboardFilters: Equatable {
     }
 
     /// Customize's picks in words; the scope (bucket or project) is the
-    /// list's title and is not repeated here.
+    /// list's title, and the agent is the strip above it, so neither is
+    /// repeated here.
     var summary: String {
-        [status?.filterTitle,
-         agent?.displayName, attention?.stateTitle].compactMap { $0 }.joined(separator: " · ")
+        [status?.filterTitle, attention?.stateTitle].compactMap { $0 }.joined(separator: " · ")
     }
 
     static func projectTitle(_ project: String, among projects: [String] = []) -> String {
@@ -212,12 +213,6 @@ struct DashboardCustomizeSheet: View {
                             Text(status.filterTitle).tag(TaskPresentationState?.some(status))
                         }
                     }
-                    Picker("Agent", selection: $selection.agent) {
-                        Text("All").tag(AgentKind?.none)
-                        ForEach(AgentKind.allCases, id: \.self) { agent in
-                            Text(agent.displayName).tag(AgentKind?.some(agent))
-                        }
-                    }
                     Picker("Attention", selection: $selection.attention) {
                         Text("All").tag(SessionAttention?.none)
                         ForEach(SessionAttention.allCases, id: \.self) { attention in
@@ -237,7 +232,13 @@ struct DashboardCustomizeSheet: View {
                 }
                 if selection.isActive || selection.grouping != .recent || selection.includeInactive {
                     Section {
-                        Button("Reset", role: .destructive) { selection = DashboardFilters() }
+                        // The agent is where you are, not a filter you set
+                        // here, so Reset leaves the strip's choice alone.
+                        Button("Reset", role: .destructive) {
+                            var fresh = DashboardFilters()
+                            fresh.agent = selection.agent
+                            selection = fresh
+                        }
                     }
                 }
             }

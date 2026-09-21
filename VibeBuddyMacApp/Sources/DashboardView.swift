@@ -169,12 +169,12 @@ struct DashboardView: View {
     /// The rail's tiles: every agent reporting, the chosen one kept listed
     /// even after its last session ages out, so the rail never shifts under
     /// the pointer.
-    private var railItems: [DashboardAgentColumn.Item] {
-        DashboardAgentColumn.items(model.sessions, keeping: agentFilter)
+    private var railItems: [AgentRoster.Item] {
+        AgentRoster.items(model.sessions, keeping: agentFilter)
     }
 
     /// What the column's head says about the agent it belongs to.
-    private var railTally: DashboardAgentColumn.Tally {
+    private var railTally: AgentRoster.Tally {
         railItems.first { $0.agent == agentFilter }?.tally ?? .init()
     }
 

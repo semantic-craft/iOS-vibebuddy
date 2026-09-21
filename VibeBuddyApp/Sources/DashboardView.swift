@@ -59,7 +59,14 @@ struct DashboardView: View {
     private enum Page { case inbox, list }
 
     private var sections: [DashboardSection] { filters.sections(from: dashboard.allSessions, now: now) }
-    private var inbox: InboxProjection { InboxProjection(sessions: dashboard.allSessions, now: now) }
+    /// The hub reads the agent the strip is on; the strip itself counts every
+    /// agent, so switching is always one tap (ADR-0031).
+    private var inbox: InboxProjection {
+        InboxProjection(sessions: dashboard.allSessions, now: now, agent: filters.agent)
+    }
+    private var roster: [AgentRoster.Item] {
+        AgentRoster.items(dashboard.allSessions, keeping: filters.agent, now: now)
+    }
     private var stream: [AgentSession] { filters.sessions(from: dashboard.allSessions, now: now) }
     private var hiddenCount: Int { filters.hiddenCount(from: dashboard.allSessions, now: now) }
     private var replyTarget: AgentSession? { replyTo.flatMap { id in dashboard.allSessions.first { $0.id == id } } }
@@ -111,7 +118,10 @@ struct DashboardView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else if page == .inbox {
-                InboxHomeView(projection: inbox, now: now, macName: macTitle, statusLine: statusLine,
+                InboxHomeView(projection: inbox, now: now,
+                              roster: roster, quotas: dashboard.lastProviderQuota,
+                              agent: $filters.agent,
+                              macName: macTitle, statusLine: statusLine,
                               hiddenCount: DashboardFilters().hiddenCount(from: dashboard.allSessions, now: now),
                               openSession: { openReader($0) },
                               openBucket: { open(bucket: $0) },
@@ -212,7 +222,7 @@ struct DashboardView: View {
                                receipt: replyTarget.flatMap { dashboard.phoneActionState(for: $0) },
                                voice: voice,
                                clearTarget: { replyTo = nil },
-                               newTask: { newTaskRequest = NewTaskRequest(draft: "") },
+                               newTask: { newTaskRequest = NewTaskRequest(draft: "", agent: filters.agent) },
                                openVoicePage: { showVoicePage = true },
                                send: send(_:target:))
             }
@@ -259,14 +269,15 @@ struct DashboardView: View {
                            isUnobscured: !showConnection && !showSettings && !showQuota && !showFilters
                                && !showVoicePage && !voice.showConsent && newTaskRequest == nil
                                && !dashboard.completionLinkUnavailable,
-                           newTask: { newTaskRequest = NewTaskRequest(draft: "") },
+                           newTask: { newTaskRequest = NewTaskRequest(draft: "", agent: filters.agent) },
                            openVoice: { showVoicePage = true })
         }
         .onChange(of: dashboard.usageRequest) { _, request in openUsage(request) }
         // A widget tap on a cold launch lands before this view exists.
         .onAppear { openUsage(dashboard.usageRequest) }
         .sheet(item: $newTaskRequest) { request in
-            NewTaskSheet(dashboard: dashboard, macName: connection.pairing?.macName, initialPrompt: request.draft)
+            NewTaskSheet(dashboard: dashboard, macName: connection.pairing?.macName,
+                         initialPrompt: request.draft, initialAgent: request.agent)
         }
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
@@ -297,7 +308,7 @@ struct DashboardView: View {
                                            && !dashboard.completionLinkUnavailable,
                                        drafts: readerDrafts,
                                        draftScope: (readerSource ?? "unknown") + "/" + readerEpoch,
-                                       newTask: { newTaskRequest = NewTaskRequest(draft: "") },
+                                       newTask: { newTaskRequest = NewTaskRequest(draft: "", agent: filters.agent) },
                                        openVoice: { showVoicePage = true })
                         .id(session.id)
                         .environmentObject(dashboard)
@@ -376,7 +387,7 @@ struct DashboardView: View {
             case "customize": showFilters = true
             case "usage": showQuota = true
             case "recap": showRecap = true
-            case "newtask": newTaskRequest = NewTaskRequest(draft: "")
+            case "newtask": newTaskRequest = NewTaskRequest(draft: "", agent: filters.agent)
             case "list": open(bucket: .all)
             case "read": readPending()
             case "voice": readPending(); showVoicePage = true
@@ -686,8 +697,10 @@ struct DashboardView: View {
     /// snapshot (`SessionCurrency`) — the same numbers the island, the widget,
     /// the Watch and the Mac panel say. A filter narrows the list, never the
     /// line that says what is going on.
+    /// The mood line under the title, in the scope the page is showing: the
+    /// chosen agent's, or the whole fleet's under All.
     private var statusLine: String {
-        let summary = TaskPresentationSummary(currentIn: dashboard.allSessions, now: now)
+        let summary = inbox.summary
         let rest = summary.thinking > 0 ? String(localized: "\(summary.thinking) working") : ""
         return [CompanionCopy.attentionLine(summary), rest.isEmpty ? nil : rest]
             .compactMap { $0 }.joined(separator: " · ")
@@ -704,7 +717,7 @@ struct DashboardView: View {
     /// What the composer's text does, decided by the message it replies to.
     private func send(_ text: String, target: AgentSession?) async -> Bool {
         guard let target else {
-            newTaskRequest = NewTaskRequest(draft: text)
+            newTaskRequest = NewTaskRequest(draft: text, agent: filters.agent)
             return true
         }
         let result = await dashboard.answer(target.id, answer: text, expected: target)
@@ -1214,4 +1227,8 @@ private struct VoiceConsentSheet: View {
 private struct NewTaskRequest: Identifiable {
     let id = UUID()
     let draft: String
+    /// The agent the strip is on, so a task started from a scoped hub starts
+    /// in that agent's name (ADR-0031). Nil under All agents: the sheet keeps
+    /// its own default.
+    var agent: AgentKind? = nil
 }

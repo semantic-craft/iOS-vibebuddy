@@ -10,7 +10,7 @@ import VibeBuddyMacCore
 /// whether or not the column beside it is folded.
 struct DashboardAgentRail: View {
     @ObservedObject var model: MenuBarModel
-    let items: [DashboardAgentColumn.Item]
+    let items: [AgentRoster.Item]
     @Binding var selection: AgentKind?
 
     static let width: CGFloat = 48
@@ -55,7 +55,7 @@ struct DashboardAgentRail: View {
 }
 
 struct AgentRailTile: View {
-    let item: DashboardAgentColumn.Item
+    let item: AgentRoster.Item
     let selected: Bool
     let quota: AgentQuotaReading?
     let now: Date

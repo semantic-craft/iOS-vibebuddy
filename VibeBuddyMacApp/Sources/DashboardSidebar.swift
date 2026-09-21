@@ -18,7 +18,7 @@ struct DashboardSidebar: View {
     @Binding var showOlder: Bool
     /// The rail's choice; `nil` is "All agents".
     let agent: AgentKind?
-    let tally: DashboardAgentColumn.Tally
+    let tally: AgentRoster.Tally
     /// The filtered sessions, already ranked, split into the groups the column
     /// reads in order (`DashboardAgentColumn.groups`).
     let groups: [DashboardAgentColumn.Group]
