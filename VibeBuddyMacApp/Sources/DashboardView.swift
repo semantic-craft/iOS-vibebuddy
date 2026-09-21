@@ -225,7 +225,7 @@ struct DashboardView: View {
                 .zIndex(1)
             Group {
                 if libraryScope == "inbox" {
-                    MacInboxHomeView(projection: projection, recap: model.recap,
+                    MacInboxHomeView(model: model, projection: projection, recap: model.recap,
                                      openRecap: { libraryScope = "recap" },
                                      readPending: { model.readPending(); showSpeechPanel = true },
                                      openFirst: openFirstPending,
@@ -405,37 +405,43 @@ struct DashboardView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// The queue's foot under the reader: one strip, as the sidebar's Settings
+    /// foot is — the position in the queue and the scope on the left, the
+    /// `Next pending` key on the right. Why the key is disabled is its tooltip,
+    /// not a third line.
     private var pendingFooter: some View {
         let queue = projection.pending
         let index = queue.firstIndex { $0.id == selection }
         let hasNext = queue.contains { $0.id != selection }
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(scopeTitle).lineLimit(2)
-                Spacer(minLength: 8)
-                Button("Next pending") {
-                    if let next = pendingNavigation.next(in: queue, after: selectedSession) { selection = next.id }
-                }
-                .buttonStyle(.borderless)
-                .disabled(!hasNext)
-                .accessibilityIdentifier("mac-dashboard-next-pending")
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let position = pendingPosition(index: index, count: queue.count) {
+                Text(position).font(MacTheme.mono(10, .medium)).foregroundStyle(MacTheme.ink2).lineLimit(1)
+                Text("·").font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink3)
             }
-            if let index {
-                Text("\(index + 1) / \(queue.count)")
-            } else if selection != nil, selectedSession == nil {
-                Text("Session unavailable")
-            } else if selectedSession?.presentationState == .idle {
-                Text("Current item handled · \(queue.count) remaining")
-            } else if selection != nil {
-                Text("Current item is outside pending · \(queue.count) remaining")
+            Text(scopeTitle).font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink3)
+                .lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 8)
+            Button("Next pending") {
+                if let next = pendingNavigation.next(in: queue, after: selectedSession) { selection = next.id }
             }
-            if !hasNext {
-                Text(statusFilter == .working ? "Working sessions have no pending results in this scope." : "No other pending tasks in this scope.")
-            }
+            .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
+            .disabled(!hasNext)
+            .opacity(hasNext ? 1 : 0.45)
+            .help(hasNext ? Text("") : Text(statusFilter == .working ? "Working sessions have no pending results in this scope." : "No other pending tasks in this scope."))
+            .accessibilityIdentifier("mac-dashboard-next-pending")
         }
-        .font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink2)
-        .padding(12)
+        .padding(.horizontal, 16).padding(.vertical, 8)
         .background(MacTheme.bg2)
+        .overlay(alignment: .top) { Rectangle().fill(MacTheme.line).frame(height: CompanionType.hairline) }
+    }
+
+    /// Where the selection sits in the pending queue, or why it does not.
+    private func pendingPosition(index: Int?, count: Int) -> String? {
+        if let index { return "\(index + 1) / \(count)" }
+        if selection != nil, selectedSession == nil { return String(localized: "Session unavailable") }
+        if selectedSession?.presentationState == .idle { return String(localized: "Handled · \(count) remaining") }
+        if selection != nil { return String(localized: "Outside pending · \(count) remaining") }
+        return nil
     }
 
     /// The list column's head, as Cursor lays out a list page: the scope as

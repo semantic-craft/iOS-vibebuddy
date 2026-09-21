@@ -5,6 +5,7 @@ import VibeBuddyMacCore
 /// A current-session overview. Opening a task delegates reading and all
 /// operations to the existing live detail; the hub only navigates.
 struct MacInboxHomeView: View {
+    @ObservedObject var model: MenuBarModel
     let projection: DashboardSessionList
     let recap: Recap?
     let openRecap: () -> Void
@@ -37,6 +38,7 @@ struct MacInboxHomeView: View {
                     .font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2)
                     .accessibilityIdentifier("mac-inbox-summary")
                 }
+                GetStartedCard(model: model)
                 if let first = projection.globalPending.first {
                     Button(action: openFirst) {
                         HStack(spacing: 12) {

@@ -1263,3 +1263,28 @@
 "Awaiting decision" = "等待权限选择";
 
 "Couldn’t load this result. Try again." = "未能加载本轮结果，请重试。";
+
+/* Inbox: Get started checklist and the iPhone App Store card */
+"Get started" = "开始使用";
+"%lld of %lld done" = "已完成 %1$lld / %2$lld";
+"Hide" = "隐藏";
+"Pairing stays available in Settings › Devices & connection" = "仍可在「设置 › 设备与连接」中配对";
+"Hook your agents" = "接入你的 agent";
+"Get the iPhone app" = "获取 iPhone 应用";
+"Pair your iPhone" = "配对 iPhone";
+"Step %lld of %lld: " = "第 %1$lld 步，共 %2$lld 步：";
+"Current step" = "当前步骤";
+"Not started" = "尚未开始";
+"Install VibeBuddy's hooks so Claude Code and Codex report here." = "安装 VibeBuddy 的 hooks，让 Claude Code 和 Codex 的状态汇报到这里。";
+"No agent CLIs detected yet. Install Claude Code or Codex, then add the hooks." = "尚未检测到 agent 命令行工具。先安装 Claude Code 或 Codex，再添加 hooks。";
+"Set up hooks" = "设置 hooks";
+"Reporting: %@" = "已接入：%@";
+"Same Wi-Fi as this Mac: open VibeBuddy on iPhone and choose Scan to pair." = "与这台 Mac 连接同一 Wi-Fi：在 iPhone 上打开 VibeBuddy，选择「扫码配对」。";
+"%@ is registered. Show the code once more to confirm." = "%@ 已注册。再显示一次二维码即可确认配对。";
+"Away from home? Devices & connection" = "不在同一网络？打开「设备与连接」";
+"App Store QR code for VibeBuddy on iPhone" = "VibeBuddy iPhone 版的 App Store 二维码";
+"Scan with the iPhone Camera to open the App Store." = "用 iPhone 相机扫码即可打开 App Store。";
+"Copy App Store link" = "复制 App Store 链接";
+"Link copied" = "已复制链接";
+"Send to iPhone…" = "发送到 iPhone…";
+"AirDrop, Messages or Mail the App Store link to your iPhone" = "通过隔空投送、信息或邮件把 App Store 链接发到 iPhone";

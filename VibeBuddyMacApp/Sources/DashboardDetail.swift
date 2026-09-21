@@ -13,7 +13,7 @@ struct RequestCard: View {
             HStack(spacing: 10) {
                 AgentAvatar(agent: session.agent)
                 VStack(alignment: .leading, spacing: 1) {
-                    (Text(session.project).fontWeight(.black) + Text(" wants to \(MacSummaryCopy.requestVerb(approval))"))
+                    (Text(session.project).fontWeight(.bold) + Text(" wants to \(MacSummaryCopy.requestVerb(approval))"))
                         .font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
                     Text([approval.tool, session.summary].compactMap { $0 }.joined(separator: " · "))
                         .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3).lineLimit(1)
@@ -51,8 +51,9 @@ struct RequestCard: View {
     }
 }
 
-/// `Approve ▾` and `Deny`, with their single-key shortcuts. Jump is in the
-/// title bar, not repeated here.
+/// `Approve ▾` and `Deny`, with their single-key shortcuts, at the small pill
+/// size every other key on the dashboard uses. Jump is in the title bar, not
+/// repeated here.
 private struct ApprovalActionRow: View {
     let approval: PendingApproval
     @ObservedObject var model: MenuBarModel
@@ -62,10 +63,10 @@ private struct ApprovalActionRow: View {
             approve: { model.decide(approval.id, .allow) },
             always: { model.decide(approval.id, .alwaysAllow) },
             session: { model.decide(approval.id, .allowSession) },
-            allowsPersistentDecision: approval.canPersistDecision)
+            allowsPersistentDecision: approval.canPersistDecision, size: .small)
             .background { Button("") { model.decide(approval.id, .allow) }.keyboardShortcut("a", modifiers: []).opacity(0) }
         Button("Deny") { model.decide(approval.id, .deny) }
-            .buttonStyle(PillButtonStyle(kind: .ghost))
+            .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             .keyboardShortcut("d", modifiers: [])
     }
 }

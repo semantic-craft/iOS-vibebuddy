@@ -13,9 +13,16 @@ companions to bring those views with you. [Back to the homepage](../README.md).
 3. Install [VibeBuddy: Agent Monitor for iPhone](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)
    where available. iOS 17+ is required. The current Watch companion requires a
    paired iPhone and watchOS 26.5+.
-4. Put Mac and iPhone on the same trusted local network. Choose **Pair a phone**
-   on Mac, then **Scan to pair** on iPhone. New phone registration is allowed for
-   two minutes; open the pairing window again if it expires.
+4. Put Mac and iPhone on the same trusted local network. Choose **Show
+   connection code** on Mac, then **Scan to pair** on iPhone. New phone
+   registration is allowed for two minutes; open the pairing window again if it
+   expires.
+
+Either order works. Until a phone has paired, the Mac's Inbox shows a **Get
+started** checklist (hook agents, an App Store QR code for the iPhone app, the
+pairing code), and the same App Store card sits in **Settings → Devices &
+connection**. The iPhone's first screen walks the other way: **Send link to my
+Mac** hands the Mac download to AirDrop, Notes or Mail, then **Scan to pair**.
 
 Keep the Mac running and reachable for live tasks and actions. Existing paired
 phones reconnect without opening a new pairing window. The Mac can be used

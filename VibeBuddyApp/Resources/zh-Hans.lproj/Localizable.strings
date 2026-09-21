@@ -791,3 +791,22 @@
 "Speech synthesis model help" = "语音合成模型帮助";
 
 "Could not receive live Mac status. Check the network and wake your Mac. Your saved pairing has not changed." = "暂时未收到 Mac 实时状态。请检查网络并唤醒 Mac。已保存的配对未改变。";
+
+/* Connect screen: two-step setup checklist */
+"Two steps: install the free Mac companion on your Mac, then scan its code here. Your tasks stay on your own Mac." = "两步完成：先在 Mac 上安装免费的 Mac 版伴侣，再在这里扫描它的二维码。你的任务始终留在自己的 Mac 上。";
+"On your Mac" = "在 Mac 上";
+"Install the free Mac companion" = "安装免费的 Mac 版伴侣";
+"On your Mac, then here" = "先在 Mac 上，再回到这里";
+"Show the connection code, then scan it" = "显示连接二维码，然后扫码";
+"Send link to my Mac" = "把链接发到我的 Mac";
+"Opens the share sheet. AirDrop the download link to your Mac, or send it to Notes or Mail." = "打开分享面板。用隔空投送把下载链接发到 Mac，或发到备忘录、邮件。";
+"AirDrop it to your Mac, or send it to Notes or Mail and open it there. For Apple Silicon Macs with macOS 14 or later." = "隔空投送到 Mac，或发到备忘录、邮件后在 Mac 上打开。需要 Apple 芯片 Mac 和 macOS 14 或更高版本。";
+"Copy link" = "复制链接";
+"Link copied" = "已复制链接";
+"Already installed? Skip" = "已安装？跳过";
+"Open the link on your Mac, drag VibeBuddy to Applications, then open it. Its menu-bar cat shows Devices & connection." = "在 Mac 上打开链接，把 VibeBuddy 拖进「应用程序」并打开。点菜单栏的小猫可进入「设备与连接」。";
+"Send the link again" = "再发一次链接";
+"Step 1 done. Next, scan the connection code shown on your Mac." = "第 1 步完成。接下来，扫描 Mac 上显示的连接二维码。";
+"Step %lld of %lld: %@" = "第 %1$lld 步，共 %2$lld 步：%3$@";
+"Current step" = "当前步骤";
+"Not started" = "尚未开始";
