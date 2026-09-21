@@ -298,6 +298,14 @@ public struct VibeBuddyServer: Sendable {
         wsRouter.ws("/ws") { request, _ in
             wsAuth.authorizes(request) ? .upgrade() : .dontUpgrade
         } onUpgrade: { inbound, outbound, context in
+            // Warm the same composed state GET /snapshot serves — background
+            // sessions and the dispatch-agent list — before subscribing, so the
+            // first pushed snapshot already says which agents "New task" offers.
+            // A phone that connects to a freshly launched Mac over the socket
+            // alone otherwise sees a static Claude-only sheet until some HTTP
+            // GET happens to refresh the store.
+            await store.applyBackgroundSessions(backgroundSessions())
+            _ = await self.dispatchAgents()
             // Push the current snapshot, then every change, until the client closes.
             let subscription = await store.subscribe()
             let writer = Task {
