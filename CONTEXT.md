@@ -130,6 +130,17 @@ code, and tests — don't drift to synonyms.
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
+- **Agent rail** — the dashboard's leftmost 48 pt column (`DashboardAgentRail`,
+  ADR-0031): one tile per agent reporting in the current window, led by **All
+  agents**, each ringed by that account's tightest allowance (`AgentQuotaReading`)
+  and dotted when one of its sessions needs you, with Settings at the foot.
+  Choosing a tile is the window's first axis; it sets the live list's agent.
+- **Agent column** — the column beside the rail (`DashboardSidebar`,
+  ADR-0031): the chosen agent's workspace — its name and allowance, **New
+  \<agent\> task**, the voice rows, the five libraries, and its live sessions
+  grouped by **Needs you / Working / Unread results / Idle**
+  (`DashboardAgentColumn`), with a project pill and the search field over them.
+  The libraries stay fleet-wide; only the sessions below them are the agent's.
 - **Right slot** — the dashboard detail column's one place for a session's
   records that are not the conversation, after Cursor's right sidebar
   (`RightSlotState`, ticket 11): the **shelf** (the `On <project>` rows —

@@ -51,8 +51,8 @@ struct DashboardView: View {
     @State private var showSpeechPanel = false
     @State private var libraryScope = "inbox"
     @State private var showOlder = false
-    /// History and Favorites filter by project path; the sidebar owns the
-    /// choice so both libraries share one project list.
+    /// History and Favorites filter by project path, chosen in their own pane:
+    /// the agent column's project pill narrows live sessions, not the index.
     @State private var historyProject: String?
     @State private var agentFilter: AgentKind?
     @StateObject private var history: HistoryLibraryModel
@@ -166,15 +166,34 @@ struct DashboardView: View {
     private var filtered: [AgentSession] { projection.visible }
     private var selectedSession: AgentSession? { projection.selected }
 
+    /// The rail's tiles: every agent reporting, the chosen one kept listed
+    /// even after its last session ages out, so the rail never shifts under
+    /// the pointer.
+    private var railItems: [DashboardAgentColumn.Item] {
+        DashboardAgentColumn.items(model.sessions, keeping: agentFilter)
+    }
+
+    /// What the column's head says about the agent it belongs to.
+    private var railTally: DashboardAgentColumn.Tally {
+        railItems.first { $0.agent == agentFilter }?.tally ?? .init()
+    }
+
+    /// The rail is the agent axis now: a deep link to one agent's session
+    /// must not land on a column that filters it out.
+    private func reveal(_ session: AgentSession) {
+        if let agentFilter, agentFilter != session.agent { self.agentFilter = session.agent }
+    }
+
     private func projectTitle(_ scope: DashboardSessionList.ProjectScope) -> String {
         DashboardSidebar.title(scope)
     }
 
-    /// The search field lives in the live and history list heads; Usage has
-    /// none, so searching from there lands on Current tasks.
+    /// The search field is in the agent column, over its sessions, in every
+    /// library but History and Favorites — those carry their own, over their
+    /// own index, so ⌘F lands on whichever one is showing.
     private func focusSearch() {
-        if libraryScope == "usage" || libraryScope == "inbox" || libraryScope == "recap" { openBucket(nil) }
-        unfoldListThenFocusSearch()
+        if libraryScope == "history" || libraryScope == "favorites" { unfoldListThenFocusSearch() }
+        else { searchFocused = true }
     }
 
     /// The search field is off screen while the list is the compact strip;
@@ -188,25 +207,23 @@ struct DashboardView: View {
         }
     }
 
-    /// History's projects with a conversation count each, for the sidebar.
-    private var historyProjects: [(path: String, count: Int)] {
-        let counts = Dictionary(grouping: history.snapshot.sessions, by: \.projectPath).mapValues(\.count)
-        return counts.keys.sorted().map { (path: $0, count: counts[$0] ?? 0) }
-    }
-
     var body: some View {
         HStack(spacing: 0) {
+            DashboardAgentRail(model: model, items: railItems, selection: $agentFilter)
+            Rectangle().fill(MacTheme.line).frame(width: CompanionType.hairline)
             DashboardSidebar(model: model, voice: model.voiceChat, library: $libraryScope,
-                             projectScope: $projectScope, historyProject: $historyProject,
-                             liveProjects: projection.projects, historyProjects: historyProjects,
-                             onNewTask: { showNewTask = true },
-                             onSearch: focusSearch,
-                             onOpenSpeech: { showSpeechPanel = true }, speechPanelPresented: showSpeechPanel,
-                             onOpenProject: { scope in
-                                 if libraryScope == "inbox" { openBucket(nil) }
-                                 projectScope = scope
+                             projectScope: $projectScope, statusFilter: $statusFilter,
+                             query: $query, showOlder: $showOlder,
+                             agent: agentFilter, tally: railTally,
+                             groups: DashboardAgentColumn.groups(filtered),
+                             projects: projection.projects, olderCount: projection.olderCount,
+                             selection: selection, searchFocused: $searchFocused,
+                             onSelectSession: { session in
                                  libraryScope = "live"
+                                 selectSession(session)
                              },
+                             onNewTask: { showNewTask = true },
+                             onOpenSpeech: { showSpeechPanel = true }, speechPanelPresented: showSpeechPanel,
                              width: sidebarWidth)
             Rectangle().fill(MacTheme.line).frame(width: CompanionType.hairline)
                 // The drag handle straddles the hairline; it draws above the
@@ -230,14 +247,21 @@ struct DashboardView: View {
                                      readPending: { model.readPending(); showSpeechPanel = true },
                                      openFirst: openFirstPending,
                                      openBucket: openBucket,
-                                     openProject: { projectScope = $0; statusFilter = nil; query = ""; showOlder = false; libraryScope = "live" },
+                                     openProject: { scope in
+                                         projectScope = scope
+                                         statusFilter = nil
+                                         query = ""
+                                         showOlder = false
+                                         libraryScope = "live"
+                                         landOnFirst(project: scope, status: nil, agent: agentFilter)
+                                     },
                                      openOlder: { openBucket(nil); showOlder = true })
                 } else if libraryScope == "recap" {
                     MacRecapView(model: model)
                 } else if libraryScope == "live" {
-                    // The list's right edge resizes like the sidebar's; the
-                    // reader takes what is left (ADR-0024: no right column).
-                    ResizableListSplit(compact: $listCompact) { labels in sessionsColumn(labels) } reader: { detailColumn }
+                    // The sessions moved into the agent column, so the reading
+                    // takes the whole pane (ADR-0024: no right column).
+                    detailColumn
                 } else if libraryScope == "usage" {
                     UsageWorkbenchView(model: model)
                 } else {
@@ -259,7 +283,10 @@ struct DashboardView: View {
             case .session(let id):
                 openBucket(nil)
                 selection = id
-                if let session = model.sessions.first(where: { $0.id == id }) { selectSession(session) }
+                if let session = model.sessions.first(where: { $0.id == id }) {
+                    reveal(session)
+                    selectSession(session)
+                }
             case .firstPending: openFirstPending()
             case .nextPending: openGlobalNext()
             }
@@ -330,22 +357,9 @@ struct DashboardView: View {
         }
         .onDisappear { model.dashboardViewedSessionID = nil }
         .task { await history.observeHistory() }
-        .onChange(of: projectScope) { _, scope in
-            resetTour()
-            switch scope {
-            case .all, .unknown: historyProject = nil
-            case .project(let path):
-                if historyProjects.contains(where: { $0.path == path }) { historyProject = path }
-                else if !path.hasPrefix("/") {
-                    let matches = historyProjects.map(\.path).filter { URL(fileURLWithPath: $0).lastPathComponent == path }
-                    historyProject = matches.count == 1 ? matches[0] : nil
-                } else { historyProject = nil }
-            }
-        }
-        .onChange(of: historyProject) { _, path in
-            guard libraryScope != "live" else { return }
-            projectScope = path.map { .project($0) } ?? .all
-        }
+        // The two libraries keep their own project choice now: the column's
+        // pill narrows the live sessions, History's narrows its index.
+        .onChange(of: projectScope) { _, _ in resetTour() }
         .onChange(of: agentFilter) { _, _ in resetTour() }
         .onChange(of: filtered.map(\.id)) { _, ids in
             if selection == nil, let wanted = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_SELECT"], ids.contains(wanted) {
@@ -365,7 +379,7 @@ struct DashboardView: View {
             // The global hotkey declares a global route. The detail footer's
             // Next uses the selected scope and never posts this notification.
             let current = selectedSession
-            if projectScope != .all || statusFilter != nil || !query.isEmpty || showOlder || agentFilter != nil { openBucket(nil) }
+            if projectScope != .all || statusFilter != nil || !query.isEmpty || showOlder || agentFilter != nil { openEverything() }
             libraryScope = "live"
             if let next = pendingNavigation.next(in: projection.globalPending, after: current) { selection = next.id }
     }
@@ -375,18 +389,49 @@ struct DashboardView: View {
         if let current = selectedSession { pendingNavigation.select(current, in: projection.pending) }
     }
 
+    /// ⌘1–⌘4 and the column's group headings: one state, inside whichever
+    /// agent the rail is on — the agent is a place now, not a filter to clear.
     private func openBucket(_ filter: DashboardSessionList.StatusFilter?) {
         libraryScope = "live"
         projectScope = .all
         statusFilter = filter
-        agentFilter = nil
         query = ""
         showOlder = false
         resetTour()
+        landOnFirst(project: .all, status: filter, agent: agentFilter)
+    }
+
+    /// A global route (the hotkey, the first pending task) means every agent,
+    /// so it takes the rail back to All before it looks for the queue.
+    private func openEverything(_ filter: DashboardSessionList.StatusFilter? = nil) {
+        agentFilter = nil
+        libraryScope = "live"
+        projectScope = .all
+        statusFilter = filter
+        query = ""
+        showOlder = false
+        resetTour()
+        landOnFirst(project: .all, status: filter, agent: nil)
+    }
+
+    /// The sessions live in the column now, so "live" is the reading itself:
+    /// arriving there from a tile, a project or ⌘1–⌘4 opens the first task in
+    /// that scope rather than an empty pane. A selection already inside the
+    /// scope is left where it is. The scope is passed in rather than read
+    /// back, because the state it comes from was set a moment ago.
+    private func landOnFirst(project: DashboardSessionList.ProjectScope,
+                             status: DashboardSessionList.StatusFilter?, agent: AgentKind?) {
+        let scope = DashboardSessionList(model.sessions, project: project, status: status,
+                                         agent: agent, selection: selection,
+                                         recentDirectories: model.recentDirectories)
+        if let current = selection, scope.visible.contains(where: { $0.id == current }) { return }
+        guard let first = scope.visible.first else { selection = nil; return }
+        pendingNavigation.select(first, in: scope.pending)
+        selection = first.id
     }
 
     private func openFirstPending() {
-        openBucket(nil)
+        openEverything()
         if let first = projection.globalPending.first { selectSession(first) }
         else { selection = nil }
     }
@@ -442,107 +487,6 @@ struct DashboardView: View {
         if selectedSession?.presentationState == .idle { return String(localized: "Handled · \(count) remaining") }
         if selection != nil { return String(localized: "Outside pending · \(count) remaining") }
         return nil
-    }
-
-    /// The list column's head, as Cursor lays out a list page: the scope as
-    /// the title, the search field, then a row of filter chips. ⌘1–5 and ⌘0
-    /// still drive the same filter. `listLabels` is the lettering at the
-    /// list's current width: the compact strip folds the head to one search
-    /// glyph and every row to its agent tile.
-    private func sessionsColumn(_ listLabels: ColumnLabelStyle) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
-                // The strip keeps the head's rows in the tree at zero opacity
-                // so the pill and the cards below never shift vertically.
-                HStack(alignment: .firstTextBaseline) {
-                    Text(scopeTitle).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
-                        .lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 8)
-                    Text(filtered.count == 1 ? String(localized: "1 session") : String(localized: "\(filtered.count) sessions"))
-                        .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
-                }
-                // Under the narrowest full width the row keeps its one-line
-                // layout (clipped at the edge) rather than wrapping the count
-                // and pushing everything below it down.
-                .fixedSize(horizontal: listLabels.transitional, vertical: false)
-                .listHeadWords(listLabels)
-                if listLabels.iconOnly {
-                    CompactSearchGlyph(action: unfoldListThenFocusSearch)
-                } else {
-                    SearchPill(query: $query, focused: $searchFocused)
-                }
-                if projection.olderCount > 0 || showOlder {
-                    Toggle(isOn: $showOlder) { Text("Show \(projection.olderCount) older") }
-                        .toggleStyle(.checkbox).font(MacTheme.font(10.5))
-                        .listHeadWords(listLabels)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        MenuPill(title: agentFilter.map(\.displayName) ?? String(localized: "All agents"),
-                                 emphasized: agentFilter != nil) {
-                            Button("All agents") { agentFilter = nil }
-                            ForEach(projection.agents, id: \.self) { agent in
-                                Button(agent.displayName) { agentFilter = agent }
-                            }
-                        }
-                        .accessibilityLabel("Filter sessions by agent")
-                        FilterChip(title: "All", selected: statusFilter == nil) { statusFilter = nil }
-                        ForEach(DashboardSessionList.StatusFilter.allCases, id: \.self) { group in
-                            FilterChip(title: Self.chipTitle(group), selected: statusFilter == group) { statusFilter = group }
-                        }
-                        if projectScope != .all || !query.isEmpty || agentFilter != nil {
-                            Button("Reset") {
-                                projectScope = .all
-                                statusFilter = nil
-                                agentFilter = nil
-                                query = ""
-                            }
-                            .buttonStyle(.plain).font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink3)
-                        }
-                    }
-                }
-                .accessibilityLabel("Filter sessions by state")
-                .listHeadWords(listLabels)
-            }
-            .padding(.horizontal, DashboardListColumn.headPadding).padding(.top, 12)
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    // An empty state is all words, and the strip has none;
-                    // unfolding the list is what shows the message.
-                    if filtered.isEmpty {
-                        if !listLabels.iconOnly {
-                            QuietEmptyState(title: model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
-                                            message: model.sessions.isEmpty
-                                                ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
-                                                : "Clear a filter or try another search.",
-                                            systemName: "waveform.path.ecg")
-                                .padding(.top, 40)
-                        }
-                    } else {
-                        ForEach(filtered) { session in
-                            SummaryRow(session: session, isSelected: selection == session.id,
-                                       included: model.buddySessionIDs.contains(session.id), showInclude: companionEnabled,
-                                       handoffReady: ContinueWith.handoff(for: session, in: model.handoffs) != nil,
-                                       continues: continuesLabel(for: session),
-                                       onSelect: { selectSession(session) },
-                                       onToggleInclude: { model.toggleBuddy(session.id) })
-                                .contextMenu {
-                                    AttentionPicker(session: session, model: model, style: .menu)
-                                    if session.status == .done, session.completionID != nil {
-                                        Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                                            if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
-                                            else { model.markUnread(session) }
-                                        }
-                                    }
-                                    ContinueWithMenu(session: session, model: model)
-                                }
-                        }
-                    }
-                }
-                .padding(.horizontal, 12).padding(.bottom, 12)
-            }
-        }
-        .frame(maxHeight: .infinity)
     }
 
     /// Continue with… asked for the sheet: prefill it and consume the request.
