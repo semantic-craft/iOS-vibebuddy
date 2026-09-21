@@ -15,6 +15,7 @@ struct ConnectionCenterView: View {
             if model.pairedPhone == nil { appStoreCard }
             pairingCard
             if let phone = model.pairedPhone { phoneCard(phone) }
+            if model.phones.count > 1 { devicesCard }
             if let transfer = model.remoteTransfer { transferCard(transfer) }
             if !compact { advanced }
         }
@@ -150,8 +151,13 @@ struct ConnectionCenterView: View {
             HStack {
                 Label(phone.name, systemImage: "iphone.gen3").font(MacTheme.font(13, .semibold))
                 Spacer(minLength: 0)
-                Text(phone.confirmed ? "Paired" : "Registered")
+                Text(phone.isParked ? "Push stopped" : phone.confirmed ? "Paired" : "Registered")
+                    .font(MacTheme.font(11)).foregroundStyle(phone.isParked ? MacTheme.status(.error) : MacTheme.ink2)
+            }
+            if phone.isParked {
+                Text(phone.pushStatusText)
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if model.useTailscale {
                 Text("Already paired? Send the remote address over the existing connection. Open VibeBuddy on your iPhone to receive it.")
@@ -170,7 +176,7 @@ struct ConnectionCenterView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(phone.subtitle).font(MacTheme.font(11))
                         Text("Last registered \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
-                        Text(phone.pushRegistered ? "Push registered" : "Push pending")
+                        Text(phone.pushStatusText)
                         Text("Saved pairing does not confirm a live connection or notification delivery.")
                         Button("Forget all phones", role: .destructive) { model.forgetPairedPhone() }
                             .disabled(model.changingPairing || model.synchronizingConnection)
@@ -178,6 +184,33 @@ struct ConnectionCenterView: View {
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2).padding(.top, 8)
                 }
                 .font(MacTheme.font(11))
+            }
+        }
+    }
+
+    /// Every phone on file, the ones the Mac no longer pushes to included: a
+    /// stood-down phone is shown with Apple's reason instead of vanishing.
+    private var devicesCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("All phones").font(MacTheme.font(13, .semibold))
+            ForEach(model.phones) { phone in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text(phone.name).font(MacTheme.font(12, .medium))
+                        if let id = phone.deviceID {
+                            Text(verbatim: "…\(id.suffix(8))").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink2)
+                        }
+                        Spacer(minLength: 0)
+                        Text(phone.isParked ? "Push stopped" : phone.confirmed ? "Paired" : "Registered")
+                            .font(MacTheme.font(11))
+                            .foregroundStyle(phone.isParked ? MacTheme.status(.error) : MacTheme.ink2)
+                    }
+                    Text("\(phone.pushStatusText) · Last registered \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
+                        .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("mac-device-\(phone.id)")
             }
         }
     }

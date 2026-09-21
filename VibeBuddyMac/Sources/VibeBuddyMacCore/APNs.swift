@@ -63,11 +63,15 @@ public struct APNsConfig: Sendable {
 public actor DeviceTokens {
     private var registry: DeviceRegistry
     private var pairingAllowedUntil: Date?
+    private let recorder: (any NotificationDeliveryRecording)?
 
     /// `url` nil = in-memory only (tests, demo instance). The real entry points
-    /// pass `DeviceRegistryLocation.defaultURL()`.
-    public init(url: URL? = nil) {
-        registry = DeviceRegistry(url: url)
+    /// pass `DeviceRegistryLocation.defaultURL()`. `recorder` is where a phone
+    /// being stood down leaves its one `pruned` row.
+    public init(url: URL? = nil, recorder: (any NotificationDeliveryRecording)? = nil,
+                policy: DevicePushFailurePolicy = .standard) {
+        registry = DeviceRegistry(url: url, policy: policy)
+        self.recorder = recorder
     }
 
     public func add(_ token: String, now: Date = Date()) {
@@ -100,19 +104,31 @@ public actor DeviceTokens {
     }
 
 
-    public func all() -> [String] { registry.entries.compactMap(\.device.token) }
+    /// The tokens a push goes to. Parked phones are listed by `pairedPhones()`
+    /// but not here.
+    public func all() -> [String] { registry.devices.compactMap(\.token) }
     public func devices() -> [DeviceRegistrationPayload] { registry.devices }
     public func summary() -> DeviceRegistrySummary { registry.summary }
 
     /// Feed back what Apple said about one send. Call after *every* send: this
-    /// is where a dead device (410) and a never-valid token (400 on a token
-    /// Apple has never accepted) leave the registry, and where a token that
-    /// Apple does accept earns the standing that protects it from a later 400.
-    /// Returns true when the device was dropped.
+    /// is where a dead device (410), a never-valid token (400 on a token Apple
+    /// has never accepted) and a once-good token Apple has refused for a day
+    /// are stood down, and where a token that Apple does accept earns the
+    /// standing that protects it from a single later 400. Standing a phone
+    /// down writes one `pruned` row to the delivery ledger, naming the phone
+    /// and Apple's reason, in place of the `failed` row every further push
+    /// would have written. Returns true when pushes to the phone stopped.
     @discardableResult
     public func applySendResult(_ result: APNsSendResult, token: String,
-                                now: Date = Date()) -> Bool {
-        registry.apply(result, token: token, now: now)
+                                now: Date = Date()) async -> Bool {
+        guard case .parked(let entry) = registry.apply(result, token: token, now: now) else { return false }
+        let failure = entry.pushFailure
+        await recorder?.record(NotificationDeliveryRecord(
+            channel: .apns, outcome: .pruned, sessionID: nil, sound: nil,
+            failureReason: failure?.reason, timestamp: now,
+            apnsReason: failure?.reason,
+            deviceID: entry.device.deviceID ?? String(token.prefix(8)) + "…"))
+        return true
     }
 
     /// Forget every device — the Mac side of "forget this phone". The phone
@@ -324,7 +340,8 @@ public actor APNsPusher {
             sessionID: sessionID,
             sound: sound,
             failureReason: classified.failureReason,
-            timestamp: now
+            timestamp: now,
+            apnsReason: reason
         ))
         return result
     }
