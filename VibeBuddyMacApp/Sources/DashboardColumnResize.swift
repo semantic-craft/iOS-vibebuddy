@@ -383,6 +383,12 @@ enum DashboardListColumn {
     static let compactKey = "dashboard.listCompact"
     /// The reader never goes narrower than this; the list yields first.
     static let readerMinWidth: CGFloat = 340
+    /// The head's padding on either side (live and history share it).
+    static let headPadding: CGFloat = 12
+    /// What a head row is laid out at while it is a ghost on the strip: the
+    /// width it has at the narrowest full width, so folding the list never
+    /// changes its height and nothing under it shifts.
+    static var headGhostWidth: CGFloat { DashboardColumnWidth.list.minFull - headPadding * 2 }
 }
 
 /// The compact strip's head: the search pill folded to one glyph. A click

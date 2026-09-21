@@ -498,16 +498,20 @@ struct DashboardView: View {
                 .accessibilityLabel("Filter sessions by state")
                 .listHeadWords(listLabels)
             }
-            .padding(.horizontal, 12).padding(.top, 12)
+            .padding(.horizontal, DashboardListColumn.headPadding).padding(.top, 12)
             ScrollView {
                 LazyVStack(spacing: 8) {
+                    // An empty state is all words, and the strip has none;
+                    // unfolding the list is what shows the message.
                     if filtered.isEmpty {
-                        QuietEmptyState(title: model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
-                                        message: model.sessions.isEmpty
-                                            ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
-                                            : "Clear a filter or try another search.",
-                                        systemName: "waveform.path.ecg")
-                            .padding(.top, 40)
+                        if !listLabels.iconOnly {
+                            QuietEmptyState(title: model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
+                                            message: model.sessions.isEmpty
+                                                ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
+                                                : "Clear a filter or try another search.",
+                                            systemName: "waveform.path.ecg")
+                                .padding(.top, 40)
+                        }
                     } else {
                         ForEach(filtered) { session in
                             SummaryRow(session: session, isSelected: selection == session.id,
@@ -745,9 +749,15 @@ private struct SummaryRow: View {
 
 extension View {
     /// A list-head row on the compact strip: kept in the tree at the words'
-    /// opacity so nothing under it shifts, but neither clickable nor read.
+    /// opacity so nothing under it shifts, but neither clickable nor read —
+    /// and laid out at the width it has at the narrowest full width before
+    /// it is given no width of its own. Without that last frame the head's
+    /// ideal width, not the strip's, is what the column lays every card
+    /// below it out at, and the cards are clipped at the strip's edge.
     func listHeadWords(_ labels: ColumnLabelStyle) -> some View {
-        opacity(labels.opacity)
+        frame(width: labels.iconOnly ? DashboardListColumn.headGhostWidth : nil, alignment: .leading)
+            .frame(width: labels.iconOnly ? 0 : nil, alignment: .leading)
+            .opacity(labels.opacity)
             .allowsHitTesting(!labels.iconOnly)
             .accessibilityHidden(labels.iconOnly)
     }

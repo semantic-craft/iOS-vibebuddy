@@ -440,7 +440,7 @@ struct HistoryWorkbenchView: View {
                         .listHeadWords(listLabels)
                 }
             }
-            .padding(.horizontal, 12).padding(.top, 12)
+            .padding(.horizontal, DashboardListColumn.headPadding).padding(.top, 12)
             // In-flight search chrome has no place on the compact strip.
             if isSearching && history.searching, !listLabels.iconOnly { ProgressView("Searching…").opacity(listLabels.opacity) }
             if isSearching, let error = history.searchError, !listLabels.iconOnly {
@@ -467,7 +467,8 @@ struct HistoryWorkbenchView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    if !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
+                    // An empty state is all words, and the strip has none.
+                    if !listLabels.iconOnly, !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
                         QuietEmptyState(title: isSearching ? "No matching messages" : "No sessions in this view",
                                         message: "Check the project filter and source notices, or refresh the library.",
                                         systemName: "text.magnifyingglass")
