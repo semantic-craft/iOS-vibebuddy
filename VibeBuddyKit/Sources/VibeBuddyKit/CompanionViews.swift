@@ -171,45 +171,56 @@ public struct CompanionMenuPill<Content: View>: View {
 #if os(iOS) || os(macOS)
 /// `Approve ▾`: the left half approves once, the chevron opens the two wider
 /// grants. One green pill, because the system's split menu button ignores the
-/// prominent tint on macOS.
+/// prominent tint on macOS. `size` follows `PillButtonStyle.Size` so the key
+/// matches the `Deny` pill beside it: `.regular` is the phone's 34pt key,
+/// `.small` the 26pt one the Mac's dense panes use.
 public struct SplitApproveButton: View {
     public let approve: () -> Void
     public let always: () -> Void
     public let session: () -> Void
     public let allowsPersistentDecision: Bool
+    public let size: PillButtonStyle.Size
     private let green = CompanionPalette.status(.completeUnread)
 
     public init(approve: @escaping () -> Void, always: @escaping () -> Void, session: @escaping () -> Void,
-                allowsPersistentDecision: Bool = true) {
+                allowsPersistentDecision: Bool = true, size: PillButtonStyle.Size = .regular) {
         self.approve = approve
         self.always = always
         self.session = session
         self.allowsPersistentDecision = allowsPersistentDecision
+        self.size = size
     }
+
+    private var height: CGFloat { size == .small ? 26 : (size == .large ? 40 : 34) }
+    private var chevronWidth: CGFloat { size == .small ? 26 : 32 }
 
     public var body: some View {
         HStack(spacing: 1) {
             Button(String(localized: "Approve", bundle: .module), action: approve)
-                .buttonStyle(SplitHalfStyle(color: green))
+                .buttonStyle(SplitHalfStyle(color: green, size: size, height: height))
             if allowsPersistentDecision {
             Menu {
                 Button(String(localized: "Always allow this", bundle: .module), action: always)
                 Button(String(localized: "Allow all this session", bundle: .module), action: session)
             } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .black))
-                    .foregroundStyle(.white)
-                    .frame(width: 32, height: 34)
-                    .contentShape(Rectangle())
+                // The glyph is drawn by the overlay below: the borderless menu
+                // style on macOS drops a custom label, so this stays a hit area.
+                Color.clear.frame(width: chevronWidth, height: height).contentShape(Rectangle())
             }
             #if os(macOS)
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             #endif
-            .frame(width: 32, height: 34)
+            .frame(width: chevronWidth, height: height)
             .background(green, in: UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
-                                                          bottomTrailingRadius: 17, topTrailingRadius: 17,
+                                                          bottomTrailingRadius: height / 2, topTrailingRadius: height / 2,
                                                           style: .continuous))
+            .overlay {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: size == .small ? 8 : 10, weight: .black))
+                    .foregroundStyle(.white)
+                    .allowsHitTesting(false)
+            }
             .accessibilityLabel(String(localized: "More approval options", bundle: .module))
             }
         }
@@ -218,13 +229,15 @@ public struct SplitApproveButton: View {
 
 private struct SplitHalfStyle: ButtonStyle {
     let color: Color
+    let size: PillButtonStyle.Size
+    let height: CGFloat
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(CompanionType.font(13, .heavy))
+            .font(CompanionType.font(size == .small ? 11 : (size == .large ? 15 : 13), .heavy))
             .foregroundStyle(.white)
-            .padding(.leading, 16).padding(.trailing, 12)
-            .frame(height: 34)
-            .background(color, in: UnevenRoundedRectangle(topLeadingRadius: 17, bottomLeadingRadius: 17,
+            .padding(.leading, size == .small ? 12 : 16).padding(.trailing, size == .small ? 9 : 12)
+            .frame(height: height)
+            .background(color, in: UnevenRoundedRectangle(topLeadingRadius: height / 2, bottomLeadingRadius: height / 2,
                                                           bottomTrailingRadius: 0, topTrailingRadius: 0,
                                                           style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)

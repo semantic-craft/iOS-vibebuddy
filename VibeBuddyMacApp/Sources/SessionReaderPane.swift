@@ -415,14 +415,19 @@ struct SessionReaderPane: View {
     }
 
     /// Sized to its content; only past 340pt does it scroll inside, so a long
-    /// approval never pushes the transcript off the pane.
+    /// approval never pushes the transcript off the pane. Its blocks stop at
+    /// the same 760pt the transcript above stops at, so a wide pane does not
+    /// stretch the diff across the window while the reading stays narrow.
     private var dock: some View {
         ViewThatFits(in: .vertical) {
-            dockContent.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-            ScrollView { dockContent.padding(16).frame(maxWidth: .infinity, alignment: .leading) }
-                .frame(maxHeight: 340)
+            dockColumn
+            ScrollView { dockColumn }.frame(maxHeight: 340)
         }
         .background(MacTheme.bg)
+    }
+
+    private var dockColumn: some View {
+        dockContent.frame(maxWidth: 760, alignment: .leading).padding(16).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder private var dockContent: some View {
