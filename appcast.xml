@@ -3,6 +3,17 @@
     <channel>
         <title>VibeBuddyMacApp</title>
         <item>
+            <title>1.3.25</title>
+            <pubDate>Mon, 21 Sep 2026 15:45:29 +0800</pubDate>
+            <link>https://github.com/semantic-craft/iOS-vibebuddy</link>
+            <sparkle:version>43</sparkle:version>
+            <sparkle:shortVersionString>1.3.25</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <sparkle:releaseNotesLink>https://semantic-craft.github.io/iOS-vibebuddy/vibebuddy-mac-v1.3.25.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.25/vibebuddy-mac-v1.3.25.dmg" length="18308324" type="application/octet-stream" sparkle:edSignature="3ghG9NV0Q6dfGxzMgsM9/YWEVhOjV1BeMe845LJBLgrTTa4JTuDNJbFBCn4JQKoiGFOm7fzHJYvdC6M47PtDDg==" />
+        </item>
+        <item>
             <title>1.3.24</title>
             <pubDate>Mon, 21 Sep 2026 13:25:27 +0800</pubDate>
             <link>https://github.com/semantic-craft/iOS-vibebuddy</link>
@@ -11,7 +22,7 @@
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <sparkle:releaseNotesLink>https://semantic-craft.github.io/iOS-vibebuddy/vibebuddy-mac-v1.3.24.md</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.24/vibebuddy-mac-v1.3.24.dmg" length="18171075" type="application/octet-stream" sparkle:edSignature="Jg2+h2I5t0wxLe241zh+Xf6MvPJQPBJ/ayxOwoIDQZpWKgj7ZQG/m41yj8tJTBJMTTxr27O7pEfMx2uDvWbXAA=="/>
+            <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.24/vibebuddy-mac-v1.3.24.dmg" length="18171075" type="application/octet-stream" sparkle:edSignature="Jg2+h2I5t0wxLe241zh+Xf6MvPJQPBJ/ayxOwoIDQZpWKgj7ZQG/m41yj8tJTBJMTTxr27O7pEfMx2uDvWbXAA==" />
         </item>
         <item>
             <title>1.3.23</title>
