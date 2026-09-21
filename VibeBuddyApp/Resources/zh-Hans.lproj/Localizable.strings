@@ -480,6 +480,8 @@
 "Runs on %@ as a Codex thread with your usual settings." = "在 %@ 上作为 Codex 线程运行，使用你的常规设置。";
 "Runs on %@ over the Cursor CLI, hosted by vibebuddy." = "在 %@ 上通过 Cursor CLI 运行，由 vibebuddy 托管。";
 "Runs on %@ as a Claude Code background session." = "在 %@ 上作为 Claude Code 后台会话运行。";
+"Runs on %@ as a Grok task managed by VibeBuddy." = "在 %@ 上作为 Grok 任务运行，由 VibeBuddy 管理。";
+"VibeBuddy starts and manages this Grok task on your Mac. You can send follow-up instructions, answer supported questions and approvals, and stop it from this phone. Instructions sent while it is running wait for the next turn. Live controls are unavailable after the Mac companion quits." = "VibeBuddy 在 Mac 上启动并管理这个 Grok 任务。你可以从手机继续提问、处理支持的问答和审批，或停止任务。运行中发送的指令会排队到下一轮；Mac 端退出后，实时控制将不可用。";
 "Hosted by vibebuddy on your Mac over the Cursor CLI. It appears in Working here and can be stopped, continued and answered from this phone; it ends if vibebuddy quits. A new worktree is created on your Mac under ~/.cursor/worktrees/<repo>/<name>; Plan and Ask are read-only." = "由 vibebuddy 在你的 Mac 上通过 Cursor CLI 托管。它会出现在这里的“进行中”，可以从这台手机停止、继续和回答；vibebuddy 退出时它随之结束。新 worktree 创建在 Mac 的 ~/.cursor/worktrees/<repo>/<name>；Plan 和 Ask 为只读。";
 "Sends as a new task — you pick the folder and agent next" = "将作为新任务发送——下一步选择目录和 agent";
 
@@ -810,3 +812,5 @@
 "Step %lld of %lld: %@" = "第 %1$lld 步，共 %2$lld 步：%3$@";
 "Current step" = "当前步骤";
 "Not started" = "尚未开始";
+
+"Stop task" = "停止任务";

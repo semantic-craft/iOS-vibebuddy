@@ -65,7 +65,7 @@ final class DashboardStore: ObservableObject {
 
     /// Every attempt reads authenticated authority before sending. Ambiguous POSTs
     /// are never replayed: an unchanged snapshot cannot prove non-execution.
-    private func sendPhoneAction(_ session: AgentSession,
+    private func sendPhoneAction(_ session: AgentSession, requiresAnswerableWait: Bool = true,
                                  send: (PairingPayload, AgentSession) async -> PhoneActionResult) async -> PhoneActionResult {
         guard !Task.isCancelled, isDemo || state == .connected else { return .failed }
         if sendingPhoneSessions.contains(session.id) { return .sending }
@@ -84,9 +84,9 @@ final class DashboardStore: ObservableObject {
                 result = .expired
             } else if let current = snapshot.sessions.first(where: { $0.id == session.id }),
                       actionIdentity(current) == identity,
-                      current.pendingApproval?.isAnswerable != false,
-                      current.pendingQuestion?.isAnswerable != false,
-                      current.pendingQuestion?.expiresAt.map({ $0 > snapshot.serverTime }) != false {
+                      (!requiresAnswerableWait || (current.pendingApproval?.isAnswerable != false &&
+                       current.pendingQuestion?.isAnswerable != false &&
+                       current.pendingQuestion?.expiresAt.map({ $0 > snapshot.serverTime }) != false)) {
                 result = Task.isCancelled ? .failed : await send(pairing, current)
             } else { result = .expired }
         } else { result = .failed }
@@ -912,14 +912,9 @@ final class DashboardStore: ObservableObject {
             }
             let support = SessionActionSupport.resolve(for: s)
             guard support.isAvailable else { return support.unsupportedReason ?? "Instructions are unavailable for \(s.displayTitle)." }
-            // The phone's instruction path (`sendAnswer`) carries free text
-            // for a non-waiting session only to Codex; say so rather than
-            // let the request expire on the way.
-            guard s.agent == .codex else {
-                return "Instructions to \(s.agent.displayName) sessions cannot be sent from the phone yet. Use the Mac."
-            }
             let receipt = await answer(s.id, answer: text)
             guard receipt == .received else { return receipt.message }
+            if let note = support.note { return "\(receipt.message) \(note)" }
             return "\(receipt.message) Sent to \(s.displayTitle) as \(support.intent == .continue ? "the next turn" : "a supplement to the running turn"); the agent has not confirmed doing it."
         case .none: return ""
         }
@@ -1056,7 +1051,7 @@ final class DashboardStore: ObservableObject {
               expected.map({ actionIdentity($0) == actionIdentity(session) }) != false,
               session.pendingApproval == nil,
               session.pendingQuestion?.isAnswerable != false,
-              session.pendingQuestion != nil || (session.agent == .codex && session.status != .needsResponse),
+              session.pendingQuestion != nil || (session.status != .needsResponse && SessionActionSupport.resolve(for: session).isAvailable),
               answers == nil || session.pendingQuestion != nil else {
             showToast(PhoneActionResult.expired.message)
             return .expired
@@ -1066,7 +1061,25 @@ final class DashboardStore: ObservableObject {
             return answerDemo(sessionId, text: spoken) ? .received : .expired
         }
         return await sendPhoneAction(session) { pairing, current in
-            await self.decisionClient.phoneAnswer(pairing, session: current, text: text, answers: answers)
+            guard current.pendingQuestion != nil || SessionActionSupport.resolve(for: current).isAvailable else { return .expired }
+            return await self.decisionClient.phoneAnswer(pairing, session: current, text: text, answers: answers)
+        }
+    }
+
+    @discardableResult
+    func stopTask(_ sessionId: String, expected: AgentSession) async -> PhoneActionResult {
+        guard let session = allSessions.first(where: { $0.id == sessionId }),
+              actionIdentity(expected) == actionIdentity(session),
+              SessionActionSupport.resolveStop(for: session).isAvailable else { return .expired }
+        if isDemo { return stopDemo(sessionId) ? .received : .expired }
+        return await sendPhoneAction(session, requiresAnswerableWait: false) { pairing, current in
+            guard SessionActionSupport.resolveStop(for: current).isAvailable else { return .expired }
+            switch await self.decisionClient.phoneStop(pairing, session: current, requestID: UUID().uuidString) {
+            case .accepted: return .received
+            case .refused: return .expired
+            case .unconfirmed: return .unconfirmed
+            case .failed: return .failed
+            }
         }
     }
 
