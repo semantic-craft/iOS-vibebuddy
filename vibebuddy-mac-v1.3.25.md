@@ -14,4 +14,4 @@
 
 Requires an installed, signed-in Grok Build CLI. Hosting applies to sessions started by VibeBuddy; existing terminal sessions keep their hook behavior. ACP control is not restored after the Mac app restarts. Grok's own permission settings determine when approval is requested.
 
-Mac build 43. Includes all changes from Mac 1.3.24. The accompanying iPhone release is iOS 1.3.24 (53).
+Mac build 43. Includes all changes from Mac 1.3.24. The accompanying iPhone release is iOS 1.3.24 (54).
