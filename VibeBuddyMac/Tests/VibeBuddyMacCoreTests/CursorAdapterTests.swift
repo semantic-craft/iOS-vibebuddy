@@ -890,6 +890,32 @@ struct CursorComposerStoreTests {
         #expect(composers.first { $0.id == "c1" }?.hasRun == false)
     }
 
+    /// A key the detail carries wins even when it holds nothing usable: Cursor
+    /// writes `workspaceIdentifier: {"id":"empty-window"}` and `trackedGitRepos:
+    /// []` on a chat with no folder, and the head's older folder and branch must
+    /// not be read back through the hole.
+    @Test func aDetailKeyPresentButEmptyIsNotBackFilledFromTheHead() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try database(path)
+        var db: OpaquePointer?
+        #expect(sqlite3_open(path, &db) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+        let detail = #"{"composerId":"c1","status":"completed","contextTokensUsed":1,"#
+            + #""workspaceIdentifier":{"id":"empty-window"},"trackedGitRepos":[],"name":"","#
+            + #""lastUpdatedAt":1788895069198}"#
+        #expect(sqlite3_exec(db, "UPDATE cursorDiskKV SET value = '\(detail)' WHERE key = 'composerData:c1'",
+                             nil, nil, nil) == SQLITE_OK)
+        var store = CursorComposerStore(database: URL(fileURLWithPath: path))
+        let composer = try #require(try store.refresh()?.first { $0.id == "c1" })
+        #expect(composer.project == nil)
+        #expect(composer.branch == nil)
+        #expect(composer.name == nil)
+        // Keys the detail does not mention still come from the head.
+        #expect(composer.subtitle == "Edited SKILL.md")
+        #expect(composer.isCloud == false)
+    }
+
     /// Cursor's store is mostly chat bubbles and grows past a gigabyte; the
     /// conversation rows must come off the key index. `LIKE 'composerData:%'`
     /// cannot (SQLite's prefix optimisation needs a BINARY-collated column and
@@ -960,8 +986,9 @@ struct CursorComposerStoreTests {
         #expect(third.first { $0.id == "c1" }?.status == "aborted")
     }
 
-    /// The signature is size and mtime; a same-second rewrite of the fixture
-    /// must still register as a change.
+    /// The signature is size and mtime. The rewrites above change the size, so
+    /// they register on their own; moving the mtime as well keeps the test
+    /// independent of the file system's timestamp resolution.
     private func bumpModificationDate(_ path: String) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: path)
         let modified = (attributes[.modificationDate] as? Date) ?? Date()
