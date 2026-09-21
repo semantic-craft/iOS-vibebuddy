@@ -503,8 +503,9 @@ struct HistoryWorkbenchView: View {
 
 
 /// A history row. It has no tile at full width; the compact strip stands
-/// the agent's tile in for its words, fading in as they fade out, at the
-/// words' own leading origin so it never slides.
+/// the agent's tile in for its words, fading in as they fade out, a fixed
+/// step in from the words' origin — where the strip centres it. The step
+/// is a constant, not a centring frame, so the tile still never slides.
 private struct HistoryRow: View {
     let session: SessionHistorySession
     var excerpt: String?
@@ -526,6 +527,7 @@ private struct HistoryRow: View {
                 // its tooltip and accessibility text; the branch is inside
                 // the row, so its identity (and measured rest width) survives.
                 AgentAvatar(agent: session.agent.kind, size: 28)
+                    .padding(.leading, Self.compactTileInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(session.title + "\n" + byline)
                     .accessibilityLabel(session.title)
@@ -550,6 +552,7 @@ private struct HistoryRow: View {
                 .overlay(alignment: .topLeading) {
                     if labels.transitional {
                         AgentAvatar(agent: session.agent.kind, size: 28).opacity(1 - labels.opacity)
+                            .padding(.leading, Self.compactTileInset)
                     }
                 }
                 // Min 0, or the frame would grow to the frozen block instead of clipping it.
@@ -569,4 +572,14 @@ private struct HistoryRow: View {
     /// The words' width at the narrowest full width, for a row first laid
     /// out mid-drag: 240 − 8·2 outer − 10·2 row.
     private static var narrowestWordsWidth: CGFloat { DashboardColumnWidth.list.minFull - 16 - 20 }
+
+    /// How far in from the words' origin the tile sits. The strip leaves
+    /// 72 − 8·2 outer − 10·2 row = 36 pt for a 28 pt tile, so 4 pt centres
+    /// it there. A live width never enters it: centring the tile in the
+    /// column instead would walk it across the row as a drag narrows the
+    /// column below 156 pt, which is the slide the leading origin was
+    /// chosen to avoid.
+    private static var compactTileInset: CGFloat {
+        max(0, (DashboardColumnWidth.list.compact - 16 - 20 - 28) / 2)
+    }
 }
