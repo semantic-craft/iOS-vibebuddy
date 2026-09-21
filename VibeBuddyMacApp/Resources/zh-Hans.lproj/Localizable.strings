@@ -1151,7 +1151,7 @@
 "Concise" = "简洁";
 "Decision briefing" = "决策";
 "Custom prompt" = "自定义提示词";
-"What you can do now comes first, multi-step work is numbered, and it ends with one next step." = "先说你现在能做的一件事，多步就编号，结尾只留一个下一步。";
+"Leads with what the record asks you to do, otherwise the key result; multi-step work is numbered; at most one next step." = "记录要你做的事放第一句，否则先说关键结果；多步才编号，下一步最多一个。";
 "A CEO briefing on progress, benefits, important tradeoffs, and decisions." = "像向总裁汇报，讲清进展、实际好处、关键取舍和需要决定的方向。";
 "Use your own instructions to shape every summary." = "用自己的提示词调整所有摘要的内容和表达方式。";
 "Changes apply to all summary entries. Saved summaries keep their original style." = "修改会同步到所有摘要入口，已有摘要保留原来的风格。";

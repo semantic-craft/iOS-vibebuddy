@@ -518,8 +518,9 @@ code, and tests — don't drift to synonyms.
   briefing on outcomes, benefits and supported tradeoffs; *custom* applies up to
   2000 characters of expression instructions. All styles share the reader-shaped
   writing rules (no preamble or closer, current state stated, user steps numbered
-  where the purpose allows, at most five visible items per group, matter-of-fact
-  failures, time only when the record gives it) and the evidence and
+  in history only and spoken in order elsewhere, at most five visible items per
+  group, matter-of-fact failures, time only when the record gives it, history
+  keeps its coverage sentence right after the first content sentence) and the evidence and
   authorization rules; the prompt fingerprint is `content-prompt-v2`. Settings,
   the history reader and the reading panel use this same choice. Paired phones
   read and update it through authenticated `/content-style`; optimistic revision

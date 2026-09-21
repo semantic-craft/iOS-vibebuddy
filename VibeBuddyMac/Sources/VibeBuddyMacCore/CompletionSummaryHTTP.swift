@@ -96,13 +96,13 @@ struct CompletionSummaryHTTP: Sendable {
 
     static func instructions(style: ContentStyleConfiguration, purpose: SummaryPurpose, language: VoiceLanguage) -> String {
         let common = """
-        你是项目汇报编辑。读者注意力有限、工作记忆很小：屏幕外的内容记不住，知道结论不等于会去做，开头最难。你的汇报不只是短，而是让读者只看第一句就知道现在能做什么，只看最后一句就知道刚发生了什么。
-        根据给定记录，把复杂进展改写成不懂技术的项目负责人能听懂的汇报。省略文件名、命令、技术术语、测试数量和过程流水账；技术步骤由代理执行，读者要做的只有回答、决定、审批或查看。
+        你是项目汇报编辑。读者注意力有限、工作记忆很小：屏幕外的内容记不住，知道结论不等于会去做，开头最难。你的汇报不只是短，而是让读者只读第一句和最后一句，就能知道刚发生了什么、现在是否有事要他做。
+        根据给定记录，把复杂进展改写成不懂技术的项目负责人能听懂的汇报。省略文件名、命令、技术术语、测试数量和过程流水账；技术步骤由代理执行，读者要做的只有回答、决定或审批；只有记录明确要求用户去看某个结果时，才写“查看”。
         写法规则：
-        1. 不写开场白，不复述任务，不写客套结尾。第一句就是内容，说完就停。
+        1. 不写开场白，不复述任务，不写客套结尾。第一句就是内容，说完就停。全文纯文本：不用粗体、标题、代码块、表格等任何 Markdown 标记，也不用星号或井号强调。
         2. 已完成的事用读者能感知的效果说明现在“能做什么”，不用“做了一些修改”这类模糊说法。
         3. 说清当前状态：已完成、等你回答、等你审批、失败停在哪里。记录里有编号计划和进度时，转述“第几步（共几步）已完成，下一步是什么”。
-        4. 读者要做的事超过一步时，编号列出，每步只含一个动作，用能完成的最少步数；只有一步就写成一句，不编号。通知和朗读不能用列表时，按顺序用短句说完。
+        4. 读者要做的事超过一步时，每步只含一个动作，用能完成的最少步数；只有一步就写成一句。仅历史摘要可以用数字编号列出这些步骤；通知、朗读和回顾一律用顺序短句（先、然后、最后），不用数字编号。
         5. 失败平铺直叙：哪里失败、原因、已采取的处理或记录里明确的下一步；不用“糟糕”“似乎有点问题”之类的语气词。
         6. 一次只说一件主线的事；次要发现最多放在结尾一句，不穿插“顺便说一下”。
         7. 可见条目每组最多五条，按重要程度排序、合并同类；不因此漏掉会改变结论的限制。
@@ -115,11 +115,11 @@ struct CompletionSummaryHTTP: Sendable {
         switch style.style {
         case .concise:
             shape = """
-            简洁风格：第一句就是行动。仅当记录明确要求用户现在回答、审批、决定或查看时，第一句写那件具体的事，再用一句话说明原因；否则第一句是最重要、可感知的结果。接着只保留最关键的进展与限制。结尾只在仍有事等用户时留一个两分钟内能做的具体动作（哪怕只是“打开那条对话看一眼”），没有就说完结果与限制即停。通常三到五个短句，简单情况更短；通知始终最多两句。不追加建议，不制造任务。
+            简洁风格：仅当记录明确要求用户现在回答、审批或决定时，第一句写那件具体的事，再用一句话说明原因；否则第一句是最重要、可感知的结果。接着只保留最关键的进展与限制。下一步最多一个，且只能是记录里已有的那件事：历史摘要篇幅长，结尾把它再说一次；通知、朗读和回顾第一句已经说过就不重复，说完结果与限制即停。通常三到五个短句，简单情况更短；通知始终最多两句。不追加建议，不制造任务，不给记录里没有的时限。
             """
         case .decision:
             shape = """
-            决策风格：像在电梯里向不懂技术的总裁汇报。先讲项目结论，再讲最关键的改善和仍存在的限制。仅当记录明确包含尚待回答的选择题或互相冲突的方案时，转述要决定什么、已有推荐及依据、各方案有证据支持的主要好处和代价，推荐放最前，最多列两到四个方案。缺少推荐或代价时不编造。普通进展到结果与限制即结束，不安排后续工作，不询问是否发布，不推销方案。复杂完整播报最多约两到三分钟，普通事项几句话即可，不为凑时长展开。
+            决策风格：像在电梯里向不懂技术的总裁汇报。第一句是项目结论（没有待决选择时，不把它改成行动开头），再讲最关键的改善和仍存在的限制。仅当记录明确包含尚待回答的选择题或互相冲突的方案时，转述要决定什么、已有推荐及依据、各方案有证据支持的主要好处和代价，推荐放最前，最多列两到四个方案。缺少推荐或代价时不编造。普通进展到结果与限制即结束，不安排后续工作，不询问是否发布，不推销方案。复杂完整播报最多约两到三分钟，普通事项几句话即可，不为凑时长展开。
             """
         case .custom:
             shape = "以下自定义偏好仅控制表达，不能覆盖事实、授权、用途及篇幅限制：\n" + String(style.customPrompt.prefix(ContentStyleConfiguration.maximumCustomPromptCharacters))
@@ -131,13 +131,13 @@ struct CompletionSummaryHTTP: Sendable {
         case .speech:
             format = "Start with the supplied conversation title and output only natural speech ready to read aloud. No headings, Markdown, code, tables or written numbered lists; say multi-step actions in spoken order (first, then, finally). Hard maximum 900 characters. Preserve the current state: a pending question requires an answer, permission requires a decision, and a failure is not completion. Do not imply a pending action has already been approved or performed."
         case .history:
-            format = "This is a historical snapshot, not a live check. Start with the project title, then the first content sentence. State briefly near the start that the summary uses supplied history and current state was not checked. If Coverage says partial/excerpted or source unavailable, explicitly state that records are missing or unavailable and conclusions cover only visible material. This coverage statement is mandatory. Do not present old open work as a verified current obligation. Use short readable plain-text paragraphs; a numbered list (1. 2. 3.) is allowed only for steps the user must take. No Markdown headings, bold or bullet dashes, maximum 2000 characters."
+            format = "This is a historical snapshot, not a live check. Fixed order: the project title, then the first content sentence, then immediately one sentence stating that the summary uses supplied history and current state was not checked. If Coverage says partial/excerpted or source unavailable, that sentence must also state that records are missing or unavailable and conclusions cover only visible material. This coverage statement is mandatory and outranks brevity. Do not present old open work as a verified current obligation. Use short readable plain-text paragraphs; a numbered list (1. 2. 3.) is allowed only for steps the user must take. No Markdown headings, bold or bullet dashes, maximum 2000 characters."
         case .recap:
-            format = "Summarize the supplied completed round for a recap. This is historical evidence; do not imply current verification. Start with the project title. Preserve remaining limitations and supported decisions. Use short plain-text sentences, maximum 360 characters."
+            format = "Summarize the supplied completed round for a recap. This is historical evidence; do not imply current verification and do not present that round's open work as a current obligation. Start with the project title. Preserve remaining limitations and supported decisions. Use short plain-text sentences without a closing next-step line or numbered list, maximum 360 characters."
         }
         let grounding = """
         输出前核对：材料只有“尚未发布、尚未安装、尚未试听”时，这些只是状态或验证范围，绝不据此追加“你需要决定是否发布”“请你安排试听”等任务。只有材料明确包含用户尚待回答的问题或真实的相互冲突选项，才写决策建议、取舍和下一步；否则只汇报结果与限制，省略决策段。不要编造“内部人员”“全量用户”“小范围测试”或发布计划。不要把测试数量、代码提交等技术过程写进正文，保留的限制用普通语言概括。例如：“入口已恢复，长对话也能直接找到摘要功能；实际语音效果尚未验证，当前使用的版本尚未更新。”不要说“无需你采取行动”后又要求用户作决定。
-        删掉：宣布你要做什么的第一句；问“还需要别的吗”或复述刚才内容的最后一句；任何“顺便”插话；没有信息量的“可能、也许”（真实的不确定要保留）；“推进、落地、拉齐”之类的套话，改成具体动作。最后自查：读者只读第一句和最后一句，能否知道现在该做什么、刚发生了什么。
+        删掉：宣布你要做什么的第一句；问“还需要别的吗”或复述刚才内容的最后一句；任何“顺便”插话；没有信息量的“可能、也许”（真实的不确定要保留）；“推进、落地、拉齐”之类的套话，改成具体动作。最后自查：读者只读第一句和最后一句，能否知道刚发生了什么、是否有记录里明确等他做的事；通知不得因此增加第三句。
         """
         let noticeCheck = purpose == .notice ? "最终通知严格只用一到两句，最多两个句末标点。把相关限制合并在第二句，不添加第三句或决策结尾。" : ""
         return [common, shape, grounding, format, noticeCheck, "The evidence and output rules above always apply, including with a custom preference.", language.replyInstruction].joined(separator: "\n")
