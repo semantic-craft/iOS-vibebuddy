@@ -27,15 +27,16 @@ struct E2ERunConfigurationTests {
         #expect(config.file("token").path == "/tmp/vibebuddy-probe-1/token")
         #expect(config.keychainService == "com.vibebuddy.e2e.probe-1.secrets")
         #expect(config.host == "127.0.0.1" && config.port == 19876)
-        #expect(!config.audioEnabled && !config.notificationsEnabled && !config.cursorACPEnabled)
+        #expect(!config.audioEnabled && !config.notificationsEnabled && !config.cursorACPEnabled && !config.grokACPEnabled)
         var enabled = environment
         enabled["VIBEBUDDY_E2E_AUDIO"] = "1"
         enabled["VIBEBUDDY_E2E_CURSOR_ACP"] = "1"
+        enabled["VIBEBUDDY_E2E_GROK_ACP"] = "1"
         enabled["VIBEBUDDY_E2E_NOTIFICATIONS"] = "1"
         enabled["VIBEBUDDY_E2E_HOST"] = "192.168.1.23"
         enabled["VIBEBUDDY_E2E_CODEX_THREAD"] = "12345678-1234-1234-1234-123456789abc"
         let staged = try #require(try E2ERunConfiguration(environment: enabled, bundleIdentifier: "com.vibebuddy.e2e.probe-1"))
-        #expect(staged.audioEnabled && staged.notificationsEnabled && staged.cursorACPEnabled)
+        #expect(staged.audioEnabled && staged.notificationsEnabled && staged.cursorACPEnabled && staged.grokACPEnabled)
         #expect(staged.file("cursor-agent").path == "/tmp/vibebuddy-probe-1/cursor-agent")
         #expect(staged.host == "192.168.1.23" && staged.codexThreadID == enabled["VIBEBUDDY_E2E_CODEX_THREAD"])
         enabled["VIBEBUDDY_E2E_HOST"] = "100.64.0.2"
@@ -55,6 +56,7 @@ struct E2ERunConfigurationTests {
             ["VIBEBUDDY_E2E_PORT": "+19876"],
             ["VIBEBUDDY_E2E_AUDIO": "0"],
             ["VIBEBUDDY_E2E_CURSOR_ACP": "0"],
+            ["VIBEBUDDY_E2E_GROK_ACP": "0"],
             ["VIBEBUDDY_E2E_HOST": "0.0.0.0"],
             ["VIBEBUDDY_E2E_HOST": "example.com"],
             ["VIBEBUDDY_E2E_HOST": "8.8.8.8"],

@@ -98,9 +98,23 @@ code, and tests — don't drift to synonyms.
   is not a live ACP channel and offers only Continue until loading succeeds.
   The IDE's hooks and transcript for the
   same id only corroborate while it runs (ADR-0016, amendment 1).
+- **Grok ACP host** — `GrokACPMonitor` (ADR-0030): one `grok agent --no-leader
+  stdio` process per Grok Build session vibebuddy started, spoken to over stdio
+  JSON-RPC. The live source for that session (`ObservationSource.acp`) and its
+  write path: `session/prompt` continues, a supplement for a running turn waits
+  in the follow-up queue and goes out as the next prompt (Grok has no interject
+  extension), `session/cancel` stops, `session/request_permission` and
+  `_x.ai/ask_user_question` become cards. The ACP `sessionId` is the session
+  directory name and the id Grok's hooks report, so hooks and the directory
+  enrichment corroborate the same row and the `/approval` gate stays silent for
+  it. A denied permission ends the turn as `cancelled`: `done`, not `failed`,
+  not `userStopped`. The session's permission frequency is the user's own
+  `[ui] permission_mode`; under `always-approve` no card appears. A Grok
+  session opened in a terminal is unchanged (hooks observe, the phone says to
+  use the terminal). Recovery after a daemon restart is not promised yet.
 - **Control channel** (`ControlChannel`) — the one write path the daemon would
   use for a session right now: `hook` (Cursor IDE, follow-ups only), `acp`
-  (hosted CLI), `appserver` (Codex), `cloud` (Cursor cloud agent), `none`
+  (hosted Cursor or Grok Build CLI), `appserver` (Codex), `cloud` (Cursor cloud agent), `none`
   (seen, unreachable). Stamped on every snapshot; the phone's composer and the
   Watch's buttons decide what to offer from it first, from the agent second.
   Distinct from an observation source, which says how a session is *seen*.

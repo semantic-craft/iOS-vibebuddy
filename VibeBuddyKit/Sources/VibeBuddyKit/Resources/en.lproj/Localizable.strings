@@ -101,7 +101,7 @@
 "Rollout" = "Rollout";
 "Transcript" = "Transcript";
 "Recovery" = "Recovery";
-"Cursor CLI (ACP)" = "Cursor CLI (ACP)";
+"Agent CLI (ACP)" = "Agent CLI (ACP)";
 "Healthy" = "Healthy";
 "Temporarily silent" = "Temporarily silent";
 "Events missing" = "Events missing";

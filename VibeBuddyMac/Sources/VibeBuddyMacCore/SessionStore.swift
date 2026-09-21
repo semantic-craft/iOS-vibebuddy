@@ -285,6 +285,11 @@ public actor SessionStore {
             if session.observations?.contains(where: { $0.source == .cloud && $0.health.isHealthy }) == true { return .cloud }
             if fresh(.hook, within: Self.cursorHookAuthorityWindow) { return .hook }
             return ControlChannel.none
+        case .grok:
+            // A Grok Build session vibebuddy hosts over ACP (ADR-0030) is the
+            // only Grok write path; a session seen through hooks alone keeps
+            // the agent's rule (no stamp: the phone says "use the terminal").
+            return acpHosted.contains(session.id) ? .acp : nil
         default:
             return nil
         }
@@ -843,13 +848,13 @@ public actor SessionStore {
         return true
     }
 
-    /// While the ACP host carries a Cursor conversation, the hooks Cursor still
+    /// While the ACP host carries a conversation, the hooks its CLI still
     /// fires for it and the transcript it still writes describe the same turn
     /// a beat later; they may corroborate but must not move the three states
     /// or mint a second completion. `sessionEnd` passes: a process that has
     /// really gone is a fact the pipe reports by closing, not by an event.
     private func acpOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
-        event.agent == .cursor && source != .acp && event.kind != .sessionEnd
+        (event.agent == .cursor || event.agent == .grok) && source != .acp && event.kind != .sessionEnd
             && acpHosted.contains(event.sessionID)
     }
 
@@ -908,7 +913,9 @@ public actor SessionStore {
                     agent: event.agent, sessionName: name, timestamp: event.timestamp),
                     observationSource: observationSource, recordsEvidence: false)
             }
-            if !completedTurnProgress {
+            // ACP owns the prompt identity and final text. Native hooks carry
+            // another prompt ID and must not replace that completion mapping.
+            if !completedTurnProgress, !acpOutranks(event, from: observationSource) {
                 completionResults.observe(event, session: reducer.sessions[event.sessionID],
                     sourceID: sourceID, now: Date(), authoritative: false)
                 persistCompletionResults()
@@ -1227,6 +1234,7 @@ public actor SessionStore {
     }
 
     public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date, source: ObservationSource = .hook) {
+        guard !Task.isCancelled else { return }
         reducer.setPendingApproval(sessionID: sessionID, approval, at: at)
         if let session = reducer.sessions[sessionID] {
             explicitWaits[sessionID] = .approval(approval.id)
@@ -1253,6 +1261,7 @@ public actor SessionStore {
     }
 
     public func beginQuestion(sessionID: String, _ question: PendingQuestion, at: Date, source: ObservationSource = .hook) {
+        guard !Task.isCancelled else { return }
         reducer.setPendingQuestion(sessionID: sessionID, question, at: at)
         if let session = reducer.sessions[sessionID] {
             explicitWaits[sessionID] = .question(question.id)

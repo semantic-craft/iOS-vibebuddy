@@ -83,6 +83,41 @@ struct QuestionRoutesTests {
         #expect(await registry.resolveExact(sessionID: "fixture", questionID: "new", answers: ["q": ["yes"]]) == false)
     }
 
+    @Test("cancelling a question task before or after registration leaves no waiter")
+    func cancelledQuestionWaitCannotOutliveItsTask() async {
+        let registry = QuestionRegistry()
+        let registered = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                withUnsafeCurrentTask { $0?.cancel() }
+                _ = await registry.wait(sessionID: "before", questionID: "q1", timeout: .seconds(5))
+                return false
+            }
+            group.addTask {
+                while !Task.isCancelled {
+                    if await registry.isWaiting(sessionID: "before") { return true }
+                    await Task.yield()
+                }
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            await registry.cancel(sessionID: "before")
+            return first
+        }
+        #expect(!registered)
+        #expect(await registry.isWaiting(sessionID: "before") == false)
+
+        let waiter = Task { await registry.wait(sessionID: "after", questionID: "q2", timeout: .seconds(5)) }
+        for _ in 0..<1000 {
+            if await registry.isWaiting(sessionID: "after") { break }
+            await Task.yield()
+        }
+        #expect(await registry.isWaiting(sessionID: "after"))
+        waiter.cancel()
+        #expect(await waiter.value == nil)
+        #expect(await registry.isWaiting(sessionID: "after") == false)
+    }
+
     @Test("cancelled voice answer leaves the exact question waiting")
     func cancelledAnswerDoesNotResolve() async {
         let registry = QuestionRegistry()

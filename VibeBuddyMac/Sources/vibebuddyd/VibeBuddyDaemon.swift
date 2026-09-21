@@ -79,6 +79,9 @@ struct VibeBuddyDaemon {
             store: store, approvals: approvalRegistry, approvalContext: approvalContext,
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
             followups: cursorFollowups, recoveryDirectory: CursorACPMonitor.defaultRecoveryDirectory)
+        let grokACP = GrokACPMonitor(
+            store: store, approvals: approvalRegistry, approvalContext: approvalContext,
+            questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow)
         let server = VibeBuddyServer(
             store: store,
             token: token, port: port, pusher: pusher, phoneReceipts: phoneReceipts,
@@ -93,6 +96,7 @@ struct VibeBuddyDaemon {
             sessionAllow: sessionAllow, approvalContext: approvalContext,
             questionRegistry: questionRegistry,
             cursorACP: cursorACP,
+            grokACP: grokACP,
             cursorTranscriptMonitor: CursorTranscriptMonitor(),
             cursorCloudMonitor: CursorCloudAgentMonitor(),
             cursorFollowups: cursorFollowups)

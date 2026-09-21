@@ -37,7 +37,7 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | Codex CLI | `codex` | `~/.codex/hooks.json` (`notify` untouched) | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | OpenCode | `opencode` | `~/.config/opencode/` plugin | Claude-compatible hooks | ⚠️ template |
 | Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
-| Grok Build | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks (camelCase envelope) | ✅ tested (1.0.13) |
+| Grok Build | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks (camelCase envelope); sessions vibebuddy starts are hosted over ACP | ✅ tested (1.0.40) |
 | Cursor | `cursor` | `~/.cursor/hooks.json` (merged, user level) | JSON `command` hooks (camelCase event names); `--approval` gates `preToolUse` | ✅ wired (3.20; IDE acceptance pending) |
 | GitHub Copilot CLI | `copilot` | `~/.copilot/session-store.db` | read-only session history | history only |
 
@@ -215,6 +215,21 @@ to `/approval?agent=grok` and answers grok's gate.
 no external answer channel. In that mode vibebuddy can still surface the wait (the
 `permission_prompt` notification) and *deny*, but the approval must be tapped on the
 Mac.
+
+#### Hosted over ACP (sessions vibebuddy starts)
+
+A Grok session started from the phone or the Mac's "New task" is not a hook
+session at all: `GrokACPMonitor` spawns `grok agent --no-leader stdio` and
+speaks the Agent Client Protocol to it (ADR-0030). On that pipe the phone
+approves (`session/request_permission`), answers questions
+(`_x.ai/ask_user_question`), continues (`session/prompt`), queues a supplement
+for the next prompt and stops (`session/cancel`); the row carries
+`ControlChannel.acp`. The hooks above still fire inside the hosted process with
+the same `sessionId` and only corroborate; the `--approval` gate says nothing
+for a hosted session, so one request never raises two cards. Availability =
+`grok` on the PATH and `~/.grok/auth.json` present. Grok's own
+`[ui] permission_mode` decides how often a hosted session asks — vibebuddy
+does not change it.
 
 ### Cursor (`~/.cursor/hooks.json`)
 

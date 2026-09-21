@@ -16,17 +16,20 @@ public struct TaskDispatcher: Sendable {
     private let claude: ClaudeBackgroundLauncher
     private let cursor: CursorLauncher
     private let cursorACP: CursorACPMonitor?
+    private let grokACP: GrokACPMonitor?
     private let launchOverride: (@Sendable (DispatchRequest) async -> DispatchOutcome)?
 
     public init(store: SessionStore, codex: CodexAppServerMonitor? = nil,
                 claude: ClaudeBackgroundLauncher = ClaudeBackgroundLauncher(),
                 cursor: CursorLauncher = CursorLauncher(), cursorACP: CursorACPMonitor? = nil,
+                grokACP: GrokACPMonitor? = nil,
                 launchOverride: (@Sendable (DispatchRequest) async -> DispatchOutcome)? = nil) {
         self.store = store
         self.codex = codex
         self.claude = claude
         self.cursor = cursor
         self.cursorACP = cursorACP
+        self.grokACP = grokACP
         self.launchOverride = launchOverride
     }
 
@@ -59,6 +62,12 @@ public struct TaskDispatcher: Sendable {
                 } else {
                     outcome = await cursor.dispatch(request)
                 }
+            case .grok:
+                // Grok Build has no detached launcher: a hosted ACP process is
+                // the only way a phone-started session can be observed and
+                // answered (ADR-0030).
+                guard let grokACP else { return .failure(.unsupportedAgent(request.agent)) }
+                outcome = await grokACP.dispatch(request)
             default:
                 return .failure(.unsupportedAgent(request.agent))
             }

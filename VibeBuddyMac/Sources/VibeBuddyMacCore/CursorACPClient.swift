@@ -80,9 +80,16 @@ public final class CursorACPClient: @unchecked Sendable {
     /// there and nothing in it is protocol.
     public static func spawn(executable: URL, cwd: String?, leadingArguments: [String] = [],
                              environment: [String: String] = ProcessInfo.processInfo.environment) throws -> CursorACPClient {
+        try spawn(executable: executable, arguments: leadingArguments + ["acp"], cwd: cwd, environment: environment)
+    }
+
+    /// Any ACP agent on its stdio: the same client speaks to `grok agent
+    /// --no-leader stdio` (`GrokACPMonitor`), so the argv is the caller's.
+    public static func spawn(executable: URL, arguments: [String], cwd: String?,
+                             environment: [String: String] = ProcessInfo.processInfo.environment) throws -> CursorACPClient {
         let process = Process()
         process.executableURL = executable
-        process.arguments = leadingArguments + ["acp"]
+        process.arguments = arguments
         if let cwd, !cwd.isEmpty { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         var env = environment
         env["LANG"] = env["LANG"] ?? "en_US.UTF-8"

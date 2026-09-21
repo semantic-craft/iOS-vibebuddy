@@ -23,16 +23,22 @@ public actor QuestionRegistry {
     public func isWaiting(sessionID: String) -> Bool { waiters[sessionID] != nil }
 
     public func wait(sessionID: String, questionID: String? = nil, timeout: Duration) async -> QuestionAnswers? {
+        guard !Task.isCancelled else { return nil }
         if let answers = early.removeValue(forKey: sessionID) { return answers }
         let token = UUID()
-        return await withCheckedContinuation { (cont: CheckedContinuation<QuestionAnswers?, Never>) in
-            // A newer question on the same session supersedes the old wait.
-            waiters[sessionID]?.continuation.resume(returning: nil)
-            waiters[sessionID] = Waiter(token: token, questionID: questionID, continuation: cont)
-            Task { [weak self] in
-                try? await Task.sleep(for: timeout)
-                await self?.expire(sessionID: sessionID, token: token)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<QuestionAnswers?, Never>) in
+                guard !Task.isCancelled else { cont.resume(returning: nil); return }
+                // A newer question on the same session supersedes the old wait.
+                waiters[sessionID]?.continuation.resume(returning: nil)
+                waiters[sessionID] = Waiter(token: token, questionID: questionID, continuation: cont)
+                Task { [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    await self?.expire(sessionID: sessionID, token: token)
+                }
             }
+        } onCancel: {
+            Task { await self.expire(sessionID: sessionID, token: token) }
         }
     }
 
@@ -250,7 +256,15 @@ public struct AnswerDispatch: Sendable {
                 }
                 return .accepted
             }
-            guard session?.agent == .codex else {
+            // A hosted Grok session queues the supplement for the next prompt
+            // (ADR-0030); a Grok session seen through hooks alone cannot take it.
+            if let session, session.agent == .grok {
+                let support = SessionActionSupport.resolve(for: session)
+                guard support.isAvailable else {
+                    return .failed(support.unsupportedReason ?? "This agent can't take that action from here")
+                }
+            }
+            guard session?.agent == .codex || session?.agent == .grok else {
                 return .failed("\(session?.agent.displayName ?? "This agent") sessions can't take instructions from here")
             }
             guard session?.status != .done else {
@@ -286,7 +300,13 @@ public struct AnswerDispatch: Sendable {
                 }
                 return .accepted
             }
-            guard session?.agent == .codex else {
+            if let session, session.agent == .grok {
+                let support = SessionActionSupport.resolve(for: session)
+                guard support.isAvailable else {
+                    return .failed(support.unsupportedReason ?? "This agent can't continue from here")
+                }
+            }
+            guard session?.agent == .codex || session?.agent == .grok else {
                 return .failed("\(session?.agent.displayName ?? "This agent") sessions can't continue from here")
             }
             guard session?.status == .done else {
@@ -355,7 +375,7 @@ public struct AnswerDispatch: Sendable {
     /// everything else falls through to tmux.
     private func inferredIntent(session: AgentSession?, waiting: Bool, pending: PendingQuestion?) -> SessionActionIntent? {
         if waiting || pending != nil { return .answer }
-        guard session?.agent == .codex || session?.agent == .cursor else { return nil }
+        guard session?.agent == .codex || session?.agent == .cursor || session?.agent == .grok else { return nil }
         return session?.status == .done ? .continue : .steer
     }
 

@@ -131,7 +131,7 @@
 "Rollout" = "Rollout";
 "Transcript" = "对话记录";
 "Recovery" = "恢复";
-"Cursor CLI (ACP)" = "Cursor CLI (ACP)";
+"Agent CLI (ACP)" = "Agent CLI (ACP)";
 "Healthy" = "正常";
 "Temporarily silent" = "暂时无信号";
 "Events missing" = "缺少事件";

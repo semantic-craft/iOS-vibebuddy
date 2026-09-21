@@ -56,7 +56,7 @@ public struct SessionActionSupport: Equatable, Sendable {
         // supplemented one way through its hooks, another through a hosted
         // ACP process, and not at all from a transcript tail.
         switch ControlChannel.infer(for: session) {
-        case .some(.acp): return acpSupport(intent: intent)
+        case .some(.acp): return acpSupport(intent: intent, agent: session.agent)
         case .some(.cloud): return cloudSupport(intent: intent)
         case .some(.hook) where session.agent == .cursor: return cursorHookSupport(intent: intent)
         case .some(.none) where session.agent == .cursor: return unreachableCursorSupport(intent: intent, session: session)
@@ -151,14 +151,21 @@ public struct SessionActionSupport: Equatable, Sendable {
     /// the protocol has no mid-turn steer: `session/prompt` is sequential, so a
     /// supplement waits for the running prompt to return and is sent as the
     /// next one. The composer says so, the same way it does for the hooks.
-    private static func acpSupport(intent: SessionActionIntent) -> SessionActionSupport {
+    private static func acpSupport(intent: SessionActionIntent, agent: AgentKind) -> SessionActionSupport {
+        // Grok Build over ACP is the same shape (ADR-0030): `session/prompt`
+        // is sequential and there is no interject extension.
+        let grok = agent == .grok
         switch intent {
         case .steer:
             return SessionActionSupport(intent: intent,
-                note: String(localized: "Sent as the next message when this turn ends. Cursor's CLI takes one message at a time.", bundle: .module))
+                note: grok
+                    ? String(localized: "Sent as the next message when this turn ends. Grok Build takes one message at a time.", bundle: .module)
+                    : String(localized: "Sent as the next message when this turn ends. Cursor's CLI takes one message at a time.", bundle: .module))
         case .continue:
             return SessionActionSupport(intent: intent,
-                note: String(localized: "Continues this chat through the Cursor CLI vibebuddy is running.", bundle: .module))
+                note: grok
+                    ? String(localized: "Continues this session through the grok process vibebuddy is running.", bundle: .module)
+                    : String(localized: "Continues this chat through the Cursor CLI vibebuddy is running.", bundle: .module))
         default:
             return SessionActionSupport(intent: intent)
         }

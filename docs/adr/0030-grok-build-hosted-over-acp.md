@@ -1,9 +1,9 @@
 # ADR-0030: Host VibeBuddy-started Grok Build sessions over ACP
 
-- Status: accepted design; implementation deferred
+- Status: accepted
 - Date: 2026-09-21
 - Related: [ADR-0016](0016-cursor-observation-and-control.md), [ADR-0010](0010-always-allow-in-vibebuddy-store.md)
-- Delivery status: documentation only. Grok ACP is not part of main or 1.3.24 by this decision.
+- Delivery status: the decision was merged separately in PR #232. PR #233 implements it for Mac 1.3.25; it was not included in Mac 1.3.24.
 
 ## Context
 
@@ -14,9 +14,9 @@ an ACP process that a client can start and own.
 
 The [assessment](../research/agent-integration-assessment-2026-09-21.md)
 separates official protocol documentation, recorded Grok probes, the saved
-prototype, and remaining acceptance work. The prototype passes package tests
-but has missing Mac dispatch and voice wiring. This decision records the
-intended boundary, not completion of that implementation.
+prototype, and remaining acceptance work. The saved prototype passed package tests but lacked Mac dispatch and voice
+wiring. PR #233 closes those gaps and the cancellation and result-mapping
+regressions found during acceptance. See the assessment for evidence and limits.
 
 ## Decision
 
