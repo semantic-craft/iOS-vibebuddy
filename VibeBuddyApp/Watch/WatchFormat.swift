@@ -8,6 +8,17 @@ enum WatchMetrics {
     static let dotLane: CGFloat = 13
 }
 
+/// The agent's allowance beside a decision, but only when it is low enough to
+/// change what you do next (ADR-0031). The wrist has no room for a standing
+/// reading next to an approval, and a healthy one would be noise; what earns
+/// the space is "this agent is nearly out".
+enum WatchLowAllowance {
+    static func text(for agent: AgentKind?, in state: WatchDashboardState?) -> String? {
+        guard let agent, let reading = (state?.quotas ?? []).reading(for: agent), reading.isLow else { return nil }
+        return String(localized: "\(reading.remainingPercent)% left")
+    }
+}
+
 enum WatchFormat {
     /// "38s", "4m", "3d 8h" — localized, and short enough for a wrist.
     static func duration(_ interval: TimeInterval) -> String {

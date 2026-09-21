@@ -81,9 +81,15 @@ struct WatchTaskDetailView: View {
                 Text(task.sourceName)
                     .font(CompanionType.font(10))
                     .foregroundStyle(CompanionPalette.ink2)
+                if let allowance = WatchLowAllowance.text(for: task.agent, in: store.state) {
+                    Text("· \(allowance)")
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.status(.requiresInput))
+                }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(task.sourceName)
+            .accessibilityValue(WatchLowAllowance.text(for: task.agent, in: store.state) ?? "")
             HStack(spacing: 6) {
                 StatusDot(state: task.presentation)
                 Text(status(task))

@@ -76,10 +76,22 @@ the reader wanted.
    under it is scoped, so "who else needs me" never leaves the screen; the
    phone has no room for a second column, so the four tiles stay the phone's
    attention grouping in place of the column's headings.
-9. **One roster, two platforms.** `AgentRoster` in the Kit computes the tallies
-   both surfaces wear, `ProviderQuota.tightest` the allowance both ring, and
-   `QuotaRing` draws it. The Mac keeps `DashboardAgentColumn.groups`, which
-   only it has the height to show.
+9. **The Watch gets the pairing, not the axis.** A rail of agent tiles on a
+   40mm screen would push the alert card down to browse by tool, which is not
+   what a wrist is for, and ADR-0021's order (what needs you, then what is
+   running) is already the column's order. What the Watch was missing is the
+   *pairing*: its allowance section listed providers by name, in the order the
+   Mac happened to send them, away from the agents whose sessions fill the
+   screen above. So its strips now carry the agent's own mark and short name,
+   tightest allowance first (`tightestFirst()`), and a low reading follows the
+   agent to where the decision is made — the alert card's identity line and the
+   task header say "· 6% left" in the attention tint, and only below
+   `QuotaReading.lowRemainingPercent`, because a healthy allowance beside an
+   approval is noise.
+10. **One roster, three platforms.** `AgentRoster` in the Kit computes the
+   tallies the rail and the strip wear, `ProviderQuota.tightest` the allowance
+   all three read, and `QuotaRing` draws it wherever it is a tile. The Mac
+   keeps `DashboardAgentColumn.groups`, which only it has the height to show.
 
 ## Consequences
 

@@ -54,6 +54,40 @@ struct AgentRosterTests {
         #expect(ProviderQuota(provider: .codex).tightest == nil)
     }
 
+    @Test func aSmallScreenReadsTheLowestAllowanceFirstAndUnreadableOnesLast() {
+        // A window with nothing observed reads as unavailable on the row, so
+        // the order has to treat it that way too: real readings carry a time.
+        let observed = now.addingTimeInterval(-60)
+        let quotas = [ProviderQuota(provider: .claude, weeklyRemainingPercent: 60, observedAt: observed),
+                      ProviderQuota(provider: .cursor),
+                      ProviderQuota(provider: .grokBot, weeklyRemainingPercent: 4, observedAt: observed),
+                      ProviderQuota(provider: .codex, weeklyRemainingPercent: 60, observedAt: observed)]
+        #expect(quotas.displayedLowestFirst(now: now).map(\.provider) == [.grokBot, .claude, .codex, .cursor],
+                "ties settle by name so the strip never reshuffles under the eye")
+    }
+
+    /// The Watch reads the weekly pool and files the row by that same number:
+    /// a Cursor row showing 74% must not sort above one showing 41% just
+    /// because an inner window is lower.
+    @Test func theOrderFollowsTheNumberEachRowShows() {
+        let observed = now.addingTimeInterval(-60)
+        let cursor = ProviderQuota(provider: .cursor, otherWindows: [
+            QuotaWindow(remainingPercent: 74, durationMinutes: 43_200, resetsAt: nil, observedAt: observed, label: "Cursor Models"),
+            QuotaWindow(remainingPercent: 31, durationMinutes: 43_200, resetsAt: nil, observedAt: observed, label: "Other Models")
+        ], observedAt: observed)
+        let claude = ProviderQuota(provider: .claude, weeklyRemainingPercent: 41,
+                                   weeklyWindowDurationMinutes: 10_080, observedAt: observed)
+
+        #expect(cursor.tightest?.remainingPercent == 31, "the pool itself is still read honestly")
+        #expect([cursor, claude].displayedLowestFirst(now: now).map(\.provider) == [.claude, .cursor])
+    }
+
+    @Test func onlyAnAllowanceThatChangesTheNextMoveCountsAsLow() {
+        #expect(QuotaReading(remainingPercent: 4).isLow)
+        #expect(QuotaReading(remainingPercent: 10).isLow)
+        #expect(!QuotaReading(remainingPercent: 11).isLow)
+    }
+
     @Test func aFleetReadsItsTightestProviderAndAnAgentReadsItsOwn() {
         let quotas = [ProviderQuota(provider: .claude, weeklyRemainingPercent: 60),
                       ProviderQuota(provider: .grokBot, weeklyRemainingPercent: 5)]

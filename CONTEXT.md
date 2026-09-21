@@ -148,6 +148,13 @@ code, and tests — don't drift to synonyms.
   up, tiles and projects (`InboxProjection(sessions:now:agent:)`), carries into
   the list page and into New task, and survives Back. `AgentRoster` (Kit) is
   the one place both the rail and the strip get their tallies.
+- **Allowance strips (Watch)** — the wrist's quota section (`WatchQuotaStrips`,
+  ADR-0031 §9): one row per provider carrying that **agent's** mark and short
+  name, lowest reading first by the number the row itself shows
+  (`displayedLowestFirst`), unreadable ones last. The Watch takes no agent
+  axis — its order is already attention-first (ADR-0021) — but a reading at or
+  below `QuotaReading.lowRemainingPercent` follows the agent onto the alert
+  card and the task header as "· N% left" in the attention tint.
 - **Right slot** — the dashboard detail column's one place for a session's
   records that are not the conversation, after Cursor's right sidebar
   (`RightSlotState`, ticket 11): the **shelf** (the `On <project>` rows —

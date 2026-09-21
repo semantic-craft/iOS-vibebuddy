@@ -257,8 +257,11 @@ struct WatchQuotaStrips: View {
 
     var body: some View {
         if !state.quotas.isEmpty {
+            // Tightest first: the allowance about to stop work is the one
+            // worth the top line of the section (ADR-0031 reads the same way
+            // on the rail and the strip).
             VStack(spacing: 4) {
-                ForEach(state.quotas) { quota in
+                ForEach(state.quotas.displayedLowestFirst(now: now)) { quota in
                     strip(quota)
                 }
             }
@@ -269,17 +272,23 @@ struct WatchQuotaStrips: View {
         let freshness = quota.freshness(now: now)
         // Prefer weekly; fall back to short / otherWindows (Cursor/Grok monthly).
         let reading = quota.displayWindow(preferring: .weekly)
-        return HStack(spacing: 6) {
-            Text(quota.provider.displayName)
+        let agent = quota.provider.agentKind
+        return HStack(spacing: 5) {
+            // The allowance belongs to the agent, not to a provider name in a
+            // list of its own: the same mark the rows and the detail carry.
+            AgentAvatar(agent: agent, size: 16)
+                .accessibilityHidden(true)
+            Text(agent.shortName)
                 .font(CompanionType.font(10))
                 .foregroundStyle(CompanionPalette.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: 44, alignment: .leading)
+                .frame(width: 38, alignment: .leading)
             if let remaining = reading.currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
                     .tint(freshness == .stale ? CompanionPalette.ink3
-                          : (remaining <= 10 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent))
+                          : (remaining <= QuotaReading.lowRemainingPercent
+                             ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent))
                 Text(WatchFormat.percent(remaining))
                     .font(CompanionType.font(10))
                     .monospacedDigit()
@@ -298,7 +307,7 @@ struct WatchQuotaStrips: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(quota.provider.displayName))
+        .accessibilityLabel(Text(agent.displayName))
         .accessibilityValue(Text(WatchQuotaVoice.summary(quota, freshness: freshness, now: now)))
     }
 }

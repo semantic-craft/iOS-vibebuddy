@@ -60,6 +60,11 @@ public enum AgentRoster {
 
 /// One provider's allowance boiled down to the single number a tile can wear.
 public struct QuotaReading: Sendable, Equatable {
+    /// The share at which an allowance starts changing what you do next. The
+    /// Watch tints its strip here, and surfaces with no room for a standing
+    /// reading (its alert card, its task header) show one only below it.
+    public static let lowRemainingPercent = 10
+
     /// Percent **remaining**, the one quota vocabulary (`ProviderQuota`).
     public let remainingPercent: Int
     public let label: String?
@@ -73,6 +78,10 @@ public struct QuotaReading: Sendable, Equatable {
 
     /// What has been spent, for the bars and rings that fill as you work.
     public var usedPercent: Int { max(0, min(100, 100 - remainingPercent)) }
+
+    /// Little enough left that it belongs beside the decision, not only on
+    /// the allowance page.
+    public var isLow: Bool { remainingPercent <= Self.lowRemainingPercent }
 }
 
 public extension ProviderQuota {
@@ -105,5 +114,30 @@ public extension Collection where Element == ProviderQuota {
     /// that is the allowance about to stop the day's work.
     var tightestReading: QuotaReading? {
         compactMap(\.tightest).min { $0.remainingPercent < $1.remainingPercent }
+    }
+
+    /// The allowances in the order a small screen reads them: lowest first,
+    /// unreadable ones sunk to the bottom rather than jumping the queue, ties
+    /// settled by name so the list never reshuffles under the eye.
+    ///
+    /// It sorts by the number each row *shows* — `displayWindow`, which
+    /// prefers the weekly pool — not by `tightest`. A Cursor row that reads
+    /// 74% while an inner window sits at 31% must not be filed above a row
+    /// reading 41%: a list whose order contradicts its own numbers is worse
+    /// than an unsorted one.
+    func displayedLowestFirst(preferring kind: QuotaWindowKind = .weekly,
+                              now: Date = Date()) -> [ProviderQuota] {
+        sorted { lhs, rhs in
+            let l = lhs.displayWindow(preferring: kind).currentRemainingPercent(now: now)
+            let r = rhs.displayWindow(preferring: kind).currentRemainingPercent(now: now)
+            switch (l, r) {
+            case let (l?, r?):
+                if l != r { return l < r }
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): break
+            }
+            return lhs.provider.displayName.localizedStandardCompare(rhs.provider.displayName) == .orderedAscending
+        }
     }
 }
