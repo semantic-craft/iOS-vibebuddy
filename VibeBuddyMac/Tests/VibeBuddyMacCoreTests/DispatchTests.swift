@@ -10,9 +10,11 @@ import VibeBuddyKit
 struct DispatchRouteTests {
     private func store(with directories: [String]) async -> SessionStore {
         let store = SessionStore()
+        // Spaced far enough apart that a later observation made during the test
+        // itself cannot reorder them ("newest first" is asserted below).
         for (index, dir) in directories.enumerated() {
             await store.ingest(HookEvent(kind: .sessionStart, sessionID: "s\(index)", agent: .codex, cwd: dir,
-                                         timestamp: Date().addingTimeInterval(Double(index))))
+                                         timestamp: Date().addingTimeInterval(Double(index) * 600)))
         }
         return store
     }
