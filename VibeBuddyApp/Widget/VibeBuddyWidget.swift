@@ -182,23 +182,47 @@ struct VibeBuddyLiveActivity: Widget {
                 StateGlyph(state: context.state.summary.primaryState, size: 18, onDark: true)
                     .widgetURL(tapTarget(context.state))
             } compactTrailing: {
-                CompactTrailingStatus(project: context.state.topProject, summary: context.state.summary)
+                CompactTrailingCount(summary: context.state.summary)
                     .widgetURL(tapTarget(context.state))
             } minimal: {
-                CompactTrailingStatus(project: context.state.topProject, summary: context.state.summary)
+                CompactStatusMark(project: context.state.topProject, summary: context.state.summary)
                     .widgetURL(tapTarget(context.state))
             }
         }
     }
 }
 
-/// Compact / minimal island: the leading session's status mark, not a count.
-private struct CompactTrailingStatus: View {
+/// Compact island, trailing: how many sessions the leading glyph stands for.
+/// The glyph says which state; this slot carries that state's count, the same
+/// island grammar the Mac Glance draws (ADR-0011) — visually capped at `99+`,
+/// with the exact count in accessibility. An empty board shows nothing rather
+/// than a meaningless `0`.
+private struct CompactTrailingCount: View {
+    let summary: TaskPresentationSummary
+
+    var body: some View {
+        if !summary.isEmpty {
+            let count = LiveActivityPresentation.compactTrailingCount(summary: summary)
+            // Fixed size: the compact trailing region of the Dynamic Island is
+            // sized by the hardware, not the text ramp (ADR-0017 §8).
+            Text(count > 99 ? "99+" : "\(count)")
+                .font(CompanionType.fixedFont(12, .black).monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7).padding(.vertical, 1)
+                .background(CompanionPalette.status(summary.primaryState), in: Capsule())
+                .accessibilityLabel(
+                    LiveActivityPresentation.compactTrailingAccessibilityLabel(summary: summary))
+        }
+    }
+}
+
+/// Minimal island: one slot, so it keeps the status mark.
+private struct CompactStatusMark: View {
     let project: String?
     let summary: TaskPresentationSummary
 
     var body: some View {
-        let state = LiveActivityPresentation.compactTrailingState(summary: summary)
+        let state = summary.primaryState
         TaskStatusIndicator(state, size: 10)
             .accessibilityLabel(LiveActivityPresentation.compactAccessibilityLabel(
                 project: project, state: state))

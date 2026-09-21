@@ -125,8 +125,8 @@ struct TaskPresentationTests {
         #expect(snapshot.topSessionId == "error")
     }
 
-    @Test("compact trailing follows the leading session, not an aggregate count")
-    func compactTrailingFollowsLeadingSession() {
+    @Test("the two compact slots never say the same thing")
+    func compactSlotsCarryStateAndCount() {
         let sessions = [
             session("idle", status: .done, updatedAt: 9),
             session("thinking", status: .working, updatedAt: 7),
@@ -136,50 +136,48 @@ struct TaskPresentationTests {
         let leading = sessions.leadingPresentationSession
         let summary = TaskPresentationSummary(sessions: sessions)
         #expect(leading?.id == "error")
-        #expect(LiveActivityPresentation.compactTrailingState(leading: leading) == .error)
-        #expect(LiveActivityPresentation.compactTrailingState(summary: summary) == .error)
+        // compactLeading draws this state; compactTrailing draws its count.
+        #expect(summary.primaryState == .error)
+        #expect(LiveActivityPresentation.compactTrailingCount(summary: summary) == 1)
         #expect(LiveActivityPresentation.compactAccessibilityLabel(
             project: leading?.project, state: .error) == "build-fail, \(TaskPresentationState.error.label)")
-
-        let inputOnly = [
-            session("quiet", status: .done, updatedAt: 2),
-            session("release-check", status: .needsResponse, waitKind: .question, updatedAt: 1),
-        ]
-        let inputLeading = inputOnly.leadingPresentationSession
-        #expect(inputLeading?.id == "release-check")
-        #expect(LiveActivityPresentation.compactTrailingState(leading: inputLeading) == .requiresInput)
-        #expect(LiveActivityPresentation.compactTrailingState(
-            summary: TaskPresentationSummary(sessions: inputOnly)) == .requiresInput)
-        #expect(LiveActivityPresentation.compactAccessibilityLabel(
-            project: inputLeading?.project, state: .requiresInput) == "release-check, \(TaskPresentationState.requiresInput.label)")
+        #expect(LiveActivityPresentation.compactTrailingAccessibilityLabel(
+            summary: summary) == "1 \(TaskPresentationState.error.label)")
     }
 
-    @Test("relevanceScore is higher when the leading session needs you")
-    func relevanceScoreNeedsYouOutranksQuiet() {
-        let needsYou: [TaskPresentationState] = [.error, .requiresInput]
-        let quieter: [TaskPresentationState] = [.thinking, .completeUnread, .idle, .unassigned]
-        for urgent in needsYou {
-            for quiet in quieter {
-                #expect(LiveActivityPresentation.relevanceScore(for: urgent)
-                        > LiveActivityPresentation.relevanceScore(for: quiet))
-            }
+    @Test("the island count is the Glance count, so both surfaces say the same number")
+    func compactTrailingMatchesGlanceGrammar() {
+        // ADR-0011: the compact count follows the primary state's own group.
+        for summary in [
+            TaskPresentationSummary(idle: 4, thinking: 3, requiresInput: 2),
+            TaskPresentationSummary(thinking: 3, completeUnread: 5),
+            TaskPresentationSummary(idle: 7),
+            TaskPresentationSummary(thinking: 2, error: 1),
+        ] {
+            #expect(LiveActivityPresentation.compactTrailingCount(summary: summary)
+                    == summary.count(for: summary.primaryState))
+            #expect(LiveActivityPresentation.compactTrailingAccessibilityLabel(summary: summary)
+                    == "\(summary.count(for: summary.primaryState)) \(summary.primaryState.label)")
         }
-        #expect(LiveActivityPresentation.relevanceScore(for: .error)
-                > LiveActivityPresentation.relevanceScore(for: .requiresInput))
-        #expect(LiveActivityPresentation.relevanceScore(for: .thinking)
-                > LiveActivityPresentation.relevanceScore(for: .idle))
+
+        // The pill caps at 99+, but VoiceOver keeps the exact count.
+        let crowded = TaskPresentationSummary(thinking: 120)
+        #expect(LiveActivityPresentation.compactTrailingCount(summary: crowded) == 120)
+        #expect(LiveActivityPresentation.compactTrailingAccessibilityLabel(
+            summary: crowded) == "120 \(TaskPresentationState.thinking.label)")
     }
 
-    @Test("empty and idle compact trailing stay quiet and unlabeled as a count")
+    @Test("an empty board counts nothing and an idle one counts its rest")
     func compactTrailingQuietAndEmpty() {
-        #expect(LiveActivityPresentation.compactTrailingState(leading: nil) == .unassigned)
-        #expect(LiveActivityPresentation.compactTrailingState(summary: TaskPresentationSummary()) == .unassigned)
-        #expect(LiveActivityPresentation.relevanceScore(for: .unassigned) == 0)
+        let empty = TaskPresentationSummary()
+        #expect(empty.isEmpty)
+        #expect(LiveActivityPresentation.compactTrailingCount(summary: empty) == 0)
+        #expect(LiveActivityPresentation.compactTrailingAccessibilityLabel(summary: empty) == "All quiet")
         #expect(LiveActivityPresentation.compactAccessibilityLabel(project: nil, state: .unassigned) == "All quiet")
 
-        let idle = [session("release-check", status: .done, updatedAt: 1)]
-        #expect(LiveActivityPresentation.compactTrailingState(leading: idle.leadingPresentationSession) == .idle)
-        #expect(LiveActivityPresentation.relevanceScore(for: .idle) == 10)
+        let idle = TaskPresentationSummary(sessions: [session("release-check", status: .done, updatedAt: 1)])
+        #expect(idle.primaryState == .idle)
+        #expect(LiveActivityPresentation.compactTrailingCount(summary: idle) == 1)
         #expect(LiveActivityPresentation.compactAccessibilityLabel(
             project: "release-check", state: .idle) == "release-check, \(TaskPresentationState.idle.label)")
         #expect(LiveActivityPresentation.compactAccessibilityLabel(project: nil, state: .thinking) == TaskPresentationState.thinking.label)

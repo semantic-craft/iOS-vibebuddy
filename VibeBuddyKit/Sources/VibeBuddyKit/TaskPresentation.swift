@@ -227,32 +227,15 @@ public extension Array where Element == AgentSession {
     }
 }
 
-/// Compact Dynamic Island trailing slot and Live Activity ranking for the
-/// single highest-attention session. Aggregate counts stay on expanded /
-/// lock-screen copy — they must not occupy `compactTrailing`.
+/// Compact Dynamic Island slots. `compactLeading` carries the state mark, so
+/// the trailing slot carries that state's count — the same island grammar the
+/// Mac Glance draws (ADR-0011), so both surfaces show the same number.
 public enum LiveActivityPresentation {
-    /// Trailing indicator: the leading session's state, or `unassigned` when none.
-    public static func compactTrailingState(leading: AgentSession?) -> TaskPresentationState {
-        leading?.presentationState ?? .unassigned
-    }
-
-    /// Same selection from the already-reduced summary. `primaryState` matches
-    /// `leadingPresentationSession` because both use the same attention order.
-    public static func compactTrailingState(summary: TaskPresentationSummary) -> TaskPresentationState {
-        summary.primaryState
-    }
-
-    /// ActivityKit `relevanceScore`: needs-you states outrank quieter ones so
-    /// this activity wins the Dynamic Island when several compete.
-    public static func relevanceScore(for state: TaskPresentationState) -> Double {
-        switch state {
-        case .error: return 100
-        case .requiresInput: return 80
-        case .thinking: return 40
-        case .completeUnread: return 20
-        case .idle: return 10
-        case .unassigned: return 0
-        }
+    /// How many sessions the leading mark stands for. `count(for:)` of the
+    /// primary state, exactly like the Glance, and `0` on an empty board so the
+    /// trailing slot can stay blank instead of drawing a meaningless zero.
+    public static func compactTrailingCount(summary: TaskPresentationSummary) -> Int {
+        summary.count(for: summary.primaryState)
     }
 
     /// VoiceOver for the compact mark: project + state, never a bare count.
@@ -263,5 +246,13 @@ public enum LiveActivityPresentation {
             return "\(project), \(spoken)"
         }
         return spoken
+    }
+
+    /// VoiceOver for the trailing count: the exact count and its state, never
+    /// the `99+` the pill draws (ADR-0011).
+    public static func compactTrailingAccessibilityLabel(summary: TaskPresentationSummary) -> String {
+        let state = summary.primaryState
+        if state == .unassigned { return String(localized: "All quiet", bundle: .module) }
+        return "\(compactTrailingCount(summary: summary)) \(state.label)"
     }
 }
