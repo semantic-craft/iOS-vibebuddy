@@ -76,6 +76,7 @@ public actor GrokACPMonitor {
         var tools: [String: ToolCallRecord] = [:]
         var openApprovals: [String: JSONRPCID] = [:]
         var openQuestions: [String: JSONRPCID] = [:]
+        var requests: [UUID: Task<Void, Never>] = [:]
         var contextWindow: Int?
         var model: String?
     }
@@ -242,6 +243,8 @@ public actor GrokACPMonitor {
             return .notSent(String(localized: "The grok process behind this task has exited."))
         }
         entry.stopRequestedAt = Date()
+        for task in entry.requests.values { task.cancel() }
+        entry.requests = [:]
         hosted[sessionID] = entry
         entry.client.notify("session/cancel", params: ["sessionId": sessionID])
         await followups.cancel(conversationID: sessionID)
@@ -255,6 +258,7 @@ public actor GrokACPMonitor {
         for client in preparing.values { client.close() }
         preparing = [:]
         for (sessionID, entry) in hosted {
+            for task in entry.requests.values { task.cancel() }
             await followups.cancel(conversationID: sessionID)
             await withdrawOpenRequests(sessionID: sessionID, expectedClient: entry.client, expectedTurnID: entry.turnID)
             entry.client.close()
@@ -279,7 +283,7 @@ public actor GrokACPMonitor {
             let now = Date()
             await self.store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: sessionID, agent: .grok,
                                               cwd: entry.cwd, message: String(text.prefix(220)),
-                                              observationSource: .acp, timestamp: now))
+                                              observationSource: .acp, timestamp: now, turnID: entry.turnID.uuidString))
             var stopReason = "error"
             var failure: String?
             do {
@@ -301,6 +305,8 @@ public actor GrokACPMonitor {
         guard var entry = hosted[sessionID], entry.client === client else { return }
         entry.running = false
         entry.finishing = true
+        for task in entry.requests.values { task.cancel() }
+        entry.requests = [:]
         hosted[sessionID] = entry
         await withdrawOpenRequests(sessionID: sessionID, expectedClient: client, expectedTurnID: entry.turnID)
         entry.openApprovals = [:]
@@ -326,7 +332,7 @@ public actor GrokACPMonitor {
         hosted[sessionID] = entry
         let ending = HookEvent(kind: .stop, sessionID: sessionID, agent: .grok, cwd: entry.cwd,
                                message: message, observationSource: .acp,
-                               toolError: !cancelled && !succeeded, timestamp: now,
+                               toolError: !cancelled && !succeeded, timestamp: now, turnID: entry.turnID.uuidString,
                                completionText: succeeded && !entry.text.isEmpty ? entry.text : nil,
                                // A denied request ends the turn without a verdict on the
                                // work: neither a success to summarise nor a failure to cue.
@@ -362,7 +368,7 @@ public actor GrokACPMonitor {
         client.onRequest = { [weak self, weak client] id, method, params in
             guard let self, let client else { return }
             let payload = Payload(value: params)
-            Task { await self.handleRequest(id: id, method: method, params: payload.value, client: client) }
+            Task { await self.receiveRequest(id: id, method: method, params: payload.value, client: client) }
         }
         client.onClose = { [weak self, weak client] in
             guard let self, let client else { return }
@@ -372,6 +378,7 @@ public actor GrokACPMonitor {
 
     private func clientClosed(_ client: CursorACPClient) async {
         for (sessionID, entry) in hosted where entry.client === client {
+            for task in entry.requests.values { task.cancel() }
             await followups.cancel(conversationID: sessionID)
             guard hosted[sessionID]?.client === entry.client else { continue }
             await withdrawOpenRequests(sessionID: sessionID, expectedClient: entry.client, expectedTurnID: entry.turnID)
@@ -444,14 +451,29 @@ public actor GrokACPMonitor {
         }
     }
 
-    private func handleRequest(id: JSONRPCID, method: String, params: [String: Any]?, client: CursorACPClient) async {
+    private func receiveRequest(id: JSONRPCID, method: String, params: [String: Any]?, client: CursorACPClient) {
         let sessionID = (params?["sessionId"] as? String)
             ?? hosted.first(where: { $0.value.client === client })?.key
-        guard let sessionID, hosted[sessionID]?.client === client else {
+        guard let sessionID, var entry = hosted[sessionID], entry.client === client else {
             client.respondError(id: id, code: -32602, message: "unknown session")
             return
         }
-        guard let current = hosted[sessionID], current.running, !current.finishing, current.stopRequestedAt == nil else {
+        let requestID = UUID()
+        let turnID = entry.turnID
+        let payload = Payload(value: params)
+        entry.requests[requestID] = Task {
+            await self.handleRequest(id: id, method: method, params: payload.value,
+                                     client: client, sessionID: sessionID, turnID: turnID)
+            self.hosted[sessionID]?.requests[requestID] = nil
+        }
+        hosted[sessionID] = entry
+    }
+
+    private func handleRequest(id: JSONRPCID, method: String, params: [String: Any]?,
+                               client: CursorACPClient, sessionID: String, turnID: UUID) async {
+        guard !Task.isCancelled, !stopping, !client.isClosed,
+              let current = hosted[sessionID], current.client === client,
+              current.turnID == turnID, current.running, !current.finishing, current.stopRequestedAt == nil else {
             client.respond(id: id, result: Self.cancelledOutcome(for: method))
             return
         }
@@ -488,8 +510,12 @@ public actor GrokACPMonitor {
             return
         }
         let storeRules = await allowStore.all()
-        if await sessionAllow.contains(sessionID)
-            || storeRules.contains(where: { AllowRule.matchesExactly($0, tool: tool, input: input) }) {
+        let sessionAllowed = await sessionAllow.contains(sessionID)
+        guard !Task.isCancelled else {
+            client.respond(id: id, result: Self.cancelledOutcome(for: "session/request_permission"))
+            return
+        }
+        if sessionAllowed || storeRules.contains(where: { AllowRule.matchesExactly($0, tool: tool, input: input) }) {
             client.respond(id: id, result: CursorACPMonitor.selected(options.allow))
             return
         }
@@ -499,6 +525,13 @@ public actor GrokACPMonitor {
         await approvalContext.set(id: approvalID, sessionID: sessionID,
                                   rule: AllowRule.forApproval(tool: tool, input: input))
         await approvals.prepare(id: approvalID)
+        guard !Task.isCancelled else {
+            _ = await approvalContext.take(id: approvalID)
+            _ = await approvals.resolve(id: approvalID, with: .pass)
+            _ = await approvals.wait(id: approvalID, timeout: .zero)
+            client.respond(id: id, result: Self.cancelledOutcome(for: "session/request_permission"))
+            return
+        }
         if var live = hosted[sessionID] { live.openApprovals[approvalID] = id; hosted[sessionID] = live }
         await store.beginApproval(sessionID: sessionID,
             PendingApproval(id: approvalID, tool: tool,
@@ -525,6 +558,10 @@ public actor GrokACPMonitor {
         // `options[].label/description`, `multiSelect` — which the Cursor
         // adapter already reads.
         guard let question = CursorAskQuestionInput.pendingQuestion(from: params, id: makeID()) else {
+            client.respond(id: id, result: Self.questionCancelled)
+            return
+        }
+        guard !Task.isCancelled else {
             client.respond(id: id, result: Self.questionCancelled)
             return
         }

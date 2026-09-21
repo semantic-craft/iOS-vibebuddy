@@ -21,7 +21,7 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     case rollout
     case transcript
     case recovery
-    /// A `cursor-agent acp` process vibebuddy itself hosts: its `session/update`
+    /// An agent process VibeBuddy itself hosts over ACP: its `session/update`
     /// notifications are the live source for that conversation, and the same
     /// pipe carries the answers.
     case acp
@@ -42,7 +42,7 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
         case .rollout: String(localized: "Rollout", bundle: .module)
         case .transcript: String(localized: "Transcript", bundle: .module)
         case .recovery: String(localized: "Recovery", bundle: .module)
-        case .acp: String(localized: "Cursor CLI (ACP)", bundle: .module)
+        case .acp: String(localized: "Agent CLI (ACP)", bundle: .module)
         }
     }
 }
@@ -92,7 +92,7 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
             case .transcript: return "The transcript cannot be read."
             case .hook: return "The hook configuration cannot be read."
             case .recovery: return "The recovery source cannot be read."
-            case .acp: return "The Cursor CLI process VibeBuddy started is not answering. Check that cursor-agent is installed and signed in."
+            case .acp: return "The agent CLI process VibeBuddy started is not answering. Check that the CLI is installed and signed in."
             }
         case .notInstalled:
             return "The agent is not installed or has no local configuration."

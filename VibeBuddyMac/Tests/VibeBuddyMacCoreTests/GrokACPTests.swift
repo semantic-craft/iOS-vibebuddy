@@ -146,10 +146,29 @@ private func permissionParams() -> [String: Any] { [
                 ["optionId": "reject-always", "name": "No, and don't ask again for this command", "kind": "reject_always"]],
 ] }
 
+private final class PermissionReadGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let releaseSignal = DispatchSemaphore(value: 0)
+    private var enteredValue = false
+    private var rulesReadValue = false
+    var entered: Bool { lock.withLock { enteredValue } }
+    var rulesRead: Bool { lock.withLock { rulesReadValue } }
+    func markRulesRead() { lock.withLock { rulesReadValue = true } }
+    func block() {
+        lock.withLock { enteredValue = true }
+        _ = releaseSignal.wait(timeout: .now() + 10)
+    }
+    func release() { releaseSignal.signal() }
+}
+
+private extension VibeBuddyAllowStore {
+    func holdPermissionReads(_ gate: PermissionReadGate) { gate.block() }
+}
+
 @Suite("Grok ACP host")
 struct GrokACPTests {
     private struct Rig {
-        let store = SessionStore()
+        let store: SessionStore
         let approvals = ApprovalRegistry()
         let approvalContext = ApprovalContextStore()
         let questions = QuestionRegistry()
@@ -159,14 +178,16 @@ struct GrokACPTests {
         let log = LaunchLog()
         let monitor: GrokACPMonitor
 
-        init(agent: FakeGrokAgent = FakeGrokAgent(), signedIn: Bool = true, deny: [String] = []) {
+        init(agent: FakeGrokAgent = FakeGrokAgent(), signedIn: Bool = true, deny: [String] = [],
+             onRulesRead: @escaping @Sendable () -> Void = {}, journalURL: URL? = nil) {
             self.agent = agent
+            store = SessionStore(sourceID: "grok-test-source", journalURL: journalURL)
             let log = self.log
             allowStore = VibeBuddyAllowStore(url: FileManager.default.temporaryDirectory
                 .appendingPathComponent("vbgrok-\(UUID().uuidString).json"))
             monitor = GrokACPMonitor(store: store, approvals: approvals, approvalContext: approvalContext,
                                      questions: questions, allowStore: allowStore, sessionAllow: sessionAllow,
-                                     rules: { _ in PermissionRules(allow: [], deny: deny) },
+                                     rules: { _ in onRulesRead(); return PermissionRules(allow: [], deny: deny) },
                                      makeID: { UUID().uuidString },
                                      executable: URL(fileURLWithPath: "/usr/bin/true"),
                                      signInProbe: { signedIn },
@@ -203,6 +224,40 @@ struct GrokACPTests {
         #expect(SessionActionSupport.resolve(for: session!).isAvailable)
         #expect(SessionActionSupport.resolveStop(for: session!).isAvailable)
         #expect(await rig.monitor.hosts(rig.agent.sessionID))
+    }
+
+    @Test func hostedResultsSurviveCorroboratingHooksAcrossTurns() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let rig = Rig(journalURL: directory.appendingPathComponent("lifecycle.json"))
+        var completions: [String] = []
+        _ = await rig.monitor.dispatch(request)
+        for index in 0..<2 {
+            await eventually("prompt") { rig.agent.request(named: "session/prompt", after: index) != nil }
+            let nativeTurn = "native-prompt-\(index)"
+            await rig.store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: rig.agent.sessionID,
+                agent: .grok, observationSource: .hook, timestamp: Date(), turnID: nativeTurn))
+            let text = "Result for turn \(index)."
+            rig.agent.update(["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": text]])
+            await rig.store.ingest(HookEvent(kind: .stop, sessionID: rig.agent.sessionID, agent: .grok,
+                observationSource: .hook, timestamp: Date(), turnID: nativeTurn, completionText: text, completionSucceeded: true))
+            rig.agent.endTurn("end_turn")
+            await eventually("done") { await rig.session()?.status == .done }
+            let session = try #require(await rig.session())
+            let completion = try #require(session.completionID)
+            let body = await rig.store.completionBody(sessionID: session.id, completionID: completion)
+            #expect(body.text == text)
+            completions.append(completion)
+            if index == 0 {
+                #expect(await rig.monitor.prompt(sessionID: session.id, text: "next"))
+            }
+        }
+        let ledger = RecapLedger(url: directory.appendingPathComponent("recap-ledger.json"))
+        for (index, completion) in completions.enumerated() {
+            let key = RecapEntry.completedID(sourceID: "grok-test-source", sessionID: rig.agent.sessionID, completionID: completion)
+            #expect(ledger.results[key]?.text == "Result for turn \(index).")
+        }
+        await rig.monitor.shutdown()
     }
 
     @Test func signedOutOrMissingCLIIsReportedNotSpawned() async {
@@ -343,6 +398,29 @@ struct GrokACPTests {
         await eventually("done") { await rig.session()?.status == .done }
         #expect(await rig.session()?.userStopped == true)
         #expect(await rig.session()?.failed != true)
+    }
+
+    @Test func cancellingWhilePermissionRulesLoadCannotReopenTheFinishedTurn() async throws {
+        let gate = PermissionReadGate()
+        let rig = Rig(onRulesRead: { gate.markRulesRead() })
+        _ = await rig.monitor.dispatch(request)
+        await eventually("prompt") { rig.agent.request(named: "session/prompt") != nil }
+        let blockedRead = Task { await rig.allowStore.holdPermissionReads(gate) }
+        await eventually("blocked permission actor") { gate.entered }
+        let rpc = rig.agent.ask("session/request_permission", permissionParams())
+        await eventually("permission handler reached rules") { gate.rulesRead }
+        _ = await rig.monitor.cancel(sessionID: rig.agent.sessionID)
+        rig.agent.endTurn("cancelled")
+        await eventually("cancelled turn ended") { await rig.session()?.status == .done }
+        gate.release()
+        await blockedRead.value
+        await eventually("cancelled permission reply") { rig.agent.response(to: rpc) != nil }
+        let session = try #require(await rig.session())
+        #expect(session.status == .done)
+        #expect(session.pendingApproval == nil)
+        let result = rig.agent.response(to: rpc)?["result"] as? [String: Any]
+        #expect((result?["outcome"] as? [String: Any])?["outcome"] as? String == "cancelled")
+        await rig.monitor.shutdown()
     }
 
     @Test func theProcessExitingEndsTheTurnAndReleasesTheHost() async throws {

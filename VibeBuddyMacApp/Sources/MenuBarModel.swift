@@ -423,12 +423,16 @@ final class MenuBarModel: ObservableObject {
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
             followups: cursorFollowups,
             executable: cursorExecutable, recoveryDirectory: cursorRecovery)
-        // Isolated acceptance never spawns the real grok; the E2E rig has no
-        // Grok agent, so the host simply reports unsupported there.
+        let grokExecutable: URL?
+        if let run = E2ERunConfiguration.current {
+            grokExecutable = run.grokACPEnabled ? run.file("grok") : nil
+        } else {
+            grokExecutable = GrokUsageProvider.resolveGrokExecutable()
+        }
         grokACP = GrokACPMonitor(
             store: store, approvals: approvalRegistry, approvalContext: approvalContext,
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
-            executable: E2ERunConfiguration.current == nil ? GrokUsageProvider.resolveGrokExecutable() : nil)
+            executable: grokExecutable)
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -1323,7 +1327,8 @@ final class MenuBarModel: ObservableObject {
 
     func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false) async -> DispatchOutcome {
         let dispatcher = TaskDispatcher(store: store, codex: codexAppServerMonitor,
-                                        claude: claudeLauncher, cursor: cursorLauncher, cursorACP: cursorACP)
+                                        claude: claudeLauncher, cursor: cursorLauncher, cursorACP: cursorACP,
+                                        grokACP: grokACP)
         switch await dispatcher.dispatch(request, directory: userChoseDirectory ? .userSelected : .knownSession) {
         case .success(let outcome): return outcome
         case .failure(.directoryUnavailable): return .rejected("That folder is no longer available.")
@@ -1468,12 +1473,19 @@ final class MenuBarModel: ObservableObject {
             let monitor = codexAppServerMonitor
             let followups = cursorFollowups
             let acp = cursorACP
+            let grok = grokACP
             let cloud = voiceCursorCloud
             let store = store
             let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
                 inject: { ref, text in TerminalInjector.inject(text, into: ref) },
-                steer: { id, text in await monitor.steer(threadID: id, text: text) },
-                startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) },
+                steer: { id, text in
+                    if await grok.hosts(id) { return await grok.queueFollowup(sessionID: id, text: text) }
+                    return await monitor.steer(threadID: id, text: text)
+                },
+                startTurn: { id, text in
+                    if await grok.hosts(id) { return await grok.prompt(sessionID: id, text: text) }
+                    return await monitor.startTurn(threadID: id, text: text)
+                },
                 queueCursorFollowup: { id, text in
                     await followups.queue(conversationID: id, text: text) != nil
                 },

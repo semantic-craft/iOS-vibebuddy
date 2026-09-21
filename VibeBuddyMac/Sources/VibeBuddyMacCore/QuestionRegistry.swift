@@ -23,16 +23,22 @@ public actor QuestionRegistry {
     public func isWaiting(sessionID: String) -> Bool { waiters[sessionID] != nil }
 
     public func wait(sessionID: String, questionID: String? = nil, timeout: Duration) async -> QuestionAnswers? {
+        guard !Task.isCancelled else { return nil }
         if let answers = early.removeValue(forKey: sessionID) { return answers }
         let token = UUID()
-        return await withCheckedContinuation { (cont: CheckedContinuation<QuestionAnswers?, Never>) in
-            // A newer question on the same session supersedes the old wait.
-            waiters[sessionID]?.continuation.resume(returning: nil)
-            waiters[sessionID] = Waiter(token: token, questionID: questionID, continuation: cont)
-            Task { [weak self] in
-                try? await Task.sleep(for: timeout)
-                await self?.expire(sessionID: sessionID, token: token)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (cont: CheckedContinuation<QuestionAnswers?, Never>) in
+                guard !Task.isCancelled else { cont.resume(returning: nil); return }
+                // A newer question on the same session supersedes the old wait.
+                waiters[sessionID]?.continuation.resume(returning: nil)
+                waiters[sessionID] = Waiter(token: token, questionID: questionID, continuation: cont)
+                Task { [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    await self?.expire(sessionID: sessionID, token: token)
+                }
             }
+        } onCancel: {
+            Task { await self.expire(sessionID: sessionID, token: token) }
         }
     }
 

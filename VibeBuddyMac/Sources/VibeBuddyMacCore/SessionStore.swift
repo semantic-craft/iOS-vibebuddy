@@ -848,7 +848,7 @@ public actor SessionStore {
         return true
     }
 
-    /// While the ACP host carries a Cursor conversation, the hooks Cursor still
+    /// While the ACP host carries a conversation, the hooks its CLI still
     /// fires for it and the transcript it still writes describe the same turn
     /// a beat later; they may corroborate but must not move the three states
     /// or mint a second completion. `sessionEnd` passes: a process that has
@@ -913,7 +913,9 @@ public actor SessionStore {
                     agent: event.agent, sessionName: name, timestamp: event.timestamp),
                     observationSource: observationSource, recordsEvidence: false)
             }
-            if !completedTurnProgress {
+            // ACP owns the prompt identity and final text. Native hooks carry
+            // another prompt ID and must not replace that completion mapping.
+            if !completedTurnProgress, !acpOutranks(event, from: observationSource) {
                 completionResults.observe(event, session: reducer.sessions[event.sessionID],
                     sourceID: sourceID, now: Date(), authoritative: false)
                 persistCompletionResults()
@@ -1232,6 +1234,7 @@ public actor SessionStore {
     }
 
     public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date, source: ObservationSource = .hook) {
+        guard !Task.isCancelled else { return }
         reducer.setPendingApproval(sessionID: sessionID, approval, at: at)
         if let session = reducer.sessions[sessionID] {
             explicitWaits[sessionID] = .approval(approval.id)
@@ -1258,6 +1261,7 @@ public actor SessionStore {
     }
 
     public func beginQuestion(sessionID: String, _ question: PendingQuestion, at: Date, source: ObservationSource = .hook) {
+        guard !Task.isCancelled else { return }
         reducer.setPendingQuestion(sessionID: sessionID, question, at: at)
         if let session = reducer.sessions[sessionID] {
             explicitWaits[sessionID] = .question(question.id)
