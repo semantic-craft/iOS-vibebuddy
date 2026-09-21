@@ -282,6 +282,8 @@ struct NewTaskSheet: View {
             return String(localized: "Runs on \(macLabel) as a Codex thread with your usual settings.")
         case .cursor:
             return String(localized: "Runs on \(macLabel) over the Cursor CLI, hosted by vibebuddy.")
+        case .grok:
+            return String(localized: "Runs on \(macLabel) as a Grok task managed by VibeBuddy.")
         default:
             return String(localized: "Runs on \(macLabel) as a Claude Code background session.")
         }
@@ -293,6 +295,8 @@ struct NewTaskSheet: View {
             return String(localized: "Runs as a new Codex thread on your Mac through the app-server daemon, with your usual model, approval and sandbox settings. It appears in Codex Desktop and in Working here.")
         case .cursor:
             return String(localized: "Hosted by vibebuddy on your Mac over the Cursor CLI. It appears in Working here and can be stopped, continued and answered from this phone; it ends if vibebuddy quits. A new worktree is created on your Mac under ~/.cursor/worktrees/<repo>/<name>; Plan and Ask are read-only.")
+        case .grok:
+            return String(localized: "VibeBuddy starts and manages this Grok task on your Mac. You can send follow-up instructions, answer supported questions and approvals, and stop it from this phone. Instructions sent while it is running wait for the next turn. Live controls are unavailable after the Mac companion quits.")
         default:
             return String(localized: "Runs as a Claude Code background session on your Mac (claude --bg) with your usual settings. It appears in Working here; Jump opens a terminal attached to it.")
         }
