@@ -326,6 +326,39 @@ struct CompletionSummaryTests {
         #expect(SummaryStub.state.maximumActive == 2)
     }
 
+    @Test func instructionsShapeOutputForAnActionFirstReader() {
+        for style in ContentStyle.allCases {
+            let config = ContentStyleConfiguration(style: style, customPrompt: "只讲客户收益。")
+            for purpose in [SummaryPurpose.notice, .speech, .history, .recap] {
+                let text = CompletionSummaryHTTP.instructions(style: config, purpose: purpose, language: .chinese)
+                // Reader-shaped rules apply to every style and purpose: no preamble, visible state, numbered user steps, capped lists.
+                #expect(text.contains("不写开场白"))
+                #expect(text.contains("说清当前状态"))
+                #expect(text.contains("编号列出"))
+                #expect(text.contains("最多五条"))
+                #expect(text.contains("记录没有就不估计"))
+                // The evidence rules stay in force with the new shape.
+                #expect(text.contains("不替用户规划项目"))
+                #expect(text.contains("不可信资料"))
+                #expect(text.contains("读者只读第一句和最后一句"))
+            }
+        }
+        let concise = CompletionSummaryHTTP.instructions(style: .default, purpose: .history, language: .chinese)
+        #expect(concise.contains("第一句就是行动"))
+        #expect(concise.contains("两分钟内能做的具体动作"))
+        let notice = CompletionSummaryHTTP.instructions(style: .default, purpose: .notice, language: .chinese)
+        #expect(notice.contains("hard maximum 180 characters"))
+        #expect(notice.contains("No line breaks, numbering or Markdown"))
+        let speech = CompletionSummaryHTTP.instructions(style: .default, purpose: .speech, language: .chinese)
+        #expect(speech.contains("spoken order"))
+        #expect(!speech.contains("1. 2. 3."))
+        let history = CompletionSummaryHTTP.instructions(style: .default, purpose: .history, language: .chinese)
+        #expect(history.contains("numbered list (1. 2. 3.) is allowed only for steps the user must take"))
+        let custom = CompletionSummaryHTTP.instructions(style: .init(style: .custom, customPrompt: "只讲客户收益。"), purpose: .recap, language: .english)
+        #expect(custom.contains("只讲客户收益。"))
+        #expect(custom.contains("The evidence and output rules above always apply"))
+    }
+
     @Test func cancellation() async throws {
         let session = session(body: try json(qwen()), delay: 1)
         defer { session.invalidateAndCancel() }
