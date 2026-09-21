@@ -75,16 +75,21 @@ struct DashboardView: View {
     @State private var composerDrafts: [String: String] = [:]
     /// The sidebar's two settled shapes, remembered like the quota plinth:
     /// its last labeled width and whether it is folded to the icon rail.
-    /// `DashboardSidebarWidth` holds the bounds and the snap rule.
-    @AppStorage("dashboard.sidebarLabeledWidth") private var sidebarLabeledWidth = Double(DashboardSidebarWidth.labeledDefault)
+    /// `DashboardColumnWidth.sidebar` holds the bounds and the snap rule.
+    @AppStorage("dashboard.sidebarLabeledWidth") private var sidebarLabeledWidth = Double(DashboardColumnWidth.sidebar.fullDefault)
     @AppStorage("dashboard.sidebarIconOnly") private var sidebarIconOnly = false
     /// The pointer's width while a drag on the sidebar's edge is live; nil at rest.
     @State private var sidebarDragWidth: CGFloat?
     @State private var sidebarDragOrigin: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The list's compact flag, owned here and driven by `ResizableListSplit`
+    /// (the drag, the double-click); ⌘F and the strip's search glyph unfold
+    /// the list so the field can take focus.
+    @AppStorage(DashboardListColumn.compactKey) private var listCompact = false
 
+    private static let sidebarPolicy = DashboardColumnWidth.sidebar
     private var sidebarSettledWidth: CGFloat {
-        sidebarIconOnly ? DashboardSidebarWidth.iconOnly : DashboardSidebarWidth.clampedLabeled(CGFloat(sidebarLabeledWidth))
+        sidebarIconOnly ? Self.sidebarPolicy.compact : Self.sidebarPolicy.clampedFull(CGFloat(sidebarLabeledWidth))
     }
     private var sidebarWidth: CGFloat { sidebarDragWidth ?? sidebarSettledWidth }
     /// Release and the double-click settle with a short snappy spring; with
@@ -102,14 +107,14 @@ struct DashboardView: View {
     private func sidebarDragChanged(by delta: CGFloat) {
         var live = Transaction()
         live.disablesAnimations = true
-        withTransaction(live) { sidebarDragWidth = DashboardSidebarWidth.clampedDuringDrag(sidebarDragOrigin + delta) }
+        withTransaction(live) { sidebarDragWidth = Self.sidebarPolicy.clampedDuringDrag(sidebarDragOrigin + delta) }
     }
 
     private func sidebarDragEnded() {
         guard let released = sidebarDragWidth else { return }
-        let target = DashboardSidebarWidth.settled(released: released)
+        let target = Self.sidebarPolicy.settled(released: released)
         withAnimation(sidebarSettle) {
-            sidebarIconOnly = target == DashboardSidebarWidth.iconOnly
+            sidebarIconOnly = target == Self.sidebarPolicy.compact
             if !sidebarIconOnly { sidebarLabeledWidth = Double(target) }
             sidebarDragWidth = nil
         }
@@ -121,17 +126,12 @@ struct DashboardView: View {
 
     /// One accessibility increment or decrement: a step through the labeled
     /// range, folding to the rail below the narrowest labeled width and
-    /// unfolding from it.
+    /// unfolding from it (the policy's rule).
     private func sidebarStep(_ direction: Int) {
+        let next = Self.sidebarPolicy.stepped(full: CGFloat(sidebarLabeledWidth), compact: sidebarIconOnly, direction: direction)
         withAnimation(sidebarSettle) {
-            if sidebarIconOnly {
-                if direction > 0 { sidebarIconOnly = false }  // back to the remembered labeled width
-                return
-            }
-            let current = DashboardSidebarWidth.clampedLabeled(CGFloat(sidebarLabeledWidth))
-            if direction < 0, current <= DashboardSidebarWidth.minLabeled { sidebarIconOnly = true; return }
-            let stepped = current + CGFloat(direction) * DashboardSidebarWidth.accessibilityStep
-            sidebarLabeledWidth = Double(DashboardSidebarWidth.clampedLabeled(stepped))
+            sidebarIconOnly = next.compact
+            sidebarLabeledWidth = Double(next.full)
         }
     }
 
@@ -174,7 +174,18 @@ struct DashboardView: View {
     /// none, so searching from there lands on Current tasks.
     private func focusSearch() {
         if libraryScope == "usage" || libraryScope == "inbox" || libraryScope == "recap" { openBucket(nil) }
-        searchFocused = true
+        unfoldListThenFocusSearch()
+    }
+
+    /// The search field is off screen while the list is the compact strip;
+    /// unfold first (with the settle spring), then focus once it is in the tree.
+    private func unfoldListThenFocusSearch() {
+        if listCompact {
+            withAnimation(reduceMotion ? nil : .snappy) { listCompact = false }
+            DispatchQueue.main.async { searchFocused = true }
+        } else {
+            searchFocused = true
+        }
     }
 
     /// History's projects with a conversation count each, for the sidebar.
@@ -201,12 +212,15 @@ struct DashboardView: View {
                 // The drag handle straddles the hairline; it draws above the
                 // content column so its pill and tip are never covered.
                 .overlay {
-                    SidebarResizeHandle(dragging: sidebarDragWidth != nil, accessibilityValue: sidebarAccessibilityValue,
-                                        onDragBegan: sidebarDragBegan,
-                                        onDragChanged: sidebarDragChanged,
-                                        onDragEnded: sidebarDragEnded,
-                                        onDoubleClick: sidebarToggleIconOnly,
-                                        onStep: sidebarStep)
+                    ColumnResizeHandle(dragging: sidebarDragWidth != nil,
+                                       accessibilityLabel: String(localized: "Sidebar width"),
+                                       accessibilityValue: sidebarAccessibilityValue,
+                                       accessibilityHelp: String(localized: "Drag to resize; double-click to collapse or expand the sidebar"),
+                                       onDragBegan: sidebarDragBegan,
+                                       onDragChanged: sidebarDragChanged,
+                                       onDragEnded: sidebarDragEnded,
+                                       onDoubleClick: sidebarToggleIconOnly,
+                                       onStep: sidebarStep)
                 }
                 .zIndex(1)
             Group {
@@ -221,10 +235,9 @@ struct DashboardView: View {
                 } else if libraryScope == "recap" {
                     MacRecapView(model: model)
                 } else if libraryScope == "live" {
-                    HSplitView {
-                        sessionsColumn
-                        detailColumn
-                    }
+                    // The list's right edge resizes like the sidebar's; the
+                    // reader takes what is left (ADR-0024: no right column).
+                    ResizableListSplit(compact: $listCompact) { labels in sessionsColumn(labels) } reader: { detailColumn }
                 } else if libraryScope == "usage" {
                     UsageWorkbenchView(model: model)
                 } else {
@@ -426,10 +439,14 @@ struct DashboardView: View {
 
     /// The list column's head, as Cursor lays out a list page: the scope as
     /// the title, the search field, then a row of filter chips. ⌘1–5 and ⌘0
-    /// still drive the same filter.
-    private var sessionsColumn: some View {
+    /// still drive the same filter. `listLabels` is the lettering at the
+    /// list's current width: the compact strip folds the head to one search
+    /// glyph and every row to its agent tile.
+    private func sessionsColumn(_ listLabels: ColumnLabelStyle) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
+                // The strip keeps the head's rows in the tree at zero opacity
+                // so the pill and the cards below never shift vertically.
                 HStack(alignment: .firstTextBaseline) {
                     Text(scopeTitle).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
                         .lineLimit(1).truncationMode(.middle)
@@ -437,10 +454,20 @@ struct DashboardView: View {
                     Text(filtered.count == 1 ? String(localized: "1 session") : String(localized: "\(filtered.count) sessions"))
                         .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
                 }
-                SearchPill(query: $query, focused: $searchFocused)
+                // Under the narrowest full width the row keeps its one-line
+                // layout (clipped at the edge) rather than wrapping the count
+                // and pushing everything below it down.
+                .fixedSize(horizontal: listLabels.transitional, vertical: false)
+                .listHeadWords(listLabels)
+                if listLabels.iconOnly {
+                    CompactSearchGlyph(action: unfoldListThenFocusSearch)
+                } else {
+                    SearchPill(query: $query, focused: $searchFocused)
+                }
                 if projection.olderCount > 0 || showOlder {
                     Toggle(isOn: $showOlder) { Text("Show \(projection.olderCount) older") }
                         .toggleStyle(.checkbox).font(MacTheme.font(10.5))
+                        .listHeadWords(listLabels)
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -468,6 +495,7 @@ struct DashboardView: View {
                     }
                 }
                 .accessibilityLabel("Filter sessions by state")
+                .listHeadWords(listLabels)
             }
             .padding(.horizontal, 12).padding(.top, 12)
             ScrollView {
@@ -503,7 +531,7 @@ struct DashboardView: View {
                 .padding(.horizontal, 12).padding(.bottom, 12)
             }
         }
-        .frame(minWidth: 240, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
+        .frame(maxHeight: .infinity)
     }
 
     /// Continue with… asked for the sheet: prefill it and consume the request.
@@ -547,14 +575,14 @@ struct DashboardView: View {
                 SessionReaderPane(subject: subject(for: s), targetMessage: nil, model: model, history: history, reader: reader, draft: draftBinding(for: s.id))
                 pendingFooter
             }
-                .frame(minWidth: 340, idealWidth: 520, maxWidth: .infinity)
+                .frame(minWidth: DashboardListColumn.readerMinWidth, idealWidth: 520, maxWidth: .infinity)
         } else {
             VStack(spacing: 0) {
                 QuietEmptyState(title: selection == nil ? "Select a session" : "Session unavailable",
                                 message: selection == nil ? "Pick a task on the left to see its details." : "This session is no longer available. Choose another task.")
                 pendingFooter
             }
-                .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: DashboardListColumn.readerMinWidth, idealWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -596,69 +624,47 @@ private struct SummaryRow: View {
     var onSelect: () -> Void
     var onToggleInclude: () -> Void
 
+    @Environment(\.listLabels) private var labels
+    /// The words' width at rest, kept so a drag under the narrowest full
+    /// width truncates them at the card's edge instead of reflowing every
+    /// line on every pixel.
+    @State private var restWordsWidth: CGFloat?
+
     private var presentation: RowPresentation { RowPresentation(session: session) }
     private var state: TaskPresentationState { session.presentationState }
+
+    /// The row's words, for the tooltip when only its tile is on screen.
+    private var compactTip: String {
+        [session.displayTitle, presentation.activityOrResult, session.agent.displayName + " · " + session.project]
+            .joined(separator: "\n")
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: onSelect) {
                 HStack(alignment: .top, spacing: 10) {
                     AgentTile(agent: session.agent, state: state, ground: isSelected ? MacTheme.bg2 : MacTheme.bg3)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(session.displayTitle).font(MacTheme.font(13, .medium))
-                            .foregroundStyle(MacTheme.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(presentation.activityOrResult)
-                            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
-                            .lineLimit(2)
-                        if let progress = presentation.progress {
-                            Text(progress).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                                .lineLimit(2).help(progress)
-                        }
-                        HStack(spacing: 6) {
-                            Text(session.project).lineLimit(1).truncationMode(.middle)
-                                .help(session.agent.displayName + " · " + session.project)
-                            Spacer(minLength: 0)
-                            if handoffReady {
-                                Text("Handoff ready").foregroundStyle(MacTheme.accent)
-                                    .help("A handoff document names this session. Continue with… starts another agent from it.")
-                                    .accessibilityIdentifier("handoff-ready")
-                            }
-                            if presentation.unread { Text("Unread").foregroundStyle(MacTheme.status(.completeUnread)) }
-                            if let glyph = session.effectiveAttention.rowGlyph {
-                                Image(systemName: glyph).help(session.effectiveAttention.title)
-                            }
-                            Text(presentation.updatedAt, style: .relative).monospacedDigit()
-                    }
-                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    if let warning = presentation.observationWarning {
-                        Text(warning)
-                        if let seen = presentation.lastObservedAt {
-                            Text("Last observed: \(seen.formatted())")
-                        }
-                    }
-                    if let continues { Text(continues).lineLimit(1).truncationMode(.middle).help(continues) }
-                    if let stats = session.ledgerSummary { Text(stats).lineLimit(2) }
-                    if let child = ToolActivity.childSummary(for: session) { Text(child) }
-                    }
-                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    if !labels.iconOnly { words }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .compactRowWords(labels, tip: compactTip, title: session.displayTitle, value: presentation.activityOrResult)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            if showInclude {
+            if showInclude, !labels.iconOnly {
                 Button(action: onToggleInclude) {
                     Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(included ? MacTheme.accent : MacTheme.ink2)
                 .accessibilityLabel(included ? "Remove from the buddy's context" : "Add to the buddy's context")
+                .opacity(labels.opacity)
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
         .companionCard(isSelected ? MacTheme.bg2 : MacTheme.bg3)
         .overlay {
             if isSelected {
@@ -667,6 +673,72 @@ private struct SummaryRow: View {
                     .allowsHitTesting(false)
             }
         }
+    }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(session.displayTitle).font(MacTheme.font(13, .medium))
+                .foregroundStyle(MacTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(presentation.activityOrResult)
+                .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
+                .lineLimit(2)
+            if let progress = presentation.progress {
+                Text(progress).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                    .lineLimit(2).help(progress)
+            }
+            HStack(spacing: 6) {
+                Text(session.project).lineLimit(1).truncationMode(.middle)
+                    .help(session.agent.displayName + " · " + session.project)
+                Spacer(minLength: 0)
+                if handoffReady {
+                    Text("Handoff ready").foregroundStyle(MacTheme.accent)
+                        .help("A handoff document names this session. Continue with… starts another agent from it.")
+                        .accessibilityIdentifier("handoff-ready")
+                }
+                if presentation.unread { Text("Unread").foregroundStyle(MacTheme.status(.completeUnread)) }
+                if let glyph = session.effectiveAttention.rowGlyph {
+                    Image(systemName: glyph).help(session.effectiveAttention.title)
+                }
+                Text(presentation.updatedAt, style: .relative).monospacedDigit()
+        }
+        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+        if let warning = presentation.observationWarning {
+            Text(warning)
+            if let seen = presentation.lastObservedAt {
+                Text("Last observed: \(seen.formatted())")
+            }
+        }
+        if let continues { Text(continues).lineLimit(1).truncationMode(.middle).help(continues) }
+        if let stats = session.ledgerSummary { Text(stats).lineLimit(2) }
+        if let child = ToolActivity.childSummary(for: session) { Text(child) }
+        }
+        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+        // The frozen block overflows the room left beside the tile; this
+        // flexible frame (min 0, or it would grow to the block) keeps the
+        // row's layout honest and clips the excess, so the tile never moves.
+        .frame(width: labels.transitional ? restWordsWidth ?? Self.narrowestWordsWidth : nil, alignment: .leading)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            if !labels.transitional { restWordsWidth = width }
+        }
+        .opacity(labels.opacity)
+        .transition(.opacity)
+    }
+
+    /// The words' width at the narrowest full width, for a row first laid
+    /// out mid-drag: 240 − 12·2 outer − 10·2 card − 28 tile − 10 spacing.
+    private static var narrowestWordsWidth: CGFloat { DashboardColumnWidth.list.minFull - 24 - 20 - 28 - 10 }
+}
+
+extension View {
+    /// A list-head row on the compact strip: kept in the tree at the words'
+    /// opacity so nothing under it shifts, but neither clickable nor read.
+    func listHeadWords(_ labels: ColumnLabelStyle) -> some View {
+        opacity(labels.opacity)
+            .allowsHitTesting(!labels.iconOnly)
+            .accessibilityHidden(labels.iconOnly)
     }
 }
 

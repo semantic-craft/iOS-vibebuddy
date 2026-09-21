@@ -318,6 +318,8 @@ struct HistoryWorkbenchView: View {
     private var archived: Bool? { archiveScope == "all" ? nil : archiveScope == "archived" }
     @State private var selection: String?
     @State private var targetMessage: String?
+    @AppStorage(DashboardListColumn.compactKey) private var listCompact = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var archiveTitle: String {
         switch archiveScope {
@@ -342,10 +344,7 @@ struct HistoryWorkbenchView: View {
     }
 
     var body: some View {
-        HSplitView {
-            sessionList
-            readingPane
-        }
+        ResizableListSplit(compact: $listCompact) { labels in sessionList(labels) } reader: { readingPane }
         .task(id: searchKey) { await history.search(query, project: project, favorites: favoritesOnly, agent: agent, archived: archived) }
         .onChange(of: agent) { _, _ in clearSelection() }
         .onChange(of: archiveScope) { _, _ in clearSelection() }
@@ -361,21 +360,44 @@ struct HistoryWorkbenchView: View {
         }
     }
 
-    private var sessionList: some View {
+    /// The strip's search glyph: unfold the list (with the settle spring),
+    /// then focus the field once it is in the tree.
+    private func unfoldThenFocusSearch() {
+        withAnimation(reduceMotion ? nil : .snappy) { listCompact = false }
+        DispatchQueue.main.async { searchFocused.wrappedValue = true }
+    }
+
+    /// `listLabels` is the lettering at the list's current width (shared
+    /// with the live library): the compact strip folds the head to one
+    /// search glyph and every row to its agent tile.
+    private func sessionList(_ listLabels: ColumnLabelStyle) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
+                // The strip keeps the head's rows in the tree at zero opacity
+                // so the pill and the rows below never shift vertically.
                 HStack(alignment: .firstTextBaseline) {
                     Text(isSearching ? "Message matches" : favoritesOnly ? "Favorites" : "History")
                         .font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
+                        .lineLimit(1)
                     Spacer(minLength: 8)
                     Text("\(isSearching ? history.results.count : sessions.count)")
                         .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
                 }
+                // Under the narrowest full width the head rows keep their
+                // one-line layout (clipped at the edge) rather than wrapping
+                // and pushing the rows below them down.
+                .fixedSize(horizontal: listLabels.transitional, vertical: false)
+                .listHeadWords(listLabels)
                 // The dashboard's one query; the sidebar's Search row and ⌘F
                 // land here while a history library is showing.
-                SearchPill(query: $query, focused: searchFocused)
-                if agent == .grokBuild || (isSearching && sessions.contains { !$0.agent.supportsTranscript }) {
+                if listLabels.iconOnly {
+                    CompactSearchGlyph(action: unfoldThenFocusSearch)
+                } else {
+                    SearchPill(query: $query, focused: searchFocused)
+                }
+                if !listLabels.iconOnly, agent == .grokBuild || (isSearching && sessions.contains { !$0.agent.supportsTranscript }) {
                     Text(GrokHistorySource.coverage).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                        .opacity(listLabels.opacity)
                 }
                 HStack(spacing: 6) {
                     MenuPill(title: agent?.displayName ?? String(localized: "All agents")) {
@@ -408,15 +430,20 @@ struct HistoryWorkbenchView: View {
                     }
                     .disabled(history.loading)
                 }
+                .fixedSize(horizontal: listLabels.transitional, vertical: false)
+                .listHeadWords(listLabels)
                 if let error = history.error {
                     Text(error).font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error)).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
+                        .listHeadWords(listLabels)
                 }
             }
             .padding(.horizontal, 12).padding(.top, 12)
-            if isSearching && history.searching { ProgressView("Searching…") }
-            if isSearching, let error = history.searchError {
+            // In-flight search chrome has no place on the compact strip.
+            if isSearching && history.searching, !listLabels.iconOnly { ProgressView("Searching…").opacity(listLabels.opacity) }
+            if isSearching, let error = history.searchError, !listLabels.iconOnly {
                 Text("Search could not complete: \(error)").font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error)).padding(12)
+                    .opacity(listLabels.opacity)
             }
             ScrollView {
                 LazyVStack(spacing: 2) {
@@ -426,15 +453,18 @@ struct HistoryWorkbenchView: View {
                                 Button {
                                     selection = session.id
                                     targetMessage = hit.messageID
-                                } label: { row(session, excerpt: hit.excerpt, active: selection == session.id && targetMessage == hit.messageID) }
+                                } label: { HistoryRow(session: session, excerpt: hit.excerpt, active: selection == session.id && targetMessage == hit.messageID) }
                                 .buttonStyle(.plain)
+                                .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                             }
                         }
                     } else {
                         ForEach(sessions) { session in
                             Button { selection = session.id; targetMessage = nil } label: {
-                                row(session, excerpt: nil, active: selection == session.id)
-                            }.buttonStyle(.plain)
+                                HistoryRow(session: session, excerpt: nil, active: selection == session.id)
+                            }
+                            .buttonStyle(.plain)
+                            .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                         }
                     }
                     if !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
@@ -445,29 +475,16 @@ struct HistoryWorkbenchView: View {
                     }
                 }.padding(.horizontal, 8)
             }
-            if isSearching && history.results.count == 200 {
+            if isSearching && history.results.count == 200, !listLabels.iconOnly {
                 Text("Showing the first 200 matches. Narrow your query or project.").font(MacTheme.font(10)).padding(8)
+                    .opacity(listLabels.opacity)
             }
-        }.frame(minWidth: 230, idealWidth: 300, maxWidth: 380)
+        }
     }
 
-    private func row(_ session: SessionHistorySession, excerpt: String?, active: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                Text(session.title).font(MacTheme.font(13, .medium)).lineLimit(2)
-                if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(MacTheme.ink2) }
-                if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
-            }
-            Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-            if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(MacTheme.font(10)) }
-            if let excerpt { Text(excerpt).font(MacTheme.font(10)).lineLimit(3) }
-            if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(MacTheme.font(10)) }
-            else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        .background(active ? MacTheme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .contentShape(Rectangle())
+    /// The row's words, for the tooltip when only its agent tile is on screen.
+    static func compactTip(_ session: SessionHistorySession) -> String {
+        session.title + "\n" + session.agent.displayName + " · " + session.updatedAt.formatted(date: .abbreviated, time: .shortened)
     }
 
     /// The record with its live counterpart, when exactly one live session
@@ -481,9 +498,69 @@ struct HistoryWorkbenchView: View {
         } else {
             QuietEmptyState(title: "Select a conversation", message: "Pick a conversation on the left to read it.",
                             systemName: "text.book.closed")
-                .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: DashboardListColumn.readerMinWidth, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     private func clearSelection() { selection = nil; targetMessage = nil }
+}
+
+
+/// A history row. It has no tile at full width; the compact strip stands
+/// the agent's tile in for its words, fading in as they fade out, at the
+/// words' own leading origin so it never slides.
+private struct HistoryRow: View {
+    let session: SessionHistorySession
+    var excerpt: String?
+    var active: Bool
+    @Environment(\.listLabels) private var labels
+    /// The words' width at rest, kept so a drag under the narrowest full
+    /// width truncates them at the row's edge instead of reflowing.
+    @State private var restWordsWidth: CGFloat?
+
+    var body: some View {
+        Group {
+            if labels.iconOnly {
+                AgentAvatar(agent: session.agent.kind, size: 28)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top) {
+                        Text(session.title).font(MacTheme.font(13, .medium)).lineLimit(2)
+                        if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(MacTheme.ink2) }
+                        if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
+                    }
+                    Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(MacTheme.font(10)) }
+                    if let excerpt { Text(excerpt).font(MacTheme.font(10)).lineLimit(3) }
+                    if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(MacTheme.font(10)) }
+                    else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
+                }
+                // Under the narrowest full width the words keep their rest
+                // layout and truncate at the row's edge instead of reflowing.
+                .frame(width: labels.transitional ? restWordsWidth ?? Self.narrowestWordsWidth : nil, alignment: .leading)
+                .opacity(labels.opacity)
+                .overlay(alignment: .topLeading) {
+                    if labels.transitional {
+                        AgentAvatar(agent: session.agent.kind, size: 28).opacity(1 - labels.opacity)
+                    }
+                }
+                // Min 0, or the frame would grow to the frozen block instead of clipping it.
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .clipped()
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                    if !labels.transitional { restWordsWidth = width }
+                }
+            }
+        }
+        .padding(10)
+        .clipped()
+        .background(active ? MacTheme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    /// The words' width at the narrowest full width, for a row first laid
+    /// out mid-drag: 240 − 8·2 outer − 10·2 row.
+    private static var narrowestWordsWidth: CGFloat { DashboardColumnWidth.list.minFull - 16 - 20 }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 
 public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
     case claude, codex, cursor, grokBuild
@@ -9,6 +10,11 @@ public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
         switch self { case .claude: "claude-code"; case .codex: "codex"; case .cursor: "cursor"; case .grokBuild: "grok-build" }
     }
     public var supportsTranscript: Bool { self != .grokBuild }
+    /// The live agent this reader covers (the row's tile on the compact
+    /// list), the inverse of `SessionReaderSource.historyAgent(for:)`.
+    public var kind: AgentKind {
+        switch self { case .claude: .claudeCode; case .codex: .codex; case .cursor: .cursor; case .grokBuild: .grok }
+    }
     public static let cursorCoverage = "Cursor local transcript: user/assistant text and tool calls only; no tool results or thinking. IDE/CLI provenance is not recorded; encrypted IDE history and cloud agents are not covered."
 }
 public enum SessionHistoryRole: String, Codable, Sendable { case user, assistant, tool, system }
