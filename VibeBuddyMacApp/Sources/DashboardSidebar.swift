@@ -22,16 +22,16 @@ struct DashboardSidebar: View {
     var speechPanelPresented: Bool
     var onOpenProject: (DashboardSessionList.ProjectScope) -> Void
     /// The column's width right now: a settled width, or the pointer's while
-    /// a drag on the right edge is live (`DashboardSidebarWidth`). Every row
+    /// a drag on the right edge is live (`DashboardColumnWidth.sidebar`). Every row
     /// reads its lettering from it, so labels truncate and fade as the
     /// column narrows and the glyphs never move.
-    var width: CGFloat = DashboardSidebarWidth.labeledDefault
+    var width: CGFloat = DashboardColumnWidth.sidebar.fullDefault
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     /// The one-line "where voice lives" note shows until the dashboard has been
     /// closed once with it on screen (ADR-0017 §3).
     @AppStorage("dashboard.voiceHintSeen") private var voiceHintSeen = false
 
-    private var labels: SidebarLabelStyle { .at(width: width) }
+    private var labels: ColumnLabelStyle { .at(width: width, policy: .sidebar) }
     private var waiting: Int { TaskPresentationSummary(currentIn: model.sessions, now: Date()).pendingCount }
 
     var body: some View {

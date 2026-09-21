@@ -112,7 +112,16 @@ Settings sidebar — accent glyph and title on a 14 % accent wash; hover and pre
 stay an ink wash (4 % / 7 %). *(2026-09-13: was an ink wash, never the accent;
 the owner asked the dashboard to carry Settings' green.)*
 
-Content: list column (240–380 pt) + detail column. The list head is the scope
+Content: list column (240–380 pt) + detail column. *(2026-09-21: the list's
+right edge resizes like the sidebar's, in place of the system divider — 300 pt
+is the default and the snap target; the width follows the pointer between 72
+and 380 pt while row words truncate at the card's edge and fade, tiles stay put;
+release snaps to the 72 pt compact strip below 156 pt or to 240–380 pt, landing
+on 300 within 28 pt; double-click toggles; the reader keeps its 340 pt floor and
+the window's width lowers the list's cap before the reader shrinks. Live and
+history share the one remembered width. On the strip each row is its agent tile
+with the state dot, words in the tooltip; the head folds to one search glyph that
+unfolds the list and focuses the field, as ⌘F does.)* The list head is the scope
 title, the search pill and a row of filter chips (All / Needs you /
 Working / Done / Idle; Needs you includes failed sessions, as in the menu
 panel; the selected chip is accent-filled). Rows are summary-first
