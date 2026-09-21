@@ -47,7 +47,7 @@ Grok 1.0.40 随程序分发的 `~/.grok/docs/user-guide/10-hooks.md` 说明，`P
 | Claude Code | Stop 中的后台任务信息；后台会话查询是否改用官方 CLI；已退出会话的 resume | 对照当前官方事件与命令契约，复现错误完成判定，核对现有 reducer 与后台会话实现 |
 | Codex | rollout 可用性变化；queue 能否作为追加指令的备用路径 | 当前 daemon/rollout 覆盖与真实 Desktop 会话行为；不能仅由本机数据库存在推断文件协议被取代 |
 | Cursor | 观测健康诊断、CLI status line、插件分发 | 诊断页面是否漏项及当前公开协议；保留 ADR-0016 和 ADR-0018 的控制边界 |
-| Grok Bot | 只读集成维护成本与分发限制 | 当前官方客户端和公开 API 契约；不得仅凭私有客户端文件推断产品身份、登录体系或长期兼容性 |
+| Grok Bot | 已结案：只读会话集成于 2026-09-21 移除，只保留账户额度，见 [ADR-0031](../adr/0031-grok-bot-is-account-usage-only.md) | — |
 
 Grok leader 的权限扇出、重启恢复、status line 和 active_sessions 注册表同样属于后续研究。`loadSession` 能力本身不等于已实现恢复；共享 leader 也不能自动获得操作其他客户端会话的授权。
 

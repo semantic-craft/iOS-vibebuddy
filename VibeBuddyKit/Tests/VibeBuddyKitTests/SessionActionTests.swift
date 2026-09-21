@@ -86,8 +86,8 @@ struct SessionActionTests {
             let support = SessionActionSupport.resolveStop(for: session(agent: .claudeCode, status: status))
             #expect(support.unsupportedReason == "Stop this on your Mac.")
         }
-        #expect(SessionActionSupport.resolveStop(for: session(agent: .grokBot, status: .working))
-            .unsupportedReason?.contains("Grok Bot") == true)
+        #expect(SessionActionSupport.resolveStop(for: session(agent: .opencode, status: .working))
+            .unsupportedReason?.contains("OpenCode") == true)
         #expect(SessionActionSupport.resolveStop(for: session(agent: .cursor, status: .working))
             .unsupportedReason?.contains("Cursor") == true)
         #expect(SessionActionSupport.resolveStop(for: session(agent: .grok, status: .working))

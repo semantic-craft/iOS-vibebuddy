@@ -653,7 +653,7 @@ extension DashboardStoreTests {
             return session
         }
         let otherProject = fixture("project", project: "Project B")
-        let otherAgent = fixture("agent", agent: .grokBot)
+        let otherAgent = fixture("agent", agent: .claudeCode)
         let otherStatus = fixture("status", status: .done)
         let otherAttention = fixture("attention", attention: .normal)
         let sessions = [selected, otherProject, otherAgent, otherStatus, otherAttention]

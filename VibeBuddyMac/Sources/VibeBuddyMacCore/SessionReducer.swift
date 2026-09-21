@@ -119,10 +119,6 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
-            if event.agent == .grokBot {
-                sessions[event.sessionID]?.pendingQuestion = PendingQuestion(
-                    id: event.sessionID + ":question", prompt: event.message ?? "Respond in Grok Bot", answerable: false)
-            }
         case .stop:
             // A settle report for a turn the session has already moved past is
             // stale news, not idleness: ignore it rather than showing a false
@@ -290,17 +286,6 @@ public struct SessionReducer: Sendable {
         if s.summary == nil, let subtitle = composer.subtitle { s.summary = subtitle; changed = true }
         if changed { sessions[composer.id] = s }
         return changed
-    }
-
-    /// A connection outage changes evidence health, never progress or last-seen time.
-    mutating func markSourceHealth(agent: AgentKind, source: ObservationSource, health: ObservationHealth) {
-        for (id, var session) in sessions where session.agent == agent {
-            guard var observations = session.observations,
-                  let index = observations.firstIndex(where: { $0.source == source }) else { continue }
-            observations[index].health = health
-            session.observations = observations
-            sessions[id] = session
-        }
     }
 
     /// Update one stable source entry without touching session progress.

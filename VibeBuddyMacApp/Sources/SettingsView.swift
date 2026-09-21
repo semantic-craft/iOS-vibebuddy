@@ -549,12 +549,6 @@ private struct AgentCLIsPage: View {
                                              set: { model.setCodexAppServerEnabled($0) }))
                         .labelsHidden().toggleStyle(.switch)
                 }
-                SettingsRow("Observe Grok Bot tasks",
-                            detail: "Read task status from the signed-in Grok Bot app. Replies and approvals stay in Grok Bot. Off by default.") {
-                    Toggle("", isOn: Binding(get: { model.grokBotEnabled },
-                                             set: { model.setGrokBotEnabled($0) }))
-                        .labelsHidden().toggleStyle(.switch)
-                }
             }
         }
         .onAppear { setup.refresh() }

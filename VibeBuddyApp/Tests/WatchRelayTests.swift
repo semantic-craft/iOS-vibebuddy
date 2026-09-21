@@ -105,13 +105,12 @@ final class WatchRelayTests: XCTestCase {
         }
         XCTAssertTrue(relay.publish(projected(.codex, answerable: true)))
         XCTAssertTrue(relay.publish(projected(.codex, answerable: false)))
-        XCTAssertTrue(relay.publish(projected(.grokBot, answerable: false)))
-        XCTAssertTrue(relay.publish(projected(.grokBot, answerable: false, connection: .disconnected)))
+        XCTAssertTrue(relay.publish(projected(.codex, answerable: false, connection: .disconnected)))
         XCTAssertTrue(relay.publish(projected(.codex, answerable: true)))
         XCTAssertEqual(transport.states.map { $0.topAlert?.handling },
-                       [.remoteAvailable, .macNativePrompt, .macGrokBot, .macGrokBot, .remoteAvailable])
+                       [.remoteAvailable, .macNativePrompt, .macNativePrompt, .remoteAvailable])
         XCTAssertTrue(transport.states.allSatisfy { $0.topAlert?.isDecidable == false })
-        XCTAssertEqual(transport.states[3].connection(now: now, phoneReachable: true), .macDisconnected)
+        XCTAssertEqual(transport.states[2].connection(now: now, phoneReachable: true), .macDisconnected)
         XCTAssertEqual(transport.states.last?.connection(now: now, phoneReachable: true), .live)
     }
 

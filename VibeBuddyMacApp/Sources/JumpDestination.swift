@@ -19,7 +19,6 @@ struct JumpDestination: Equatable {
 
     @MainActor
     static func resolve(_ session: AgentSession) -> JumpDestination {
-        if session.agent == .grokBot { return JumpDestination(symbol: "bubble.left", name: "Grok Bot") }
         if session.jumpsToDesktopThread {
             return JumpDestination(symbol: "bubble.left",
                                    name: appName(CodexDesktopJumper.chatGPTBundleID) ?? "ChatGPT")

@@ -107,11 +107,6 @@ final class WatchApprovalTests: XCTestCase {
         XCTAssertTrue(target?.title.hasPrefix("Actionable wants to") == true)
         XCTAssertEqual(target?.detail, valid.pendingApproval?.commandPreview)
         XCTAssertNil(ActivityApprovalTarget.select(from: [readOnly]))
-        let bot = AgentSession(id: valid.id, agent: .grokBot, project: valid.project,
-                               status: .needsResponse, waitKind: .permission, pendingApproval: valid.pendingApproval,
-                               statusSince: now, updatedAt: now)
-        XCTAssertNil(ActivityApprovalTarget.select(from: [bot]))
-        XCTAssertNil(state([bot]).topAlert?.approvalId)
         let diff = permission(tool: "Edit", command: nil, filePath: "file", oldText: "a", newText: "b")
         XCTAssertNotNil(ActivityApprovalTarget.select(from: [diff]))
         XCTAssertNil(state([diff]).topAlert?.approvalId)
