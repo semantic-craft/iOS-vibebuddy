@@ -8,10 +8,10 @@ import VibeBuddyKit
 struct NotificationDeliveryTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    @Test("delivery vocabulary is attempted/scheduled/accepted/failed/skipped, never delivered")
+    @Test("delivery vocabulary is attempted/scheduled/accepted/failed/skipped/pruned, never delivered")
     func vocabularyNeverDelivered() {
         #expect(Set(NotificationDeliveryOutcome.allCases.map(\.rawValue)) == [
-            "attempted", "scheduled", "accepted", "failed", "skipped",
+            "attempted", "scheduled", "accepted", "failed", "skipped", "pruned",
         ])
         #expect(!NotificationDeliveryOutcome.allCases.map(\.rawValue).contains("delivered"))
         #expect(NotificationDeliveryHealth.summary(for: .scheduled) == "Last attempt: scheduled")
@@ -184,6 +184,10 @@ struct NotificationDeliveryTests {
         let bad = try await sendViaStub(status: 400, body: #"{"reason":"BadDeviceToken"}"#, recorder: spy)
         #expect(bad.reason == "BadDeviceToken")
         #expect(APNsDelivery.tokenOutcome(status: bad.status, reason: bad.reason, everAccepted: false) == .neverValid)
+        #expect(APNsDelivery.tokenOutcome(status: bad.status, reason: bad.reason, everAccepted: true) == .suspect)
+        // The ledger row says which 400, not just that it was one.
+        #expect(spy.records.last?.failureReason == "apnsHTTP400")
+        #expect(spy.records.last?.apnsReason == "BadDeviceToken")
         let topic = try await sendViaStub(status: 400, body: #"{"reason":"BadTopic"}"#, recorder: spy)
         #expect(APNsDelivery.tokenOutcome(status: topic.status, reason: topic.reason, everAccepted: false) == .keep)
         let ok = try await sendViaStub(status: 200, body: "", recorder: spy)

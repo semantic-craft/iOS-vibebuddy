@@ -6,7 +6,7 @@ import os
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-struct PairedPhone: Codable, Equatable {
+struct PairedPhone: Codable, Hashable {
     var name: String
     var model: String?
     var systemVersion: String?
@@ -14,6 +14,44 @@ struct PairedPhone: Codable, Equatable {
     var pushRegistered: Bool
     var confirmed: Bool
     var deviceID: String? = nil
+    /// Where this phone's push stands: registered, failing, parked, or no token
+    /// yet. A parked phone is listed with Apple's reason rather than hidden.
+    var push: DevicePushStanding = .noToken
+
+    init(name: String, model: String?, systemVersion: String?, lastSeen: Date,
+         pushRegistered: Bool, confirmed: Bool, deviceID: String? = nil,
+         push: DevicePushStanding = .noToken) {
+        self.name = name
+        self.model = model
+        self.systemVersion = systemVersion
+        self.lastSeen = lastSeen
+        self.pushRegistered = pushRegistered
+        self.confirmed = confirmed
+        self.deviceID = deviceID
+        self.push = push
+    }
+
+    init(_ entry: DeviceRegistryEntry) {
+        self.init(name: MenuBarModel.nonEmpty(entry.device.name) ?? "iPhone",
+                  model: entry.device.model, systemVersion: entry.device.systemVersion,
+                  lastSeen: entry.registeredAt, pushRegistered: entry.isPushable,
+                  confirmed: entry.pairedAt != nil, deviceID: entry.device.deviceID,
+                  push: entry.pushStanding)
+    }
+
+    /// One line for a device list: what the Mac does with this phone's pushes.
+    var pushStatusText: String {
+        switch push {
+        case .noToken: String(localized: "Push pending")
+        case .registered: String(localized: "Push registered")
+        case .failing(let failure):
+            String(localized: "Push failing: \(failure.reason) since \(failure.firstAt.formatted(date: .abbreviated, time: .shortened)) (\(failure.count) sends)")
+        case .parked(let failure):
+            String(localized: "Push stopped: \(failure.reason) since \(failure.firstAt.formatted(date: .abbreviated, time: .shortened)), \(failure.count) refused. Pushes resume when the phone reconnects.")
+        }
+    }
+
+    var isParked: Bool { if case .parked = push { true } else { false } }
 
     var subtitle: String {
         [model, systemVersion].compactMap { value in
@@ -107,6 +145,9 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var qrImage: NSImage?
     /// The most-recently paired phone's display metadata (persisted), shown in the UI.
     @Published private(set) var pairedPhone: PairedPhone?
+    /// Every phone on file, newest registration first — including the ones the
+    /// Mac has stopped pushing to, so Settings can say so and why.
+    @Published private(set) var phones: [PairedPhone] = []
     @Published private(set) var detectedRemoteAddresses: [String] = []
     @Published private(set) var remoteTransfer: RemoteConnectionSyncStore.Transfer?
     @Published private(set) var synchronizingConnection = false
@@ -445,7 +486,8 @@ final class MenuBarModel: ObservableObject {
             ? nil
             : ((E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DEVICE_REGISTRY_PATH"] : nil).map {
                 URL(fileURLWithPath: $0)
-            } ?? DeviceRegistryLocation.defaultURL()))
+            } ?? DeviceRegistryLocation.defaultURL()),
+            recorder: recorder)
         // The views read usage through this model's facades, so the coordinator's
         // changes have to reach the same `objectWillChange` they observe. Set up
         // after every stored property is initialized: the capture needs `self`.
@@ -1662,14 +1704,13 @@ final class MenuBarModel: ObservableObject {
         let revision = pairingRevision
         let entries = await deviceTokens.pairedPhones()
         guard revision == pairingRevision, !changingPairing else { return }
-        let latest = entries.max { $0.registeredAt < $1.registeredAt }
-        let next = latest.map { entry in
-            PairedPhone(name: Self.nonEmpty(entry.device.name) ?? "iPhone",
-                        model: entry.device.model, systemVersion: entry.device.systemVersion,
-                        lastSeen: entry.registeredAt, pushRegistered: entry.device.hasPushToken,
-                        confirmed: entry.pairedAt != nil, deviceID: entry.device.deviceID)
-        }
+        let all = entries.sorted { $0.registeredAt > $1.registeredAt }.map(PairedPhone.init)
+        // The phone the connection centre speaks for: the newest one the Mac
+        // still pushes to, or, when every phone is parked, the newest parked one
+        // — so a stood-down phone is shown with its reason, never hidden.
+        let next = all.first { !$0.isParked } ?? all.first
         let newlyConfirmed = pairedPhone?.confirmed != true && next?.confirmed == true
+        if phones != all { phones = all }
         if pairedPhone != next { pairedPhone = next }
         if notify && pairingInProgress && newlyConfirmed, let next { notifier.confirmPairing(deviceName: next.name) }
     }
@@ -1681,6 +1722,7 @@ final class MenuBarModel: ObservableObject {
         pairingTimeout?.cancel()
         pairingInProgress = false
         pairedPhone = nil
+        phones = []
         Task {
             await connectionSync.cancelAll()
             remoteTransfer = nil
@@ -1775,7 +1817,7 @@ final class MenuBarModel: ObservableObject {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
-    private static func nonEmpty(_ value: String?) -> String? {
+    nonisolated fileprivate static func nonEmpty(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }

@@ -589,7 +589,7 @@ private struct DiagnosticsPage: View {
             }
 
             SettingsSection("Delivery health",
-                            footnote: "Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it.") {
+                            footnote: "Honest outcomes only: attempted, scheduled, accepted, failed, skipped, pruned. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Pruned is a phone the Mac stopped pushing to after Apple kept refusing its token.") {
                 SettingsGrid(items: [
                     SettingsGrid.Item(id: "auth", title: "Local authorization") {
                         SettingsValue(model.notificationDeliveryHealth.authorization.settingsTitle)
@@ -603,10 +603,16 @@ private struct DiagnosticsPage: View {
                         // only for the state worth a word — pushes configured
                         // but nowhere to send them.
                         let count = model.deviceRegistry.count
+                        let parked = model.deviceRegistry.parkedCount
                         if count == 0 && model.notificationDeliveryHealth.apnsConfigured {
                             SettingsPill("No devices", tone: .warn)
-                        } else if count == 0 {
+                        } else if count == 0 && parked == 0 {
                             SettingsValue("None")
+                        } else if parked > 0 {
+                            // A stood-down phone is listed under Devices &
+                            // connection with Apple's reason; here it only
+                            // keeps the count honest.
+                            SettingsValue(verbatim: "\(count) · \(parked) stopped")
                         } else {
                             SettingsValue(verbatim: "\(count)")
                         }
@@ -672,6 +678,8 @@ private struct DiagnosticsPage: View {
         var parts = [last.channel.rawValue]
         if let sound = last.sound { parts.append(sound) }
         if let session = last.sessionID { parts.append("Session …\(session.suffix(8))") }
+        if let reason = last.apnsReason { parts.append(reason) }
+        if let device = last.deviceID { parts.append("Device …\(device.suffix(8))") }
         return parts.joined(separator: " · ")
     }
 
@@ -896,6 +904,7 @@ extension NotificationDeliveryOutcome {
         case .accepted: "Accepted"
         case .failed: "Failed"
         case .skipped: "Skipped"
+        case .pruned: "Pruned"
         }
     }
 }
