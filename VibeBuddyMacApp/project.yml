@@ -83,3 +83,16 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Apple silicon only (README says so). Xcode's default ARCHS still lists
+        # x86_64; command-line builds happened to drop it, so pin it explicitly and
+        # let tools/bundle-history-cli.sh build the CLI for the same single slice.
+        ARCHS: arm64
+      configs:
+        Release:
+          # `xcodebuild build` never strips: STRIP_INSTALLED_PRODUCT only runs
+          # with DEPLOYMENT_POSTPROCESSING. Without it 1.3.23 shipped 43 MB + 35 MB
+          # binaries that were ~55% symbol tables. The dSYM (dwarf-with-dsym)
+          # keeps crash logs symbolicated.
+          DEPLOYMENT_POSTPROCESSING: YES
+          STRIP_INSTALLED_PRODUCT: YES
+          DEAD_CODE_STRIPPING: YES

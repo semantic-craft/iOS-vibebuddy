@@ -150,6 +150,22 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUIL
 BUILD_NO="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$BUILT_APP/Contents/Info.plist")"
 note "built vibebuddy $VERSION (build $BUILD_NO)"
 
+# ── Thin bundled universal binaries ──────────────────────────────────────────
+# Our own binaries are arm64-only (ARCHS in project.yml); Sparkle's prebuilt
+# artifact and the Swift compatibility dylib still carry x86_64 (and arm64e)
+# slices nobody can run this app on. Drop them before signing.
+
+step "thinning bundled binaries to arm64"
+while IFS= read -r bin; do
+  lipo -thin arm64 "$bin" -output "$bin.thin" && mv -f "$bin.thin" "$bin"
+  note "$(basename "$bin")"
+done < <(find "$BUILT_APP/Contents/Frameworks" -type f -perm -u+x -print0 \
+  | xargs -0 file 2>/dev/null | grep 'Mach-O universal' | sed 's/:.*//')
+LEFTOVER="$(find "$BUILT_APP" -type f -perm -u+x -print0 | xargs -0 file 2>/dev/null \
+  | grep 'Mach-O' | grep -E 'x86_64|i386|arm64e' | sed 's/:.*//' | sort -u || true)"
+[[ -z "$LEFTOVER" ]] || die "non-arm64 Mach-O still in the bundle:
+$LEFTOVER"
+
 BASENAME="vibebuddy-mac-v$VERSION"          # matches the v1.0 asset naming
 DMG="$OUT_DIR/$BASENAME.dmg"
 : "${DOWNLOAD_URL_PREFIX:=$PRODUCT_LINK/releases/download/v$VERSION/}"

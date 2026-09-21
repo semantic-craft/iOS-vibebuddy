@@ -18,7 +18,13 @@ if [[ -n "${SDKROOT:-}" ]]; then cli_build_args+=(--sdk "$SDKROOT"); fi
 cli_bin_dir=$(/usr/bin/xcrun swift build "${cli_build_args[@]}" --show-bin-path)
 cli_destination="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/vibebuddy-mcp"
 /bin/mkdir -p "$(dirname "$cli_destination")"
-/usr/bin/install -m 755 "$cli_bin_dir/vibebuddy-mcp" "$cli_destination"
+# Xcode's strip phase only covers its own product; mirror it for the copied CLI
+# (Release sets DEPLOYMENT_POSTPROCESSING=YES, Debug does not).
+install_args=(-m 755)
+if [[ "${DEPLOYMENT_POSTPROCESSING:-NO}" == YES && "${STRIP_INSTALLED_PRODUCT:-YES}" == YES ]]; then
+  install_args+=(-s)
+fi
+/usr/bin/install "${install_args[@]}" "$cli_bin_dir/vibebuddy-mcp" "$cli_destination"
 if [[ "${CODE_SIGNING_ALLOWED:-YES}" != NO ]]; then
   /usr/bin/codesign --force --options runtime --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$cli_destination"
 fi
