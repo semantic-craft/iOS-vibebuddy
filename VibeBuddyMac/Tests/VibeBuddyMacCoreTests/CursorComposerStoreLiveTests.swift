@@ -17,6 +17,9 @@ struct CursorComposerStoreLiveTests {
         let composers = try #require(try store.refresh())
         let firstPass = Date().timeIntervalSince(started)
         let parsed = store.lastRefreshParsedDetails
+        // A missing or empty database would pass the timing trivially.
+        #expect(!composers.isEmpty)
+        #expect(parsed > 0)
         // Unchanged file: no work at all.
         let again = Date()
         #expect(try store.refresh() == nil)

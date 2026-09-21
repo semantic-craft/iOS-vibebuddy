@@ -1758,8 +1758,51 @@ public actor SessionStore {
     /// app behind a socket is still running; `PhoneReceipts` answers that.
     public var subscriberCount: Int { subscribers.count }
 
+    /// Bursts collapse on the way out: the first snapshot in a quiet window is
+    /// delivered at once, later ones inside the window are replaced by a single
+    /// trailing delivery of the newest. A transcript poll that yields three
+    /// events for three sessions used to hand three 500 KB snapshots to every
+    /// phone within a millisecond; the phone only ever acted on the last.
+    ///
+    /// Assembly itself is not coalesced: the recap ledger and completion
+    /// results settle inside `currentSnapshot` and must see every state.
+    static let broadcastWindow: Duration = .milliseconds(300)
+    private var lastDeliveryAt: ContinuousClock.Instant?
+    private var pendingDelivery: Snapshot?
+    private var trailingDelivery: Task<Void, Never>?
+    /// Snapshots actually handed to subscribers. Exposed for tests.
+    private(set) var broadcastCount = 0
+
     private func broadcast() {
         let snapshot = currentSnapshot(now: Date())
+        guard !subscribers.isEmpty else { return }
+        let now = ContinuousClock.now
+        if trailingDelivery != nil {
+            pendingDelivery = snapshot
+            return
+        }
+        if let last = lastDeliveryAt, now - last < Self.broadcastWindow {
+            pendingDelivery = snapshot
+            let due = last + Self.broadcastWindow
+            trailingDelivery = Task { [weak self] in
+                try? await Task.sleep(until: due, clock: .continuous)
+                await self?.deliverTrailing()
+            }
+            return
+        }
+        deliver(snapshot, at: now)
+    }
+
+    private func deliverTrailing() {
+        trailingDelivery = nil
+        guard let snapshot = pendingDelivery else { return }
+        pendingDelivery = nil
+        deliver(snapshot, at: ContinuousClock.now)
+    }
+
+    private func deliver(_ snapshot: Snapshot, at now: ContinuousClock.Instant) {
+        lastDeliveryAt = now
+        broadcastCount += 1
         for continuation in subscribers.values {
             continuation.yield(snapshot)
         }
