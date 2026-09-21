@@ -28,13 +28,13 @@ Grok 1.0.40 随程序分发的 `~/.grok/docs/user-guide/10-hooks.md` 说明，`P
 
 原型包含 `GrokACPMonitor`、HTTP dispatch/answer/approval 接线、共享 ACP 传输和问答支持、Mac model 接线及 11 项 Grok ACP 测试。合入上述 main 后，`swift test --package-path VibeBuddyKit` 的 569 项和 `swift test --package-path VibeBuddyMac` 的 1159 项均通过。
 
-仍存在合并阻断：
+接手时发现以下合并阻断：
 
 1. `MenuBarModel.dispatch` 创建 `TaskDispatcher` 时没有传 grokACP。界面可以列出 Grok，但按 Start 会得到 unsupported。
 2. `MenuBarModel` 的语音 answer/instruct 路径仍把 steer/startTurn 交给 Codex monitor。即使 HTTP 创建成功，语音也不能正确追加或继续 Grok 会话。
 3. 隔离 Mac 配置强制禁用 Grok executable，尚无对应的受控 opt-in 验收入口。旧 daemon 测试不能证明 Mac 新任务与语音接线可用。
 
-因此本次只合并决策与研究文档。代码和面向用户的 README、CONTEXT、hook 设置文档变更留在独立代码分支；在修复入口并完成真实路径验收前，不把 ACP 能力写成 main 已支持。
+因此 PR #232 先只合并决策与研究文档。代码和面向用户的 README、CONTEXT、hook 设置文档变更留在独立代码分支；在修复入口并完成真实路径验收前，不把 ACP 能力写成 main 已支持。
 
 下一次代码交付至少要验证：Mac New task、HTTP dispatch、allow/deny、问答、运行中排队、完成后继续、停止、语音路由，以及同会话 hooks 不产生第二张卡。还应检查停止与问答到达交错时不会遗留卡片。使用独立 bundle id、root、端口与 token，不覆盖已安装应用。
 
@@ -50,3 +50,17 @@ Grok 1.0.40 随程序分发的 `~/.grok/docs/user-guide/10-hooks.md` 说明，`P
 | Grok Bot | 只读集成维护成本与分发限制 | 当前官方客户端和公开 API 契约；不得仅凭私有客户端文件推断产品身份、登录体系或长期兼容性 |
 
 Grok leader 的权限扇出、重启恢复、status line 和 active_sessions 注册表同样属于后续研究。`loadSession` 能力本身不等于已实现恢复；共享 leader 也不能自动获得操作其他客户端会话的授权。
+
+## PR #233 落地验收（2026-09-21）
+
+代码分支已合入当前 main，包括侧边栏、分隔条、上手清单、摘要与 iOS 发布准备。README 和 CONTEXT 保留 main 的现行措辞，仅补托管 Grok 的能力与限制。
+
+- Mac New task 与语音 action 路由接入同一个 Grok host；隔离实例通过 `VIBEBUDDY_E2E_GROK_ACP=1` 和独立的 `root/grok` 显式启用，不回落到生产 executable。
+- 取消任务会取消准备中的 ACP 请求和 question waiter。许可规则读取被阻塞时取消任务，旧代码会重新弹卡；新增回归在旧代码失败，修复后通过。
+- 真实 Mac 验收发现 Grok hook 的 native promptId 会覆盖 ACP 的轮次映射，导致完成正文不可读。ACP start/stop 现在使用一致的 host turnID，旁路 hooks 不再改写完成映射。双轮回归在旧代码均取不到正文，修复后两轮正文与持久化记录均正确。
+- 共享包 569 项、Mac 包 1162 项通过，Mac Debug 构建通过；独立代码评审未发现剩余阻断。
+- 实际 Grok 1.0.40 + 隔离 Mac 实例已验证：Mac 新建任务、HTTP 派发、允许/拒绝、问题回答、运行中排队、停止及继续；同一会话的原生 hooks 也转发到 `/hook?agent=grok` 和 `/approval`，没有重复卡片。Mac 续问返回 `MAC_CONTINUED`，界面与 `/completion` 正文一致。
+- 用 LLDB 在隔离 Debug App 中调用实际 `readVoiceStatus` 与 `performVoiceAction`，完成态语音指令走 Grok 并返回 `VOICE_ROUTED`；这验证 action handler，不冒充麦克风或云端语音识别验收。
+- 许可测试在隔离 GROK_HOME 明确要求 `Bash(*)` 审批，允许后创建测试文件，拒绝后没有文件；未改变用户的 Grok 配置。隔离 App 用 SIGKILL 退出并核验端口释放。
+
+这些验收不等于 iPhone/Watch 已验收，也不包含麦克风识别、leader 接管或跨 App 重启恢复。手机与 Watch 的发布验收随 iOS 1.3.24 (53) 单独记录。原型阶段其余四家的候选事项继续保留为研究，不随本次发布宣称完成。
