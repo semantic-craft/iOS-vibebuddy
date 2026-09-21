@@ -313,12 +313,14 @@ struct HistoryWorkbenchView: View {
     /// The sidebar owns the project choice (shared with the live library).
     @Binding var project: String?
     var searchFocused: FocusState<Bool>.Binding
+    /// The list's compact flag, owned by the dashboard (one owner for ⌘F,
+    /// the strip's search glyph and the split's own drag / double-click).
+    @Binding var listCompact: Bool
     @State private var agent: SessionHistoryAgent?
     @State private var archiveScope = "all"
     private var archived: Bool? { archiveScope == "all" ? nil : archiveScope == "archived" }
     @State private var selection: String?
     @State private var targetMessage: String?
-    @AppStorage(DashboardListColumn.compactKey) private var listCompact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var archiveTitle: String {
@@ -438,7 +440,7 @@ struct HistoryWorkbenchView: View {
                         .listHeadWords(listLabels)
                 }
             }
-            .padding(.horizontal, 12).padding(.top, 12)
+            .padding(.horizontal, DashboardListColumn.headPadding).padding(.top, 12)
             // In-flight search chrome has no place on the compact strip.
             if isSearching && history.searching, !listLabels.iconOnly { ProgressView("Searching…").opacity(listLabels.opacity) }
             if isSearching, let error = history.searchError, !listLabels.iconOnly {
@@ -455,7 +457,6 @@ struct HistoryWorkbenchView: View {
                                     targetMessage = hit.messageID
                                 } label: { HistoryRow(session: session, excerpt: hit.excerpt, active: selection == session.id && targetMessage == hit.messageID) }
                                 .buttonStyle(.plain)
-                                .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                             }
                         }
                     } else {
@@ -464,10 +465,10 @@ struct HistoryWorkbenchView: View {
                                 HistoryRow(session: session, excerpt: nil, active: selection == session.id)
                             }
                             .buttonStyle(.plain)
-                            .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                         }
                     }
-                    if !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
+                    // An empty state is all words, and the strip has none.
+                    if !listLabels.iconOnly, !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
                         QuietEmptyState(title: isSearching ? "No matching messages" : "No sessions in this view",
                                         message: "Check the project filter and source notices, or refresh the library.",
                                         systemName: "text.magnifyingglass")
@@ -480,11 +481,6 @@ struct HistoryWorkbenchView: View {
                     .opacity(listLabels.opacity)
             }
         }
-    }
-
-    /// The row's words, for the tooltip when only its agent tile is on screen.
-    static func compactTip(_ session: SessionHistorySession) -> String {
-        session.title + "\n" + session.agent.displayName + " · " + session.updatedAt.formatted(date: .abbreviated, time: .shortened)
     }
 
     /// The record with its live counterpart, when exactly one live session
@@ -507,8 +503,9 @@ struct HistoryWorkbenchView: View {
 
 
 /// A history row. It has no tile at full width; the compact strip stands
-/// the agent's tile in for its words, fading in as they fade out, at the
-/// words' own leading origin so it never slides.
+/// the agent's tile in for its words, fading in as they fade out, a fixed
+/// step in from the words' origin — where the strip centres it. The step
+/// is a constant, not a centring frame, so the tile still never slides.
 private struct HistoryRow: View {
     let session: SessionHistorySession
     var excerpt: String?
@@ -518,11 +515,23 @@ private struct HistoryRow: View {
     /// width truncates them at the row's edge instead of reflowing.
     @State private var restWordsWidth: CGFloat?
 
+    /// The agent and the date, the row's second line.
+    private var byline: String {
+        session.agent.displayName + " · " + session.updatedAt.formatted(date: .abbreviated, time: .shortened)
+    }
+
     var body: some View {
         Group {
             if labels.iconOnly {
+                // The tile is the whole row here, so it carries the words as
+                // its tooltip and accessibility text; the branch is inside
+                // the row, so its identity (and measured rest width) survives.
                 AgentAvatar(agent: session.agent.kind, size: 28)
+                    .padding(.leading, Self.compactTileInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(session.title + "\n" + byline)
+                    .accessibilityLabel(session.title)
+                    .accessibilityValue(byline)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .top) {
@@ -530,8 +539,7 @@ private struct HistoryRow: View {
                         if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(MacTheme.ink2) }
                         if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
                     }
-                    Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    Text(byline).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(MacTheme.font(10)) }
                     if let excerpt { Text(excerpt).font(MacTheme.font(10)).lineLimit(3) }
                     if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(MacTheme.font(10)) }
@@ -544,6 +552,7 @@ private struct HistoryRow: View {
                 .overlay(alignment: .topLeading) {
                     if labels.transitional {
                         AgentAvatar(agent: session.agent.kind, size: 28).opacity(1 - labels.opacity)
+                            .padding(.leading, Self.compactTileInset)
                     }
                 }
                 // Min 0, or the frame would grow to the frozen block instead of clipping it.
@@ -563,4 +572,14 @@ private struct HistoryRow: View {
     /// The words' width at the narrowest full width, for a row first laid
     /// out mid-drag: 240 − 8·2 outer − 10·2 row.
     private static var narrowestWordsWidth: CGFloat { DashboardColumnWidth.list.minFull - 16 - 20 }
+
+    /// How far in from the words' origin the tile sits. The strip leaves
+    /// 72 − 8·2 outer − 10·2 row = 36 pt for a 28 pt tile, so 4 pt centres
+    /// it there. A live width never enters it: centring the tile in the
+    /// column instead would walk it across the row as a drag narrows the
+    /// column below 156 pt, which is the slide the leading origin was
+    /// chosen to avoid.
+    private static var compactTileInset: CGFloat {
+        max(0, (DashboardColumnWidth.list.compact - 16 - 20 - 28) / 2)
+    }
 }
