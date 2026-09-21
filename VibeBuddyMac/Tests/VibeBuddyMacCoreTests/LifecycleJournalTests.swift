@@ -47,10 +47,45 @@ struct LifecycleJournalTests {
         #expect(!persisted.contains("/tmp/project"))
         #expect(persisted.contains(#""project":"project""#))
         #expect(await store.recentLifecycle().first?.status == .needsResponse)
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+
+        // The same protection is claimed for every file the store writes beside
+        // the journal, named or not, so a new ledger is covered by this test
+        // instead of breaking it: owner-only, no raw hook content, and no full
+        // path except in the one place a full path is the point.
+        let directoryMode = try FileManager.default
+            .attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber
+        #expect(directoryMode?.intValue == 0o700)
         let siblings = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        #expect(siblings == ["journal.json"])
+        #expect(siblings.contains("journal.json"))
+        // A successful publication leaves no staging file behind.
+        #expect(!siblings.contains { $0.hasPrefix(".") || $0.hasSuffix(".tmp") })
+        for sibling in siblings {
+            let file = directory.appendingPathComponent(sibling)
+            let contents = try String(contentsOf: file, encoding: .utf8)
+            #expect(!contents.contains(secret), "\(sibling) persisted raw content")
+            for rawField in ["message", "reasoning", "tool_input", "tool_response"] {
+                #expect(!contents.contains(rawField), "\(sibling) persisted \(rawField)")
+            }
+            let mode = try FileManager.default
+                .attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
+            #expect(mode?.intValue == 0o600, "\(sibling) is not owner-only")
+            // `recent-directories.json` is the one documented home of a full
+            // checkout path (ADR-0023, amended 2026-09-14); it is checked below.
+            if sibling != "recent-directories.json" {
+                #expect(!contents.contains("/tmp/project"), "\(sibling) persisted a full path")
+            }
+        }
+
+        // That ledger keeps where a task may start and which checkout a session
+        // was seen in — the paths and nothing else about what was said there.
+        let ledger = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: directory.appendingPathComponent("recent-directories.json"))
+        ) as? [String: Any]
+        #expect(ledger.map { Set($0.keys) } == ["directories", "sessions"])
+        #expect((ledger?["directories"] as? [String: Any])?.keys.sorted() == ["/tmp/project"])
+        let checkout = (ledger?["sessions"] as? [String: Any])?["privacy-session"] as? [String: Any]
+        #expect(checkout?["path"] as? String == "/tmp/project")
+        #expect(checkout.map { Set($0.keys) } == ["path", "seenAt"])
     }
 
     @Test("a failed clear remains visible and can be retried")

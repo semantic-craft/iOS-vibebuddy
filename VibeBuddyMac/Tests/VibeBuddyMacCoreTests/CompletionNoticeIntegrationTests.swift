@@ -81,14 +81,18 @@ struct CompletionNoticeIntegrationTests {
         await store.configureCompletionNotices(url: dir.appendingPathComponent("decisions.json"), enabled: { true }) { _ in
             await gate.generate()
         }
-        let end = Date().addingTimeInterval(-11.5)
+        // The round ended this long before its deadline, so the notice is still
+        // pending when it is first read; a loaded machine cannot eat that margin.
+        let end = Date().addingTimeInterval(3 - CompletionSummaryService.deadlineSeconds)
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
             observationSource: .hook, timestamp: end.addingTimeInterval(-1), turnID: "a"))
         _ = await store.setAttention(sessionID: "s", .followed)
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex,
             observationSource: .hook, timestamp: end, turnID: "a"))
         #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
-        try await Task.sleep(for: .milliseconds(700))
+        for _ in 0..<100 where await store.snapshot(now: Date()).sessions.first?.completionNotice?.state != .cancelled {
+            try await Task.sleep(for: .milliseconds(100))
+        }
         #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .cancelled)
         #expect(await gate.calls == 0)
     }
@@ -103,7 +107,9 @@ struct CompletionNoticeIntegrationTests {
             Issue.record("An unverified result must not reach generation")
             return nil
         }
-        let end = Date().addingTimeInterval(-11)
+        // Same margin as above: pending has to be observable before the deadline,
+        // and the ledger has to be broken while the notice is still waiting.
+        let end = Date().addingTimeInterval(3 - CompletionSummaryService.deadlineSeconds)
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
             observationSource: .hook, timestamp: end.addingTimeInterval(-1), turnID: "a"))
         _ = await store.setAttention(sessionID: "s", .followed)
@@ -113,7 +119,9 @@ struct CompletionNoticeIntegrationTests {
         // A directory at the ledger path makes atomic writes fail, including as root.
         try FileManager.default.removeItem(at: file)
         try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
-        try await Task.sleep(for: .milliseconds(1200))
+        for _ in 0..<100 where await store.snapshot(now: Date()).sessions.first?.completionNotice?.state != .cancelled {
+            try await Task.sleep(for: .milliseconds(100))
+        }
         #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .cancelled)
     }
 
@@ -147,7 +155,11 @@ struct CompletionNoticeIntegrationTests {
         _ = await store.setAttention(sessionID: "s", .followed)
         await store.ingest(HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: t, turnID: "turn", completionText: "Synthetic result", completionSucceeded: true))
         #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
-        try await Task.sleep(for: .milliseconds(200))
+        // Generation takes 100ms of its own; wait for the resolved copy rather
+        // than for a fixed slice of wall clock.
+        for _ in 0..<100 where await store.snapshot(now: Date()).sessions.first?.completionNotice?.state != .summary {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         let s = try #require(await store.snapshot(now: Date()).sessions.first)
         #expect(s.completionNotice?.state == .summary)
         #expect(s.summary != s.completionNotice?.text)

@@ -227,10 +227,15 @@ struct CodexRolloutMonitorTests {
             ]
         )
         let recorder = EventRecorder(firstEventDelay: .milliseconds(300))
+        // Discovery is far out of the way: everything delivered below came from
+        // the file watcher, and a scan on any short cadence would show up as a
+        // second pass. The debounce window is wide enough that ordinary
+        // scheduling jitter cannot push one burst of appends out of it.
+        let debounceInterval = Duration.milliseconds(500)
         let monitor = CodexRolloutMonitor(
             root: fixture.root,
-            discoveryInterval: .seconds(2),
-            debounceInterval: .milliseconds(80)
+            discoveryInterval: .seconds(30),
+            debounceInterval: debounceInterval
         )
         let task = Task { await monitor.run { await recorder.append($0) } }
         defer { task.cancel() }
@@ -239,18 +244,28 @@ struct CodexRolloutMonitorTests {
         let baseline = await monitor.diagnostics()
         #expect(baseline.discoveryPassCount == 1)
 
+        let clock = ContinuousClock()
+        let burstStart = clock.now
         try append(#"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#, to: file)
         try await Task.sleep(for: .milliseconds(20))
         try append(#"{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"c1","output":"ok"}}"#, to: file)
         try await Task.sleep(for: .milliseconds(20))
         try append(taskComplete(id: "turn-1"), to: file)
+        let burst = burstStart.duration(to: clock.now)
 
-        #expect(await eventually(timeout: .seconds(1)) { await recorder.count == 4 })
+        #expect(await eventually(timeout: .seconds(5)) { await recorder.count == 4 })
         let events = await recorder.events
         #expect(events.map(\.kind) == [.userPromptSubmit, .preToolUse, .postToolUse, .stop])
         let afterAppend = await monitor.diagnostics()
         #expect(afterAppend.discoveryPassCount == 1)
-        #expect(afterAppend.debouncedRefreshCount == 1)
+        // Appends that land inside one window are one refresh. On a machine
+        // loaded enough to stretch the burst past the window, more refreshes are
+        // the contract working, not failing, so only coalescing per se is claimed.
+        if burst < debounceInterval {
+            #expect(afterAppend.debouncedRefreshCount == 1)
+        } else {
+            #expect((1...3).contains(afterAppend.debouncedRefreshCount))
+        }
 
         try await Task.sleep(for: .seconds(1))
         #expect(await monitor.diagnostics().discoveryPassCount == 1)
