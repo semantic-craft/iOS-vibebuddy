@@ -1236,7 +1236,7 @@ public struct VibeBuddyServer: Sendable {
                       current.pendingQuestion?.isAnswerable != false,
                       (current.pendingQuestion?.id ?? "") == expectedQuestionID else { return Response(status: .conflict) }
                 if expectedQuestionID.isEmpty {
-                    guard current.agent == .codex, current.status != .needsResponse,
+                    guard current.status != .needsResponse, SessionActionSupport.resolve(for: current).isAvailable,
                           let since = o["expectedStatusSince"] as? Double,
                           abs(current.statusSince.timeIntervalSince1970 - since) < 0.001 else { return Response(status: .conflict) }
                 }

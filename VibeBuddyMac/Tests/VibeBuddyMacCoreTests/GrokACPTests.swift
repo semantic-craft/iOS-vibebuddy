@@ -1,5 +1,8 @@
 import Testing
 import Foundation
+import NIOCore
+import Hummingbird
+import HummingbirdTesting
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
@@ -257,6 +260,35 @@ struct GrokACPTests {
             let key = RecapEntry.completedID(sourceID: "grok-test-source", sessionID: rig.agent.sessionID, completionID: completion)
             #expect(ledger.results[key]?.text == "Result for turn \(index).")
         }
+        await rig.monitor.shutdown()
+    }
+
+    @Test func phoneWireContractContinuesHostedGrokAndRejectsStaleRound() async throws {
+        let rig = Rig()
+        _ = await rig.monitor.dispatch(request)
+        await eventually("first prompt") { rig.agent.request(named: "session/prompt") != nil }
+        rig.agent.endTurn("end_turn")
+        await eventually("done") { await rig.session()?.status == .done }
+        let session = try #require(await rig.session())
+        let server = VibeBuddyServer(store: rig.store, token: "t0k", grokACP: rig.monitor)
+        try await server.buildApplication().test(.router) { client in
+            // Match DecisionClient.phoneAnswer, including its empty question identity.
+            for stale in [true, false] {
+                let body: [String: Any] = ["sessionId": session.id, "expectedQuestionId": "",
+                    "intent": "continue", "requestId": UUID().uuidString,
+                    "expectedStatusSince": session.statusSince.timeIntervalSince1970 + (stale ? 5 : 0),
+                    "answer": "PHONE_CONTINUED"]
+                try await client.execute(uri: "/answer", method: .post,
+                    headers: [.authorization: "Bearer t0k"],
+                    body: ByteBuffer(data: try JSONSerialization.data(withJSONObject: body))) { response in
+                    #expect(response.status == (stale ? .conflict : .ok))
+                }
+                if stale { #expect(rig.agent.requests(named: "session/prompt").count == 1) }
+            }
+        }
+        await eventually("phone continuation") { rig.agent.requests(named: "session/prompt").count == 2 }
+        let prompt = rig.agent.request(named: "session/prompt", after: 1)?.params["prompt"] as? [[String: Any]]
+        #expect(prompt?.first?["text"] as? String == "PHONE_CONTINUED")
         await rig.monitor.shutdown()
     }
 
