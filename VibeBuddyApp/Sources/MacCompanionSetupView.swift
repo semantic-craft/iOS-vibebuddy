@@ -2,11 +2,6 @@ import SwiftUI
 import VibeBuddyKit
 import UIKit
 
-/// One public destination shared by onboarding, settings, and connection help.
-enum MacCompanionDownload {
-    static let url = URL(string: "https://github.com/semantic-craft/iOS-vibebuddy/releases/latest")!
-}
-
 struct MacCompanionSteps: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -39,7 +34,7 @@ struct MacCompanionDownloadActions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                openURL(MacCompanionDownload.url) { accepted in openFailed = !accepted }
+                openURL(CompanionLinks.macDownload) { accepted in openFailed = !accepted }
             } label: {
                 Label("Get the Mac companion", systemImage: "arrow.down.circle")
                     .frame(maxWidth: .infinity)
@@ -47,14 +42,14 @@ struct MacCompanionDownloadActions: View {
             .buttonStyle(.bordered).controlSize(.large)
 
             Button {
-                UIPasteboard.general.string = MacCompanionDownload.url.absoluteString
+                UIPasteboard.general.string = CompanionLinks.macDownload.absoluteString
                 copied = true
                 UIAccessibility.post(notification: .announcement,
                                      argument: NSLocalizedString("Link copied. Open it on your Mac.", comment: ""))
             } label: {
                 Label("Copy download link", systemImage: "doc.on.doc")
             }
-            ShareLink(item: MacCompanionDownload.url) {
+            ShareLink(item: CompanionLinks.macDownload) {
                 Label("Share link to your Mac", systemImage: "square.and.arrow.up")
             }
             if copied {
@@ -64,7 +59,7 @@ struct MacCompanionDownloadActions: View {
                 Text("The link could not be opened. Copy it and open it on your Mac.")
                     .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
             }
-            Text(MacCompanionDownload.url.absoluteString)
+            Text(CompanionLinks.macDownload.absoluteString)
                 .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
