@@ -158,6 +158,17 @@ struct PhoneSessionReader: View {
                         .accessibilityIdentifier("phone-copy-result")
                     Button("Activity and file changes", systemImage: "list.bullet") { showActivity.toggle() }
                     Button("Voice", systemImage: "waveform", action: openVoice)
+                    if SessionActionSupport.resolveStop(for: session).isAvailable {
+                        Button("Stop task", systemImage: "stop.circle", role: .destructive) {
+                            let target = session
+                            Task {
+                                guard authorityIsCurrent else { return }
+                                await dashboard.stopTask(target.id, expected: target)
+                            }
+                        }
+                        .disabled(!authorityIsCurrent || dashboard.phoneActionDisabled(for: session))
+                        .accessibilityIdentifier("phone-stop-task")
+                    }
                     if session.canJump { Button("Open current task on Mac") { if authorityIsCurrent { dashboard.jump(session.id) } } }
                     if companionEnabled { Button(included ? "Remove from buddy" : "Add to buddy") { if authorityIsCurrent { dashboard.toggleBuddy(session.id) } } }
                     Menu("Notifications") {

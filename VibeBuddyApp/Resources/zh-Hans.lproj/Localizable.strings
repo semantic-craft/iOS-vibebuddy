@@ -812,3 +812,5 @@
 "Step %lld of %lld: %@" = "第 %1$lld 步，共 %2$lld 步：%3$@";
 "Current step" = "当前步骤";
 "Not started" = "尚未开始";
+
+"Stop task" = "停止任务";

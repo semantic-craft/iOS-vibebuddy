@@ -364,6 +364,13 @@ private actor PhoneActionRecorder: DecisionClient {
         sent += 1
         return outcome
     }
+    var stopOutcome: StopDelivery = .accepted
+    private(set) var stopRequestIDs: [String] = []
+    func setStopOutcome(_ value: StopDelivery) { stopOutcome = value }
+    func phoneStop(_ pairing: PairingPayload, session: AgentSession, requestID: String) async -> StopDelivery {
+        stopRequestIDs.append(requestID)
+        return stopOutcome
+    }
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { sent += 1; return outcome == .received }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
@@ -447,6 +454,97 @@ extension DashboardStoreTests {
         let sent = await client.sent
         XCTAssertEqual(sent, 2)
         await store.stop().value
+    }
+
+    func testGrokActionsRecheckControlChannelAndStopReceipts() async throws {
+        let now = Date()
+        var session = AgentSession(id: "grok-stop", agent: .grok, project: "Grok fixture",
+                                   status: .working, statusSince: now, updatedAt: now)
+        session.controlChannel = .acp
+        let snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac")
+        let client = PhoneActionRecorder(snapshot: snapshot, outcome: .received)
+        let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]), notifier: SilentNotifier(),
+                                   decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        var unavailable = session
+        unavailable.controlChannel = ControlChannel.none
+        await client.replaceSnapshot(Snapshot(sessions: [unavailable], serverTime: now, sourceID: "fixture-mac"))
+        let instruction = await store.answer(session.id, answer: "Continue", expected: session)
+        let stopped = await store.stopTask(session.id, expected: session)
+        XCTAssertEqual(instruction, .expired)
+        XCTAssertEqual(stopped, .expired)
+        let sent = await client.sent
+        let stops = await client.stopRequestIDs
+        XCTAssertEqual(sent, 0)
+        XCTAssertTrue(stops.isEmpty)
+        await store.stop().value
+    }
+
+    func testPhoneStopMapsReceiptAndDoesNotReplayUncertainty() async throws {
+        for (delivery, expected) in [(StopDelivery.accepted, PhoneActionResult.received), (.refused, .expired), (.failed, .failed), (.unconfirmed, .unconfirmed)] {
+            let now = Date()
+            var session = AgentSession(id: "grok-stop", agent: .grok, project: "Grok fixture",
+                                       status: .working, statusSince: now, updatedAt: now)
+            session.controlChannel = .acp
+            session.status = .needsResponse
+            session.pendingQuestion = PendingQuestion(id: "readonly", prompt: "Local only",
+                expiresAt: now.addingTimeInterval(-10), answerable: false)
+            let snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac")
+            let client = PhoneActionRecorder(snapshot: snapshot, outcome: .received)
+            await client.setStopOutcome(delivery)
+            let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]), notifier: SilentNotifier(),
+                                       decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+            store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+            for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+            var stale = session
+            stale.pendingQuestion = PendingQuestion(id: "old-question", prompt: "Old")
+            let refused = await store.stopTask(session.id, expected: stale)
+            XCTAssertEqual(refused, .expired)
+            let beforeStop = await client.stopRequestIDs
+            XCTAssertTrue(beforeStop.isEmpty)
+            let result = await store.stopTask(session.id, expected: session)
+            XCTAssertEqual(result, expected)
+            let requests = await client.stopRequestIDs
+            XCTAssertEqual(requests.count, 1)
+            XCTAssertNotNil(UUID(uuidString: try XCTUnwrap(requests.first)))
+            if delivery == .unconfirmed {
+                let retry = await store.stopTask(session.id, expected: session)
+                XCTAssertEqual(retry, .unconfirmed)
+                let afterRetry = await client.stopRequestIDs
+                XCTAssertEqual(afterRetry, requests)
+            }
+            await store.stop().value
+        }
+    }
+
+    func testManagedGrokInstructionsFromReaderAndVoiceReachTheClient() async throws {
+        for status in [SessionStatus.done, .working] {
+            let now = Date()
+            var session = AgentSession(id: "grok-reader", agent: .grok, project: "Grok fixture", status: status,
+                                       statusSince: now, updatedAt: now)
+            session.controlChannel = .acp
+            let snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac")
+            let client = PhoneActionRecorder(snapshot: snapshot, outcome: .received)
+            let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]), notifier: SilentNotifier(),
+                                       decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+            store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+            for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+
+            let reader = await store.answer(session.id, answer: "Continue this Grok task", expected: session)
+            XCTAssertEqual(reader, .received)
+            _ = await store.performVoiceAction(.instruct(project: "Grok fixture", text: "Next instruction"))
+            let sent = await client.sent
+            XCTAssertEqual(sent, 2, "Both reader and voice must reach the existing session-action client")
+
+            var stale = session
+            stale.statusSince = now.addingTimeInterval(-10)
+            let refused = await store.answer(session.id, answer: "Old round", expected: stale)
+            XCTAssertEqual(refused, .expired)
+            let afterStale = await client.sent
+            XCTAssertEqual(afterStale, 2)
+            await store.stop().value
+        }
     }
 
     func testHTTPReceiptDoesNotTreatUnavailableOrUnknownAsSuccess() {
