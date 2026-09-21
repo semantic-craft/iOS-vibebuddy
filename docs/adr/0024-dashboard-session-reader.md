@@ -65,7 +65,8 @@ demand and re-read when its file changes.
    has a target; its tooltip is resolved per host (`JumpDestination`): *Jump
    to terminal* for a pane in a terminal emulator, *Jump to Claude* / *Cursor*
    / *VS Code* when only the hosting app can be raised, *Jump to ChatGPT* for a
-   Codex Desktop thread, *Open Grok Bot*. ⏎ on the dashboard does the same.
+   Codex Desktop thread. ⏎ on the dashboard does the same. (*Open Grok Bot* is
+   superseded by ADR-0031: Grok Bot has no sessions to jump to.)
    *Copy resume command* and *Show source* live in the ··· menu; the approval
    card in the dock offers Approve / Deny only. The outcome
    copy (`JumpOutcomeCopy`) reports what was actually raised.

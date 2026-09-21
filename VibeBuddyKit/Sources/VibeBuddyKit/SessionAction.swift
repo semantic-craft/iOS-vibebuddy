@@ -36,10 +36,6 @@ public struct SessionActionSupport: Equatable, Sendable {
     public var isAvailable: Bool { unsupportedReason == nil }
 
     public static func resolve(for session: AgentSession) -> SessionActionSupport {
-        if session.agent == .grokBot {
-            let intent: SessionActionIntent = session.status == .needsResponse ? .answer : session.status == .done ? .continue : .steer
-            return SessionActionSupport(intent: intent, unsupportedReason: String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.", bundle: .module))
-        }
         if session.agent == .cursor, session.cursorACPRecoverable == true, session.controlChannel != .acp {
             return SessionActionSupport(intent: .continue, unsupportedReason: session.cursorACPRecoveryUnavailable,
                 note: session.cursorACPRecoveryFailure.map { $0 + " Send again to retry reconnecting." }
@@ -206,9 +202,6 @@ public struct SessionActionSupport: Equatable, Sendable {
             // No official remote interrupt contract; a tmux Escape is not one.
             return String(localized: "Stop this on your Mac.", bundle: .module)
         }
-        if agent == .grokBot {
-            return String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.", bundle: .module)
-        }
         return String(localized: "\(agent.displayName) sessions can't take instructions from the phone yet — use the terminal.", bundle: .module)
     }
 
@@ -269,16 +262,17 @@ public enum WaitHandling: String, Codable, Equatable, Sendable {
     case remoteAvailable
     case watchApproval
     case macNativePrompt
+    /// No longer produced: Grok Bot has no session integration. Retained so a
+    /// cached projection written by an older build still decodes.
     case macGrokBot
     case unavailable
 
     public static func resolve(for session: AgentSession) -> WaitHandling {
         guard session.status == .needsResponse else { return .unavailable }
-        if session.agent == .grokBot { return .macGrokBot }
         if session.waitKind == .permission {
             switch ApprovalEligibility.unavailableReason(for: session) {
             case nil: return .remoteAvailable
-            case .readOnly, .unsupportedSource: return .macNativePrompt
+            case .readOnly: return .macNativePrompt
             default: return .unavailable
             }
         }

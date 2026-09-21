@@ -168,7 +168,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
 
     /// Whether the wrist may offer Approve / Deny for this alert.
     public var isDecidable: Bool {
-        handling == .watchApproval && waitKind == .permission && agent != .grokBot
+        handling == .watchApproval && waitKind == .permission
             && approvalId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 

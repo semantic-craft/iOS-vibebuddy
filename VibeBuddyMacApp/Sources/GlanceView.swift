@@ -394,8 +394,8 @@ struct GlanceView: View {
                             .help("Stop asking for the rest of this run")
                         Text("·").foregroundStyle(.white.opacity(0.4))
                         }
-                        linkButton(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
-                            .help(p.agent == .grokBot ? "Open Grok Bot and select the task" : p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
+                        linkButton(p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
+                            .help(p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }
                     .font(MacTheme.font(11 * s, .heavy))
                 } else {
@@ -405,7 +405,7 @@ struct GlanceView: View {
                             .font(MacTheme.font(11 * s, .semibold)).foregroundStyle(.white.opacity(0.8))
                         Spacer(minLength: 0)
                         if p.canJump {
-                        Button(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump") { model.jump(p) }
+                        Button(p.jumpsToDesktopThread ? "Open thread" : "Jump") { model.jump(p) }
                             .buttonStyle(GlanceButtonStyle(scale: s))
                         }
                     }
@@ -527,10 +527,10 @@ private struct GlanceEventCard: View {
                     }
                     if live.canJump {
                     Button { model.jump(live); model.dismissGlanceCard() } label: {
-                        Label(live.agent == .grokBot ? "Open Grok Bot" : "Jump", systemImage: live.agent == .grokBot || live.jumpsToDesktopThread ? "bubble.left" : "terminal")
+                        Label("Jump", systemImage: live.jumpsToDesktopThread ? "bubble.left" : "terminal")
                     }
                     .buttonStyle(GlanceButtonStyle(scale: s))
-                    .help(live.agent == .grokBot ? "Open Grok Bot and select the task" : live.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
+                    .help(live.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }
                 }
             }

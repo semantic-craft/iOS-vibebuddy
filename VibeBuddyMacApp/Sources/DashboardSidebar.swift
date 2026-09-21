@@ -2,25 +2,34 @@ import SwiftUI
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// The dashboard's one sidebar, in the shape of Cursor's main window: the
-/// actions on top (New task, Search, Voice), the four libraries, the project
-/// filter for whichever library is showing, and at the bottom the account
-/// quota and Settings. It replaces the segmented library picker, the buddy
-/// header and the window toolbar, so nothing sits in the title bar any more.
+/// The selected agent's workspace, beside the agent rail: who is working, what
+/// their account has left, a task you can start in their name, the five
+/// libraries, and their live sessions grouped by what each one wants from you.
+/// It replaces the old project list — a long, churning column of worktree
+/// hashes — with the one axis that stays still, and takes over the session
+/// list the reader used to sit beside, so the reading gets the whole pane.
 struct DashboardSidebar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
     @Binding var library: String
     @Binding var projectScope: DashboardSessionList.ProjectScope
-    @Binding var historyProject: String?
-    let liveProjects: [DashboardSessionList.Project]
-    /// History's projects by path, with how many conversations each holds.
-    let historyProjects: [(path: String, count: Int)]
+    @Binding var statusFilter: DashboardSessionList.StatusFilter?
+    @Binding var query: String
+    @Binding var showOlder: Bool
+    /// The rail's choice; `nil` is "All agents".
+    let agent: AgentKind?
+    let tally: AgentRoster.Tally
+    /// The filtered sessions, already ranked, split into the groups the column
+    /// reads in order (`DashboardAgentColumn.groups`).
+    let groups: [DashboardAgentColumn.Group]
+    let projects: [DashboardSessionList.Project]
+    let olderCount: Int
+    let selection: String?
+    var searchFocused: FocusState<Bool>.Binding
+    var onSelectSession: (AgentSession) -> Void
     var onNewTask: () -> Void
-    var onSearch: () -> Void
     var onOpenSpeech: () -> Void
     var speechPanelPresented: Bool
-    var onOpenProject: (DashboardSessionList.ProjectScope) -> Void
     /// The column's width right now: a settled width, or the pointer's while
     /// a drag on the right edge is live (`DashboardColumnWidth.sidebar`). Every row
     /// reads its lettering from it, so labels truncate and fade as the
@@ -33,14 +42,15 @@ struct DashboardSidebar: View {
 
     private var labels: ColumnLabelStyle { .at(width: width, policy: .sidebar) }
     private var waiting: Int { TaskPresentationSummary(currentIn: model.sessions, now: Date()).pendingCount }
+    private var agentName: String { agent?.displayName ?? String(localized: "All agents") }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // The actions and the libraries never scroll away; only the
-            // project list does, so New task stays reachable in any project count.
+            // The head never scrolls: New task, the libraries and the filters
+            // stay reachable at any session count; only the sessions move.
             VStack(alignment: .leading, spacing: 1) {
-                SidebarRow(systemName: "plus.square", title: "New task", shortcut: "⌘N", action: onNewTask)
-                SidebarRow(systemName: "magnifyingglass", title: "Search", shortcut: "⌘F", action: onSearch)
+                agentHeader
+                newTaskRow
                 voiceRow
                 SidebarRow(systemName: "text.bubble", title: "Voice and reading", action: onOpenSpeech)
 
@@ -52,22 +62,21 @@ struct DashboardSidebar: View {
                 SidebarRow(systemName: "clock", title: "History", selected: library == "history") { library = "history" }
                 SidebarRow(systemName: "star", title: "Favorites", selected: library == "favorites") { library = "favorites" }
                 SidebarRow(systemName: "chart.bar", title: "Usage", selected: library == "usage") { library = "usage" }
-                if library != "usage" && library != "recap" { SidebarHeading(title: "Projects") }
-            }
-            .padding(.horizontal, 8).padding(.top, 10)
-            if library != "usage" && library != "recap" {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 1) { projectRows }
-                        .padding(.horizontal, 8).padding(.bottom, 8)
+
+                sessionsHeading
+                // History and Favorites carry their own search field over
+                // their own index; two fields bound to one query would fight
+                // for the focus, so the column's own field leaves while they are open.
+                if !labels.iconOnly, library != "history", library != "favorites" {
+                    SearchPill(query: $query, focused: searchFocused)
+                        .padding(.horizontal, 8).padding(.bottom, 6)
+                        .opacity(labels.opacity)
                 }
             }
+            .padding(.horizontal, 8).padding(.top, 10)
+
+            sessionList
             Spacer(minLength: 0)
-            QuotaPlinth(model: model)
-            Divider()
-            SidebarRow(systemName: "gearshape", title: "Settings", shortcut: "⌘,") {
-                NotificationCenter.default.post(name: .openAppSettings, object: nil)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 6)
         }
         .environment(\.sidebarLabels, labels)
         .frame(width: width).frame(maxHeight: .infinity)
@@ -77,6 +86,181 @@ struct DashboardSidebar: View {
         .onDisappear { if !companionEnabled { voiceHintSeen = true } }
     }
 
+    // MARK: The agent
+
+    /// Who the column belongs to, and what their account has left. On the
+    /// strip only the mark stays — the rail beside it already carries the
+    /// same identity, so the words go to the tooltip rather than wrap.
+    private var agentHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Group {
+                    if let agent {
+                        SVGPathShape(agent.brandMark).fill(agent.brandColor).frame(width: 15, height: 15)
+                    } else {
+                        Image(systemName: "square.grid.2x2").font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(MacTheme.ink2).frame(width: 15, height: 15)
+                    }
+                }
+                .frame(width: 14, alignment: .leading)
+                if !labels.iconOnly {
+                    Text(agentName).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
+                        .lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Text("\(tally.total)").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                }
+            }
+            .opacity(labels.iconOnly ? 1 : labels.opacity)
+            if !labels.iconOnly { quotaStrip }
+        }
+        .padding(.horizontal, 8).padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(agentName))
+    }
+
+    /// The agent's allowance where the agent is, rather than in a plinth of
+    /// its own: the window closest to running out, its share and its reset.
+    @ViewBuilder private var quotaStrip: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let reading = agent.flatMap { AgentQuotaReading.read($0, model: model, now: context.date) }
+                ?? (agent == nil ? AgentQuotaReading.tightest(model: model, now: context.date) : nil)
+            if let reading {
+                Button { DashboardRoute.open(.usage) } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Text(agent == nil ? reading.provider.displayName : reading.windowName)
+                                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text("\(reading.remainingPercent)%")
+                                .font(MacTheme.mono(10, .semibold)).foregroundStyle(reading.tint)
+                            if let warning = reading.warningText(now: context.date) {
+                                Text(warning).font(MacTheme.font(9)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                                    .lineLimit(1)
+                            } else if let reset = reading.resetText(now: context.date) {
+                                Text(reset).font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3).lineLimit(1)
+                            }
+                        }
+                        QuotaBullet(usedPercent: reading.usedPercent, pacePercent: nil, height: 4)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(Text("Account quota · \(reading.summaryLine(now: context.date))"))
+                .accessibilityLabel("Account quota")
+                .accessibilityValue(reading.summaryLine(now: context.date))
+                .opacity(labels.opacity)
+            }
+        }
+    }
+
+    /// New task in the agent's name: the rail's choice is the one the sheet
+    /// opens on, so starting work is the same gesture as reading it.
+    private var newTaskRow: some View {
+        SidebarRow(systemName: "plus.square",
+                   title: agent == nil ? "New task" : LocalizedStringKey(String(localized: "New \(agentName) task")),
+                   shortcut: "⌘N", action: onNewTask)
+    }
+
+    // MARK: Sessions
+
+    private var anyFilter: Bool {
+        projectScope != .all || statusFilter != nil || !query.isEmpty || showOlder
+    }
+
+    private var sessionsHeading: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            SidebarHeading(title: "Sessions")
+            if !labels.iconOnly {
+                Spacer(minLength: 0)
+                projectPill
+                if anyFilter {
+                    Button("Reset") {
+                        projectScope = .all
+                        statusFilter = nil
+                        query = ""
+                        showOlder = false
+                    }
+                    .buttonStyle(.plain).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                }
+            }
+        }
+        .padding(.trailing, 8)
+        .opacity(labels.iconOnly ? 1 : labels.opacity)
+    }
+
+    /// Projects stay one menu away: the column is the agent's, and this is
+    /// where "…in this checkout" narrows it.
+    private var projectPill: some View {
+        let titles = DashboardProjectLabel.labels(for: projects.map { Self.title($0.id) })
+        return MenuPill(title: projectScope == .all
+                        ? String(localized: "All projects")
+                        : titles[Self.title(projectScope)]?.title ?? Self.title(projectScope),
+                        emphasized: projectScope != .all) {
+            Button("All projects") { projectScope = .all }
+            ForEach(projects) { project in
+                let full = Self.title(project.id)
+                Button(project.count > 0 ? "\(titles[full]?.title ?? full) (\(project.count))" : (titles[full]?.title ?? full)) {
+                    projectScope = project.id
+                }
+            }
+        }
+        .accessibilityLabel("Filter sessions by project")
+    }
+
+    @ViewBuilder private var sessionList: some View {
+        if labels.iconOnly {
+            // The strip has no words, and a session row is all words; the rail
+            // beside it still carries the agent's attention dot.
+            EmptyView()
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    if groups.isEmpty {
+                        Text(anyFilter ? "No matching sessions" : "No sessions reporting")
+                            .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
+                            .padding(.horizontal, 16).padding(.top, 10)
+                    }
+                    ForEach(groups) { group in
+                        GroupHeading(filter: group.filter, count: group.sessions.count,
+                                     selected: statusFilter == group.filter) {
+                            statusFilter = statusFilter == group.filter ? nil : group.filter
+                        }
+                        ForEach(group.sessions) { session in
+                            AgentSessionRow(session: session, showAgent: agent == nil,
+                                            selected: selection == session.id,
+                                            included: model.buddySessionIDs.contains(session.id),
+                                            showInclude: companionEnabled) {
+                                onSelectSession(session)
+                            }
+                            .contextMenu {
+                                AttentionPicker(session: session, model: model, style: .menu)
+                                if companionEnabled {
+                                    Button(model.buddySessionIDs.contains(session.id) ? "Remove from Buddy" : "Include in Buddy") {
+                                        model.toggleBuddy(session.id)
+                                    }
+                                }
+                                if session.status == .done, session.completionID != nil {
+                                    Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                                        if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
+                                        else { model.markUnread(session) }
+                                    }
+                                }
+                                ContinueWithMenu(session: session, model: model)
+                            }
+                        }
+                    }
+                    if olderCount > 0 || showOlder {
+                        Toggle(isOn: $showOlder) { Text("Show \(olderCount) older") }
+                            .toggleStyle(.checkbox).font(MacTheme.font(10.5))
+                            .padding(.horizontal, 10).padding(.top, 8)
+                    }
+                }
+                .padding(.horizontal, 8).padding(.bottom, 10)
+                .opacity(labels.opacity)
+            }
+        }
+    }
+
     // MARK: Voice
 
     /// The mic is Cursor's small round button, here on its own row: the row
@@ -84,7 +268,7 @@ struct DashboardSidebar: View {
     /// line carries the last exchange or the error. The cat sits beside the
     /// mic only while a conversation is live (ADR-0017 §2–3). The 20pt disc
     /// is centred on the 14pt glyph column its neighbours use, so its centre
-    /// and the word after it line up with New task and Search; the row gives
+    /// and the word after it line up with New task; the row gives
     /// back the extra height in its padding and stays as tall as theirs.
     private var voiceRow: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -159,37 +343,6 @@ struct DashboardSidebar: View {
         return (n == 0 ? String(localized: "Buddy: all sessions") : String(localized: "Buddy: \(n) selected"), false)
     }
 
-    // MARK: Projects
-
-    @ViewBuilder private var projectRows: some View {
-        if library == "live" || library == "inbox" {
-            let labels = DashboardProjectLabel.labels(for: liveProjects.map { Self.title($0.id) })
-            ForEach(liveProjects) { project in
-                let full = Self.title(project.id)
-                let label = labels[full]!
-                ProjectRow(title: label.title, subtitle: label.parentPath,
-                           count: project.count,
-                           selected: library == "live" && projectScope == project.id) {
-                               onOpenProject(project.id)
-                           }
-                    .help(full)
-            }
-        } else {
-            let labels = DashboardProjectLabel.labels(for: historyProjects.map(\.path))
-            ProjectRow(title: String(localized: "All projects"),
-                       count: historyProjects.reduce(0) { $0 + $1.count },
-                       selected: historyProject == nil) { historyProject = nil }
-                .help("All projects")
-            ForEach(historyProjects, id: \.path) { project in
-                let label = labels[project.path]!
-                ProjectRow(title: project.path.isEmpty ? String(localized: "Unknown project") : label.title,
-                           subtitle: label.parentPath,
-                           count: project.count, selected: historyProject == project.path) { historyProject = project.path }
-                    .help(project.path)
-            }
-        }
-    }
-
     static func title(_ scope: DashboardSessionList.ProjectScope) -> String {
         switch scope {
         case .all: String(localized: "All projects")
@@ -255,53 +408,105 @@ struct SidebarRow: View {
     }
 }
 
-struct ProjectRow: View {
-    let title: String
-    var subtitle: String? = nil
+/// A session group's heading, and the filter it stands for: "Needs you 1" in
+/// the state's own tint. Clicking it narrows the column to that group (the
+/// same scope ⌘1–⌘4 set) and clicking it again clears the filter.
+struct GroupHeading: View {
+    let filter: DashboardSessionList.StatusFilter
     let count: Int
     let selected: Bool
     let action: () -> Void
-    @Environment(\.sidebarLabels) private var labels
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if labels.iconOnly {
-                    // Projects have no glyph, so the rail draws a monogram tile
-                    // where the glyph column is; the name is in the tooltip.
-                    monogram
-                } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
-                            .lineLimit(1).truncationMode(.middle)
-                        if let subtitle {
-                            Text(subtitle).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    Spacer(minLength: 4)
-                    Text("\(count)").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
-                }
+            HStack(spacing: 5) {
+                Text(DashboardView.chipTitle(filter))
+                    .font(MacTheme.font(10, .semibold)).textCase(.uppercase).kerning(0.5)
+                    .foregroundStyle(tint)
+                Text("\(count)").font(MacTheme.mono(9.5)).foregroundStyle(MacTheme.ink3)
+                Spacer(minLength: 0)
             }
-            .opacity(labels.iconOnly ? 1 : labels.opacity)
-            .sidebarRowFrame(vertical: 4)
+            .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(SidebarRowStyle(selected: selected))
-        .accessibilityLabel(Text(title))
-        .accessibilityCount(count)
+        .buttonStyle(.plain)
+        .help(selected ? Text("Show every group") : Text("Show only this group"))
+        .accessibilityAddTraits(.isHeader)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var monogram: some View {
-        Text(String(title.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
-            .font(MacTheme.mono(8, .semibold))
-            .foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
-            .frame(width: 14, height: 14)
-            .background(selected ? MacTheme.accent.opacity(0.18) : MacTheme.bg3,
-                        in: RoundedRectangle(cornerRadius: 3, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline))
-            .transition(.opacity)
+    private var tint: Color {
+        switch filter {
+        case .needsYou: MacTheme.status(.requiresInput)
+        case .working: MacTheme.status(.thinking)
+        case .done: MacTheme.status(.completeUnread)
+        case .idle: MacTheme.ink3
+        }
+    }
+}
+
+/// One live session in the column: its state as a dot, its title, and under it
+/// where it is running. Narrow by design — the reading itself has the whole
+/// pane beside it, so the row only has to be findable.
+struct AgentSessionRow: View {
+    let session: AgentSession
+    /// Under "All agents" the row says whose it is; inside one agent's column
+    /// the mark would repeat on every row, so it is left off.
+    let showAgent: Bool
+    let selected: Bool
+    let included: Bool
+    let showInclude: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 8) {
+                Circle().fill(MacTheme.status(session.presentationState))
+                    .frame(width: 6, height: 6).padding(.top, 5)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        if showAgent {
+                            SVGPathShape(session.agent.brandMark).fill(MacTheme.ink3)
+                                .frame(width: 9, height: 9)
+                        }
+                        Text(session.displayTitle).font(MacTheme.font(12, selected ? .semibold : .medium))
+                            .foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                    Text(subtitle).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                if showInclude, included {
+                    Image(systemName: "waveform").font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(MacTheme.accent).padding(.top, 3)
+                }
+                Text(session.updatedAt, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                    .font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3)
+                    .lineLimit(1).padding(.top, 2)
+            }
+            .sidebarRowFrame(minHeight: 30, vertical: 5)
+        }
+        .buttonStyle(SidebarRowStyle(selected: selected))
+        .help(Text(session.displayTitle) + Text(" — ") + Text(subtitle))
+        .accessibilityLabel(Text(session.displayTitle))
+        .accessibilityValue(Text(subtitle))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Where it is running: the checkout's own name, with the agent's in front
+    /// of it while the column is showing every agent.
+    private var subtitle: String {
+        let scope = DashboardSessionList.ProjectScope.of(session)
+        let name: String
+        switch scope {
+        case .all: name = String(localized: "All projects")
+        case .unknown: name = String(localized: "Unknown project")
+        case .project(let path):
+            name = path.hasPrefix("/") ? URL(fileURLWithPath: path).lastPathComponent : path
+        }
+        return showAgent ? "\(session.agent.shortName) · \(name)" : name
     }
 }
 
@@ -332,7 +537,7 @@ extension View {
     /// The sidebar row's frame: one minimum height in both shapes (so nothing
     /// shifts as labels leave), 8 pt sides, the full column width, and the
     /// rounded hit shape `SidebarRowStyle` paints. Every row — glyph rows,
-    /// project rows, the Voice row and the rail's quota gauge — takes it.
+    /// session rows and the Voice row — takes it.
     func sidebarRowFrame(minHeight: CGFloat = 16, vertical: CGFloat = 5) -> some View {
         frame(minHeight: minHeight)
             .padding(.horizontal, 8).padding(.vertical, vertical)
@@ -410,7 +615,7 @@ struct FilterChip: View {
 /// project pickers: outlined, quiet, a chevron at the end.
 struct MenuPill<Content: View>: View {
     let title: String
-    /// True while the pill carries a non-default choice (an agent filter),
+    /// True while the pill carries a non-default choice (a project filter),
     /// so the chosen value reads at a glance without a second chip row.
     var emphasized = false
     @ViewBuilder var content: () -> Content

@@ -475,7 +475,7 @@ public actor SessionStore {
             }
             return existing
         }
-        guard eligible, [.claudeCode, .codex, .cursor, .grokBot].contains(session.agent),
+        guard eligible, [.claudeCode, .codex, .cursor].contains(session.agent),
               now < session.statusSince.addingTimeInterval(12), let handler = noticeHandler else { return nil }
         var notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
         let contentConfig = presentationConfiguration()
@@ -817,7 +817,6 @@ public actor SessionStore {
     public func recordSourceSignal(agent: AgentKind, source: ObservationSource,
                                    health: ObservationHealth, at date: Date) {
         recordSignal(agent: agent, source: source, at: date, health: health, coverage: nil)
-        if source == .gateway { reducer.markSourceHealth(agent: agent, source: source, health: health) }
         broadcast()
     }
 
@@ -952,7 +951,7 @@ public actor SessionStore {
             createdCompletion: reducer.sessions[event.sessionID]?.completionID != previousCompletionID)
         persistCompletionResults()
         // A prompt is the user driving the session in person.
-        if event.kind == .userPromptSubmit, event.agent != .grokBot || event.turnID != nil { lastInteractionAt[event.sessionID] = event.timestamp }
+        if event.kind == .userPromptSubmit { lastInteractionAt[event.sessionID] = event.timestamp }
         if let enrichment = event.enrichment {
             enrichSession(sessionID: event.sessionID, with: enrichment)
         }

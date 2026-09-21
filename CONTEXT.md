@@ -130,6 +130,31 @@ code, and tests — don't drift to synonyms.
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
+- **Agent rail** — the dashboard's leftmost 48 pt column (`DashboardAgentRail`,
+  ADR-0031): one tile per agent reporting in the current window, led by **All
+  agents**, each ringed by that account's tightest allowance (`AgentQuotaReading`)
+  and dotted when one of its sessions needs you, with Settings at the foot.
+  Choosing a tile is the window's first axis; it sets the live list's agent.
+- **Agent column** — the column beside the rail (`DashboardSidebar`,
+  ADR-0031): the chosen agent's workspace — its name and allowance, **New
+  \<agent\> task**, the voice rows, the five libraries, and its live sessions
+  grouped by **Needs you / Working / Unread results / Idle**
+  (`DashboardAgentColumn`), with a project pill and the search field over them.
+  The libraries stay fleet-wide; only the sessions below them are the agent's.
+- **Agent strip** — the iPhone hub's own first axis (`PhoneAgentStrip`,
+  ADR-0031): the rail's entries in a horizontal row under the Inbox title,
+  each a brand mark inside its allowance ring with an attention dot and its
+  session count, **All** leading. The choice scopes the hub's mood line, First
+  up, tiles and projects (`InboxProjection(sessions:now:agent:)`), carries into
+  the list page and into New task, and survives Back. `AgentRoster` (Kit) is
+  the one place both the rail and the strip get their tallies.
+- **Allowance strips (Watch)** — the wrist's quota section (`WatchQuotaStrips`,
+  ADR-0031 §9): one row per provider carrying that **agent's** mark and short
+  name, lowest reading first by the number the row itself shows
+  (`displayedLowestFirst`), unreadable ones last. The Watch takes no agent
+  axis — its order is already attention-first (ADR-0021) — but a reading at or
+  below `QuotaReading.lowRemainingPercent` follows the agent onto the alert
+  card and the task header as "· N% left" in the attention tint.
 - **Right slot** — the dashboard detail column's one place for a session's
   records that are not the conversation, after Cursor's right sidebar
   (`RightSlotState`, ticket 11): the **shelf** (the `On <project>` rows —
@@ -498,23 +523,14 @@ code, and tests — don't drift to synonyms.
   utility task behind a size+mtime memo, so a refresh costs the files that
   actually changed.
 - **Grok Bot** — the cloud bot product opened by `com.anysphere.sand`, distinct
-  from Grok Build CLI (`grok`). Its account quota has the independent `grokBot`
-  provider identity. The optional Mac observer uses the official client's
-  active-account gateway credentials for read-only observations; it does not
-  start tasks or answer questions. A Session belongs to account + bot, and a
-  completion additionally belongs to the initiating turn. Message IDs alone
-  are insufficient because different bots can reuse them.
-- **Grok Bot gateway** — `ObservationSource.gateway`. Connection health is
-  separate from task state: reconnecting or losing access does not prove that
-  a task finished. User-visible final replies must match the initiating user
-  request and its terminal settlement before entering completion summaries.
-  Without a verified exact-bot jump, Jump opens the official app. Foreground
-  Grok Bot can suppress speech but does not acknowledge every bot's completion.
-  A current unanswered native `widget` is needsResponse even when the roster
-  reports idle and an old successful settlement. Answering the widget may start
-  a new request without a new associated settlement; this continuation's completion
-  is currently unverifiable and keeps degraded observation health. It must not
-  inherit the earlier turn's success or enter summaries by temporal proximity.
+  from Grok Build CLI (`grok`). It is an **account-usage provider only**
+  (ADR-0031): the independent `grokBot` provider identity reads the signed-in
+  account's Sand allowance, and nothing else. There is no task observation, no
+  Session, no jump and no approval path — `AgentKind.grokBot` exists so a quota
+  row can carry the brand mark, and a `?agent=grokbot` hook is rejected rather
+  than mistaken for another CLI. `ObservationSource.gateway` and
+  `WaitHandling.macGrokBot` remain in their wire enums only so a snapshot
+  written by an older build still decodes; nothing produces them.
 
 ## Completion summaries and Mac reading
 

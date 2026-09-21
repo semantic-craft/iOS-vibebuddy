@@ -2,17 +2,10 @@ import Foundation
 import VibeBuddyKit
 
 /// Matches sessions to the frontmost terminal app for approval routing and
-/// optional source-app speech suppression. This is app-level presence only:
-/// it cannot identify the selected tab and must not be used as proof that a
-/// task is being viewed when deciding phone/watch notification delivery.
+/// optional speech suppression. This is app-level presence only: it cannot
+/// identify the selected tab and must not be used as proof that a task is
+/// being viewed when deciding phone/watch notification delivery.
 public enum ForegroundTerminal {
-    /// Grok Bot exposes app-level presence, not the selected bot. This is only
-    /// a speech suppression signal: never treat all bots as viewed or read.
-    public static func sourceAppSuppressesSpeech(for session: AgentSession,
-                                                 frontmostBundleID: String?) -> Bool {
-        session.agent == .grokBot && frontmostBundleID == GrokBotJumper.bundleID
-    }
-
     /// Bundle identifiers a given `TERM_PROGRAM` is known to run under. The one
     /// table for the mapping — `TerminalJumper` reads it too, to decide which app
     /// a jump should bring forward.

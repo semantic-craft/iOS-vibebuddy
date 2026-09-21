@@ -292,7 +292,6 @@ struct SessionReaderPane: View {
     }
 
     private func jumpHelp(_ live: AgentSession, _ destination: JumpDestination) -> String {
-        if live.agent == .grokBot { return String(localized: "Open Grok Bot ⏎ — brings the app forward; it does not locate this conversation.") }
         if live.jumpsToDesktopThread { return String(localized: "\(destination.title) ⏎ — opens this thread.") }
         switch destination.symbol {
         case "terminal": return String(localized: "\(destination.title) ⏎ — focuses the pane this session runs in.")

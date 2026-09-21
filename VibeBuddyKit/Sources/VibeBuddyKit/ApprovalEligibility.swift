@@ -4,7 +4,7 @@ import Foundation
 /// further restrict it; execution still rechecks the daemon's current request.
 public enum ApprovalEligibility {
     public enum UnavailableReason: String, Equatable, Sendable {
-        case notWaiting, invalidIdentity, unsupportedSource, readOnly
+        case notWaiting, invalidIdentity, readOnly
     }
 
     public static func unavailableReason(for session: AgentSession) -> UnavailableReason? {
@@ -12,7 +12,6 @@ public enum ApprovalEligibility {
         guard !session.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let approval = session.pendingApproval,
               !approval.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .invalidIdentity }
-        guard session.agent != .grokBot else { return .unsupportedSource }
         guard approval.isAnswerable else { return .readOnly }
         return nil
     }

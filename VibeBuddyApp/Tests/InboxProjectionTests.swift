@@ -31,6 +31,30 @@ final class InboxProjectionTests: XCTestCase {
          session("old", .done, project: "archive", minutesAgo: 30 * 60)]
     }
 
+    /// The agent strip's choice scopes the whole hub (ADR-0031): the queue,
+    /// the tiles and the projects are that agent's, and "quiet here" is told
+    /// apart from "quiet everywhere" so the empty state can say which.
+    func testTheChosenAgentScopesTheHubWithoutHidingThatTheFleetIsBusy() {
+        let at = now.addingTimeInterval(-2 * 60)
+        let codexRun = AgentSession(id: "codex-run", agent: .codex, project: "probe-ws", status: .working,
+                                    statusSince: at, updatedAt: at)
+        let sessions = snapshot() + [codexRun]
+
+        let claude = InboxProjection(sessions: sessions, now: now, agent: .claudeCode)
+        XCTAssertEqual(InboxBucket.working.count(in: claude.summary), 2)
+        XCTAssertFalse(claude.projects.contains { $0.project == "probe-ws" })
+
+        let codex = InboxProjection(sessions: sessions, now: now, agent: .codex)
+        XCTAssertEqual(InboxBucket.all.count(in: codex.summary), 1)
+        XCTAssertEqual(codex.projects.map(\.project), ["probe-ws"])
+        XCTAssertNil(codex.firstUp, "nothing of Codex's is waiting on the person")
+
+        let grok = InboxProjection(sessions: sessions, now: now, agent: .grok)
+        XCTAssertFalse(grok.hasCurrent)
+        XCTAssertTrue(grok.fleetHasCurrent, "the other agents are still working")
+        XCTAssertFalse(InboxProjection(sessions: [], now: now).fleetHasCurrent)
+    }
+
     func testFirstUpIsTheHeadOfThePendingQueueAndCountsAreTheSummary() {
         let inbox = InboxProjection(sessions: snapshot(), now: now)
         // Stuck before unread results: the same order the Watch and the Mac read.

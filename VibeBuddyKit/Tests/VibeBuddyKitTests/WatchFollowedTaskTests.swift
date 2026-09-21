@@ -86,7 +86,7 @@ struct WatchFollowedTaskTests {
     }
     @Test("Same-title agents survive phone transport and atomic app/widget recovery")
     func sourceRoundTrip() throws {
-        let agents: [AgentKind] = [.grokBot, .grok, .claudeCode, .codex]
+        let agents: [AgentKind] = [.cursor, .grok, .claudeCode, .codex]
         let sessions = agents.map { agent in
             var value = session(agent.rawValue, .done, unread: true, agent: agent)
             value.name = "Same task"
@@ -102,7 +102,7 @@ struct WatchFollowedTaskTests {
         let data = try JSONEncoder().encode(WatchStoredState(state: relayed, queue: WatchCompletionQueue()))
         let restored = try #require(WatchStoredState.decode(data))
         #expect(restored.state.followedTasks.map(\.agent) == agents.map(Optional.some))
-        #expect(restored.complication.tasks.map(\.sourceName) == ["Grok Bot", "Grok Build", "Claude Code", "Codex"])
+        #expect(restored.complication.tasks.map(\.sourceName) == ["Cursor", "Grok Build", "Claude Code", "Codex"])
         #expect(restored.state.followedTasks.allSatisfy { $0.title == "Same task" && $0.completionID == "round-1" })
         #expect(restored.state.followedTasks == projected.followedTasks)
         // Old paired clients omitted this field in both copies of the atomic cache.
@@ -123,7 +123,7 @@ struct WatchFollowedTaskTests {
     @Test("A source correction alone republishes an otherwise identical followed task")
     func sourceChangesRelay() {
         let original = projection([session("same", .working, agent: .grok)])
-        #expect(!original.isEquivalent(to: projection([session("same", .working, agent: .grokBot)])))
+        #expect(!original.isEquivalent(to: projection([session("same", .working, agent: .codex)])))
     }
 
 }

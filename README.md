@@ -6,7 +6,7 @@
 
 ### Leave your desk. Keep your agents moving.
 
-A native **Mac, iPhone & Apple Watch** companion for your AI workflow.<br>**Claude Code · Codex · Grok Build · Grok Bot · Cursor**<br>Follow tasks, review supported requests, and keep account usage in view.
+A native **Mac, iPhone & Apple Watch** companion for your AI workflow.<br>**Claude Code · Codex · Grok Build · Cursor**<br>Follow tasks, review supported requests, and keep account usage in view.
 
 [**Download for Mac**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [**Get the iPhone app**](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) · [Get started](#get-started) · [Follow on X](https://x.com/mm87584) · [简体中文](README.zh-CN.md)
 
@@ -22,7 +22,7 @@ A native **Mac, iPhone & Apple Watch** companion for your AI workflow.<br>**Clau
 
 ## A little less checking. A lot more doing.
 
-Start a refactor in Claude Code, a test run in Codex and a build in Grok Build. Check a Grok Bot result and your remaining Cursor allowance from the same companion. While your Mac stays running and reachable, you can check a question on your phone, follow a task on your wrist, or ask the voice companion for an update.
+Start a refactor in Claude Code, a test run in Codex and a build in Grok Build. Check your remaining Cursor and Grok Bot allowance from the same companion. While your Mac stays running and reachable, you can check a question on your phone, follow a task on your wrist, or ask the voice companion for an update.
 
 | See what matters | Keep work moving | Hear the outcome |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ VibeBuddy connects to the agents you already run. Available controls follow the 
 | **Codex CLI / connected app-server** | Task state, usage, supported approvals and questions; create, continue, steer and stop tasks through a connected app-server. | Task control requires the connected server to own the task and expose the required turn/request. MCP elicitation is read-only. |
 | **Codex Desktop** | Observe local task progress and completions; jump back to the app. | Desktop may own a separate app-server. Native Desktop approval coverage is incomplete; use the Mac prompt when no answerable request is available. |
 | **Grok Build** | CLI lifecycle hooks, task state, account usage and configured approval gates; tasks started from VibeBuddy are hosted over ACP with remote approval, questions, follow-ups and stop. | For a session opened in a terminal, whether a remote approval resolves the native prompt depends on Grok's permission mode. |
-| **Grok Bot** | Optional read-only task observation, summaries of verified ordinary completions and separate account usage. | Replies and approvals stay in the official app. Question continuations, automated tasks and turns spanning a disconnect are not yet supported. |
+| **Grok Bot** | Account usage only. | There is no task integration: tasks, replies and approvals all stay in the official app. |
 | **Cursor** | Task state for the Agent panel and the Cursor CLI, supported approvals and questions, queued follow-ups for a running turn, continuation of a finished chat through the Cursor CLI, and account usage with separate **Cursor Models** and **Other Models** pools. | Task state and remote responses need the Cursor hooks; without them the agent transcript still reports progress. Cursor exposes no way to interrupt a running turn, and no link that opens a specific chat — a jump brings Cursor forward. |
 
 See the [Codex integration contract](docs/codex-integration.md) and [agent hook setup](docs/multi-cli-hook-setup.md). Qwen, Kimi, OpenCode and Antigravity coding-agent adapters are experimental community integrations; their verification is separate from Qwen's supported voice-provider integration.
@@ -92,7 +92,7 @@ See the [Codex integration contract](docs/codex-integration.md) and [agent hook 
 1. **Install the Mac companion.** [Download the latest DMG](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest), drag the app into Applications, and launch it. The distributed Mac app requires Apple Silicon and macOS 14+.
 2. **Connect your coding agent.** Open Setup in Mac settings and follow the agent-specific instructions. [Manual setup](docs/getting-started.md#connect-an-agent) is also available.
 3. **Add your iPhone.** Install [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338), choose **Pair a phone** on Mac, then open computer connection settings → **Scan to pair** on iPhone, or tap its Home connection indicator. Start on the same trusted local network. iPhone requires iOS 17+; the current Watch companion requires watchOS 26.5+.
-4. **Try your workflow.** Run a short task in Claude Code, Codex or Grok Build and follow it until completion. You can also [enable Grok Bot observation](docs/getting-started.md#grok-bot) or [connect Cursor usage](docs/getting-started.md#cursor). Enable voice or summaries separately if you want them.
+4. **Try your workflow.** Run a short task in Claude Code, Codex or Grok Build and follow it until completion. You can also connect [Cursor](docs/getting-started.md#cursor) or [Grok Bot](docs/getting-started.md#grok-bot) usage. Enable voice or summaries separately if you want them.
 
 **Just looking?** The iPhone connection screen includes **See the demo (no Mac needed)**. Mac works on its own, too. App Store availability varies by region; [build from source](docs/getting-started.md#build-from-source) if needed.
 
@@ -110,8 +110,7 @@ Live Activity and Dynamic Island counts update while the phone is connected. Clo
 flowchart LR
     A[Claude Code and Grok Build hooks] --> M[VibeBuddy on your Mac]
     C[Codex rollouts and connected app-server] <--> M
-    B[Grok Bot observation] --> M
-    U[Account usage including Cursor] --> M
+    U[Account usage including Cursor and Grok Bot] --> M
     M <-->|Paired local connection| P[iPhone]
     P <-->|WatchConnectivity| W[Apple Watch]
     M -. Optional AI features .-> V[Your chosen AI provider]

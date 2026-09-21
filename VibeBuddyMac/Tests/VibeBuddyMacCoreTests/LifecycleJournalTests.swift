@@ -186,6 +186,22 @@ struct LifecycleJournalTests {
         #expect(short.project == "vibebuddy")
     }
 
+    @Test("a Grok Bot row from an older build is dropped, not restored as a stuck task")
+    func grokBotRowsAreNotRestored() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibebuddy-journal-\(UUID().uuidString)")
+        let url = directory.appendingPathComponent("journal.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var journal = LifecycleJournal(url: url, now: now)
+        journal.append(entry("codex-task", at: now), now: now)
+        journal.append(LifecycleJournalEntry(sessionID: "grokBot:account:bot", agent: .grokBot,
+                                             event: "userPromptSubmit", source: .gateway,
+                                             timestamp: now, status: .working, waitKind: nil), now: now)
+
+        let restored = LifecycleJournal(url: url, now: now).restorableSessions(now: now, meaningfulFor: 60)
+        #expect(restored.map(\.id) == ["codex-task"])
+    }
+
     private func entry(_ sessionID: String, at date: Date) -> LifecycleJournalEntry {
         LifecycleJournalEntry(
             sessionID: sessionID,

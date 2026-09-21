@@ -323,14 +323,7 @@ public enum ObservationHealthDetector {
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm))
-        var result = [claude, codex, grok]
-        if let signal = latestSignal(agent: .grokBot, source: .gateway, in: signals) {
-            result.append(AgentObservationDiagnostic(agent: .grokBot, sources: [
-                diagnostic(source: .gateway, signal: signal, fallback: signal.health,
-                           now: now, staleAfter: staleAfter)
-            ]))
-        }
-        return result
+        return [claude, codex, grok]
     }
 
     private static func agentDiagnostic(
