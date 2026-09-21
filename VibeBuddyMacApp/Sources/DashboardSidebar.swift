@@ -82,12 +82,15 @@ struct DashboardSidebar: View {
     /// The mic is Cursor's small round button, here on its own row: the row
     /// toggles the conversation, the trailing word is its state, and a second
     /// line carries the last exchange or the error. The cat sits beside the
-    /// mic only while a conversation is live (ADR-0017 §2–3).
+    /// mic only while a conversation is live (ADR-0017 §2–3). The 20pt disc
+    /// is centred on the 14pt glyph column its neighbours use, so its centre
+    /// and the word after it line up with New task and Search; the row gives
+    /// back the extra height in its padding and stays as tall as theirs.
     private var voiceRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button { voice.toggle() } label: {
                 HStack(spacing: 8) {
-                    MicGlyph(phase: voice.phase, enabled: companionEnabled)
+                    MicGlyph(phase: voice.phase, enabled: companionEnabled).frame(width: 14)
                     if !labels.iconOnly {
                         Group {
                             if voice.isActive {
@@ -102,7 +105,7 @@ struct DashboardSidebar: View {
                         .transition(.opacity)
                     }
                 }
-                .sidebarRowFrame(minHeight: 20)
+                .sidebarRowFrame(minHeight: 20, vertical: 3)
             }
             .buttonStyle(SidebarRowStyle(selected: voice.isActive))
             .help(voiceHelp)
