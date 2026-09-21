@@ -118,11 +118,17 @@ struct WatchAlertCard: View {
                 .foregroundStyle(CompanionPalette.ink2)
             }
 
-            Text("\(alert.agent.shortName) · \(alert.project)")
-                .font(CompanionType.font(10))
-                .foregroundStyle(CompanionPalette.ink2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            HStack(spacing: 4) {
+                Text("\(alert.agent.shortName) · \(alert.project)")
+                    .foregroundStyle(CompanionPalette.ink2)
+                if let allowance = WatchLowAllowance.text(for: alert.agent, in: store.state) {
+                    Text("· \(allowance)")
+                        .foregroundStyle(CompanionPalette.status(.requiresInput))
+                }
+            }
+            .font(CompanionType.font(10))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
 
             // What the request is, above; what can be done about it, below.
             CompanionHairline()

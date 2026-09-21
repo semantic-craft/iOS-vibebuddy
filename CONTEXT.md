@@ -130,6 +130,31 @@ code, and tests — don't drift to synonyms.
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
+- **Agent rail** — the dashboard's leftmost 48 pt column (`DashboardAgentRail`,
+  ADR-0031): one tile per agent reporting in the current window, led by **All
+  agents**, each ringed by that account's tightest allowance (`AgentQuotaReading`)
+  and dotted when one of its sessions needs you, with Settings at the foot.
+  Choosing a tile is the window's first axis; it sets the live list's agent.
+- **Agent column** — the column beside the rail (`DashboardSidebar`,
+  ADR-0031): the chosen agent's workspace — its name and allowance, **New
+  \<agent\> task**, the voice rows, the five libraries, and its live sessions
+  grouped by **Needs you / Working / Unread results / Idle**
+  (`DashboardAgentColumn`), with a project pill and the search field over them.
+  The libraries stay fleet-wide; only the sessions below them are the agent's.
+- **Agent strip** — the iPhone hub's own first axis (`PhoneAgentStrip`,
+  ADR-0031): the rail's entries in a horizontal row under the Inbox title,
+  each a brand mark inside its allowance ring with an attention dot and its
+  session count, **All** leading. The choice scopes the hub's mood line, First
+  up, tiles and projects (`InboxProjection(sessions:now:agent:)`), carries into
+  the list page and into New task, and survives Back. `AgentRoster` (Kit) is
+  the one place both the rail and the strip get their tallies.
+- **Allowance strips (Watch)** — the wrist's quota section (`WatchQuotaStrips`,
+  ADR-0031 §9): one row per provider carrying that **agent's** mark and short
+  name, lowest reading first by the number the row itself shows
+  (`displayedLowestFirst`), unreadable ones last. The Watch takes no agent
+  axis — its order is already attention-first (ADR-0021) — but a reading at or
+  below `QuotaReading.lowRemainingPercent` follows the agent onto the alert
+  card and the task header as "· N% left" in the attention tint.
 - **Right slot** — the dashboard detail column's one place for a session's
   records that are not the conversation, after Cursor's right sidebar
   (`RightSlotState`, ticket 11): the **shelf** (the `On <project>` rows —

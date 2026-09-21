@@ -310,7 +310,8 @@ struct HistoryWorkbenchView: View {
     @ObservedObject var reader: SessionReaderModel
     @Binding var query: String
     let favoritesOnly: Bool
-    /// The sidebar owns the project choice (shared with the live library).
+    /// This library's own project choice, picked in its head: the agent column
+    /// beside it narrows live sessions, which is a different list.
     @Binding var project: String?
     var searchFocused: FocusState<Bool>.Binding
     /// The list's compact flag, owned by the dashboard (one owner for ⌘F,
@@ -322,6 +323,21 @@ struct HistoryWorkbenchView: View {
     @State private var selection: String?
     @State private var targetMessage: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The projects this index holds, with a conversation count each.
+    private var historyProjects: [(path: String, count: Int)] {
+        let counts = Dictionary(grouping: history.snapshot.sessions, by: \.projectPath).mapValues(\.count)
+        return counts.keys.sorted().map { (path: $0, count: counts[$0] ?? 0) }
+    }
+
+    private func projectName(_ path: String) -> String {
+        if path.isEmpty { return String(localized: "Unknown project") }
+        return DashboardProjectLabel.labels(for: historyProjects.map(\.path))[path]?.title ?? path
+    }
+
+    private var projectTitle: String {
+        project.map(projectName) ?? String(localized: "All projects")
+    }
 
     private var archiveTitle: String {
         switch archiveScope {
@@ -408,6 +424,13 @@ struct HistoryWorkbenchView: View {
                             Button(value.displayName) { agent = value }
                         }
                     }
+                    MenuPill(title: projectTitle, emphasized: project != nil) {
+                        Button("All projects") { project = nil }
+                        ForEach(historyProjects, id: \.path) { entry in
+                            Button("\(projectName(entry.path)) (\(entry.count))") { project = entry.path }
+                        }
+                    }
+                    .accessibilityLabel("Filter history by project")
                     MenuPill(title: archiveTitle) {
                         Button("All history") { archiveScope = "all" }
                         Button("Unarchived") { archiveScope = "unarchived" }

@@ -49,10 +49,15 @@ struct NewTaskSheet: View {
 
     /// `initialPrompt` carries text typed into the dashboard's composer with
     /// no reply target — the composer's "new task" meaning lands here.
-    init(dashboard: DashboardStore, macName: String? = nil, initialPrompt: String = "") {
+    /// `initialAgent` is the agent the strip is on, so "New task" from a
+    /// scoped hub starts in that agent's name (ADR-0031); nil keeps the
+    /// sheet's own default.
+    init(dashboard: DashboardStore, macName: String? = nil, initialPrompt: String = "",
+         initialAgent: AgentKind? = nil) {
         self.dashboard = dashboard
         self.macName = macName
         _prompt = State(initialValue: initialPrompt)
+        if let initialAgent { _agent = State(initialValue: initialAgent) }
     }
 
     private var reachable: Bool { dashboard.state == .connected }
