@@ -141,8 +141,8 @@ public struct DeviceRegistrySummary: Sendable, Equatable {
 /// cold-launch and re-upload its token.
 struct DeviceRegistry {
     /// Bounded because APNs tokens rotate (app reinstall, device restore) and a
-    /// rotated token is only evicted when Apple answers 410 for it. A handful of
-    /// phones is the real ceiling; the oldest registration loses.
+    /// refused token is parked, not deleted, so it keeps its slot. A handful of
+    /// phones is the real ceiling; the oldest registration loses, parked or not.
     static let maxEntries = 16
 
     /// What one send result did to the registry.
@@ -268,11 +268,17 @@ struct DeviceRegistry {
     /// is counted, and parks the phone once the run satisfies `policy`.
     /// A parked phone keeps its record (identity, pairing, switches) so it is
     /// listed with the reason and revives when it reports a token again.
+    /// `.parked` is returned only on the transition: a refusal that lands
+    /// after the phone is already parked (a send that was in flight, or a
+    /// different reason for the same dead token) changes nothing, so the
+    /// ledger gets one `pruned` row per parking, not one per straggler.
     @discardableResult
     mutating func apply(_ result: APNsSendResult, token: String, now: Date) -> Disposition {
         guard let index = entries.firstIndex(where: { $0.device.token == token }) else { return .unchanged }
-        switch APNsDelivery.tokenOutcome(status: result.status, reason: result.reason,
-                                         everAccepted: entries[index].lastAcceptedAt != nil) {
+        let outcome = APNsDelivery.tokenOutcome(status: result.status, reason: result.reason,
+                                                everAccepted: entries[index].lastAcceptedAt != nil)
+        if outcome != .accepted, entries[index].isParked { return .unchanged }
+        switch outcome {
         case .accepted:
             entries[index].lastAcceptedAt = now
             entries[index].pushFailure = nil

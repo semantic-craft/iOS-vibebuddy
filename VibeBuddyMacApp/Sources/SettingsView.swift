@@ -604,15 +604,16 @@ private struct DiagnosticsPage: View {
                         // but nowhere to send them.
                         let count = model.deviceRegistry.count
                         let parked = model.deviceRegistry.parkedCount
-                        if count == 0 && model.notificationDeliveryHealth.apnsConfigured {
-                            SettingsPill("No devices", tone: .warn)
-                        } else if count == 0 && parked == 0 {
-                            SettingsValue("None")
-                        } else if parked > 0 {
+                        if parked > 0 {
                             // A stood-down phone is listed under Devices &
                             // connection with Apple's reason; here it only
-                            // keeps the count honest.
+                            // keeps the count honest — including when every
+                            // phone is parked, which is not "no devices".
                             SettingsValue(verbatim: "\(count) · \(parked) stopped")
+                        } else if count == 0 && model.notificationDeliveryHealth.apnsConfigured {
+                            SettingsPill("No devices", tone: .warn)
+                        } else if count == 0 {
+                            SettingsValue("None")
                         } else {
                             SettingsValue(verbatim: "\(count)")
                         }

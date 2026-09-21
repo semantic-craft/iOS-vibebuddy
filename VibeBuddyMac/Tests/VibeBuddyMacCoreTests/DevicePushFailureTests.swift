@@ -176,6 +176,40 @@ struct DevicePushFailureTests {
         #expect(await tokens.isConfirmed(deviceID: "old-phone"))
     }
 
+    /// Sends that were already in flight when the phone was parked, and a
+    /// different refusal for the same dead token, land on a parked phone.
+    /// Neither is a new parking: no second `pruned` row, and a 400 after a 410
+    /// does not quietly put the phone back on the push list.
+    @Test func refusalsAfterParkingChangeNothing() async throws {
+        let spy = SpyDelivery()
+        let tokens = DeviceTokens(url: tempURL(), recorder: spy)
+        await tokens.register(DeviceRegistrationPayload(token: "stale", deviceID: "hermes"), now: t0)
+        await tokens.applySendResult(sent(200), token: "stale", now: t0)
+        for hour in [1.0, 2.0, 26.0] {
+            await tokens.applySendResult(sent(400, reason: "BadDeviceToken"), token: "stale", now: hours(hour))
+        }
+        let parked = try #require(await tokens.pairedPhones().first?.pushFailure)
+        #expect(parked.isParked)
+
+        // Stragglers from the same batch, then Apple's other word for it.
+        #expect(await tokens.applySendResult(sent(400, reason: "BadDeviceToken"), token: "stale", now: hours(26.01)) == false)
+        #expect(await tokens.applySendResult(sent(410, reason: "Unregistered"), token: "stale", now: hours(26.02)) == false)
+        #expect(await tokens.pairedPhones().first?.pushFailure == parked)
+        #expect(await tokens.all().isEmpty)
+        #expect(spy.records.map(\.outcome) == [.pruned])
+
+        // The other order: a 410 parks, and a later BadDeviceToken must not
+        // start a fresh, un-parked run on a token that is still "ever accepted".
+        let gone = DeviceTokens(url: tempURL(), recorder: spy)
+        await gone.register(DeviceRegistrationPayload(token: "dead", deviceID: "old"), now: t0)
+        await gone.applySendResult(sent(200), token: "dead", now: t0)
+        #expect(await gone.applySendResult(sent(410, reason: "Unregistered"), token: "dead", now: hours(1)))
+        #expect(await gone.applySendResult(sent(400, reason: "BadDeviceToken"), token: "dead", now: hours(1.01)) == false)
+        #expect(await gone.pairedPhones().first?.isParked == true)
+        #expect(await gone.pairedPhones().first?.pushFailure?.reason == "Unregistered")
+        #expect(await gone.all().isEmpty)
+    }
+
     /// A token nobody identified is stood down under its token prefix, so the
     /// row still says which one.
     @Test func junkTokenIsPrunedUnderItsPrefix() async throws {

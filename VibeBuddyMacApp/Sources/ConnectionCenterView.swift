@@ -193,7 +193,7 @@ struct ConnectionCenterView: View {
     private var devicesCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("All phones").font(MacTheme.font(13, .semibold))
-            ForEach(model.phones, id: \.self) { phone in
+            ForEach(model.phones) { phone in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text(phone.name).font(MacTheme.font(12, .medium))
@@ -210,7 +210,7 @@ struct ConnectionCenterView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("mac-device-\(phone.deviceID ?? phone.name)")
+                .accessibilityIdentifier("mac-device-\(phone.id)")
             }
         }
     }

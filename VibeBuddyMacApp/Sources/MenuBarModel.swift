@@ -6,7 +6,7 @@ import os
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-struct PairedPhone: Codable, Hashable {
+struct PairedPhone: Codable, Hashable, Identifiable {
     var name: String
     var model: String?
     var systemVersion: String?
@@ -17,10 +17,17 @@ struct PairedPhone: Codable, Hashable {
     /// Where this phone's push stands: registered, failing, parked, or no token
     /// yet. A parked phone is listed with Apple's reason rather than hidden.
     var push: DevicePushStanding = .noToken
+    /// The first characters of the APNs token, for a phone without an identity.
+    var tokenPrefix: String? = nil
+
+    /// Stable across refusals and re-registrations: the phone's identity, else
+    /// its token. A list row keyed on the whole value would be torn down on
+    /// every counted refusal.
+    var id: String { deviceID ?? tokenPrefix.map { "token:" + $0 } ?? name }
 
     init(name: String, model: String?, systemVersion: String?, lastSeen: Date,
          pushRegistered: Bool, confirmed: Bool, deviceID: String? = nil,
-         push: DevicePushStanding = .noToken) {
+         push: DevicePushStanding = .noToken, tokenPrefix: String? = nil) {
         self.name = name
         self.model = model
         self.systemVersion = systemVersion
@@ -29,6 +36,7 @@ struct PairedPhone: Codable, Hashable {
         self.confirmed = confirmed
         self.deviceID = deviceID
         self.push = push
+        self.tokenPrefix = tokenPrefix
     }
 
     init(_ entry: DeviceRegistryEntry) {
@@ -36,7 +44,8 @@ struct PairedPhone: Codable, Hashable {
                   model: entry.device.model, systemVersion: entry.device.systemVersion,
                   lastSeen: entry.registeredAt, pushRegistered: entry.isPushable,
                   confirmed: entry.pairedAt != nil, deviceID: entry.device.deviceID,
-                  push: entry.pushStanding)
+                  push: entry.pushStanding,
+                  tokenPrefix: entry.device.token.map { String($0.prefix(8)) })
     }
 
     /// One line for a device list: what the Mac does with this phone's pushes.
