@@ -1783,8 +1783,9 @@ public actor SessionStore {
         }
         if let last = lastDeliveryAt, now - last < Self.broadcastWindow {
             pendingDelivery = snapshot
+            let due = last + Self.broadcastWindow
             trailingDelivery = Task { [weak self] in
-                try? await Task.sleep(for: Self.broadcastWindow)
+                try? await Task.sleep(until: due, clock: .continuous)
                 await self?.deliverTrailing()
             }
             return

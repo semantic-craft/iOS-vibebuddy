@@ -14,7 +14,6 @@ struct HistoryReindexThrottleTests {
         // Reported again 0.3 s later: held, not lost.
         let again = throttle.split(["/a.jsonl"], now: t0.addingTimeInterval(0.3))
         #expect(again.due.isEmpty && again.deferred == ["/a.jsonl"])
-        #expect(throttle.nextDue(for: again.deferred) == t0.addingTimeInterval(15))
 
         // A new file is due at once even while another is held.
         let mixed = throttle.split(["/a.jsonl", "/c.jsonl"], now: t0.addingTimeInterval(5))
@@ -34,5 +33,16 @@ struct HistoryReindexThrottleTests {
         // /a was retained and is due too because its window has passed.
         let split = throttle.split(["/a.jsonl", "/b.jsonl"], now: t0.addingTimeInterval(60))
         #expect(split.due == ["/a.jsonl", "/b.jsonl"])
+    }
+
+    /// The stamp of a path that is not pending right now must survive while
+    /// its window is open, or the next event for it would skip the throttle.
+    @Test func retainKeepsAnInWindowStampForAPathNotCurrentlyPending() {
+        var throttle = HistoryReindexThrottle(interval: 15)
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        throttle.markIndexed(["/a.jsonl"], at: t0)
+        throttle.retain([], now: t0.addingTimeInterval(1))
+        let split = throttle.split(["/a.jsonl"], now: t0.addingTimeInterval(2))
+        #expect(split.due.isEmpty && split.deferred == ["/a.jsonl"])
     }
 }

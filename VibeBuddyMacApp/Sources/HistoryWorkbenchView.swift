@@ -123,8 +123,6 @@ final class HistoryLibraryModel: ObservableObject {
         let reconcile = reconcileHistory
         let rebuild = rebuildHistory
         pendingHistoryPaths = deferred
-        reindexThrottle.markIndexed(paths, at: now)
-        reindexThrottle.retain(paths.union(deferred), now: now)
         reconcileHistory = false
         rebuildHistory = false
         continueHistoryBatch = false
@@ -139,6 +137,13 @@ final class HistoryLibraryModel: ObservableObject {
             }
             guard generation == observationGeneration, !Task.isCancelled else { return }
             snapshot = updated
+            // Stamp only what a changed-path refresh actually consumed: a thrown
+            // refresh puts the paths back for the 2 s retry, and a reconcile
+            // re-queues them as hints for the incremental pass that follows.
+            if !reconcile {
+                reindexThrottle.markIndexed(paths, at: now)
+                reindexThrottle.retain(paths.union(pendingHistoryPaths), now: now)
+            }
             if reconcile {
                 pendingHistoryPaths.formUnion(paths)
                 if pendingHistoryPaths.count > 4096 {

@@ -12,6 +12,13 @@ struct SnapshotBroadcastTests {
         let store = SessionStore()
         let subscription = await store.subscribe()
         defer { Task { await store.unsubscribe(subscription.id) } }
+        // Whatever `bufferingNewest(1)` lets through, the last frame the
+        // subscriber sees must be the burst's final state.
+        let collector = Task { () -> [[AgentKind]?] in
+            var seen: [[AgentKind]?] = []
+            for await snapshot in subscription.stream { seen.append(snapshot.dispatchAgents) }
+            return seen
+        }
         for agents in [[AgentKind.cursor], [.grok], [.claudeCode], [.codex], [.cursor]] {
             await store.setDispatchAgents(agents)
         }
@@ -21,6 +28,10 @@ struct SnapshotBroadcastTests {
         // run it late, never early.
         #expect(await settles(to: 2))
         #expect(await store.snapshot(now: Date()).dispatchAgents == [.cursor])
+        try await Task.sleep(for: .milliseconds(100))
+        collector.cancel()
+        let seen = await collector.value
+        #expect(seen.last == [.cursor], "\(seen)")
 
         // Quiet again: the next change is immediate once more.
         try await Task.sleep(for: SessionStore.broadcastWindow * 2)

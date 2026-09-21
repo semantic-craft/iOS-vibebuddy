@@ -7,7 +7,8 @@ import Foundation
 /// rewrite its FTS5 rows and save `index.json` (rename + fsync). A path is now
 /// indexed at most once per `interval`; a change inside the window stays
 /// pending and goes out with the next due pass, so nothing is lost, only
-/// deferred. A path never seen before is due at once.
+/// deferred. A path never seen before is due at once. Liveness comes from the
+/// caller's polling loop, which asks `split` again on every tick.
 public struct HistoryReindexThrottle: Sendable {
     public let interval: TimeInterval
     private var indexedAt: [String: Date] = [:]
@@ -28,11 +29,6 @@ public struct HistoryReindexThrottle: Sendable {
             }
         }
         return (due, deferred)
-    }
-
-    /// When the earliest deferred path becomes due, or nil when nothing is held.
-    public func nextDue(for deferred: Set<String>) -> Date? {
-        deferred.compactMap { indexedAt[$0]?.addingTimeInterval(interval) }.min()
     }
 
     public mutating func markIndexed(_ paths: Set<String>, at now: Date) {
