@@ -20,6 +20,41 @@ struct EnvironmentDetectorTests {
         #expect(status.hookInjected == false)
     }
 
+    /// Claude's status line is the only source of its account quota, and it is
+    /// wired separately from the lifecycle hooks — it went missing once while
+    /// the hooks kept working, and nothing said so.
+    @Test("the Claude status line is reported separately from the hooks")
+    func statusLineWiring() throws {
+        let dir = tempDir()
+        let cfg = dir.appendingPathComponent("settings.json")
+        let spec = CLISpec(name: "claude", configPath: cfg.path, statusLinePath: cfg.path)
+
+        try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"curl 127.0.0.1:9876/hook"}]}]}}"#
+            .write(to: cfg, atomically: true, encoding: .utf8)
+        let unwired = EnvironmentDetector.detect([spec]).first!
+        #expect(unwired.hookInjected)
+        #expect(unwired.statusLineWired == false)
+
+        // A path with no hook marker in it, so the two facts cannot be confused.
+        try #"{"statusLine":{"type":"command","command":"/x/vb/vibebuddy-statusline.sh"}}"#
+            .write(to: cfg, atomically: true, encoding: .utf8)
+        let wired = EnvironmentDetector.detect([spec]).first!
+        #expect(wired.statusLineWired == true)
+        // The lifecycle hooks are gone from this file, and that stays separate.
+        #expect(wired.hookInjected == false)
+
+        // The marker has to be the status line's own command, not merely
+        // present in the file: a hook that mentions the script is not a wired
+        // status line.
+        try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/vb/vibebuddy-statusline.sh"}]}]}}"#
+            .write(to: cfg, atomically: true, encoding: .utf8)
+        #expect(EnvironmentDetector.detect([spec]).first!.statusLineWired == false)
+
+        // A CLI with no status line to wire reports nothing rather than false.
+        #expect(EnvironmentDetector.detect([CLISpec(name: "codex", configPath: cfg.path)])
+            .first!.statusLineWired == nil)
+    }
+
     @Test("a config without the vibebuddy marker is configured but not injected")
     func configuredNotInjected() throws {
         let dir = tempDir()

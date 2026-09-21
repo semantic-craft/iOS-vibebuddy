@@ -50,8 +50,8 @@ struct UsageWorkbenchView: View {
 
     private func railRow(_ provider: AccountUsageProvider, now: Date) -> some View {
         let state = model.usageState(for: provider)
-        let window = state.snapshot?.excludingExpiredGrokWindows(at: now).displayWindows
-            .max { $0.usedPercent < $1.usedPercent }
+        let snapshot = state.snapshot?.excludingExpiredWindows(at: now)
+        let window = snapshot?.displayWindows.max { $0.usedPercent < $1.usedPercent }
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(provider.displayName).font(MacTheme.font(12, .medium))
@@ -67,7 +67,9 @@ struct UsageWorkbenchView: View {
                             pacePercent: AccountUsageSummaryView.pacePercent(window, now: now),
                             height: 8)
             } else {
-                Text(AgentQuotaReading.shortReason(state)).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                Text(AgentQuotaReading.shortReason(state, filtered: snapshot,
+                                                   unwiredStatusLine: model.usageStatusLineUnwired(provider)))
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
             }
         }
         .padding(9)

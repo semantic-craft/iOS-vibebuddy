@@ -93,6 +93,20 @@ public enum QuotaPresentation {
         return String(localized: "in \(totalMinutes)m", bundle: .module)
     }
 
+    /// How old a reading is, in the same coarse shape as the countdown above.
+    /// A stale row says how stale — "11d ago" is actionable where a bare
+    /// "stale" only says something is wrong.
+    public static func age(from date: Date, now: Date) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        let totalMinutes = Int(seconds / 60)
+        if totalMinutes < 1 { return String(localized: "just now", bundle: .module) }
+        let days = totalMinutes / (24 * 60)
+        if days > 0 { return String(localized: "\(days)d ago", bundle: .module) }
+        let hours = totalMinutes / 60
+        if hours > 0 { return String(localized: "\(hours)h ago", bundle: .module) }
+        return String(localized: "\(totalMinutes)m ago", bundle: .module)
+    }
+
     public static func resetAbsolute(from date: Date, now: Date, calendar: Calendar = .current) -> String {
         if calendar.isDate(date, inSameDayAs: now) {
             return date.formatted(date: .omitted, time: .shortened)

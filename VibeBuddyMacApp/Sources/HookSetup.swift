@@ -38,8 +38,12 @@ final class HookSetup: ObservableObject {
         }
     }
 
-    /// True when at least one CLI is configured but missing the vibebuddy hook.
-    var hasUnwiredCLI: Bool { statuses.contains { $0.configured && !$0.hookInjected } }
+    /// True when at least one CLI is configured but missing the vibebuddy hook,
+    /// or has its status line unwired — for Claude that forwarder is the only
+    /// source of account quota, so a missing one is as broken as a missing hook.
+    var hasUnwiredCLI: Bool {
+        statuses.contains { $0.configured && (!$0.hookInjected || $0.statusLineWired == false) }
+    }
 
     func install() { run("--install") }
     func uninstall() { run("--uninstall") }

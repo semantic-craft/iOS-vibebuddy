@@ -133,8 +133,9 @@ struct DashboardSidebar: View {
                             Spacer(minLength: 4)
                             Text("\(reading.remainingPercent)%")
                                 .font(MacTheme.mono(10, .semibold)).foregroundStyle(reading.tint)
-                            if reading.isStale {
-                                Text("stale").font(MacTheme.font(9)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                            if let warning = reading.warningText(now: context.date) {
+                                Text(warning).font(MacTheme.font(9)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                                    .lineLimit(1)
                             } else if let reset = reading.resetText(now: context.date) {
                                 Text(reset).font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3).lineLimit(1)
                             }

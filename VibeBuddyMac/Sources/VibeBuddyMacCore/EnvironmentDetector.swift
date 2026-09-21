@@ -6,10 +6,17 @@ public struct CLISpec: Sendable, Equatable {
     public let name: String
     public let configPath: String
     public let hookPath: String?
-    public init(name: String, configPath: String, hookPath: String? = nil) {
+    /// The JSON file whose `statusLine.command` should name vibebuddy's
+    /// forwarder. Claude Code alone has one, and it is the only source of its
+    /// account quota, so it is worth reporting separately from the lifecycle
+    /// hooks: the two can be wired independently and one can go missing while
+    /// the other keeps working.
+    public let statusLinePath: String?
+    public init(name: String, configPath: String, hookPath: String? = nil, statusLinePath: String? = nil) {
         self.name = name
         self.configPath = configPath
         self.hookPath = hookPath
+        self.statusLinePath = statusLinePath
     }
 }
 
@@ -23,6 +30,18 @@ public struct CLIHookStatus: Sendable, Equatable {
     public let configured: Bool
     /// A vibebuddy hook marker is present in that config.
     public let hookInjected: Bool
+    /// Whether this CLI's status line forwards to vibebuddy. Nil for a CLI
+    /// that has no status line to wire.
+    public let statusLineWired: Bool?
+
+    public init(name: String, configPath: String, configured: Bool,
+                hookInjected: Bool, statusLineWired: Bool? = nil) {
+        self.name = name
+        self.configPath = configPath
+        self.configured = configured
+        self.hookInjected = hookInjected
+        self.statusLineWired = statusLineWired
+    }
 }
 
 /// Detects which agent CLIs are configured and whether vibebuddy's hook is wired
@@ -42,10 +61,15 @@ public enum EnvironmentDetector {
         "vibebuddy-forward.sh",
     ]
 
+    /// The status line wrapper the Claude installer writes. Same boundary the
+    /// installer's `is_statusline_wrapper` uses.
+    public static let statusLineMarker = "vibebuddy-statusline.sh"
+
     /// The CLIs vibebuddy can wire, mirroring `hooks/install-agent-hooks.py`'s list.
     public static func defaultCLIs(home: String = NSHomeDirectory()) -> [CLISpec] {
         [
-            CLISpec(name: "claude",      configPath: "\(home)/.claude/settings.json"),
+            CLISpec(name: "claude",      configPath: "\(home)/.claude/settings.json",
+                    statusLinePath: "\(home)/.claude/settings.json"),
             CLISpec(name: "codex",       configPath: "\(home)/.codex/config.toml",
                     hookPath: "\(home)/.codex/hooks.json"),
             CLISpec(name: "grok",        configPath: "\(home)/.grok",
@@ -66,9 +90,22 @@ public enum EnvironmentDetector {
         clis.map { spec in
             let configured = fm.fileExists(atPath: spec.configPath)
             let injected = configured && markerPresent(at: spec.hookPath ?? spec.configPath, fileManager: fm)
+            let statusLine = spec.statusLinePath.map { statusLineWired(at: $0, fileManager: fm) }
             return CLIHookStatus(name: spec.name, configPath: spec.configPath,
-                                 configured: configured, hookInjected: injected)
+                                 configured: configured, hookInjected: injected,
+                                 statusLineWired: statusLine)
         }
+    }
+
+    /// Read `statusLine.command` rather than scanning the file: the marker
+    /// only means the status line is wired when it is *that* key's command, and
+    /// a settings file can name the script elsewhere without forwarding.
+    public static func statusLineWired(at path: String, fileManager fm: FileManager) -> Bool {
+        guard let data = fm.contents(atPath: path),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let statusLine = root["statusLine"] as? [String: Any],
+              let command = statusLine["command"] as? String else { return false }
+        return command.contains(statusLineMarker)
     }
 
     static func markerPresent(at path: String, fileManager fm: FileManager) -> Bool {

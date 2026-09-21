@@ -118,6 +118,10 @@
 "in %lldh %lldm" = "in %lldh %lldm";
 "in %lldh" = "in %lldh";
 "in %lldm" = "in %lldm";
+"just now" = "just now";
+"%lldd ago" = "%lldd ago";
+"%lldh ago" = "%lldh ago";
+"%lldm ago" = "%lldm ago";
 "tomorrow, %@" = "tomorrow, %@";
 "Resets now" = "Resets now";
 "Resets %@ · %@" = "Resets %@ · %@";

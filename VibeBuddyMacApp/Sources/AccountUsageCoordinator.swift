@@ -48,6 +48,22 @@ final class AccountUsageCoordinator: ObservableObject {
     private var tasks: [AccountUsageProvider: Task<Void, Never>] = [:]
     private var generations: [AccountUsageProvider: UInt64] = [:]
     private static let alertedWindowsKey = "accountUsageAlertedWindows"
+    /// Claude's only quota source is the status line forwarder, so "waiting for
+    /// a session" is only the truth while that forwarder is installed; without
+    /// it no session will ever report and the row must say so instead. Cached:
+    /// it is one small JSON file and the plinth redraws on a 30-second tick.
+    private var statusLineWiring: (wired: Bool, checkedAt: Date)?
+
+    func isClaudeStatusLineWired(now: Date = Date()) -> Bool {
+        guard E2ERunConfiguration.current == nil else { return true }
+        if let cached = statusLineWiring, now.timeIntervalSince(cached.checkedAt) < 60 {
+            return cached.wired
+        }
+        let wired = EnvironmentDetector.statusLineWired(
+            at: NSHomeDirectory() + "/.claude/settings.json", fileManager: .default)
+        statusLineWiring = (wired, now)
+        return wired
+    }
 
     init(store: SessionStore, notifier: UserNotificationsNotifier, liveFeed: AccountUsageLiveFeed? = nil) {
         self.store = store
@@ -71,7 +87,7 @@ final class AccountUsageCoordinator: ObservableObject {
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
             .claude: claudeEnabled
-                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+                ? .unavailable(.awaitingLiveSample, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
             .grok: grokEnabled
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
@@ -87,8 +103,11 @@ final class AccountUsageCoordinator: ObservableObject {
                 cache: AccountUsageFileCache(provider: .codex),
                 enabled: codexEnabled
             ),
+            // Claude has no pull source. `claude -p /usage` answers with the
+            // session cost summary, not the account allowance, and there is no
+            // other headless command for it; the supported source is the status
+            // line's `rate_limits`, which arrives through the live feed.
             .claude: AccountUsageCollector(
-                provider: ClaudeCLIUsageProvider(),
                 cache: AccountUsageFileCache(provider: .claude),
                 enabled: claudeEnabled
             ),
@@ -132,6 +151,9 @@ final class AccountUsageCoordinator: ObservableObject {
                 guard self.isCollectionEnabled(provider), let collector = self.collectors[provider] else { continue }
                 let state = await collector.acceptLive(snapshot, holdFor: Self.liveHold(for: provider))
                 guard !Task.isCancelled, self.isCollectionEnabled(provider) else { continue }
+                // A sample is proof the forwarder is installed, whatever the
+                // last file read concluded.
+                if provider == .claude { self.statusLineWiring = (true, Date()) }
                 self.states[provider] = state
                 self.checkAlert(state)
             }
@@ -192,6 +214,11 @@ final class AccountUsageCoordinator: ObservableObject {
                   self.generations[provider] == generation,
                   self.isCollectionEnabled(provider) else { return }
             self.states[provider] = initial
+
+            // A collector with nothing to ask has no loop to run: its readings
+            // arrive on the live feed, and polling would only rewrite the same
+            // bootstrap state on a timer.
+            guard collector.hasPullSource else { return }
 
             while !Task.isCancelled,
                   self.generations[provider] == generation,

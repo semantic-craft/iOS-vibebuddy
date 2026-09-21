@@ -15,6 +15,11 @@ struct AgentQuotaReading {
     let windowName: String
     let resetsAt: Date?
     let isStale: Bool
+    /// When the reading was taken; what "stale" is measured from.
+    let observedAt: Date?
+    /// No status-line forwarder means no future sample will ever arrive, so a
+    /// stale number is not "waiting", it is off.
+    let statusLineUnwired: Bool
 
     var remainingPercent: Int { max(0, 100 - usedPercent) }
     var tint: Color { QuotaPresentation.severity(usedPercent: usedPercent).tint }
@@ -25,12 +30,20 @@ struct AgentQuotaReading {
         resetsAt.map { QuotaPresentation.resetCountdown(from: $0, now: now) }
     }
 
+    /// Why the number should not be trusted as of now, if it should not: the
+    /// forwarder is off, or the reading has an age. Nil while it is live.
+    func warningText(now: Date) -> String? {
+        if statusLineUnwired { return String(localized: "Status line off") }
+        if isStale, let observedAt { return QuotaPresentation.age(from: observedAt, now: now) }
+        return nil
+    }
+
     /// One line for a tooltip: "Weekly 78% left · resets in 3d 11h". The share
     /// is what remains, as every other quota reading in the app states it; the
     /// bar and the ring beside it fill with what has been spent.
     func summaryLine(now: Date) -> String {
         var text = "\(windowName) \(remainingPercent)% " + String(localized: "left")
-        if isStale { text += " · " + String(localized: "stale") }
+        if let warning = warningText(now: now) { text += " · \(warning)" }
         else if let reset = resetText(now: now) { text += " · \(reset)" }
         return text
     }
@@ -45,11 +58,13 @@ struct AgentQuotaReading {
     static func read(_ provider: AccountUsageProvider, model: MenuBarModel, now: Date) -> AgentQuotaReading? {
         guard model.isUsageCollectionEnabled(provider) else { return nil }
         let state = model.usageState(for: provider)
-        guard let window = state.snapshot?.excludingExpiredGrokWindows(at: now).displayWindows
+        guard let window = state.snapshot?.excludingExpiredWindows(at: now).displayWindows
             .max(by: { $0.usedPercent < $1.usedPercent }) else { return nil }
         return AgentQuotaReading(provider: provider, usedPercent: window.usedPercent,
                                  windowName: windowLabel(window, provider: provider),
-                                 resetsAt: window.resetsAt, isStale: state.isStale)
+                                 resetsAt: window.resetsAt, isStale: state.isStale,
+                                 observedAt: state.snapshot?.fetchedAt,
+                                 statusLineUnwired: model.usageStatusLineUnwired(provider))
     }
 
     /// The fleet's tightest reading — what the rail's "All agents" entry is
@@ -69,13 +84,25 @@ struct AgentQuotaReading {
     }
 
     /// Why a provider has no reading right now, in the few words a row has.
-    static func shortReason(_ state: AccountUsageState) -> String {
+    /// `filtered` is the snapshot with expired windows already removed. A
+    /// provider that has a reading but no live window has not failed — its
+    /// window reset and the source has not reported the new one yet, which is
+    /// a different thing from "loading" and from "unavailable".
+    static func shortReason(_ state: AccountUsageState, filtered: AccountUsageSnapshot?,
+                            unwiredStatusLine: Bool = false) -> String {
+        // No forwarder means no future sample, so "waiting" would be a lie.
+        if unwiredStatusLine { return String(localized: "Status line off") }
+        if state.snapshot != nil, filtered?.displayWindows.isEmpty ?? true,
+           state.unavailableReason == nil || state.unavailableReason == .cachedData {
+            return String(localized: "Awaiting reset")
+        }
         guard let reason = state.unavailableReason else { return String(localized: "No reading") }
         switch reason {
         case .notLoggedIn: return String(localized: "Signed out")
         case .offline: return String(localized: "Offline")
         case .rateLimited: return String(localized: "Rate-limited")
         case .collectionDisabled: return String(localized: "Off")
+        case .awaitingLiveSample: return String(localized: "No session yet")
         case .notYetLoaded, .cachedData: return String(localized: "Loading")
         default: return String(localized: "Unavailable")
         }

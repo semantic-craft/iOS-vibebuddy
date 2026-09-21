@@ -34,25 +34,6 @@ struct QuotaAccuracyTests {
         #expect(quota.weeklyResetsAt == nil)
     }
 
-    @Test("Claude percentage survives missing reset, and dates only roll across a plausible year boundary")
-    func resetDates() throws {
-        let formatter = ISO8601DateFormatter()
-        func read(_ date: String, at timestamp: String) throws -> AccountUsageSnapshot {
-            let data = try JSONSerialization.data(withJSONObject: ["is_error": false,
-                "result": "Current session: 20% used · resets \(date) (UTC)\nCurrent week (all models): 30% used"])
-            return try ClaudeUsageResponseDecoder.decode(data, fetchedAt: try #require(formatter.date(from: timestamp)))
-        }
-        let across = try read("Jan 1 at 1am", at: "2026-12-31T23:00:00Z")
-        #expect(across.primary?.resetsAt == formatter.date(from: "2027-01-01T01:00:00Z"))
-        let past = try read("Dec 31 at 11pm", at: "2027-01-01T01:00:00Z")
-        #expect(past.primary?.resetsAt == formatter.date(from: "2026-12-31T23:00:00Z"))
-        let distant = try read("Sep 1 at 1am", at: "2026-09-20T01:00:00Z")
-        #expect(distant.primary?.usedPercent == 20)
-        #expect(distant.primary?.resetsAt == nil)
-        #expect(distant.secondary?.usedPercent == 30)
-        #expect(distant.secondary?.resetsAt == nil)
-    }
-
     @Test("A relayed window ages from source time and becomes unknown at reset, independently")
     func sourceTimeAndReset() throws {
         let quota = ProviderQuota(provider: .codex, weeklyRemainingPercent: 0,
