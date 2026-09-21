@@ -263,6 +263,26 @@ struct GrokACPTests {
         await rig.monitor.shutdown()
     }
 
+    @Test func firstWebSocketSnapshotAdvertisesGrokWithoutHTTPWarmup() async throws {
+        let rig = Rig()
+        let server = VibeBuddyServer(store: rig.store, token: "cold-stream", host: "127.0.0.1", port: 0,
+                                     backgroundSessions: { [] }, grokACP: rig.monitor)
+        try await server.buildApplication().test(.live) { client in
+            let port = try #require(client.port)
+            var request = URLRequest(url: URL(string: "ws://localhost:\(port)/ws")!)
+            request.setValue("Bearer cold-stream", forHTTPHeaderField: "Authorization")
+            let socket = URLSession.shared.webSocketTask(with: request)
+            socket.resume()
+            defer { socket.cancel(with: .normalClosure, reason: nil) }
+            guard case let .string(message) = try await socket.receive(),
+                  case let .snapshot(snapshot) = try JSONDecoder().decode(ServerEvent.self, from: Data(message.utf8)) else {
+                Issue.record("Expected the first live snapshot")
+                return
+            }
+            #expect(snapshot.dispatchAgents?.contains(.grok) == true)
+        }
+    }
+
     @Test func phoneWireContractContinuesHostedGrokAndRejectsStaleRound() async throws {
         let rig = Rig()
         _ = await rig.monitor.dispatch(request)
