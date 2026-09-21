@@ -1164,6 +1164,8 @@ final class DashboardStore: ObservableObject {
         if result == .failed, state != .connected,
            let choice = WatchApprovalChoice(decision),
            hold(.approval(id: approvalId, choice: choice), sessionId: session.id, key: key, origin: .phone) != nil {
+            // The card shows the held state the way it shows any receipt.
+            phoneActionIdentity[session.id] = actionIdentity(session)
             phoneActions[session.id] = .held
             return .held
         }
@@ -1235,6 +1237,8 @@ final class DashboardStore: ObservableObject {
             let action: WatchSessionAction? = if let answers { .answerAll(pendingId: question.id, answers: answers) }
                 else if let text { .answer(pendingId: question.id, text: text) } else { nil }
             if let action, hold(action, sessionId: session.id, key: key, origin: .phone) != nil {
+                // The card shows the held state the way it shows any receipt.
+                phoneActionIdentity[session.id] = actionIdentity(session)
                 phoneActions[session.id] = .held
                 return .held
             }

@@ -70,6 +70,25 @@ private final class HeldTransport: WatchStateTransport {
     }
 }
 
+/// One snapshot, then the link drops; every reconnect after that hangs, so
+/// the store stays disconnected for the rest of the test instead of flapping
+/// every two seconds (the shared scripted streamer never ends at all).
+private final class OneShotStreamer: SnapshotStreaming, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    let snapshot: Snapshot
+    init(_ snapshot: Snapshot) { self.snapshot = snapshot }
+
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
+        let first = lock.withLock { calls += 1; return calls == 1 }
+        return AsyncThrowingStream { continuation in
+            guard first else { return }
+            continuation.yield(snapshot)
+            continuation.finish()
+        }
+    }
+}
+
 /// A recording notifier that also keeps every delivery report.
 private final class DeliveryNotifier: AttentionNotifier, @unchecked Sendable {
     private let lock = NSLock()
@@ -135,7 +154,7 @@ final class HeldDecisionFlowTests: XCTestCase {
         let stream = snapshot([waitingSession()])
         mac.set(snapshot: stream, reachable: true)
         let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
-                                    streamer: ScriptedStreamer(snapshots: [stream]))
+                                    streamer: OneShotStreamer(stream))
         for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(store.failure, .tailnetOff(host: "100.100.0.7"))
         mac.set(snapshot: stream, reachable: false)
@@ -159,7 +178,8 @@ final class HeldDecisionFlowTests: XCTestCase {
         var deny = request
         deny.attemptId = "tap-2"
         deny.action = .approval(id: "ap-1", choice: .deny)
-        XCTAssertEqual(await transport.tap(deny).outcome, .queued)
+        let revised = await transport.tap(deny)
+        XCTAssertEqual(revised.outcome, .queued)
         XCTAssertEqual(store.heldActions.map(\.id), ["tap-2"])
 
         // The link returns: one delivery, under the held key, and the hold
@@ -185,7 +205,7 @@ final class HeldDecisionFlowTests: XCTestCase {
         let stream = snapshot([waitingSession()])
         mac.set(snapshot: stream, reachable: true)
         let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
-                                    streamer: ScriptedStreamer(snapshots: [stream]), tailnet: true)
+                                    streamer: OneShotStreamer(stream), tailnet: true)
         for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
         // The stream simply ended with the tunnel up: a drop, not a diagnosis
         // of the Mac — and still a reason to hold.
@@ -220,7 +240,7 @@ final class HeldDecisionFlowTests: XCTestCase {
         let stream = snapshot([running])
         mac.set(snapshot: stream, reachable: true)
         let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
-                                    streamer: ScriptedStreamer(snapshots: [stream]))
+                                    streamer: OneShotStreamer(stream))
         for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
         let state = try XCTUnwrap(transport.states.last)
         let task = try XCTUnwrap(state.followedTasks.first { $0.sessionID == "task-run" })
@@ -241,7 +261,7 @@ final class HeldDecisionFlowTests: XCTestCase {
         let stream = snapshot([waitingSession()])
         mac.set(snapshot: stream, reachable: true)
         let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
-                                    streamer: ScriptedStreamer(snapshots: [stream]))
+                                    streamer: OneShotStreamer(stream))
         for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
         mac.set(snapshot: stream, reachable: false)
 
@@ -253,7 +273,8 @@ final class HeldDecisionFlowTests: XCTestCase {
         XCTAssertTrue(notifier.reports.isEmpty)
         // A persisting decision is never held: it must be made where the
         // command is readable, now, or not at all.
-        XCTAssertNotEqual(await store.decideConfirmed("ap-1", .alwaysAllow), .held)
+        let persisting = await store.decideConfirmed("ap-1", .alwaysAllow)
+        XCTAssertNotEqual(persisting, .held)
         XCTAssertEqual(store.heldActions.count, 1)
     }
 }
