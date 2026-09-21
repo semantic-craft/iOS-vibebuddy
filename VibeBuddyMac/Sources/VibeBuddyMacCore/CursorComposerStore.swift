@@ -74,9 +74,20 @@ public struct CursorComposer: Equatable, Sendable {
 /// Like `CopilotSessionReader`, it works from a private snapshot so SQLite's own
 /// WAL bookkeeping can never write into Cursor's directory, and a database that
 /// changed mid-copy is retried on the next pass rather than half-read.
+///
+/// The database is Cursor's whole world — every chat bubble, every checkpoint
+/// — and grows past a gigabyte on a busy Mac while the conversation index it
+/// holds stays a few megabytes. Both reads therefore go through the key index
+/// (a range, never `LIKE`, which SQLite cannot serve from the index and turns
+/// into a scan of every row), and a conversation whose stored bytes have not
+/// moved since the last pass is not parsed again.
 public struct CursorComposerStore: Sendable {
     public let database: URL
     private var stamp: [String]?
+    private var detailCache: [String: DetailEntry] = [:]
+    /// How many `composerData:` rows the last `refresh()` actually decoded, as
+    /// opposed to reusing from the previous pass. Exposed for tests.
+    var lastRefreshParsedDetails = 0
 
     public init(database: URL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")) {
@@ -116,24 +127,77 @@ public struct CursorComposerStore: Sendable {
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 250)
         let heads = try Self.heads(db: db)
-        let details = try Self.details(db: db)
+        let (details, parsed) = try Self.details(db: db, reusing: detailCache)
         var merged: [CursorComposer] = []
         for id in Set(heads.keys).union(details.keys).sorted() {
-            guard let composer = Self.compose(id: id, head: heads[id], detail: details[id]) else { continue }
+            guard let composer = Self.compose(id: id, head: heads[id], detail: details[id]?.facts) else { continue }
             merged.append(composer)
         }
+        detailCache = details
+        lastRefreshParsedDetails = parsed
         stamp = before
         return merged.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     // MARK: - Reading
 
-    struct Head {
+    struct Head: Sendable {
         var workspaceID: String?
         var recency: Double?
         var isSubagent: Bool
         var isArchived: Bool
-        var json: [String: Any]
+        var facts: Facts
+    }
+
+    /// One `composerData:` row as last read: the bytes Cursor stored and what
+    /// they said. Equal bytes on the next pass mean the parse can be skipped.
+    struct DetailEntry: Sendable {
+        var raw: Data
+        var facts: Facts
+    }
+
+    /// Everything a conversation record can tell us, whether it came from the
+    /// `composerHeaders` head or the `composerData:` detail. Each side fills
+    /// what it has; `compose` lets the detail win field by field.
+    struct Facts: Equatable, Sendable {
+        var name: String?
+        var subtitle: String?
+        var lastUpdatedAt: Double?
+        var createdAt: Double?
+        var workspacePath: String?
+        var repoPath: String?
+        var branch: String?
+        var model: String?
+        var contextTokens: Int?
+        var contextWindow: Int?
+        var status: String?
+        var blockingPendingActions: Bool?
+        var isSubagent: Bool?
+        var isArchived: Bool?
+        var isDraft: Bool?
+        /// `agentLocation.type`; nil when the record does not say.
+        var agentLocationType: String?
+
+        init(json: [String: Any]) {
+            name = CursorComposerStore.nonEmpty(json["name"] as? String)
+            subtitle = CursorComposerStore.nonEmpty(json["subtitle"] as? String)
+            lastUpdatedAt = json["lastUpdatedAt"] as? Double
+            createdAt = json["createdAt"] as? Double
+            workspacePath = CursorComposerStore.projectPath(json["workspaceIdentifier"])
+            repoPath = CursorComposerStore.repoPath(json["trackedGitRepos"])
+            branch = CursorComposerStore.branch(json["trackedGitRepos"])
+            model = CursorComposerStore.nonEmpty((json["modelConfig"] as? [String: Any])?["modelName"] as? String)
+            contextTokens = (json["contextTokensUsed"] as? NSNumber)?.intValue
+            contextWindow = (json["contextTokenLimit"] as? NSNumber)?.intValue
+            status = CursorComposerStore.nonEmpty(json["status"] as? String)
+            blockingPendingActions = json["hasBlockingPendingActions"] as? Bool
+            isSubagent = json["isSubagent"] as? Bool
+            isArchived = json["isArchived"] as? Bool
+            isDraft = json["isDraft"] as? Bool
+            if let location = json["agentLocation"] as? [String: Any] {
+                agentLocationType = CursorComposerStore.nonEmpty(location["type"] as? String)
+            }
+        }
     }
 
     static func heads(db: OpaquePointer?) throws -> [String: Head] {
@@ -156,7 +220,7 @@ public struct CursorComposerStore: Sendable {
                     recency: updated,
                     isSubagent: (double(statement, 5) ?? 0) != 0,
                     isArchived: (double(statement, 4) ?? 0) != 0,
-                    json: json(text(statement, 6)))
+                    facts: Facts(json: json(text(statement, 6))))
             }
             step = sqlite3_step(statement)
         }
@@ -164,51 +228,62 @@ public struct CursorComposerStore: Sendable {
         return out
     }
 
-    static func details(db: OpaquePointer?) throws -> [String: [String: Any]] {
-        guard tableExists("cursorDiskKV", db: db) else { return [:] }
+    static let detailKeyPrefix = "composerData:"
+    /// A half-open range on the key, which SQLite answers from the table's
+    /// unique-key index. `;` is the character after `:`, so the range is
+    /// exactly the keys carrying the prefix. `LIKE 'composerData:%'` would
+    /// read every row of a table that is mostly chat bubbles.
+    static let detailsSQL = "SELECT key, value FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;'"
+
+    static func details(db: OpaquePointer?, reusing cache: [String: DetailEntry])
+        throws -> (details: [String: DetailEntry], parsed: Int) {
+        guard tableExists("cursorDiskKV", db: db) else { return ([:], 0) }
         var statement: OpaquePointer?
-        let sql = "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'"
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw ReadError.unreadable }
+        guard sqlite3_prepare_v2(db, detailsSQL, -1, &statement, nil) == SQLITE_OK else { throw ReadError.unreadable }
         defer { sqlite3_finalize(statement) }
-        var out: [String: [String: Any]] = [:]
+        var out: [String: DetailEntry] = [:]
+        var parsed = 0
         var step = sqlite3_step(statement)
         while step == SQLITE_ROW {
             let key = text(statement, 0)
-            let id = String(key.dropFirst("composerData:".count))
-            if !id.isEmpty { out[id] = json(text(statement, 1)) }
+            let id = String(key.dropFirst(detailKeyPrefix.count))
+            if !id.isEmpty {
+                let raw = blob(statement, 1)
+                if let cached = cache[id], cached.raw == raw {
+                    out[id] = cached
+                } else {
+                    out[id] = DetailEntry(raw: raw, facts: Facts(json: json(raw)))
+                    parsed += 1
+                }
+            }
             step = sqlite3_step(statement)
         }
         guard step == SQLITE_DONE else { throw ReadError.unreadable }
-        return out
+        return (out, parsed)
     }
 
     // MARK: - Shaping
 
-    static func compose(id: String, head: Head?, detail: [String: Any]?) -> CursorComposer? {
-        let facts = head?.json ?? [:]
-        func fact(_ key: String) -> Any? { detail?[key] ?? facts[key] }
+    static func compose(id: String, head: Head?, detail: Facts?) -> CursorComposer? {
+        let facts = head?.facts
+        func fact<T>(_ path: KeyPath<Facts, T?>) -> T? { detail?[keyPath: path] ?? facts?[keyPath: path] }
         // Cursor's timestamps are milliseconds since the epoch.
-        let millis = (fact("lastUpdatedAt") as? Double)
-            ?? (fact("createdAt") as? Double)
-            ?? head?.recency
-        let project = projectPath(fact("workspaceIdentifier")) ?? repoPath(fact("trackedGitRepos"))
-        let usedTokens = (fact("contextTokensUsed") as? NSNumber)?.intValue
-        let limitTokens = (fact("contextTokenLimit") as? NSNumber)?.intValue
+        let millis = fact(\.lastUpdatedAt) ?? fact(\.createdAt) ?? head?.recency
         let composer = CursorComposer(
             id: id,
-            name: nonEmpty(fact("name") as? String),
-            subtitle: nonEmpty(fact("subtitle") as? String),
-            project: project,
-            branch: branch(fact("trackedGitRepos")),
-            model: nonEmpty((fact("modelConfig") as? [String: Any])?["modelName"] as? String),
-            contextTokens: usedTokens,
-            contextWindow: limitTokens,
-            status: nonEmpty(detail?["status"] as? String),
-            blockingPendingActions: (fact("hasBlockingPendingActions") as? Bool) ?? false,
-            isSubagent: head?.isSubagent ?? (fact("isSubagent") as? Bool) ?? false,
-            isArchived: head?.isArchived ?? (fact("isArchived") as? Bool) ?? false,
-            isDraft: (fact("isDraft") as? Bool) ?? false,
-            isCloud: isCloud(fact("agentLocation"), id: id),
+            name: fact(\.name),
+            subtitle: fact(\.subtitle),
+            project: fact(\.workspacePath) ?? fact(\.repoPath),
+            branch: fact(\.branch),
+            model: fact(\.model),
+            contextTokens: fact(\.contextTokens),
+            contextWindow: fact(\.contextWindow),
+            status: detail?.status,
+            blockingPendingActions: fact(\.blockingPendingActions) ?? false,
+            isSubagent: head?.isSubagent ?? fact(\.isSubagent) ?? false,
+            isArchived: head?.isArchived ?? fact(\.isArchived) ?? false,
+            isDraft: fact(\.isDraft) ?? false,
+            isCloud: isCloud(fact(\.agentLocationType), id: id),
             updatedAt: millis.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast)
         return composer
     }
@@ -244,11 +319,8 @@ public struct CursorComposerStore: Sendable {
     /// Cursor records where an agent runs in `agentLocation.type` (`local` for
     /// this Mac). Cloud agents also carry a `bc-`-prefixed id, which is the
     /// fallback when the field is absent.
-    static func isCloud(_ value: Any?, id: String) -> Bool {
-        if let location = value as? [String: Any],
-           let type = nonEmpty(location["type"] as? String) {
-            return type != "local"
-        }
+    static func isCloud(_ locationType: String?, id: String) -> Bool {
+        if let locationType { return locationType != "local" }
         return id.hasPrefix("bc-")
     }
 
@@ -265,10 +337,22 @@ public struct CursorComposerStore: Sendable {
     }
 
     static func json(_ raw: String) -> [String: Any] {
-        guard !raw.isEmpty, let data = raw.data(using: .utf8),
+        guard !raw.isEmpty, let data = raw.data(using: .utf8) else { return [:] }
+        return json(data)
+    }
+
+    static func json(_ data: Data) -> [String: Any] {
+        guard !data.isEmpty,
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return [:] }
         return object
+    }
+
+    /// The column's bytes as stored, text or blob alike, without a string
+    /// round-trip: what the cache compares.
+    static func blob(_ statement: OpaquePointer?, _ column: Int32) -> Data {
+        guard let pointer = sqlite3_column_blob(statement, column) else { return Data() }
+        return Data(bytes: pointer, count: Int(sqlite3_column_bytes(statement, column)))
     }
 
     static func text(_ statement: OpaquePointer?, _ column: Int32) -> String {
