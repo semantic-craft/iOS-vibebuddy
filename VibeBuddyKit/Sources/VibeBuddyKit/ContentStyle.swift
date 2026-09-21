@@ -14,7 +14,7 @@ public enum ContentStyle: String, Codable, CaseIterable, Sendable, Hashable {
 
     public var detail: String {
         switch self {
-        case .concise: "The next action first, followed by the essential result and reason."
+        case .concise: "Leads with what the record asks you to do, otherwise the key result; steps are numbered in history summaries only; at most one next step."
         case .decision: "A CEO briefing on progress, benefits, important tradeoffs, and decisions."
         case .custom: "Use your own instructions to shape every summary."
         }
@@ -46,7 +46,7 @@ public struct ContentStyleConfiguration: Codable, Hashable, Sendable {
 
     public var fingerprint: String {
         let prompt = style == .custom ? customPrompt.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        let fields = ["content-prompt-v1", style.rawValue, prompt]
+        let fields = ["content-prompt-v2", style.rawValue, prompt]
         let data = Data(fields.map { "\($0.utf8.count):\($0)" }.joined().utf8)
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }

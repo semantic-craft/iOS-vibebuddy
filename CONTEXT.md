@@ -512,10 +512,16 @@ code, and tests — don't drift to synonyms.
   preference is flagged separately. Generating or reading it establishes no live completion
   identity, notification or task control capability.
 - **Content style** — the source Mac's global content preference (`contentStyle`
-  and `contentStyleCustomPrompt`): *concise* leads with the next useful action or
-  essential result; *decision* gives a nontechnical CEO briefing on outcomes,
-  benefits and supported tradeoffs; *custom* applies up to 2000 characters of
-  expression instructions. All share evidence and authorization rules. Settings,
+  and `contentStyleCustomPrompt`): *concise* leads with the one thing the reader
+  can do now (only when the record asks for it) or the most important perceptible
+  result, and ends with at most one next step; *decision* gives a nontechnical CEO
+  briefing on outcomes, benefits and supported tradeoffs; *custom* applies up to
+  2000 characters of expression instructions. All styles share the reader-shaped
+  writing rules (no preamble or closer, current state stated, user steps numbered
+  in history only and spoken in order elsewhere, at most five visible items per
+  group, matter-of-fact failures, time only when the record gives it, history
+  keeps its coverage sentence right after the first content sentence) and the evidence and
+  authorization rules; the prompt fingerprint is `content-prompt-v2`. Settings,
   the history reader and the reading panel use this same choice. Paired phones
   read and update it through authenticated `/content-style`; optimistic revision
   checks prevent a stale phone edit overwriting a newer choice. Voice/persona
