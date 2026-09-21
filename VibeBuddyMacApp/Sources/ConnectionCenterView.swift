@@ -12,6 +12,7 @@ struct ConnectionCenterView: View {
             macRow
             connectionMode
             if model.useTailscale { remoteNetwork }
+            if model.pairedPhone == nil { appStoreCard }
             pairingCard
             if let phone = model.pairedPhone { phoneCard(phone) }
             if let transfer = model.remoteTransfer { transferCard(transfer) }
@@ -94,6 +95,19 @@ struct ConnectionCenterView: View {
         }
         .padding(14)
         .background(MacTheme.accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Before any phone has registered, the App Store entry sits above the
+    /// pairing code: install first, then scan.
+    private var appStoreCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Get the iPhone app").font(MacTheme.font(14, .semibold))
+            IPhoneAppStoreCard(compact: compact)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(MacTheme.ink3.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityIdentifier("mac-connection-app-store")
     }
 
     private var pairingCard: some View {

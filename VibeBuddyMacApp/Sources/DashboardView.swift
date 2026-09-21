@@ -211,7 +211,7 @@ struct DashboardView: View {
                 .zIndex(1)
             Group {
                 if libraryScope == "inbox" {
-                    MacInboxHomeView(projection: projection, recap: model.recap,
+                    MacInboxHomeView(model: model, projection: projection, recap: model.recap,
                                      openRecap: { libraryScope = "recap" },
                                      readPending: { model.readPending(); showSpeechPanel = true },
                                      openFirst: openFirstPending,

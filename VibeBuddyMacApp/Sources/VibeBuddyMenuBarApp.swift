@@ -662,11 +662,14 @@ struct MenuContent: View {
     /// be. It opens the same pairing detail popover, QR code included.
     private func phoneControl(showsName: Bool) -> some View {
         let phone = model.pairedPhone
+        // Until a phone is paired this is the one thing a new user must find,
+        // so it keeps its label at every width and sits on an accent pill.
+        let unpaired = phone == nil
         return Button { showsPhoneDetails.toggle() } label: {
             HStack(spacing: 5) {
                 Image(systemName: "iphone.gen3")
                     .foregroundStyle(MacTheme.accent)
-                if showsName {
+                if showsName || unpaired {
                     Text("Connect iPhone")
                         .lineLimit(1)
                         .fixedSize()
@@ -674,10 +677,11 @@ struct MenuContent: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
+            .background(unpaired ? MacTheme.accent.opacity(0.12) : .clear, in: Capsule())
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .foregroundStyle(MacTheme.ink2)
+        .foregroundStyle(unpaired ? MacTheme.accentText : MacTheme.ink2)
         .help(Self.phoneTooltip(phone))
         .accessibilityLabel("Connect iPhone")
         .accessibilityIdentifier("mac-connect-iphone")
