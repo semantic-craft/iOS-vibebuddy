@@ -333,8 +333,20 @@ final class WatchStateStore: NSObject, ObservableObject {
         taskRefreshFailed = false
     }
 
+    /// Whether a navigation is part-way through assigning `taskLink` and
+    /// `quotaSelection`. Between those two writes the wrist has no card, which
+    /// is not the same as having left one — see `cancelPendingNavigation`.
+    private var isNavigating = false
+
     func openTask(_ url: URL) {
         WatchNavigationDiagnostics.shared.record("route.url")
+        isNavigating = true
+        // Settled, not mid-flight: a URL that lands on the quota pane really
+        // has left the card, and a held decision goes with it.
+        defer {
+            isNavigating = false
+            if taskLink == nil { withdrawBannerAction() }
+        }
         if let selection = WatchQuotaSelection(url: url) {
             taskLink = nil
             quotaSelection = selection
@@ -353,6 +365,8 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// an unknown target opens an unavailable page instead of waiting forever.
     func openSession(_ sessionID: String) {
         WatchNavigationDiagnostics.shared.record("route.session")
+        isNavigating = true
+        defer { isNavigating = false }
         guard let state, let source = state.sourceID, !source.isEmpty,
               let epoch = state.pairingEpoch, !epoch.isEmpty else {
             taskLink = nil
@@ -444,11 +458,25 @@ final class WatchStateStore: NSObject, ObservableObject {
         // Navigating away from the card a banner opened withdraws its held
         // decision: it was made about a screen no longer in front of anyone.
         // The sentence on that card leaves with the card.
-        if taskLink == nil {
-            bannerAction = nil
-            bannerActionTimeout?.cancel()
-            bannerActionFallback = nil
-        }
+        //
+        // Only once the navigation has finished, though. `taskLink` and
+        // `quotaSelection` both observe themselves into here, and a navigation
+        // clears one of them on its way to setting the other — so mid-flight
+        // there is a moment with no card that is not a departure. Reading it as
+        // one dropped the held decision in silence, which is the whole thing
+        // this path exists to prevent. Same ordering trap `pendingSessionID` is
+        // assigned last to escape.
+        if taskLink == nil, !isNavigating { withdrawBannerAction() }
+    }
+
+    /// Drop a held banner decision and the sentence explaining the last one.
+    /// Only from a settled navigation: while `openSession` waits for a state
+    /// that can place the session there is no card either, and that wait is
+    /// exactly what the patience and its `.noState` ending are for.
+    private func withdrawBannerAction() {
+        bannerAction = nil
+        bannerActionTimeout?.cancel()
+        bannerActionFallback = nil
     }
 
     /// Called only by the exact detail body after it has appeared. Viewing is
