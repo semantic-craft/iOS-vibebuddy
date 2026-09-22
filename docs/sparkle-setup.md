@@ -110,16 +110,78 @@ run the dry run below.
 Publishing is deliberately *not* automated: the script prints the `gh release create`
 and `gh-pages` commands and stops. Run them when you mean to ship.
 
+## The installed app is shared
+
+`/Applications/VibeBuddyMacApp.app` is one copy for the whole Mac. Installing a
+DMG over it, running `tools/redeploy-mac.sh`, or letting Sparkle apply an update
+quits the running instance: the dashboard restarts, `:9876` drops, and every
+paired phone and Watch loses whatever it was in the middle of.
+
+So before you replace it, find out whether another session is running a
+real-device acceptance, and say what you are about to do:
+
+```bash
+git worktree list                                    # other sessions' checkouts
+vibebuddy-mcp status --exclude-session '<own-native-thread-id>'
+```
+
+Status is an observation, not a lock
+(`docs/agents/skills/vibebuddy-history/SKILL.md`) — if anything is live on the
+phone or the Watch, wait or ask the owner. A reinstall costs them the whole run,
+not a retry: on 2026-09-22 at 03:45 the Mac 1.3.29 install landed in the middle
+of a Watch acceptance and voided R4/R5, which had to be driven again.
+
+Verification that does not need the shared app belongs in the isolated daemon
+instead (`docs/agents/skills/verify-vibebuddy/SKILL.md`): its own port, its own
+`HOME`, never `:9876`.
+
+## Verify the DMG, not the installed copy
+
+After `tools/redeploy-mac.sh` the installed app is a local Developer ID build —
+that script re-signs for a stable designated requirement
+(`codesign --force --deep --sign`), it does not harden the runtime and it does
+not notarize. So this is **expected** and is not a release defect:
+
+```console
+$ spctl -a -vv /Applications/VibeBuddyMacApp.app
+/Applications/VibeBuddyMacApp.app: rejected
+source=Unnotarized Developer ID
+```
+
+The installed copy therefore proves nothing about what shipped. Check the
+published asset instead:
+
+```bash
+gh release download v<version> -p 'vibebuddy-mac-v<version>.dmg'
+stapler validate vibebuddy-mac-v<version>.dmg   # The validate action worked!
+
+hdiutil attach vibebuddy-mac-v<version>.dmg     # mounts /Volumes/vibebuddy <version>
+spctl -a -vv "/Volumes/vibebuddy <version>/VibeBuddyMacApp.app"
+# accepted, source=Notarized Developer ID
+hdiutil detach "/Volumes/vibebuddy <version>"
+```
+
+`xcrun notarytool history --keychain-profile xw-notary` shows only that Apple
+accepted the submission. A stapling slip passes that check and still fails on a
+user's Mac, so validate the file users download.
+
 ## Per release
 
-1. Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
+1. Confirm no other session is mid real-device acceptance — step 7 replaces the
+   shared app (§ The installed app is shared).
+2. Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
    `VibeBuddyMacApp/project.yml`. Sparkle compares `CURRENT_PROJECT_VERSION`
    (`CFBundleVersion`), so it **must** increase or installed copies will not see the
    update.
-2. Write `docs/release-notes-<version>.md`.
-3. `tools/release-mac.sh`
-4. Run the two publish commands it prints.
-5. Check for Updates… from an older installed copy, and confirm it offers and
+3. Write `docs/release-notes-<version>.md`.
+4. `tools/release-mac.sh`
+5. Run the two publish commands it prints.
+6. Validate the published DMG (§ Verify the DMG, not the installed copy).
+7. Check for Updates… from an older installed copy, and confirm it offers and
    installs the new one.
+
+A build that is notarized but never published drifts from `main` as soon as the
+next commit lands — either publish it or discard it, and do not ship yesterday's
+DMG under today's tag.
 
 Sparkle docs: <https://sparkle-project.org/documentation/>.
