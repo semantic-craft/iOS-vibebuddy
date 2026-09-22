@@ -4,6 +4,9 @@ import VibeBuddyKit
 /// Receipt from the Mac, never a claim that the agent finished executing.
 enum PhoneActionResult: Equatable, Sendable {
     case sending, received, expired, failed, unconfirmed, notPaired
+    /// The Mac could not be reached; the decision is held on this phone and
+    /// will be delivered, once, when it can be (ADR-0032).
+    case held
 
     var message: String {
         switch self {
@@ -13,6 +16,7 @@ enum PhoneActionResult: Equatable, Sendable {
         case .failed: "Sending failed. Your answer is kept; check the connection before retrying."
         case .unconfirmed: "The result could not be confirmed. Check the task on Mac before sending again."
         case .notPaired: "No paired Mac connection. Your answer has not been sent."
+        case .held: "Can't reach your Mac. Your decision is held on this iPhone and will be sent when the Mac is reachable."
         }
     }
 

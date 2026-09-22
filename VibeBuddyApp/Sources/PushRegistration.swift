@@ -106,6 +106,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // No paid account / entitlement yet — expected until APNs is set up.
     }
 
+    /// The Mac's waiting cues carry `content-available` (ADR-0032). iOS grants
+    /// this wake at its own discretion and never to a force-quit app.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        let payload = userInfo.reduce(into: [String: String]()) { partial, entry in
+            if let key = entry.key as? String, let value = entry.value as? String { partial[key] = value }
+        }
+        let category = (userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String
+        Task {
+            var info: [AnyHashable: Any] = payload
+            if let category { info["aps"] = ["category": category] }
+            let result = await handleBackgroundPush(userInfo: info)
+            await MainActor.run { completionHandler(result) }
+        }
+    }
+
     func applicationDidBecomeActive(_ application: UIApplication) {
         Task { await PushCoverage.shared.noteActivated() }
     }
@@ -130,7 +147,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Snapshot them before leaving the delegate's isolation context.
         let userInfo = [
             NotificationUserInfoKey.sessionId: request.content.userInfo[NotificationUserInfoKey.sessionId] as? String,
-            NotificationUserInfoKey.approvalId: request.content.userInfo[NotificationUserInfoKey.approvalId] as? String
+            NotificationUserInfoKey.approvalId: request.content.userInfo[NotificationUserInfoKey.approvalId] as? String,
+            NotificationUserInfoKey.questionId: request.content.userInfo[NotificationUserInfoKey.questionId] as? String
         ].compactMapValues { $0 }
         // The async delegate bridge can finish on a cooperative executor. UIKit's
         // notification-response completion restores scene state and requires main.
@@ -176,26 +194,82 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // reached here would yank the phone onto a session nobody asked for.
         if actionIdentifier == UNNotificationDismissActionIdentifier { return }
         let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
+        let epoch = await MainActor.run { ConnectionStore.pairingEpoch }
+        // A tap the Mac cannot be given is held under its own key and
+        // reported through a notification of its own — the tap was made on
+        // the wrist or the lock screen, where opening the app is no answer
+        // (ADR-0032). The queue's listener (the dashboard store) posts it.
         let outcome = await BannerActionRunner.perform(
             actionIdentifier: actionIdentifier,
             userInfo: userInfo,
             text: text,
             pairing: pairing,
-            client: HTTPDecisionClient())
+            client: HTTPDecisionClient(),
+            epoch: epoch,
+            hold: { action, reason in
+                // Saved and reported before this returns: iOS may suspend the
+                // process the moment the completion handler runs, and an
+                // unfinished hold would be the silent drop all over again.
+                await MainActor.run { PendingActionStore.shared.hold(action, reason: reason) }
+            })
+        let macName = pairing?.macName
+        switch outcome {
+        case .openSession, .ignored:
+            break
+        case .held:
+            await LocalNotifier.settle()
+        case .notHeld(let action):
+            // Nothing applied, decide again — under its own identifier, so
+            // the live "on hold" banner of the earlier decision stays up.
+            LocalNotifier().warnNotHeld(action, macName: macName)
+            await LocalNotifier.settle()
+        case .unconfirmed(let action):
+            LocalNotifier().warnUnconfirmed(action, macName: macName)
+            await LocalNotifier.settle()
+        }
         // Every banner action is a foreground action (ADR-0033), so this app
         // is on screen by now. Land on the session either way: after a success
-        // it shows the wait resolving; after a failure it is where the retry
-        // is. A background action's failure used to end here with an `open`
-        // the system ignored, and nothing anywhere said the tap was lost.
+        // it shows the wait resolving; after a hold or a failure it is where
+        // the held decision and the retry are. A background action's failure
+        // used to end here with an `open` the system ignored, and nothing
+        // anywhere said the tap was lost.
         let sessionID: String?
         switch outcome {
         case .openSession(let id): sessionID = id
         case .ignored: sessionID = userInfo[NotificationUserInfoKey.sessionId]
+        case .held(let id, _): sessionID = id
+        case .notHeld(let action), .unconfirmed(let action): sessionID = action.sessionId
         }
         if let sessionID, !sessionID.isEmpty {
             await MainActor.run {
                 _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: sessionID))
             }
+        }
+    }
+
+    /// A waiting cue's push woke the app (`content-available`). Ask the Mac
+    /// whether this phone can reach it right now: deliver what is held if
+    /// so, and if not, say which link is missing — before the person taps
+    /// Approve on a card that cannot be answered (ADR-0032).
+    nonisolated func handleBackgroundPush(userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        let category = (userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String
+        guard category != nil else { return .noData }
+        let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
+        guard let pairing else { return .noData }
+        let client = HTTPDecisionClient()
+        switch await client.probe(pairing) {
+        case .reachable:
+            let epoch = await MainActor.run { ConnectionStore.pairingEpoch }
+            await PendingActionStore.shared.flush(pairing: pairing, epoch: epoch, client: client)
+            // The "delivered" / "could not be confirmed" posts the flush
+            // asked for must reach the system before this wake ends.
+            await LocalNotifier.settle()
+            return .newData
+        case .unreachable(let reason):
+            guard reason.isRetryable else { return .noData }
+            LocalNotifier().warnUnreachable(reason, macName: pairing.macName)
+            await LocalNotifier.settle()
+            return .newData
         }
     }
 

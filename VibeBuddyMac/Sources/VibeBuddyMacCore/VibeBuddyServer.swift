@@ -382,6 +382,7 @@ public struct VibeBuddyServer: Sendable {
                                                                category: alert.actionCategory?.rawValue,
                                                                timeSensitive: alert.isTimeSensitive && recipient.level == .bannerSound,
                                                                approvalId: alert.actionCategory == .approval ? session.pendingApproval?.id : nil,
+                                                               questionId: alert.actionCategory == .question ? session.pendingQuestion?.id : nil,
                                                                waitSince: session.statusSince, holdForPhone: hold)
                                 await deviceTokens.applySendResult(result, token: deviceToken)
                             }
@@ -960,39 +961,61 @@ public struct VibeBuddyServer: Sendable {
                   let id = obj["approvalId"] as? String,
                   let decision = obj["decision"] as? String
             else { throw HTTPError(.badRequest) }
+            // The idempotency key (ADR-0032). A phone that held this decision
+            // while the Mac was unreachable, or lost the receipt for it,
+            // retries under the same key and is answered as it was the first
+            // time — never a second resolution, never a 409 for its own tap.
+            let requestID = (obj["requestId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let requestID, let prior = await self.actionRequests.claim(requestID) {
+                switch prior {
+                case .accepted: return .ok
+                // The twin of this request is still in flight and may yet be
+                // refused: say so with the same 503 `/answer` gives, which the
+                // phone keeps as unconfirmed rather than reporting delivery.
+                case .unknown: return .serviceUnavailable
+                case .refused, .failed: return .conflict
+                }
+            }
             // "allow"/"deny" resolve this one prompt; "alwaysAllow" also persists a rule;
             // "allowSession" also allows the rest of this session (ADR 0010). Unknown → deny.
-            let snapshot = await store.snapshot(now: Date())
-            guard let pending = snapshot.sessions.compactMap(\.pendingApproval).first(where: { $0.id == id }),
-                  pending.isAnswerable,
-                  pending.canPersistDecision || (decision != "alwaysAllow" && decision != "allowSession"),
-                  let claimedContext = await approvalContext.take(id: id),
-                  await registry.claim(id: id) else { return .conflict }
-            let ctx = Optional(claimedContext)
-            switch decision {
-            case "alwaysAllow":
-                if let ctx {
-                    if let native = ctx.nativeSuggestions {
-                        // The agent proposed the rule: hand it back on the held
-                        // reply and let the agent persist it. Nothing is written
-                        // to the vibebuddy store, so the two never diverge.
-                        await approvalContext.grant(id: id, updatedPermissions: native)
-                    } else if let rule = ctx.rule {
-                        await allowStore.add(rule)
+            func resolve() async -> HTTPResponse.Status {
+                let snapshot = await store.snapshot(now: Date())
+                guard let pending = snapshot.sessions.compactMap(\.pendingApproval).first(where: { $0.id == id }),
+                      pending.isAnswerable,
+                      pending.canPersistDecision || (decision != "alwaysAllow" && decision != "allowSession"),
+                      let claimedContext = await approvalContext.take(id: id),
+                      await registry.claim(id: id) else { return .conflict }
+                let ctx = Optional(claimedContext)
+                switch decision {
+                case "alwaysAllow":
+                    if let ctx {
+                        if let native = ctx.nativeSuggestions {
+                            // The agent proposed the rule: hand it back on the held
+                            // reply and let the agent persist it. Nothing is written
+                            // to the vibebuddy store, so the two never diverge.
+                            await approvalContext.grant(id: id, updatedPermissions: native)
+                        } else if let rule = ctx.rule {
+                            await allowStore.add(rule)
+                        }
                     }
+                    await registry.resolve(id: id, with: .allow)
+                case "allowSession":
+                    if let ctx { await sessionAllow.add(ctx.sessionID) }
+                    await registry.resolve(id: id, with: .allow)
+                case "allow":
+                    await registry.resolve(id: id, with: .allow)
+                default:
+                    await registry.resolve(id: id, with: .deny)
                 }
-                await registry.resolve(id: id, with: .allow)
-            case "allowSession":
-                if let ctx { await sessionAllow.add(ctx.sessionID) }
-                await registry.resolve(id: id, with: .allow)
-            case "allow":
-                await registry.resolve(id: id, with: .allow)
-            default:
-                await registry.resolve(id: id, with: .deny)
+                // Deciding is driving: the session stays followed for a while.
+                if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
+                return .ok
             }
-            // Deciding is driving: the session stays followed for a while.
-            if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
-            return .ok
+            let status = await resolve()
+            if let requestID {
+                await self.actionRequests.remember(requestID, status == .ok ? .accepted : .refused("approval gone"))
+            }
+            return status
         }
 
         // The user's attention choice for one session — bearer-token gated (the

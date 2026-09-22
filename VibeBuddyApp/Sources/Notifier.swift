@@ -21,6 +21,63 @@ protocol AttentionNotifier: Sendable {
     /// than no banner: it opens onto a session the wrist no longer lists.
     func withdraw(_ identifiers: [String])
     func confirmPairing()
+    /// Say what became of a decision the phone had to hold: held, delivered,
+    /// no longer needed, given up. Mirrored to the Watch, where the tap was
+    /// most likely made and where silence used to be the answer (ADR-0032).
+    func reportDelivery(_ event: HeldDeliveryEvent, macName: String?)
+    /// A waiting cue just arrived and this phone cannot reach the Mac: say so
+    /// before the person taps Approve into the void.
+    func warnUnreachable(_ reason: ConnectionFailureReason, macName: String?)
+    /// A banner tap went out and its receipt was lost. Nothing is held or
+    /// retried for it: the Mac may have acted, so the word is "look, do not
+    /// tap again" — the same sentence the wrist gets for `unknown`.
+    func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?)
+    /// A banner tap the Mac could not be given and the phone would not hold
+    /// either: the queue is full, or an earlier decision on the same target
+    /// is being delivered this instant. Its own notification, so the live
+    /// "on hold" banner for that earlier decision is not stood down.
+    func warnNotHeld(_ action: QueuedSessionAction, macName: String?)
+}
+
+extension AttentionNotifier {
+    func reportDelivery(_ event: HeldDeliveryEvent, macName: String?) {}
+    func warnUnreachable(_ reason: ConnectionFailureReason, macName: String?) {}
+    func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?) {}
+    func warnNotHeld(_ action: QueuedSessionAction, macName: String?) {}
+}
+
+/// One sentence per missing link, shared by the phone's screens, the toast
+/// and the notifications, so the person reads the same diagnosis everywhere.
+enum ConnectionFailureCopy {
+    static func title(_ reason: ConnectionFailureReason, macName: String?) -> String {
+        let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? macName! : String(localized: "your Mac")
+        switch reason {
+        case .tailnetOff: return String(localized: "Surge or Tailscale is off on this iPhone")
+        case .macUnreachable(let host): return String(localized: "Can't reach \(mac) at \(host)")
+        case .authentication: return String(localized: "Access refused by \(mac)")
+        case .invalidAddress: return String(localized: "The saved Mac address is not usable")
+        case .dropped: return String(localized: "Connection to \(mac) dropped")
+        }
+    }
+
+    static func detail(_ reason: ConnectionFailureReason) -> String {
+        switch reason {
+        case .tailnetOff(let host):
+            return String(localized: "\(host) is a private network address. Turn on Surge or Tailscale on this iPhone to reach it.")
+        case .macUnreachable:
+            return String(localized: "Check that the Mac is awake and VibeBuddy is running on it.")
+        case .authentication:
+            return String(localized: "Check your pairing token, then reconnect.")
+        case .invalidAddress:
+            return String(localized: "Pair again with a valid host and port.")
+        case .dropped:
+            return String(localized: "Reconnecting…")
+        }
+    }
+
+    /// Where a tap should go to fix it, when one tap can.
+    static var vpnHint: String { String(localized: "Turn on Surge or Tailscale") }
 }
 
 /// Runs notification-center work strictly in the order it was asked for. A
@@ -116,6 +173,7 @@ struct LocalNotifier: AttentionNotifier {
                 try await Self.post(title: title, body: body, sound: sound, delivery: delivery,
                                     id: cue.identifier, sessionID: sessionID,
                                     approvalId: alert.session.pendingApproval?.id,
+                                    questionId: alert.session.pendingQuestion?.id,
                                     timeSensitive: alert.isTimeSensitive, category: alert.actionCategory)
             } catch {
                 return false   // nothing shown, so nothing for the Mac to stand down for
@@ -136,6 +194,125 @@ struct LocalNotifier: AttentionNotifier {
         }
     }
 
+    /// One notification per held decision, replaced in place as it moves:
+    /// "holding" becomes "delivered" under the same identifier, so the wrist
+    /// and the phone show the latest word and never a stack of them.
+    func reportDelivery(_ event: HeldDeliveryEvent, macName: String?) {
+        let action = event.action
+        let id = "held-" + action.targetKey
+        let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? macName! : String(localized: "your Mac")
+        let project = action.project?.isEmpty == false ? action.project! : String(localized: "a task")
+        let what: String = switch action.action {
+        case .approval(_, .allow): String(localized: "Approve")
+        case .approval(_, .deny): String(localized: "Deny")
+        case .answer, .answerAll: String(localized: "Answer")
+        case .stop: String(localized: "Stop")
+        }
+        let title: String
+        let body: String
+        var sound: NotificationSound? = nil
+        switch event {
+        case .held(_, let reason):
+            title = String(localized: "\(what) for \(project) is on hold")
+            let why = reason.map { ConnectionFailureCopy.title($0, macName: macName) }
+                ?? String(localized: "Can't reach \(mac)")
+            body = why + " " + String(localized: "Your iPhone will send it as soon as it can reach \(mac).")
+            sound = .needsApproval
+        case .stillHeld:
+            return
+        case .superseded:
+            return
+        case .delivered:
+            title = String(localized: "\(what) delivered to \(mac)")
+            body = String(localized: "\(project) has your decision.")
+        case .gone:
+            title = String(localized: "\(what) for \(project) no longer needed")
+            body = String(localized: "The request was resolved before your iPhone could send it. Nothing was applied.")
+        case .uncertain:
+            title = String(localized: "\(what) for \(project) could not be confirmed")
+            body = String(localized: "Your iPhone sent it, lost the receipt, and the request is now gone. Check the task on \(mac).")
+            sound = .needsApproval
+        case .dropped:
+            title = String(localized: "\(what) for \(project) was not delivered")
+            body = String(localized: "\(mac) stayed unreachable. Open VibeBuddy to decide again.")
+            sound = .needsApproval
+        case .cancelled:
+            Self.chain.enqueue {
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id])
+            }
+            return
+        }
+        let sessionID = action.sessionId
+        let delivery: DeliveryLevel = sound == nil ? .list : .bannerSound
+        let cue = sound ?? .agentDone
+        let urgent = sound != nil
+        Self.chain.enqueue {
+            try? await Self.post(title: title, body: body, sound: cue, delivery: delivery,
+                                 id: id, sessionID: sessionID, timeSensitive: urgent)
+        }
+    }
+
+    /// Wait until every notification asked for so far has been handed to the
+    /// system. A background wake ends the moment its completion handler runs;
+    /// what is still queued here at that point may never be posted.
+    static func settle() async {
+        await chain.enqueue { }.value
+    }
+
+    func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?) {
+        let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? macName! : String(localized: "your Mac")
+        let project = action.project?.isEmpty == false ? action.project! : String(localized: "a task")
+        let what: String = switch action.action {
+        case .approval(_, .allow): String(localized: "Approve")
+        case .approval(_, .deny): String(localized: "Deny")
+        case .answer, .answerAll: String(localized: "Answer")
+        case .stop: String(localized: "Stop")
+        }
+        let title = String(localized: "\(what) for \(project) could not be confirmed")
+        let body = String(localized: "Your iPhone sent it and lost the receipt. Check the task on \(mac) before deciding again.")
+        let id = "held-" + action.targetKey
+        let sessionID = action.sessionId
+        Self.chain.enqueue {
+            try? await Self.post(title: title, body: body, sound: .needsApproval, delivery: .bannerSound,
+                                 id: id, sessionID: sessionID, timeSensitive: true)
+        }
+    }
+
+    func warnNotHeld(_ action: QueuedSessionAction, macName: String?) {
+        let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? macName! : String(localized: "your Mac")
+        let project = action.project?.isEmpty == false ? action.project! : String(localized: "a task")
+        let what: String = switch action.action {
+        case .approval(_, .allow): String(localized: "Approve")
+        case .approval(_, .deny): String(localized: "Deny")
+        case .answer, .answerAll: String(localized: "Answer")
+        case .stop: String(localized: "Stop")
+        }
+        let title = String(localized: "\(what) for \(project) was not taken")
+        let body = String(localized: "Can't reach \(mac), and an earlier decision for this request is already on its way or the hold list is full. Nothing was applied; decide again in VibeBuddy once it is settled.")
+        let id = "nothold-" + action.targetKey
+        let sessionID = action.sessionId
+        Self.chain.enqueue {
+            try? await Self.post(title: title, body: body, sound: .needsApproval, delivery: .bannerSound,
+                                 id: id, sessionID: sessionID, timeSensitive: true)
+        }
+    }
+
+    /// Posted once per outage, replaced in place, withdrawn on reconnect.
+    static let unreachableID = "connection-unreachable"
+
+    func warnUnreachable(_ reason: ConnectionFailureReason, macName: String?) {
+        let title = ConnectionFailureCopy.title(reason, macName: macName)
+        let body = ConnectionFailureCopy.detail(reason) + " "
+            + String(localized: "Decisions you make from here will be held on this iPhone until then.")
+        Self.chain.enqueue {
+            try? await Self.post(title: title, body: body, sound: .needsApproval, delivery: .bannerSound,
+                                 id: Self.unreachableID, timeSensitive: true)
+        }
+    }
+
     /// A fresh pairing just succeeded — the one chrome cue not tied to a session.
     func confirmPairing() {
         let title = String(localized: "Connected")
@@ -149,7 +326,8 @@ struct LocalNotifier: AttentionNotifier {
     private static func post(title: String, body: String, sound: NotificationSound,
                              delivery: DeliveryLevel = .bannerSound,
                              id: String, sessionID: String? = nil,
-                             approvalId: String? = nil, timeSensitive: Bool = false,
+                             approvalId: String? = nil, questionId: String? = nil,
+                             timeSensitive: Bool = false,
                              category: NotificationCategoryID? = nil) async throws {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -170,7 +348,8 @@ struct LocalNotifier: AttentionNotifier {
         if let sessionID {
             content.threadIdentifier = sessionID
             content.targetContentIdentifier = sessionID
-            content.userInfo = NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId)
+            content.userInfo = NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId,
+                                                            questionId: questionId)
         }
         let center = UNUserNotificationCenter.current()
         // Simulator QA (`VIBEBUDDY_SKIP_NOTIFICATIONS=1`) must not raise the

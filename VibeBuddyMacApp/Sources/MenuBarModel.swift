@@ -1060,6 +1060,7 @@ final class MenuBarModel: ObservableObject {
                                                    category: alert.actionCategory?.rawValue,
                                                    timeSensitive: alert.isTimeSensitive && recipient.level == .bannerSound,
                                                    approvalId: alert.actionCategory == .approval ? alert.session.pendingApproval?.id : nil,
+                                                   questionId: alert.actionCategory == .question ? alert.session.pendingQuestion?.id : nil,
                                                    waitSince: waitSince, holdForPhone: hold,
                                                    notificationID: recipientAlert.notificationID,
                                                    validate: { [weak self] in

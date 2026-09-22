@@ -488,7 +488,7 @@ final class WatchRelayTests: XCTestCase {
         await store.stop().value
     }
 
-    func testAnUnreachableMacReportsFailedWithoutSendingDecision() async throws {
+    func testAnUnreachableMacHoldsTheDecisionWithoutSendingIt() async throws {
         let transport = FakeWatchTransport()
         let decisions = UnreachableDecisionClient()
         let sampleStore = demoStore(FakeWatchTransport())
@@ -497,7 +497,8 @@ final class WatchRelayTests: XCTestCase {
         let store = DashboardStore(
             streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: samples, serverTime: Date())]),
             notifier: SilentNotifier(), decisionClient: decisions,
-            watchRelay: WatchRelay(transport: transport), reportDevice: { _ in })
+            watchRelay: WatchRelay(transport: transport),
+            pendingActions: PendingActionStore(url: nil), reportDevice: { _ in })
         // An authenticated snapshot supplies the waiting task. Switching from
         // sample data to a pairing intentionally clears the previous source.
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
@@ -510,11 +511,17 @@ final class WatchRelayTests: XCTestCase {
                                            approvalId: try XCTUnwrap(alert.approvalId),
                                            choice: .allow)
 
-        let first = await transport.tap(request)
-        XCTAssertEqual(first.outcome, .failed)
-        // Not remembered as handled, so the user can try the same tap again.
+        // No fresh authenticated snapshot: nothing is sent. The tap is held
+        // on the phone under its own id and the wrist is told so (ADR-0032).
+        let first = await transport.tap(request.sessionAction)
+        XCTAssertEqual(first.outcome, .queued)
+        XCTAssertEqual(first.reason, .macUnreachable(host: "127.0.0.1"))
+        XCTAssertEqual(store.heldActions.map(\.id), ["t-1"])
+        // Not remembered as handled; the same tap again re-holds, once — and
+        // an older Watch's vocabulary is answered in its own words.
         let second = await transport.tap(request)
-        XCTAssertEqual(second.outcome, .failed)
+        XCTAssertEqual(second.outcome, .queued)
+        XCTAssertEqual(store.heldActions.map(\.id), ["t-1"])
         let attempts = await decisions.attempts
         XCTAssertEqual(attempts, 0, "No decision is sent without a fresh authenticated snapshot")
         await store.stop().value

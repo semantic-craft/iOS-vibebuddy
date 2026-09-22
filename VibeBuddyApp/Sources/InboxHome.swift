@@ -165,6 +165,12 @@ struct InboxHomeView: View {
     /// "Read pending": the queue above, spoken in order (ticket 04).
     let readPending: () -> Void
     var openRecap: () -> Void = {}
+    /// Decisions this phone accepted and is holding until it can reach the
+    /// Mac (ADR-0032). Shown above the queue: they are the person's own
+    /// unfinished business, and the reason nothing below has moved.
+    var held: [QueuedSessionAction] = []
+    var retryHeld: () -> Void = {}
+    var cancelHeld: (String) -> Void = { _ in }
 
     @State private var selectedProjectPath: String?
 
@@ -186,6 +192,11 @@ struct InboxHomeView: View {
             .padding(.top, 2)
             PhoneAgentStrip(items: roster, quotas: quotas, selection: $agent, now: now)
                 .padding(.top, 10)
+            if !held.isEmpty {
+                heldStrip
+                    .padding(.horizontal, PhoneMetrics.gutter)
+                    .padding(.top, 12)
+            }
             if !projection.hasCurrent {
                 // One agent being quiet is not the fleet being quiet, and the
                 // strip above is the way back out, so say which one this is.
@@ -235,6 +246,62 @@ struct InboxHomeView: View {
             Button("Cancel", role: .cancel) {}
         } message: { path in
             Text(verbatim: path)
+        }
+    }
+
+    /// What this phone is holding for the Mac, one row each, with the way
+    /// out: try now, or take it back. Never "approved": nothing has landed.
+    private var heldStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Label(held.count == 1
+                        ? String(localized: "1 decision waiting to reach \(macName)")
+                        : String(localized: "\(held.count) decisions waiting to reach \(macName)"),
+                      systemImage: "tray.and.arrow.up")
+                    .font(CompanionType.font(13, .semibold))
+                    .foregroundStyle(CompanionPalette.status(.requiresInput))
+                Spacer(minLength: 8)
+                Button("Retry", action: retryHeld)
+                    .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                    .accessibilityIdentifier("inbox-held-retry")
+            }
+            ForEach(held) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(Self.heldLabel(item))
+                        .font(CompanionType.font(13))
+                        .foregroundStyle(CompanionPalette.ink)
+                        .lineLimit(2)
+                    Spacer(minLength: 8)
+                    Text(item.queuedAt, style: .relative)
+                        .font(CompanionType.font(11))
+                        .foregroundStyle(CompanionPalette.ink3)
+                    Button { cancelHeld(item.id) } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(CompanionPalette.ink3)
+                    .accessibilityLabel(Text("Cancel held decision"))
+                }
+            }
+            if let reason = held.compactMap(\.lastReason).last {
+                Text(ConnectionFailureCopy.title(reason, macName: macName))
+                    .font(CompanionType.font(11))
+                    .foregroundStyle(CompanionPalette.ink2)
+            }
+        }
+        .padding(12)
+        .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityIdentifier("inbox-held-decisions")
+    }
+
+    static func heldLabel(_ item: QueuedSessionAction) -> String {
+        let project = item.project?.isEmpty == false ? item.project! : String(localized: "a task")
+        switch item.action {
+        case .approval(_, .allow): return String(localized: "Approve · \(project)")
+        case .approval(_, .deny): return String(localized: "Deny · \(project)")
+        case .answer(_, let text): return String(localized: "Answer · \(project): \(text)")
+        case .answerAll: return String(localized: "Answer · \(project)")
+        case .stop: return String(localized: "Stop · \(project)")
         }
     }
 

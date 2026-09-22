@@ -7,6 +7,7 @@ struct DeviceConnectionView: View {
     @EnvironmentObject private var connectionSync: RemoteConnectionSyncController
     @State private var showScanner = false
     @State private var copiedAddress = false
+    @State private var showRemoteSetup = false
     @State private var confirmDisconnect = false
 
     private var macName: String {
@@ -26,7 +27,14 @@ struct DeviceConnectionView: View {
                         .font(CompanionType.font(13))
                         .foregroundStyle(CompanionPalette.ink2)
                     if connection.pairing != nil, case .failed(let message) = dashboard.state {
-                        Text(message).font(CompanionType.font(13)).foregroundStyle(CompanionPalette.ink2)
+                        if let reason = dashboard.failure {
+                            // Which link is missing, and the tap that fixes
+                            // it when one does (ADR-0032).
+                            ConnectionFailureCard(reason: reason, macName: connection.pairing?.macName,
+                                                  openSetup: { showRemoteSetup = true })
+                        } else {
+                            Text(message).font(CompanionType.font(13)).foregroundStyle(CompanionPalette.ink2)
+                        }
                     }
                 }
                 .padding(.vertical, 8)
@@ -114,6 +122,7 @@ struct DeviceConnectionView: View {
         .tint(CompanionPalette.accent)
         .navigationTitle("Device & connection")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $showRemoteSetup) { RemoteConnectionView() }
         .sheet(isPresented: $showScanner) {
             PairingScannerSheet()
                 .environmentObject(connection)
