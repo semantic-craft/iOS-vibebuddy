@@ -130,7 +130,7 @@ struct DashboardSidebar: View {
                 let summary = readings.map { $0.summaryLine(now: context.date) }
                 Button { DashboardRoute.open(.usage) } label: {
                     VStack(alignment: .leading, spacing: 5) {
-                        ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
+                        ForEach(readings) { reading in
                             quotaRow(reading, now: context.date)
                         }
                     }
@@ -148,8 +148,14 @@ struct DashboardSidebar: View {
     private func quotaRow(_ reading: AgentQuotaReading, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(agent == nil ? reading.provider.displayName : reading.windowName)
-                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(1)
+                // Under All the provider has to be named; under an agent the
+                // provider is the row above. Either way the pool is named, so
+                // "0%" never stands for an account without saying which pool.
+                Text(agent == nil && reading.windowName != reading.provider.displayName
+                     ? "\(reading.provider.displayName) · \(reading.windowName)"
+                     : (agent == nil ? reading.provider.displayName : reading.windowName))
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 4)
                 Text("\(reading.remainingPercent)%")
                     .font(MacTheme.mono(10, .semibold)).foregroundStyle(reading.tint)

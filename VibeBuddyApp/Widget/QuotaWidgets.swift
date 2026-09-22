@@ -123,7 +123,7 @@ struct PhoneQuotaOverviewWidget: Widget {
             PhoneQuotaOverviewView(entry: entry)
         }
         .configurationDisplayName("Usage overview")
-        .description("Every provider's weekly allowance at a glance.")
+        .description("Every provider's allowance at a glance, one line per pool.")
         .supportedFamilies([.systemMedium])
         .contentMarginsDisabled()
     }
@@ -344,9 +344,12 @@ struct PhoneQuotaProviderView: View {
             .lineLimit(1).minimumScaleFactor(0.8)
             Spacer(minLength: 4)
             if let headline {
+                // Two pools over one period print the same duration key, so
+                // the bars would read "30d" and "30d". Name them instead.
+                let sharedPeriod = second.map { $0.durationMinutes == headline.durationMinutes } ?? false
                 VStack(spacing: 6) {
-                    barRow(headline, showsPercent: false, faded: faded)
-                    if let second { barRow(second, showsPercent: true, faded: faded) }
+                    barRow(headline, showsPercent: false, faded: faded, named: sharedPeriod)
+                    if let second { barRow(second, showsPercent: true, faded: faded, named: sharedPeriod) }
                 }
             }
         }
@@ -354,12 +357,13 @@ struct PhoneQuotaProviderView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func barRow(_ window: QuotaWindow, showsPercent: Bool, faded: Bool) -> some View {
+    private func barRow(_ window: QuotaWindow, showsPercent: Bool, faded: Bool, named: Bool = false) -> some View {
         HStack(spacing: 8) {
-            Text(QuotaWidgetWindows.key(window))
+            Text(named ? QuotaWidgetWindows.name(window) : QuotaWidgetWindows.key(window))
                 .font(CompanionType.fixedFont(11, .semibold))
                 .foregroundStyle(CompanionPalette.ink3)
-                .frame(width: 24, alignment: .leading)
+                .lineLimit(1).minimumScaleFactor(0.7)
+                .frame(width: named ? 62 : 24, alignment: .leading)
             WidgetBullet(window: window, now: now, height: 8, faded: faded)
             if showsPercent {
                 let (value, _) = percentText(window, now: now)
@@ -485,9 +489,38 @@ struct PhoneQuotaOverviewView: View {
         .widgetURL(entry.snapshot?.quotas.isEmpty == false ? VibeBuddyDeepLink.quotaURL(nil) : nil)
     }
 
+    /// One line per pool: a provider with a single allowance takes one, Cursor
+    /// takes two. Ordered by provider, because this is a roster of accounts
+    /// rather than the wrist's attention list.
+    private struct Row: Identifiable {
+        let provider: AccountUsageProvider
+        let quota: ProviderQuota?
+        let window: QuotaWindow?
+        let name: String?
+        var id: String { provider.rawValue + "#" + (name ?? "") }
+    }
+
+    private func rows(_ snapshot: PhoneQuotaSnapshot) -> [Row] {
+        AccountUsageProvider.allCases.flatMap { provider -> [Row] in
+            let quota = snapshot.quotas.first { $0.provider == provider }
+            let pools = quota?.stripWindows(now: now) ?? []
+            guard pools.count > 1 else {
+                return [Row(provider: provider, quota: quota,
+                            window: quota.map(QuotaWidgetWindows.headline), name: nil)]
+            }
+            return pools.map { Row(provider: provider, quota: quota, window: $0, name: $0.label) }
+        }
+    }
+
     private func content(_ snapshot: PhoneQuotaSnapshot) -> some View {
         let fadedProviders = QuotaFreshnessRule.fadedProviders(snapshot, now: now)
         let mac = snapshot.macName ?? (snapshot.isDemo ? String(localized: "Demo") : "Mac")
+        let rows = rows(snapshot)
+        // A systemMedium canvas is 155pt on an SE and 158pt on a standard
+        // iPhone. Five rows at the roomy metrics fit; Cursor's second pool
+        // makes six, which does not — so the metrics tighten rather than let
+        // the last provider clip off the bottom edge.
+        let dense = rows.count > AccountUsageProvider.allCases.count
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Text("Usage · \(mac)").lineLimit(1)
@@ -496,41 +529,28 @@ struct PhoneQuotaOverviewView: View {
             }
             .font(CompanionType.fixedFont(11, .semibold))
             .foregroundStyle(CompanionPalette.ink3)
-            Spacer(minLength: 6)
-            VStack(spacing: 5) {
-                ForEach(AccountUsageProvider.allCases) { provider in
-                    let quota = snapshot.quotas.first { $0.provider == provider }
-                    let faded = fadedProviders.contains(provider)
-                    // Cursor's two pools each take a named line: the overview
-                    // is the one place that claims to show everything at once.
-                    let pools = quota?.stripWindows(now: now) ?? []
-                    if pools.count > 1 {
-                        ForEach(Array(pools.enumerated()), id: \.offset) { _, window in
-                            row(provider, window: window, name: window.label, quota: quota, faded: faded)
-                        }
-                    } else {
-                        row(provider, window: quota.map(QuotaWidgetWindows.headline),
-                            name: nil, quota: quota, faded: faded)
-                    }
+            Spacer(minLength: dense ? 2 : 6)
+            VStack(spacing: dense ? 3 : 5) {
+                ForEach(rows) { row in
+                    self.row(row, faded: fadedProviders.contains(row.provider), dense: dense)
                 }
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 13)
+        .padding(.horizontal, 14).padding(.vertical, dense ? 9 : 13)
     }
 
-    private func row(_ provider: AccountUsageProvider, window: QuotaWindow?, name: String?,
-                     quota: ProviderQuota?, faded: Bool) -> some View {
-        let (value, tint) = percentText(window, now: now)
+    private func row(_ row: Row, faded: Bool, dense: Bool) -> some View {
+        let (value, tint) = percentText(row.window, now: now)
         return HStack(spacing: 8) {
             HStack(spacing: 5) {
-                QuotaMark(provider: provider, size: 16)
-                Text(name ?? provider.displayName)
+                QuotaMark(provider: row.provider, size: dense ? 14 : 16)
+                Text(row.name ?? row.provider.displayName)
                     .font(CompanionType.fixedFont(11, .medium))
-                    .foregroundStyle(quota == nil ? CompanionPalette.ink3 : CompanionPalette.ink)
+                    .foregroundStyle(row.quota == nil ? CompanionPalette.ink3 : CompanionPalette.ink)
                     .lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(width: 80, alignment: .leading)
-            WidgetBullet(window: window, now: now, height: 9, faded: faded)
+            WidgetBullet(window: row.window, now: now, height: dense ? 8 : 9, faded: faded)
             Text(value)
                 .font(CompanionType.fixedFont(12, .semibold))
                 .monospacedDigit()

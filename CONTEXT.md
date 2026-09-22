@@ -152,7 +152,9 @@ code, and tests — don't drift to synonyms.
   ADR-0031 §9): one row per **independent pool** carrying that **agent's** mark
   and its short name — or the pool's own name where a provider has several
   (`stripWindows`) — lowest reading first by the number the row itself shows
-  (`displayedLowestFirst`), unreadable ones last. The Watch takes no agent
+  (`stripRowsLowestFirst`), unreadable ones last. The list is flat and ordered
+  by rows, not grouped by provider: a Cursor pool with room must not ride above
+  another agent's tighter row just because its sibling is nearly spent. The Watch takes no agent
   axis — its order is already attention-first (ADR-0021) — but a reading at or
   below `QuotaReading.lowRemainingPercent` follows the agent onto the alert
   card and the task header as "· N% left" in the attention tint.
@@ -517,12 +519,17 @@ code, and tests — don't drift to synonyms.
   An **independent pool** is the opposite: an allowance that can stop work on
   its own. Cursor reports two of them over one billing period — `Cursor Models`
   and `Other Models` — and neither stands in for the other, so every surface
-  with room lists both (`ProviderQuota.stripWindows`,
-  `AccountUsageSnapshot.independentPools`), and a surface with room for exactly
-  one (a ring, an `accessoryCircular` widget) draws the tightest
-  (`displayWindow`, `tightest`) and names it. What a list shows and the order it
-  shows it in stay defined together, so a row reading 31% never sits below one
-  reading 41%.
+  with room lists both, and a surface with room for exactly one (a ring, an
+  `accessoryCircular` widget) draws the tightest and names it. A pair is
+  several pools over **one period**; the relayed `ProviderQuota.samePeriodPools`
+  and the Mac's `AccountUsageSnapshot.independentPools` run that identical test
+  on their own window types, so the two sides cannot disagree about what a pair
+  is, whichever slot the projection filed a pool under. The Mac's one-number
+  surfaces read `headlineWindows`, which is `quotaWindows` and never
+  `displayWindows`: a scoped week at 95% used must not ring the Mac at 5% while
+  the wrist reads the real week. What a list shows and the order it shows it in
+  stay defined together, so a row reading 31% never sits below one reading
+  41%.
   The iPhone Usage page and its home- and lock-screen quota widgets consume the
   same `ProviderQuota`: the page reads the live dashboard and keeps the Kit's
   15-minute stale rule; the widgets read a `PhoneQuotaSnapshot` the app writes

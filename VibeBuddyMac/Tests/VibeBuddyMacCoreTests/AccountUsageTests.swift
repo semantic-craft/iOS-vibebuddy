@@ -94,6 +94,33 @@ struct AccountUsageTests {
         #expect(quota.spend?.first?.label == "Extra usage")
     }
 
+    @Test("the headline is a pool, never a scoped window, and both Cursor pools are pools")
+    func headlineWindowsIgnoreScopedExtras() {
+        // A model-scoped week is a subdivision of the same allowance. Letting
+        // it ring the Mac at 5% while the wrist reads the real week at 60% is
+        // two surfaces disagreeing about one account.
+        let claude = AccountUsageSnapshot(
+            provider: .claude, planType: nil,
+            primary: AccountUsageWindow(kind: .primary, usedPercent: 20, windowDurationMinutes: 300, resetsAt: nil),
+            secondary: AccountUsageWindow(kind: .secondary, usedPercent: 40, windowDurationMinutes: 10_080, resetsAt: nil),
+            lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: now,
+            extraWindows: [.extra(key: "fable-week", label: "Fable only", usedPercent: 95,
+                                  windowDurationMinutes: 10_080, resetsAt: nil)])
+        #expect(claude.independentPools.isEmpty, "a week beside five hours is one allowance at two scales")
+        #expect(claude.headlineWindows().map(\.usedPercent) == [40])
+        #expect(claude.displayWindows.count == 3, "the scoped week stays in the detail list")
+
+        let cursor = AccountUsageSnapshot(
+            provider: .cursor, planType: nil,
+            primary: AccountUsageWindow(kind: .primary, usedPercent: 13, windowDurationMinutes: 43_200,
+                                        resetsAt: nil, label: "Cursor Models"),
+            secondary: AccountUsageWindow(kind: .secondary, usedPercent: 100, windowDurationMinutes: 43_200,
+                                          resetsAt: nil, label: "Other Models"),
+            lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: now)
+        #expect(cursor.independentPools.count == 2)
+        #expect(cursor.headlineWindows().map(\.label) == ["Other Models", "Cursor Models"])
+    }
+
     @Test("provider percentages outside zero through one hundred are rejected")
     func percentageBounds() throws {
         let codexLimits = Data(#"{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":-1,"windowDurationMins":300}}}}"#.utf8)

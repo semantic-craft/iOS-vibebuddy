@@ -38,8 +38,8 @@ struct PhoneAgentStrip: View {
     /// independent pools (Cursor) hands over all of them, tightest first: the
     /// ring draws that one, VoiceOver reads them all.
     private func readings(for agent: AgentKind?) -> [QuotaReading] {
-        guard let agent else { return quotas.tightestReading.map { [$0] } ?? [] }
-        return quotas.first { $0.provider.agentKind == agent }?.poolReadings ?? []
+        guard let agent else { return quotas.tightestReading(now: now).map { [$0] } ?? [] }
+        return quotas.first { $0.provider.agentKind == agent }?.poolReadings(now: now) ?? []
     }
 }
 
@@ -118,7 +118,9 @@ struct PhoneAgentTile: View {
         if item.tally.working > 0 { parts.append(String(localized: "\(item.tally.working) working")) }
         for reading in readings {
             var quota = String(localized: "\(reading.remainingPercent)% left")
-            if readings.count > 1, let label = reading.label, !label.isEmpty { quota = "\(label) \(quota)" }
+            // Which pool it is, always — on All the tile shows one number for
+            // the whole fleet, and "0% left" without a name says nothing.
+            if let label = reading.label, !label.isEmpty { quota = "\(label) \(quota)" }
             if let reset = reading.resetsAt { quota += " · " + QuotaPresentation.resetCountdown(from: reset, now: now) }
             parts.append(quota)
         }

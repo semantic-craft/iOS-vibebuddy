@@ -54,10 +54,7 @@ struct UsageWorkbenchView: View {
     private func railRow(_ provider: AccountUsageProvider, now: Date) -> some View {
         let state = model.usageState(for: provider)
         let snapshot = state.snapshot?.excludingExpiredWindows(at: now)
-        let pools = snapshot?.independentPools ?? []
-        let windows = pools.isEmpty
-            ? (snapshot?.displayWindows.max { $0.usedPercent < $1.usedPercent }).map { [$0] } ?? []
-            : pools.sorted { $0.usedPercent > $1.usedPercent }
+        let windows = snapshot?.headlineWindows() ?? []
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(provider.displayName).font(MacTheme.font(12, .medium))

@@ -129,7 +129,9 @@ enum WatchQuotaVoice {
         }
     }
 
-    static func summary(_ quota: ProviderQuota, freshness: QuotaFreshness, now: Date) -> String {
+    /// Every pool of one provider, read out. Staleness comes from each
+    /// window's own status, so the caller's freshness is not needed here.
+    static func summary(_ quota: ProviderQuota, now: Date) -> String {
         let exact = QuotaWindowKind.allCases.map { quota.window($0) }
         // Several independent pools (Cursor) are all read out: the one with
         // room says nothing about the one that is spent.

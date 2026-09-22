@@ -37,7 +37,7 @@ struct ProviderQuotaDisplayWindowTests {
         #expect(quota.displayWindow(preferring: .weekly).remainingPercent == 84)
     }
 
-    @Test("Falls back to first usable otherWindows for monthly Cursor/Grok periods")
+    @Test("Falls back to the one usable otherWindows entry for monthly Cursor/Grok periods")
     func fallsBackToOtherWindows() {
         let other = QuotaWindow(
             remainingPercent: 60,

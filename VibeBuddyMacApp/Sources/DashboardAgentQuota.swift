@@ -2,14 +2,23 @@ import SwiftUI
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// One agent's allowance, as the rail's ring and the column head read it: the
-/// window closest to running out, because that is the one that decides whether
-/// the next turn goes through. It is the same arithmetic the Usage page shows
-/// in full — here it sits next to the agent it belongs to, so "who should take
+/// One allowance, as the rail's ring and the column head read it: the pool
+/// closest to running out, because that is the one that decides whether the
+/// next turn goes through. Most agents have one of these; an agent running
+/// several pools over one period (Cursor) has one per pool, and the strip that
+/// has room lists them all. It is the same arithmetic the Usage page shows in
+/// full — here it sits next to the agent it belongs to, so "who should take
 /// this next" is one reading rather than two surfaces (the sidebar's old
 /// account-quota plinth is gone; ADR-0017 §6 keeps the detail on Usage).
 @MainActor
-struct AgentQuotaReading {
+struct AgentQuotaReading: Identifiable {
+    /// Identity follows the pool it reads, not its position in a list: when
+    /// two pools cross, the rows move instead of swapping contents in place.
+    nonisolated var id: String {
+        [provider.rawValue, windowName, resetsAt.map { String(Int($0.timeIntervalSinceReferenceDate)) } ?? ""]
+            .joined(separator: "#")
+    }
+
     let provider: AccountUsageProvider
     let usedPercent: Int
     let windowName: String
@@ -65,11 +74,7 @@ struct AgentQuotaReading {
         guard model.isUsageCollectionEnabled(provider) else { return [] }
         let state = model.usageState(for: provider)
         guard let snapshot = state.snapshot?.excludingExpiredWindows(at: now) else { return [] }
-        let pools = snapshot.independentPools
-        let windows = pools.isEmpty
-            ? snapshot.displayWindows.max(by: { $0.usedPercent < $1.usedPercent }).map { [$0] } ?? []
-            : pools
-        return windows.sorted { $0.usedPercent > $1.usedPercent }.map { window in
+        return snapshot.headlineWindows().map { window in
             AgentQuotaReading(provider: provider, usedPercent: window.usedPercent,
                               windowName: windowLabel(window, provider: provider),
                               resetsAt: window.resetsAt, isStale: state.isStale,

@@ -260,14 +260,13 @@ struct WatchQuotaStrips: View {
             // Tightest first: the allowance about to stop work is the one
             // worth the top line of the section (ADR-0031 reads the same way
             // on the rail and the strip).
+            // One row per pool, and Cursor has two. The list is flat and sorted
+            // by the number each row itself shows, so a pool with room never
+            // rides above another provider's tighter row.
             VStack(spacing: 4) {
-                ForEach(state.quotas.displayedLowestFirst(now: now)) { quota in
-                    // Cursor runs two pools over the same period and either can
-                    // stop work on its own, so each gets its own line, named.
-                    let pools = quota.stripWindows(now: now)
-                    ForEach(Array(pools.enumerated()), id: \.offset) { _, reading in
-                        strip(quota, reading: reading, pool: pools.count > 1 ? reading.label : nil)
-                    }
+                ForEach(state.quotas.stripRowsLowestFirst(now: now)) { row in
+                    let pools = row.quota.stripWindows(now: now)
+                    strip(row.quota, reading: row.window, pool: pools.count > 1 ? row.window.label : nil)
                 }
             }
         }
@@ -281,12 +280,20 @@ struct WatchQuotaStrips: View {
             // list of its own: the same mark the rows and the detail carry.
             AgentAvatar(agent: agent, size: 16)
                 .accessibilityHidden(true)
-            Text(pool ?? agent.shortName)
-                .font(CompanionType.font(10))
-                .foregroundStyle(CompanionPalette.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .frame(width: 44, alignment: .leading)
+            // The short name keeps its fixed 38pt column so every bar starts at
+            // the same x. A pool name is longer than any short name, so it may
+            // take up to 58pt and only its own row's bar pays for it.
+            Group {
+                if let pool {
+                    Text(pool).frame(maxWidth: 58, alignment: .leading)
+                } else {
+                    Text(agent.shortName).frame(width: 38, alignment: .leading)
+                }
+            }
+            .font(CompanionType.font(10))
+            .foregroundStyle(CompanionPalette.ink)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             if let remaining = reading.currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
                     .tint(freshness == .stale ? CompanionPalette.ink3
@@ -312,7 +319,7 @@ struct WatchQuotaStrips: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(pool.map { "\(agent.displayName) \($0)" } ?? agent.displayName))
         // A pool row speaks for its own pool; a single row speaks for them all.
-        .accessibilityValue(Text(pool == nil ? WatchQuotaVoice.summary(quota, freshness: freshness, now: now)
+        .accessibilityValue(Text(pool == nil ? WatchQuotaVoice.summary(quota, now: now)
                                  : WatchQuotaVoice.line(reading, now: now)))
     }
 }
