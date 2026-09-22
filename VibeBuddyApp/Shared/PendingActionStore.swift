@@ -87,8 +87,13 @@ final class PendingActionStore: ObservableObject {
     /// Take a decision the Mac could not be given. Returns whether it is now
     /// in the queue; only then is a hold reported. A queue that is full, or a
     /// target whose earlier decision is being delivered this instant, refuses.
+    ///
+    /// `quietly` takes it without telling anyone yet — for a caller about to
+    /// run a delivery pass on its behalf this instant, which would otherwise
+    /// announce "on hold" a second before "delivered". The caller says
+    /// `announceHeld` if the pass leaves it in the queue.
     @discardableResult
-    func hold(_ action: QueuedSessionAction, reason: ConnectionFailureReason?) -> Bool {
+    func hold(_ action: QueuedSessionAction, reason: ConnectionFailureReason?, quietly: Bool = false) -> Bool {
         guard action.isHoldable else { return false }
         if let sameTarget = queue.items.first(where: { $0.targetKey == action.targetKey }),
            sameTarget.id != action.id, inFlight.contains(sameTarget.id) {
@@ -99,8 +104,15 @@ final class PendingActionStore: ObservableObject {
         guard case .stored(let replaced) = queue.hold(held) else { return false }
         save()
         if let replaced { onEvent?(.superseded(replaced, by: held)) }
-        onEvent?(.held(held, reason: reason))
+        if !quietly { onEvent?(.held(held, reason: reason)) }
         return true
+    }
+
+    /// Report a quietly held decision as held after all: the pass that was
+    /// meant to deliver it at once could not, so it is where it was.
+    func announceHeld(id: String) {
+        guard let item = queue.item(id: id) else { return }
+        onEvent?(.held(item, reason: item.lastReason))
     }
 
     /// Withdraw a held decision. Refused while its POST is out. `quietly`

@@ -1,5 +1,6 @@
 import Foundation
 import VibeBuddyKit
+import UIKit
 import WatchConnectivity
 
 /// Where a projected Watch state goes.
@@ -118,6 +119,35 @@ final class WatchRelay {
     }
 }
 
+/// Keep this process running while it answers the wrist.
+///
+/// A message from the Watch wakes the iPhone app in the background, and the
+/// system may suspend it again as soon as the Watch app leaves the screen —
+/// which is what a wrist does the moment a decision is tapped. An approval
+/// is a snapshot read and a `POST` (ADR-0032), and a process suspended
+/// between the two finishes them when the phone is next unlocked: on
+/// 2026-09-22 a wrist tap on a locked phone reached the Mac three and a half
+/// minutes later, at the unlock. A background task asks for the time the
+/// reply needs, and ends when it is sent.
+@MainActor
+enum BackgroundGrant {
+    private final class Slot { var id: UIBackgroundTaskIdentifier = .invalid }
+
+    static func run<T: Sendable>(_ name: String, _ body: @MainActor () async -> T) async -> T {
+        let slot = Slot()
+        let app = UIApplication.shared
+        slot.id = app.beginBackgroundTask(withName: name) {
+            guard slot.id != .invalid else { return }
+            app.endBackgroundTask(slot.id)
+            slot.id = .invalid
+        }
+        defer {
+            if slot.id != .invalid { app.endBackgroundTask(slot.id); slot.id = .invalid }
+        }
+        return await body()
+    }
+}
+
 /// The real transport: one WatchConnectivity session, one latest-value
 /// background transfer. It never sends a message the Watch did not ask to
 /// render, and it carries no pairing payload of its own.
@@ -203,13 +233,15 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
         }
         guard let request else { send(nil); return }
         Task { @MainActor [weak self] in
-            let result: WatchSessionActionResult
-            if let handler = self?.onSessionAction {
-                result = await handler(request)
-            } else {
-                result = WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed)
+            await BackgroundGrant.run("watch-action") {
+                let result: WatchSessionActionResult
+                if let handler = self?.onSessionAction {
+                    result = await handler(request)
+                } else {
+                    result = WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed)
+                }
+                send(result)
             }
-            send(result)
         }
     }
 
@@ -219,9 +251,11 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
             reply([WatchCompletionResult.messageKey: Data()]); return
         }
         Task { @MainActor [weak self] in
-            let result = await self?.onCompletionRequest?(request)
-                ?? WatchCompletionResult(attemptID: request.attemptID, outcome: .failed)
-            reply([WatchCompletionResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
+            await BackgroundGrant.run("watch-completion") {
+                let result = await self?.onCompletionRequest?(request)
+                    ?? WatchCompletionResult(attemptID: request.attemptID, outcome: .failed)
+                reply([WatchCompletionResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
+            }
         }
     }
 
@@ -231,9 +265,11 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
             reply([WatchRecapReadResult.messageKey: Data()]); return
         }
         Task { @MainActor [weak self] in
-            let result = await self?.onRecapReadRequest?(request)
-                ?? WatchRecapReadResult(attemptID: request.attemptID, outcome: .failed)
-            reply([WatchRecapReadResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
+            await BackgroundGrant.run("watch-recap-read") {
+                let result = await self?.onRecapReadRequest?(request)
+                    ?? WatchRecapReadResult(attemptID: request.attemptID, outcome: .failed)
+                reply([WatchRecapReadResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
+            }
         }
     }
 
@@ -243,8 +279,10 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
             reply(["accepted": false]); return
         }
         Task { @MainActor [weak self] in
-            let accepted = await self?.onWaitReadRequest?(request) ?? false
-            reply(["accepted": accepted])
+            await BackgroundGrant.run("watch-wait-read") {
+                let accepted = await self?.onWaitReadRequest?(request) ?? false
+                reply(["accepted": accepted])
+            }
         }
     }
 
@@ -309,10 +347,12 @@ extension WatchConnectivityTransport: WCSessionDelegate {
                 reply.value([:]); return
             }
             Task { @MainActor [weak self] in
-                let result = await self?.onRefresh?(request) ?? WatchRefreshReply(id: request.id, state: nil)
-                if let payload = try? JSONEncoder().encode(result) {
-                    reply.value([WatchRefreshReply.messageKey: payload])
-                } else { reply.value([:]) }
+                await BackgroundGrant.run("watch-refresh") {
+                    let result = await self?.onRefresh?(request) ?? WatchRefreshReply(id: request.id, state: nil)
+                    if let payload = try? JSONEncoder().encode(result) {
+                        reply.value([WatchRefreshReply.messageKey: payload])
+                    } else { reply.value([:]) }
+                }
             }
             return
         }

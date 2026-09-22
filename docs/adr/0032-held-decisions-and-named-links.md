@@ -120,3 +120,39 @@ Three things were wrong, and they were wrong on different surfaces.
 - `WatchSessionActionOutcome.queued` and `WatchHeldAction` are optional on
   the wire: an older Watch treats a `queued` reply as a lost receipt
   (*Couldn't confirm that*), which is the honest fallback.
+
+## Amendment — a tap that finds no stream is delivered now, not at the next unlock (2026-09-23)
+
+The 2026-09-22 device round (iOS 1.3.27 (57), Mac 1.3.31 (49)) proved the
+wrist half and the phone half separately and never together: the wrist
+showed the banner, vibrated and took the tap; the Mac saw the decision
+three and a half minutes later, the moment the phone was unlocked. The phone
+was where the time went, for two reasons that are both about a locked phone
+in a pocket.
+
+**A hold with no pass.** `actFromWatch` held any decision that arrived
+while `state != .connected`. The stream is down on a phone the wrist just
+woke — suspension dropped the socket, and nothing restarts it in the
+background — but the Mac was reachable the whole time; the wrist's own
+refresh had read a snapshot from it seconds earlier. Decision 2 says a held
+decision is delivered "whenever the phone reconnects, is woken by a push, or
+the person taps Retry", and a phone that stays locked does none of those.
+The tap now runs one delivery pass on its own behalf (`deliverHeldNow`):
+hold quietly, flush against the saved pairing under the tap's key, and
+answer the wrist with the settlement — `accepted`, `refused` for a request
+that was gone, `unknown` for a lost receipt. Only a pass that leaves the
+decision in the queue announces the hold, so the wrist never hears "on
+hold" and "delivered" a second apart, and a decision the pass delivered
+posts no notification at all: the reply to the tap is the report.
+
+**No background time.** The phone answers the wrist after a snapshot read
+and a `POST`, and iOS may suspend a background-woken app as soon as the
+Watch app leaves the screen — which a wrist does the moment a decision is
+tapped. A process suspended between the two finishes them at the next
+unlock. Every WatchConnectivity message handler now runs under a background
+task (`BackgroundGrant`) for as long as its reply takes.
+
+Both are on the phone; the wrist's rules from ADR-0033 are unchanged. What
+the next device round has to show is one round in which the banner buzzes,
+the tap is made on the wrist alone, and the Mac clears within seconds while
+the phone stays locked.
