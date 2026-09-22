@@ -57,6 +57,14 @@ struct ToolLedger: Sendable {
         if pruneRetained(now: now) { persist(now: now, force: true) }
         else if persistencePending { persist(now: now) }
     }
+    /// Write whatever the window is still holding back, now. The sidecar is
+    /// what a reader in another process (the handoff facts tool) sees, so a
+    /// caller that is about to hand the file over — or a test that wrote a
+    /// fixture — must not depend on the trailing write having happened yet.
+    mutating func flush(now: Date) {
+        _ = pruneRetained(now: now)
+        if persistencePending { persist(now: now, force: true) }
+    }
     private mutating func pruneRetained(now: Date) -> Bool {
         let previous = sessions
         let cutoff = now.addingTimeInterval(-7 * 86400)
