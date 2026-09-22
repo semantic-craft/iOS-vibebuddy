@@ -110,16 +110,98 @@ run the dry run below.
 Publishing is deliberately *not* automated: the script prints the `gh release create`
 and `gh-pages` commands and stops. Run them when you mean to ship.
 
+## The installed app is shared
+
+`/Applications/VibeBuddyMacApp.app` is one copy for the whole Mac. Installing a
+DMG over it, running `tools/redeploy-mac.sh`, or letting Sparkle apply an update
+quits the running instance: the dashboard restarts, `:9876` drops, and every
+paired phone and Watch loses whatever it was in the middle of.
+
+So before you replace it, find out whether another session is running a
+real-device acceptance, and say what you are about to do:
+
+```bash
+vibebuddy-mcp status --exclude-session '<own-native-thread-id>'
+git worktree list
+```
+
+**Neither command can see a phone or a Watch.** `status` reads the daemon's
+`/snapshot` and lists live *agent* sessions grouped by checkout — `agent`,
+`status`, `waitKind`, `controlChannel`, last activity, and "Another agent is
+working in this checkout." It never says what hardware a session is driving.
+`git worktree list` lists worktrees, and two sessions can share one. So
+"No other live sessions found." does **not** mean the Watch is idle: ask the
+owner of every session it does list, and look at the running menu-bar app.
+
+Status is an observation, not a lock
+(`docs/agents/skills/vibebuddy-history/SKILL.md`) — if anything is live on the
+phone or the Watch, wait or ask the owner. A reinstall costs them the whole run,
+not a retry: on 2026-09-22 at 03:45 the Mac 1.3.29 install landed in the middle
+of a Watch acceptance and voided R4/R5, which had to be driven again.
+
+Verification that does not need the shared app belongs in the isolated daemon
+instead (`docs/agents/skills/verify-vibebuddy/SKILL.md`): its own port, its own
+`HOME`, never `:9876`.
+
+## Verify the DMG, not the installed copy
+
+After `tools/redeploy-mac.sh` the installed app is a local Developer ID build —
+that script re-signs for a stable designated requirement
+(`codesign --force --deep --sign`), it does not harden the runtime and it does
+not notarize. So this is **expected** and is not a release defect:
+
+```console
+$ spctl -a -vv /Applications/VibeBuddyMacApp.app
+/Applications/VibeBuddyMacApp.app: rejected
+source=Unnotarized Developer ID
+```
+
+The installed copy therefore proves nothing about what shipped. Check the
+published asset instead:
+
+```bash
+# --repo: this runs from a scratch dir, and the release lives on that repo
+# whatever this checkout's gh default resolves to.
+gh release download v<version> --repo semantic-craft/iOS-vibebuddy \
+  -p 'vibebuddy-mac-v<version>.dmg'
+stapler validate vibebuddy-mac-v<version>.dmg   # The validate action worked!
+
+hdiutil attach -nobrowse vibebuddy-mac-v<version>.dmg   # /Volumes/vibebuddy <version>
+spctl -a -vv "/Volumes/vibebuddy <version>/VibeBuddyMacApp.app"
+# accepted, source=Notarized Developer ID
+hdiutil detach "/Volumes/vibebuddy <version>"
+```
+
+`xcrun notarytool history --keychain-profile xw-notary` is not a substitute for
+this. An `Accepted` row means Apple accepted the submission and nothing more;
+`stapler validate` is what shows the ticket actually made it into the file you
+are holding. An unstapled DMG still passes Gatekeeper *online*, so that gap does
+not surface on the release machine — it surfaces on a first launch with no
+network, which is why § What the script does staples both the app and the DMG.
+
 ## Per release
 
-1. Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
+1. Confirm no other session is mid real-device acceptance (§ The installed app
+   is shared), and check again at step 7 — steps 4 and 5 take about an hour
+   between them, which is long enough for a peer to start a device run.
+2. Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
    `VibeBuddyMacApp/project.yml`. Sparkle compares `CURRENT_PROJECT_VERSION`
    (`CFBundleVersion`), so it **must** increase or installed copies will not see the
    update.
-2. Write `docs/release-notes-<version>.md`.
-3. `tools/release-mac.sh`
-4. Run the two publish commands it prints.
-5. Check for Updates… from an older installed copy, and confirm it offers and
-   installs the new one.
+3. Write `docs/release-notes-<version>.md`.
+4. `tools/release-mac.sh`
+5. Run the two publish commands it prints.
+6. Validate the published DMG (§ Verify the DMG, not the installed copy).
+7. Re-check for a peer run. Step 1 is an hour stale by now, and step 8 is the
+   one that quits the shared app.
+8. Check for Updates… from an older installed copy, and confirm it offers and
+   installs the new one. Installing the DMG by hand instead — quit the running
+   app, `ditto` the bundle out of the mounted volume — replaces the shared copy
+   just the same, and skips the proof that the feed works. That hand path is
+   how Mac 1.3.29 landed at 03:45 on 2026-09-22.
+
+A build that is notarized but never published drifts from `main` as soon as the
+next commit lands — either publish it or discard it, and do not ship yesterday's
+DMG under today's tag.
 
 Sparkle docs: <https://sparkle-project.org/documentation/>.

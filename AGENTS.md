@@ -4,7 +4,7 @@ Agent-facing configuration for the iOS-vibebuddy repo. Global rules and `~/Proje
 
 ## Delivery boundaries
 
-Installing or replacing the running app, binding `:9876`, writing the login token under `~/Library/Application Support/vibebuddy/`, release, and cross-machine sync need authorization covering that action. Existing authorization stays valid within its scope. Configured credentials may be used for an authorized operation; reading secrets for context is not implied.
+Installing or replacing the running app, binding `:9876`, writing the login token under `~/Library/Application Support/vibebuddy/`, release, and cross-machine sync need authorization covering that action. Authorization alone is not enough for `/Applications/VibeBuddyMacApp.app`: it is one copy shared by every session on this Mac, and replacing it kills any real-device acceptance another session is running — check for a peer run first (`docs/sparkle-setup.md`, § The installed app is shared). Existing authorization stays valid within its scope. Configured credentials may be used for an authorized operation; reading secrets for context is not implied.
 
 ## Verification
 
