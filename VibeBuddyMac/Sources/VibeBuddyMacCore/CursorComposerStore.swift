@@ -177,8 +177,14 @@ public struct CursorComposerStore: Sendable {
         var isDraft: Bool?
         /// `agentLocation.type`; nil when the record does not say.
         var agentLocationType: String?
+        /// The JSON keys the record carried, present or not usable. A key the
+        /// detail carries — even as `[]` or `{"id":"empty-window"}` — is the
+        /// whole answer for that key; the head only fills keys the detail
+        /// does not mention at all.
+        var keys: Set<String>
 
         init(json: [String: Any]) {
+            keys = Set(json.keys)
             name = CursorComposerStore.nonEmpty(json["name"] as? String)
             subtitle = CursorComposerStore.nonEmpty(json["subtitle"] as? String)
             lastUpdatedAt = json["lastUpdatedAt"] as? Double
@@ -265,25 +271,30 @@ public struct CursorComposerStore: Sendable {
     // MARK: - Shaping
 
     static func compose(id: String, head: Head?, detail: Facts?) -> CursorComposer? {
-        let facts = head?.facts
-        func fact<T>(_ path: KeyPath<Facts, T?>) -> T? { detail?[keyPath: path] ?? facts?[keyPath: path] }
+        // Per key, the record that *mentions* it wins — the detail first. A key
+        // the detail carries with nothing usable in it stays empty rather than
+        // being back-filled from the head, exactly as reading the raw JSON did.
+        func fact<T>(_ key: String, _ path: KeyPath<Facts, T?>) -> T? {
+            if let detail, detail.keys.contains(key) { return detail[keyPath: path] }
+            return head?.facts[keyPath: path]
+        }
         // Cursor's timestamps are milliseconds since the epoch.
-        let millis = fact(\.lastUpdatedAt) ?? fact(\.createdAt) ?? head?.recency
+        let millis = fact("lastUpdatedAt", \.lastUpdatedAt) ?? fact("createdAt", \.createdAt) ?? head?.recency
         let composer = CursorComposer(
             id: id,
-            name: fact(\.name),
-            subtitle: fact(\.subtitle),
-            project: fact(\.workspacePath) ?? fact(\.repoPath),
-            branch: fact(\.branch),
-            model: fact(\.model),
-            contextTokens: fact(\.contextTokens),
-            contextWindow: fact(\.contextWindow),
+            name: fact("name", \.name),
+            subtitle: fact("subtitle", \.subtitle),
+            project: fact("workspaceIdentifier", \.workspacePath) ?? fact("trackedGitRepos", \.repoPath),
+            branch: fact("trackedGitRepos", \.branch),
+            model: fact("modelConfig", \.model),
+            contextTokens: fact("contextTokensUsed", \.contextTokens),
+            contextWindow: fact("contextTokenLimit", \.contextWindow),
             status: detail?.status,
-            blockingPendingActions: fact(\.blockingPendingActions) ?? false,
-            isSubagent: head?.isSubagent ?? fact(\.isSubagent) ?? false,
-            isArchived: head?.isArchived ?? fact(\.isArchived) ?? false,
-            isDraft: fact(\.isDraft) ?? false,
-            isCloud: isCloud(fact(\.agentLocationType), id: id),
+            blockingPendingActions: fact("hasBlockingPendingActions", \.blockingPendingActions) ?? false,
+            isSubagent: head?.isSubagent ?? fact("isSubagent", \.isSubagent) ?? false,
+            isArchived: head?.isArchived ?? fact("isArchived", \.isArchived) ?? false,
+            isDraft: fact("isDraft", \.isDraft) ?? false,
+            isCloud: isCloud(fact("agentLocation", \.agentLocationType), id: id),
             updatedAt: millis.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast)
         return composer
     }

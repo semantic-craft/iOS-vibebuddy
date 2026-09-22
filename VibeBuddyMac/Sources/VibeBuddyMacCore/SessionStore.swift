@@ -233,6 +233,27 @@ public actor SessionStore {
     /// with the daemon, so nothing here outlives it either.
     private var acpHosted: Set<String> = []
     private var acpRecoveryRows: [String: AgentSession] = [:]
+    /// Last Grok session directory read per path, with the file stamps it was
+    /// read at. See `enrichFromGrokSession`.
+    private var grokReads: [String: (stamp: [String], snapshot: GrokSessionReader.Snapshot)] = [:]
+    /// Armed after a tool observation that fell inside the ledger's write
+    /// window, so the tail is written even when nothing else takes a snapshot
+    /// (the headless daemon between events, the app just before a quit).
+    private var toolLedgerFlush: Task<Void, Never>?
+
+    private func armToolLedgerFlush() {
+        guard toolLedger.needsTrailingWrite, toolLedgerFlush == nil else { return }
+        toolLedgerFlush = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(ToolLedger.writeInterval))
+            await self?.flushToolLedger()
+        }
+    }
+
+    private func flushToolLedger() {
+        toolLedgerFlush = nil
+        toolLedger.prune(now: Date())
+        if toolLedger.needsTrailingWrite { armToolLedgerFlush() }  // the write failed; try again
+    }
 
     public func registerACPRecovery(sessionID: String, cwd: String, model: String?, unavailable: String?, updatedAt: Date, retryable: Bool = false) {
         var row = AgentSession(id: sessionID, agent: .cursor, project: cwd, checkoutPath: cwd,
@@ -706,6 +727,7 @@ public actor SessionStore {
             completionResults.removeSession(id)
             transcriptPaths[id] = nil
             cursorHookLog[id] = nil
+            if let directory = grokDirectories[id] { grokReads[directory.path] = nil }
             grokDirectories[id] = nil
             lastInteractionAt[id] = nil
         }
@@ -751,6 +773,7 @@ public actor SessionStore {
             if !appServerOutranks(event, from: .hook), !acpOutranks(event, from: .hook),
                let record = ToolLedger.hook(data, event: event) {
                 toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt, agent: event.agent)
+                armToolLedgerFlush()
             }
             ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
@@ -937,6 +960,7 @@ public actor SessionStore {
                 observedAt: event.timestamp, source: observationSource.rawValue,
                 coverage: "Tool activity observed; call identity and result details unavailable")
             toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp, agent: event.agent)
+            armToolLedgerFlush()
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         rememberDirectory(event.cwd, sessionID: event.sessionID, at: event.timestamp)
@@ -966,6 +990,7 @@ public actor SessionStore {
             transcriptPaths[event.sessionID] = nil
             cursorHookLog[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
+            if let directory = grokDirectories[event.sessionID] { grokReads[directory.path] = nil }
             grokDirectories[event.sessionID] = nil
             lastInteractionAt[event.sessionID] = nil
             attention.set(nil, for: event.sessionID)
@@ -1175,7 +1200,17 @@ public actor SessionStore {
                                   at: event.timestamp, health: health)
         recordSignal(agent: .grok, source: .transcript, at: event.timestamp,
                      health: health, coverage: .turn)
-        guard let snapshot = GrokSessionReader.read(directory: directory) else { return }
+        // Every hook event lands here, and a Grok turn emits several a second;
+        // the directory only needs re-reading when one of its files moved.
+        let stamp = GrokSessionReader.stamp(directory: directory)
+        let snapshot: GrokSessionReader.Snapshot
+        if let cached = grokReads[directory.path], cached.stamp == stamp {
+            snapshot = cached.snapshot
+        } else {
+            guard let fresh = GrokSessionReader.read(directory: directory) else { return }
+            grokReads[directory.path] = (stamp, fresh)
+            snapshot = fresh
+        }
         enrichSession(sessionID: event.sessionID, with: snapshot.info)
 
         // The hook path is authoritative on a child's *state*: `SubagentStop`
@@ -1758,8 +1793,51 @@ public actor SessionStore {
     /// app behind a socket is still running; `PhoneReceipts` answers that.
     public var subscriberCount: Int { subscribers.count }
 
+    /// Bursts collapse on the way out: the first snapshot in a quiet window is
+    /// delivered at once, later ones inside the window are replaced by a single
+    /// trailing delivery of the newest. A transcript poll that yields three
+    /// events for three sessions used to hand three 500 KB snapshots to every
+    /// phone within a millisecond; the phone only ever acted on the last.
+    ///
+    /// Assembly itself is not coalesced: the recap ledger and completion
+    /// results settle inside `currentSnapshot` and must see every state.
+    static let broadcastWindow: Duration = .milliseconds(300)
+    private var lastDeliveryAt: ContinuousClock.Instant?
+    private var pendingDelivery: Snapshot?
+    private var trailingDelivery: Task<Void, Never>?
+    /// Snapshots actually handed to subscribers. Exposed for tests.
+    private(set) var broadcastCount = 0
+
     private func broadcast() {
         let snapshot = currentSnapshot(now: Date())
+        guard !subscribers.isEmpty else { return }
+        let now = ContinuousClock.now
+        if trailingDelivery != nil {
+            pendingDelivery = snapshot
+            return
+        }
+        if let last = lastDeliveryAt, now - last < Self.broadcastWindow {
+            pendingDelivery = snapshot
+            let due = last + Self.broadcastWindow
+            trailingDelivery = Task { [weak self] in
+                try? await Task.sleep(until: due, clock: .continuous)
+                await self?.deliverTrailing()
+            }
+            return
+        }
+        deliver(snapshot, at: now)
+    }
+
+    private func deliverTrailing() {
+        trailingDelivery = nil
+        guard let snapshot = pendingDelivery else { return }
+        pendingDelivery = nil
+        deliver(snapshot, at: ContinuousClock.now)
+    }
+
+    private func deliver(_ snapshot: Snapshot, at now: ContinuousClock.Instant) {
+        lastDeliveryAt = now
+        broadcastCount += 1
         for continuation in subscribers.values {
             continuation.yield(snapshot)
         }

@@ -12,6 +12,13 @@ public enum NotificationDeliveryOutcome: String, Codable, Sendable, CaseIterable
     /// `failureReason` carries which one. Not a failure: nothing broke, so it
     /// never latches a health diagnostic and never clears a standing one.
     case skipped
+    /// A phone's push registration was stood down because Apple kept refusing
+    /// its token (`Unregistered`, or `BadDeviceToken` for a day with nothing
+    /// accepted in between). One row per stand-down, in place of a `failed`
+    /// per push to a phone that is gone; `apnsReason` carries Apple's word and
+    /// `deviceID` names the phone. Housekeeping, not a send: it never latches
+    /// a health diagnostic and never clears one.
+    case pruned
 }
 
 public enum NotificationDeliveryChannel: String, Codable, Sendable, Equatable {
@@ -76,7 +83,7 @@ public enum APNsDelivery {
         if status == 410 { return .unregistered }
         if status == 400 {
             guard reason == "BadDeviceToken" else { return .keep }   // a request fault, not the phone
-            return everAccepted ? .keep : .neverValid
+            return everAccepted ? .suspect : .neverValid
         }
         return .keep                                                 // throttled, 5xx, auth
     }
@@ -99,8 +106,12 @@ public enum APNsTokenOutcome: String, Sendable, Equatable {
     /// a token minted for the other APNs environment. Junk — drop it. If it was
     /// in fact a live phone, it re-registers on its next connection.
     case neverValid
-    /// Everything else — offline, throttled, 5xx, or a 400 on a token that used
-    /// to work (which points at this Mac, not at the phone). Keep the device.
+    /// 400 `BadDeviceToken` on a token Apple *used to* accept. One of these
+    /// points at this Mac (wrong APNs environment) as much as at the phone, so
+    /// it never evicts by itself; a run of them with nothing accepted in
+    /// between is what `DeviceRegistry` counts toward standing the token down.
+    case suspect
+    /// Everything else — offline, throttled, 5xx. Says nothing about the token.
     case keep
 }
 
@@ -112,6 +123,12 @@ public struct NotificationDeliveryRecord: Codable, Sendable, Equatable, Identifi
     public let sound: String?
     public let failureReason: String?
     public let timestamp: Date
+    /// Apple's own `reason` from an APNs error body (`BadDeviceToken`,
+    /// `Unregistered`, `BadTopic`, …). `failureReason` only says `apnsHTTP400`;
+    /// this says which 400. Optional so rows written before it existed decode.
+    public let apnsReason: String?
+    /// The phone a `pruned` row is about, by its stable identity.
+    public let deviceID: String?
 
     public init(
         id: UUID = UUID(),
@@ -120,7 +137,9 @@ public struct NotificationDeliveryRecord: Codable, Sendable, Equatable, Identifi
         sessionID: String?,
         sound: String?,
         failureReason: String?,
-        timestamp: Date
+        timestamp: Date,
+        apnsReason: String? = nil,
+        deviceID: String? = nil
     ) {
         self.id = id
         self.channel = channel
@@ -129,6 +148,8 @@ public struct NotificationDeliveryRecord: Codable, Sendable, Equatable, Identifi
         self.sound = sound
         self.failureReason = failureReason
         self.timestamp = timestamp
+        self.apnsReason = apnsReason
+        self.deviceID = deviceID
     }
 }
 
@@ -209,7 +230,7 @@ public struct NotificationDeliveryHealthTracker: Equatable, Sendable {
             latchedFailure = record
             lastFailurePromptAt = now
             return true
-        case .attempted, .skipped:
+        case .attempted, .skipped, .pruned:
             return false
         }
     }

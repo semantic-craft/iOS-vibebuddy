@@ -158,8 +158,11 @@ struct UsagePageView: View {
                                     title: String(localized: "Pair with your Mac to see usage"),
                                     text: String(localized: "Account quota and token spend are read on the Mac and relayed here.")) {
                         Button("Scan pairing code") {
-                            // Unpaired, the root is the pairing screen.
-                            connection.clear()
+                            // Unpaired, the root is already the pairing
+                            // screen, so popping back is the whole job. It
+                            // must not clear the store on the way: this page
+                            // reads "unpaired" from memory, and a pairing
+                            // this launch could not read is still on disk.
                             dismiss()
                         }
                         .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))

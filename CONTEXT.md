@@ -428,6 +428,12 @@ code, and tests — don't drift to synonyms.
   source/session/completion; Watch Recap and its Mark all action are deleted. Offline
   intent remains pending until the Mac confirms; opening a wait only marks
   that wait seen (ADR-0021 and its 2026-09-14 amendment).
+- **Banner action** — a button on a notification (Approve, Deny, Reply). All
+  are foreground actions, so Apple runs one on the device it was tapped on
+  (ADR-0033). On the Watch the tap is mapped by `WatchNotificationResponseRoute`
+  and sent through the card's own action path; when it cannot be sent, the card
+  says why (`WatchBannerActionFallback`). On the phone it lands on the session.
+  Distinct from the *default tap* on the notification body, which only opens.
 - **Recap entry** (`RecapEntry`) — a read-only record of one ended round of one
   session: `completed` or `failed`, with agent, project, title, up to three
   points, the moment it ended and its identity (`<sourceID>/<sessionID>/<completionID>`,
@@ -498,11 +504,18 @@ code, and tests — don't drift to synonyms.
   registered iPhones: one `DeviceRegistrationPayload` per stable identity (or APNs
   token for phones without that identity) plus
   when the phone last reported itself, bounded at 16 by newest registration.
-  Held by `DeviceTokens`, written through on every `POST /device`. A token
-  leaves on **410 Unregistered**, and on **400 BadDeviceToken only if Apple has
-  never once accepted a push for it** (junk: a typo, a test fixture, the wrong
-  APNs environment) — a 400 on a previously accepted token means *this Mac* is
-  misconfigured and the device is kept. Never on age, since a phone that has
+  Held by `DeviceTokens`, written through on every `POST /device`. A phone is
+  **parked** (kept on file, listed with Apple's reason, no longer pushed to) on
+  **410 Unregistered**, on **400 BadDeviceToken if Apple has never once
+  accepted a push for it** (junk: a typo, a test fixture, the wrong APNs
+  environment), and on a **run of 400 BadDeviceToken on a once-accepted token
+  that spans a day with nothing accepted in between** (`DevicePushFailure`,
+  `DevicePushFailurePolicy`) — a single such 400 still points at *this Mac*
+  being misconfigured and is only counted. Parking writes one **`pruned`** row
+  to the delivery ledger, naming the phone and Apple's reason, instead of a
+  `failed` per push. The phone reporting a push token again revives it; the
+  run is remembered, so if Apple still refuses, the next send parks it again.
+  Never on age, since a phone that has
   been off for a month still has a valid token. The phone
   re-reports on every dashboard connection, not once per launch, so a Mac
   restart is repaired by the next reconnect rather than by a cold launch.

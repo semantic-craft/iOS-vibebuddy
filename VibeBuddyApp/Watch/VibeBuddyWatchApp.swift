@@ -15,7 +15,8 @@ struct VibeBuddyWatchApp: App {
             WatchWindow(store: store)
         }
 
-        // The iPhone owns the actions; these scenes supply the long-look content.
+        // These scenes supply the long-look content; the buttons under it are
+        // the shared categories', and a tap on one arrives in WatchAppDelegate.
         WKNotificationScene(controller: WatchNotificationController.self,
                             category: NotificationCategoryID.approval.rawValue)
         WKNotificationScene(controller: WatchNotificationController.self,

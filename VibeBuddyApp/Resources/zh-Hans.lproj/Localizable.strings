@@ -11,6 +11,10 @@
 "Enter address manually" = "手动输入地址";
 "Hide manual entry" = "收起手动输入";
 "See the demo (no Mac needed)" = "查看演示（无需 Mac）";
+"Your saved Mac could not be read" = "读不出已保存的 Mac";
+"This phone was still locked when VibeBuddy started. Unlock it and try again — the saved Mac has not been removed." = "VibeBuddy 启动时手机还处于锁定状态。解锁后重试——已保存的 Mac 没有被删除。";
+"The saved connection did not load. Try again, or scan your Mac's code below to replace it." = "已保存的连接没有载入。可以重试，或在下面扫描 Mac 的配对码覆盖它。";
+"Try again" = "重试";
 "Connect" = "连接";
 "Scan pairing QR" = "扫描配对二维码";
 "Cancel" = "取消";
@@ -678,6 +682,10 @@
 "Use your Mac on cellular with Headscale, Tailscale or Surge." = "通过 Headscale、Tailscale 或 Surge，用蜂窝网络连接 Mac。";
 "Manage" = "管理";
 "Connection details & more" = "连接详情与更多操作";
+"Forget this Mac?" = "要忘记这台 Mac 吗？";
+"Forget Mac" = "忘记 Mac";
+"Keep this Mac" = "保留";
+"This phone stops showing %@'s sessions and alerts. To connect again you need the pairing code from that Mac." = "这台手机将不再显示 %@ 的会话和提醒。要重新连接，需要那台 Mac 上的配对码。";
 "Remote connection active" = "远程已连接";
 "Scan your Mac’s remote code, then check your connection. Works with Headscale, Tailscale or Surge." = "扫描 Mac 的远程配对码，再检查连接。支持 Headscale、Tailscale 和 Surge。";
 "Your Mac, wherever you are" = "不在 Mac 身边，也能跟进任务";

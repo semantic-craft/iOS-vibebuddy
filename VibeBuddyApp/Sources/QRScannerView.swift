@@ -9,6 +9,16 @@ private let scannerLog = Logger(subsystem: "com.vibebuddy.app", category: "scann
 struct QRScannerView: UIViewControllerRepresentable {
     let onScan: @MainActor (PairingPayload) -> Void
 
+    /// The one gate between a camera frame and `ConnectionStore`. A code that
+    /// does not decode, or that carries an address or token the app would
+    /// refuse, returns nil here and never reaches the store — so a bad scan
+    /// cannot disturb the Mac already saved on this phone.
+    nonisolated static func pairing(from code: String) -> PairingPayload? {
+        guard let payload = try? JSONDecoder().decode(PairingPayload.self, from: Data(code.utf8)),
+              payload.isValidConnection else { return nil }
+        return payload
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(onScan: onScan) }
 
     func makeUIViewController(context: Context) -> ScannerViewController {
@@ -37,8 +47,7 @@ struct QRScannerView: UIViewControllerRepresentable {
                 return
             }
             scannerLog.info("scanned pairing code")
-            guard let payload = try? JSONDecoder().decode(PairingPayload.self, from: Data(string.utf8)),
-                  payload.isValidConnection else {
+            guard let payload = QRScannerView.pairing(from: string) else {
                 scannerLog.error("decode to PairingPayload FAILED")
                 return
             }

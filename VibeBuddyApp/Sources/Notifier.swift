@@ -112,15 +112,25 @@ struct LocalNotifier: AttentionNotifier {
 
     /// Approve / Deny on permission banners; a text field on questions.
     /// Same identifiers the Mac registers and APNs puts in `aps.category`.
+    ///
+    /// Every action is a *foreground* action (ADR-0033). Apple runs a
+    /// background action on the device the notification was sent to — this
+    /// phone, even when the button was tapped on the mirrored copy on the
+    /// wrist — so a background Approve from the Watch ran here, in a pocket,
+    /// and when its POST failed nothing anywhere said so. A foreground action
+    /// runs where it was tapped: on the Watch it goes through the Watch app's
+    /// own send path with its own sentence and tap; here it opens this app on
+    /// the session, where the outcome is on screen. The Watch registers the
+    /// same set (`WatchAppDelegate.categories`).
     static func registerCategories() {
         let approve = UNNotificationAction(
             identifier: NotificationActionID.approve.rawValue,
             title: String(localized: "Approve"),
-            options: [.authenticationRequired])
+            options: [.authenticationRequired, .foreground])
         let deny = UNNotificationAction(
             identifier: NotificationActionID.deny.rawValue,
             title: String(localized: "Deny"),
-            options: [.destructive])
+            options: [.destructive, .foreground])
         let approval = UNNotificationCategory(
             identifier: NotificationCategoryID.approval.rawValue,
             actions: [approve, deny],
@@ -128,7 +138,7 @@ struct LocalNotifier: AttentionNotifier {
         let reply = UNTextInputNotificationAction(
             identifier: NotificationActionID.answer.rawValue,
             title: String(localized: "Reply"),
-            options: [],
+            options: [.foreground],
             textInputButtonTitle: String(localized: "Send"),
             textInputPlaceholder: String(localized: "Answer"))
         let question = UNNotificationCategory(

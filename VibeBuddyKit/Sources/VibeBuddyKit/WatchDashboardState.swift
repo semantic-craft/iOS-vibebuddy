@@ -180,6 +180,15 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
             && pendingId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
+    /// Whether one string finishes this question. A prompt the wrist walks
+    /// question by question is answerable, but not by a single dictated
+    /// sentence: the iPhone re-runs `question.isSinglePart` and refuses one
+    /// pick offered for three questions. Every path that sends a lone string —
+    /// a quick reply, a banner's Reply button — asks this, not `isAnswerable`.
+    public var isAnswerableInOneString: Bool {
+        isAnswerable && questions == nil
+    }
+
     public func waitedFor(now: Date) -> TimeInterval {
         max(0, now.timeIntervalSince(waitingSince))
     }

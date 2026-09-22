@@ -30,7 +30,12 @@ struct VibeBuddyMenuBarApp: App {
     var body: some Scene {
         MenuBarExtra(isInserted: Binding(
             get: { role == .primary && showMenuBarIcon },
-            set: { showMenuBarIcon = $0 })) {
+            // Only Settings turns the icon off for good; a removal that arrives
+            // through this binding (dragged off the bar, dropped by the system)
+            // is not a preference and comes back at the next launch.
+            set: { inserted in
+                showMenuBarIcon = MenuBarIconVisibility.persisted(afterBindingWrite: inserted, current: showMenuBarIcon)
+            })) {
             MenuContent(model: model)
         } label: {
             MenuBarLabel(model: model)

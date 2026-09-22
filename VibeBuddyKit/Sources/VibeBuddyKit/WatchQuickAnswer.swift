@@ -118,7 +118,7 @@ public struct WatchQuickAnswers: Equatable, Sendable {
         // A prompt the wrist walks question by question is not answered with
         // one string; offering the first question's choices as if they were
         // the whole answer would send one pick for three questions.
-        guard alert.isAnswerable, alert.questions == nil else { return nil }
+        guard alert.isAnswerableInOneString else { return nil }
         let offered = cleanedOptions(alert.options)
         if !offered.isEmpty {
             return WatchQuickAnswers(source: .options,

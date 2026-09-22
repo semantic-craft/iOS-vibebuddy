@@ -36,6 +36,9 @@ final class HistoryLibraryModel: ObservableObject {
     private var rebuildHistory = false
     private var continueHistoryBatch = false
     private var retryHistoryAfter = Date.distantPast
+    /// A transcript being appended to is reported by the watcher several times
+    /// a second; re-indexing it that often was most of the app's idle CPU.
+    private var reindexThrottle = HistoryReindexThrottle()
 
     init() {
         let environment = ProcessInfo.processInfo.environment
@@ -112,12 +115,14 @@ final class HistoryLibraryModel: ObservableObject {
     }
 
     private func drainHistory(generation: Int) async {
-        guard !loading, Date() >= retryHistoryAfter,
-              reconcileHistory || !pendingHistoryPaths.isEmpty || continueHistoryBatch else { return }
-        let paths = pendingHistoryPaths
+        guard !loading, Date() >= retryHistoryAfter else { return }
+        let now = Date()
+        let (due, deferred) = reindexThrottle.split(pendingHistoryPaths, now: now)
+        guard reconcileHistory || !due.isEmpty || continueHistoryBatch else { return }
+        let paths = due
         let reconcile = reconcileHistory
         let rebuild = rebuildHistory
-        pendingHistoryPaths.removeAll()
+        pendingHistoryPaths = deferred
         reconcileHistory = false
         rebuildHistory = false
         continueHistoryBatch = false
@@ -132,6 +137,13 @@ final class HistoryLibraryModel: ObservableObject {
             }
             guard generation == observationGeneration, !Task.isCancelled else { return }
             snapshot = updated
+            // Stamp only what a changed-path refresh actually consumed: a thrown
+            // refresh puts the paths back for the 2 s retry, and a reconcile
+            // re-queues them as hints for the incremental pass that follows.
+            if !reconcile {
+                reindexThrottle.markIndexed(paths, at: now)
+                reindexThrottle.retain(paths.union(pendingHistoryPaths), now: now)
+            }
             if reconcile {
                 pendingHistoryPaths.formUnion(paths)
                 if pendingHistoryPaths.count > 4096 {

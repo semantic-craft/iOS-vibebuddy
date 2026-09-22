@@ -31,4 +31,14 @@ final class MenuBarPlacementRecoveryTests: XCTestCase {
         withExtendedLifetime((secondary, first, next)) {}
     }
 
+
+    func testStatusItemRemovalDoesNotPersistAsHidden() {
+        // Dragged off the bar / dropped by the system: the saved choice survives.
+        XCTAssertTrue(MenuBarIconVisibility.persisted(afterBindingWrite: false, current: true))
+        // Settings said off, and the system removed it: still off.
+        XCTAssertFalse(MenuBarIconVisibility.persisted(afterBindingWrite: false, current: false))
+        // Any insertion is an explicit on.
+        XCTAssertTrue(MenuBarIconVisibility.persisted(afterBindingWrite: true, current: false))
+        XCTAssertTrue(MenuBarIconVisibility.persisted(afterBindingWrite: true, current: true))
+    }
 }

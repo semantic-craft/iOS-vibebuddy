@@ -188,6 +188,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             }
             return
         }
+        // Swiping a notification away is not a request. Neither category asks
+        // for `.customDismissAction`, so this does not arrive today — but
+        // `.ignored` below now opens the session, and a dismissal that ever
+        // reached here would yank the phone onto a session nobody asked for.
+        if actionIdentifier == UNNotificationDismissActionIdentifier { return }
         let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
         let epoch = await MainActor.run { ConnectionStore.pairingEpoch }
         // A tap the Mac cannot be given is held under its own key and
@@ -209,10 +214,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             })
         let macName = pairing?.macName
         switch outcome {
-        case .openSession(let id):
-            await MainActor.run {
-                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
-            }
+        case .openSession, .ignored:
+            break
         case .held:
             await LocalNotifier.settle()
         case .notHeld(let action):
@@ -223,8 +226,24 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         case .unconfirmed(let action):
             LocalNotifier().warnUnconfirmed(action, macName: macName)
             await LocalNotifier.settle()
-        case .ignored:
-            break
+        }
+        // Every banner action is a foreground action (ADR-0033), so this app
+        // is on screen by now. Land on the session either way: after a success
+        // it shows the wait resolving; after a hold or a failure it is where
+        // the held decision and the retry are. A background action's failure
+        // used to end here with an `open` the system ignored, and nothing
+        // anywhere said the tap was lost.
+        let sessionID: String?
+        switch outcome {
+        case .openSession(let id): sessionID = id
+        case .ignored: sessionID = userInfo[NotificationUserInfoKey.sessionId]
+        case .held(let id, _): sessionID = id
+        case .notHeld(let action), .unconfirmed(let action): sessionID = action.sessionId
+        }
+        if let sessionID, !sessionID.isEmpty {
+            await MainActor.run {
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: sessionID))
+            }
         }
     }
 
