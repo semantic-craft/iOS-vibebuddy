@@ -76,12 +76,38 @@ banner: a background POST that fails leaves no trace.
    mirrors the phone's identifiers and options, so an independent watchOS
    delivery draws the same buttons with the same meaning. The mirrored copy of
    a phone notification draws the phone's; both agree.
-5. **Reply from the wrist is bound to the current question.** A banner
-   cannot name a question id, so `answer` binds to the session's question in
-   the relayed state *now*, and only when the wrist may answer it at all
-   (`isAnswerable`: a one-part question with the remote path available).
-   Anything else opens the card, which says where the question can be
-   answered.
+5. **Reply from the wrist is bound to the question it first saw.** A banner
+   names the permission it is about — `approvalId` rides in its `userInfo` —
+   but never the question, so a reply cannot be bound at the tap. It is bound
+   at the first sight of one instead: the first answerable question a *relayed*
+   state holds for that session (`WatchBannerAction.bindsAnswer`), and from
+   then on the binding does not move. A held reply that followed the session
+   would have answered whatever was being asked by the time it travelled — the
+   agent answers "Delete the database?" and asks "Ship the release?", the
+   lookup matches the new question, the iPhone's gate accepts it because that
+   id is the live one, and the "no" meant for the first is recorded against the
+   second. The card's own dictation pins `pendingId` when the words are made
+   (`WatchAnswerDraft`); this is the banner's version of that promise, and it
+   is why the wrist may send one at all.
+
+   It is sent only when the wrist may answer with one string —
+   `WatchAlert.isAnswerableInOneString`, the rule `WatchQuickAnswers.resolve`
+   already applies on the card. A prompt the wrist walks question by question
+   is `isAnswerable` and has a `pendingId`, so one dictated line used to pass
+   here and be refused by the iPhone's `isSinglePart` gate on arrival, losing
+   the dictation. Anything else opens the card, which says where the question
+   can be answered.
+
+   The sentence a refused reply leaves carries its question with it
+   (`bannerActionFallbackPendingID`), so the question that *replaced* it — the
+   very thing the sentence is explaining — does not take it back down.
+
+   **Residual.** Between the tap and the first relayed state the wrist has only
+   its disk cache, which `WatchStoredState` strips of every id, so no binding
+   can be made from it. Closing the window entirely needs the question's id in
+   the notification payload the way `approvalId` already travels — an APNs,
+   Mac-notifier and phone-notifier change, tracked separately rather than
+   coupled to this Watch fix.
 
 ## Alternatives rejected
 
@@ -109,6 +135,10 @@ banner: a background POST that fails leaves no trace.
   link does.
 - ADR-0021 decision 3's sentence about Apple's routing is superseded by this
   record; the Watch is now the device that answers its own banner buttons.
+- `banner.action-sent` is recorded only once an attempt has actually started.
+  Both send paths re-run the checks the settle just made, so a refusal there
+  should be unreachable; if one ever is not, it leaves a sentence rather than a
+  diagnostic that says a vanished tap was sent.
 - `WatchNavigationDiagnostics` records `notification.action-decide`,
   `notification.action-answer`, `banner.action-held`, `banner.action-sent` and
   `banner.action-fallback.<reason>`, so the next device round can prove which

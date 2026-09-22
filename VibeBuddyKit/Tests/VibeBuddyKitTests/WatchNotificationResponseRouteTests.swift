@@ -102,3 +102,56 @@ struct WatchBannerActionPatienceTests {
         #expect(held.provesRequestGone(currentRevision: nil) == false)
     }
 }
+
+/// Which question a dictated reply belongs to. A banner names the permission it
+/// is about but never the question, so a held reply that followed the session
+/// would answer whatever was being asked by the time it travelled.
+struct WatchBannerActionAnswerBindingTests {
+    private let route = WatchNotificationResponseRoute.answer(sessionID: "s-build", text: "no")
+
+    @Test func theFirstQuestionSeenIsTheOneTheWordsAreFor() {
+        var held = WatchBannerAction(route: route)
+        #expect(held.boundPendingID == nil)
+        let bound = held.bindsAnswer(to: "q-1")
+        #expect(bound)
+        #expect(held.boundPendingID == "q-1")
+        // Still the same question on every later look: a link that comes back
+        // sends the words where they were meant to go.
+        let again = held.bindsAnswer(to: "q-1")
+        #expect(again)
+    }
+
+    @Test func aQuestionThatMovedOnIsNotThisReplysQuestion() {
+        // "No" to "Delete the database?" must not be recorded against "Ship the
+        // release?" — which the iPhone's gate would accept, because that id is
+        // the live one.
+        var held = WatchBannerAction(route: route)
+        let first = held.bindsAnswer(to: "q-1")
+        #expect(first)
+        let moved = held.bindsAnswer(to: "q-2")
+        #expect(moved == false)
+        // And the refusal is stable: the binding does not follow on a retry.
+        let retried = held.bindsAnswer(to: "q-2")
+        #expect(retried == false)
+        #expect(held.boundPendingID == "q-1")
+    }
+
+    @Test func aStateWithNoQuestionIdBindsNothingAndSendsNothing() {
+        var held = WatchBannerAction(route: route)
+        let none = held.bindsAnswer(to: nil)
+        #expect(none == false)
+        let blank = held.bindsAnswer(to: "   ")
+        #expect(blank == false)
+        #expect(held.boundPendingID == nil)
+        // A later state that does name one is still free to bind it.
+        let named = held.bindsAnswer(to: "q-1")
+        #expect(named)
+        #expect(held.boundPendingID == "q-1")
+    }
+
+    @Test func aDecisionCarriesItsOwnBindingAndNeverGrowsAQuestionOne() {
+        let held = WatchBannerAction(route: .decide(sessionID: "s-build", approvalID: "ap-1",
+                                                    choice: .allow))
+        #expect(held.boundPendingID == nil)
+    }
+}

@@ -104,12 +104,44 @@ public struct WatchBannerAction: Equatable, Sendable {
     /// the only evidence that can say the request is gone. Nil until the hold's
     /// first state arrives.
     public private(set) var baselineRevision: UInt64?
+    /// The question a held reply is bound to, fixed the first time a relayed
+    /// state showed the wrist an answerable question for this session. Nil for
+    /// a decision, which carries its own binding in the tap.
+    public private(set) var boundPendingID: String?
 
     public init(route: WatchNotificationResponseRoute, heldAt: Date = Date(),
                 baselineRevision: UInt64? = nil) {
         self.route = route
         self.heldAt = heldAt
         self.baselineRevision = baselineRevision
+    }
+
+    /// Whether the question in front of the wrist is still the one these words
+    /// were dictated for.
+    ///
+    /// A banner names the permission it is about (`approvalId` rides in its
+    /// `userInfo`) but never the question, so a reply cannot be bound at the
+    /// tap. It is bound at the first sight of one instead — the first
+    /// answerable question a *relayed* state holds for this session — and from
+    /// then on the binding does not move. Without that, a hold waiting for the
+    /// link would follow the session: the agent answers "Delete the database?"
+    /// and asks "Ship the release?", the lookup matches the new question, the
+    /// iPhone's gate accepts it because the id is live, and the "no" meant for
+    /// the first is recorded against the second. The card's own dictation pins
+    /// `pendingId` when the words are made (`WatchAnswerDraft`); this is the
+    /// banner's version of that promise, and it is why the wrist may send one
+    /// at all.
+    ///
+    /// Returns false for a question that is not the bound one, and for a state
+    /// with no id to bind — neither is something to send into.
+    public mutating func bindsAnswer(to pendingID: String?) -> Bool {
+        guard let pendingID, !pendingID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return false }
+        guard let boundPendingID else {
+            self.boundPendingID = pendingID
+            return true
+        }
+        return boundPendingID == pendingID
     }
 
     /// Note a state the wrist has just installed. The first one of a hold sets

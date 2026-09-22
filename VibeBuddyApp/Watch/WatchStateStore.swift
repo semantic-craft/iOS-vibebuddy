@@ -60,6 +60,11 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// What the sentence on the card is about, so it can be taken down the
     /// moment a state arrives that contradicts it.
     private var bannerActionFallbackRoute: WatchNotificationResponseRoute?
+    /// The question a reply's sentence is about, when it had been bound to one.
+    /// Without it, "this is no longer waiting on you" — said *because* the
+    /// question moved on — would be taken down by the very question that
+    /// replaced it, leaving the dictation unexplained.
+    private var bannerActionFallbackPendingID: String?
     /// Why the last banner action was not sent, shown on the card the tap
     /// opened. Nil once it was sent, or once the card is dismissed.
     @Published var bannerActionFallback: WatchBannerActionFallback?
@@ -185,6 +190,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         guard let sessionID = route.sessionID else { return }
         bannerActionFallback = nil
         bannerActionFallbackRoute = nil
+        bannerActionFallbackPendingID = nil
         openSession(sessionID)
         guard route.isAction else { return }
         bannerActionTimeout?.cancel()
@@ -209,10 +215,12 @@ final class WatchStateStore: NSObject, ObservableObject {
     private func settleBannerAction(expired: Bool) {
         guard let held = bannerAction else { return }
         func giveUp(_ reason: WatchBannerActionFallback) {
+            let bound = bannerAction?.boundPendingID
             bannerAction = nil
             bannerActionTimeout?.cancel()
             bannerActionFallback = reason
             bannerActionFallbackRoute = held.route
+            bannerActionFallbackPendingID = bound
             WatchNavigationDiagnostics.shared.record("banner.action-fallback.\(reason.rawValue)")
             WatchHapticPlayer.shared.play(WatchHaptics.beats(for: .error), reason: "banner action \(reason.rawValue)")
         }
@@ -273,21 +281,42 @@ final class WatchStateStore: NSObject, ObservableObject {
             giveUp(.notDecidableHere); return
         default: break
         }
+        // The words were dictated for the question on the banner, and a banner
+        // cannot name one. Bind to the first question a relayed state shows for
+        // this session and hold that binding: otherwise a reply waiting for the
+        // link follows the session onto whatever is being asked by the time it
+        // travels, and "no" to "Delete the database?" is recorded against
+        // "Ship the release?" — accepted by the iPhone's gate, because that id
+        // is the live one. `WatchBannerAction.bindsAnswer` is where the promise
+        // the card's own draft makes (`WatchAnswerDraft`) is kept here too.
+        if case .answer = held.route, bannerAction?.bindsAnswer(to: alert.pendingId) != true {
+            giveUp(.noLongerWaiting); return
+        }
         if pendingAction.isBusy {
             if expired { giveUp(.busy) }
             return
         }
         bannerAction = nil
         bannerActionTimeout?.cancel()
-        WatchNavigationDiagnostics.shared.record("banner.action-sent")
+        let started: Bool
         switch held.route {
         case .decide(_, _, let choice):
-            submit(alert, choice)
+            started = submit(alert, choice)
         case .answer(let sessionID, let text):
-            _ = submitAnswer(sessionId: sessionID, pendingId: alert.pendingId ?? "", text: text)
+            started = submitAnswer(sessionId: sessionID, pendingId: alert.pendingId ?? "", text: text)
         case .open, .ignore:
-            break
+            started = false
         }
+        // Both send paths re-run the checks just made, so a refusal here should
+        // be unreachable. If one ever is not, it must still leave a sentence: a
+        // tap that disappears between "send it" and the wire — under a
+        // diagnostic that says it was sent — is the exact failure this path
+        // exists to end.
+        guard started else {
+            giveUp(pendingAction.isBusy ? .busy : .noLongerWaiting)
+            return
+        }
+        WatchNavigationDiagnostics.shared.record("banner.action-sent")
     }
 
     /// Take down a fallback sentence the newest state has made untrue.
@@ -306,8 +335,12 @@ final class WatchStateStore: NSObject, ObservableObject {
                 $0.sessionId == sessionID && $0.approvalId == approvalID && $0.isDecidable
             }
         case .answer(let sessionID, _):
+            // Only the question the words were for. The one that replaced it
+            // is what the sentence is explaining, not a reason to drop it.
             backAgain = next.alerts.contains {
                 $0.sessionId == sessionID && $0.isAnswerableInOneString
+                    && (bannerActionFallbackPendingID == nil
+                        || $0.pendingId == bannerActionFallbackPendingID)
             }
         case .open, .ignore:
             backAgain = false
@@ -315,6 +348,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         guard backAgain else { return }
         bannerActionFallback = nil
         bannerActionFallbackRoute = nil
+        bannerActionFallbackPendingID = nil
     }
 
     /// The tap an attempt earns when it stops travelling. Only a transition out
@@ -522,6 +556,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         bannerActionTimeout?.cancel()
         bannerActionFallback = nil
         bannerActionFallbackRoute = nil
+        bannerActionFallbackPendingID = nil
     }
 
     /// Called only by the exact detail body after it has appeared. Viewing is
@@ -620,13 +655,20 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// Ask the iPhone to resolve this approval. A second tap while an action is
     /// in flight does nothing — `WatchSessionActionState` refuses to start a
     /// new attempt — so the decision cannot be submitted twice.
-    func submit(_ alert: WatchAlert, _ choice: WatchApprovalChoice) {
+    ///
+    /// Returns whether an attempt actually started. A button on a card ignores
+    /// that — the card either shows the attempt or goes on showing the request.
+    /// A banner decision needs it: there is nothing else on screen that would
+    /// say the tap went nowhere.
+    @discardableResult
+    func submit(_ alert: WatchAlert, _ choice: WatchApprovalChoice) -> Bool {
         guard let state, isLive(state),
               state.alerts.contains(where: { $0.sessionId == alert.sessionId && $0.approvalId == alert.approvalId }),
               let request = pendingAction.begin(alert: alert, choice: choice,
                                                 attemptId: UUID().uuidString)
-        else { return }
+        else { return false }
         send(request)
+        return true
     }
 
     /// Ask the iPhone to answer the question this text was written for.
@@ -900,8 +942,20 @@ final class WatchStateStore: NSObject, ObservableObject {
         // the phone wrote before you raised your wrist is the backlog, and its
         // mirrored notification has already said it. Only what arrives *after*
         // the app is up is news the wrist should tap out.
+        // An attempt of this wrist's own can come to rest inside that backlog:
+        // a banner decision sent seconds ago, answered while the window was
+        // still coming up. The backlog is silent by design, but a reply to this
+        // wrist's own tap is not backlog, and `feelActionOutcome` will have
+        // stayed quiet for it — so it is replayed once the wrist counts as
+        // looking.
+        let settling = pendingAction.action
         receive(session.receivedApplicationContext[WatchStateInbox.contextKey] as? Data)
         isForeground = true
+        if let landed = pendingAction.action, landed.attemptId == settling?.attemptId,
+           settling?.phase == .sending, landed.phase != .sending {
+            WatchHapticPlayer.shared.play(WatchHaptics.actionOutcome(landed.phase),
+                                          reason: "action \(landed.phase)")
+        }
         if let data = UserDefaults.standard.data(forKey: "watch.pendingNotificationIntent") {
             UserDefaults.standard.removeObject(forKey: "watch.pendingNotificationIntent")
             if let intent = try? JSONDecoder().decode(WatchNotificationIntent.self, from: data),
