@@ -45,7 +45,14 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// once for taken and twice for anything else, so a decision made from a
     /// banner is felt without reading the card (ADR-0033).
     @Published private(set) var pendingAction = WatchSessionActionState() {
-        didSet { feelActionOutcome(from: oldValue, to: pendingAction) }
+        didSet {
+            feelActionOutcome(from: oldValue, to: pendingAction)
+            // The slot freeing is what makes "another action is still on its
+            // way" stop being true, and no snapshot need follow it — a failed
+            // reply is the end of the story. So the phase change is the event,
+            // not the next state.
+            if oldValue.isBusy != pendingAction.isBusy { refreshFallback() }
+        }
     }
     /// A banner button's decision, held until the relayed state can place it
     /// and the link can carry it. Cleared the moment it is sent, refused, or
@@ -353,15 +360,14 @@ final class WatchStateStore: NSObject, ObservableObject {
     }
 
     /// Take down a fallback sentence the world has made untrue, and correct one
-    /// it has made merely incomplete.
+    /// it has made merely wrong.
     ///
     /// Each reason is true about a different thing, so each stops being true at
-    /// a different moment. Clearing them all as soon as the request came back
-    /// took down "another action is still on its way" while that action was
-    /// still on its way, and left "can't reach your iPhone" up after the phone
-    /// returned. The tap is spent in every case; only the sentence is at stake,
-    /// and a wrong sentence above live buttons is the thing this path exists to
-    /// avoid.
+    /// a different moment, and a reason that stops being true rarely means
+    /// there is nothing left to say — usually it means something *else* is now
+    /// the reason. A sentence that has outlived what it described, sitting
+    /// above buttons that disagree with it, is the failure this whole path
+    /// exists to avoid; a sentence swapped for the true one costs nothing.
     private func refreshFallback() {
         guard let reason = bannerActionFallback, let route = bannerActionFallbackRoute else { return }
         func clear() {
@@ -369,22 +375,54 @@ final class WatchStateStore: NSObject, ObservableObject {
             bannerActionFallbackRoute = nil
             bannerActionFallbackPendingID = nil
         }
+        // What the wrist would say if the tap were held right now, which is
+        // also the answer to "is this still the link that is down".
+        let live = state.map(isLive) ?? false
+        let standing = standing(of: route)
         switch reason {
         case .noLongerWaiting:
-            // Back in some form: either it is actionable here and the sentence
-            // is simply false, or it is back but not for this wrist, which is a
-            // different sentence rather than no sentence.
-            switch standing(of: route) {
+            switch standing {
             case .actionable: clear()
             case .presentButNotHere: bannerActionFallback = .notDecidableHere
             case .absent: break
             }
         case .notDecidableHere:
-            if standing(of: route) == .actionable { clear() }
+            switch standing {
+            case .actionable: clear()
+            // Resolved elsewhere and gone from the snapshot: the card no longer
+            // holds the thing this line is about.
+            case .absent: bannerActionFallback = .noLongerWaiting
+            case .presentButNotHere: break
+            }
         case .linkDown, .macLinkDown:
-            if state.map(isLive) == true { clear() }
+            // The chain has two links and either can be the broken one. When
+            // the phone comes back and the Mac is still down, "can't reach your
+            // iPhone" is false and contradicts the card's own block two lines
+            // below; the sentence becomes the Mac's, not nothing.
+            guard live else {
+                if let state {
+                    let now = waitingReason(for: state)
+                    if now != reason, now == .linkDown || now == .macLinkDown {
+                        bannerActionFallback = now
+                    }
+                }
+                return
+            }
+            // A live link and the request still there: the buttons work, so the
+            // sentence is spent. Gone instead: say so, rather than implying a
+            // tap is still waiting on a link that has returned.
+            switch standing {
+            case .actionable: clear()
+            case .presentButNotHere: bannerActionFallback = .notDecidableHere
+            case .absent: bannerActionFallback = .noLongerWaiting
+            }
         case .busy:
-            if !pendingAction.isBusy { clear() }
+            guard !pendingAction.isBusy else { return }
+            switch standing {
+            case .actionable: clear()
+            case .presentButNotHere: bannerActionFallback = .notDecidableHere
+            case .absent: bannerActionFallback = .noLongerWaiting
+            }
         case .noState:
             // "It wasn't sent" stays true once the update finally arrives.
             // This one leaves with the card.
@@ -395,8 +433,6 @@ final class WatchStateStore: NSObject, ObservableObject {
     private enum FallbackStanding { case actionable, presentButNotHere, absent }
 
     /// Where the request a sentence was about stands in the state on screen.
-    /// A reply's sentence keeps its own question: the one that replaced it is
-    /// what the sentence is explaining, not a reason to drop it.
     private func standing(of route: WatchNotificationResponseRoute) -> FallbackStanding {
         guard let state else { return .absent }
         switch route {
@@ -406,10 +442,14 @@ final class WatchStateStore: NSObject, ObservableObject {
             }) else { return .absent }
             return alert.isDecidable ? .actionable : .presentButNotHere
         case .answer(let sessionID, _):
+            // A reply's sentence keeps its own question: the one that replaced
+            // it is what the sentence is explaining, not a reason to drop it.
+            // And a reply that never got far enough to bind one has no question
+            // to be about, so the next unrelated thing this session asks is not
+            // its request coming back.
+            guard let bound = bannerActionFallbackPendingID else { return .absent }
             guard let alert = state.alerts.first(where: {
-                $0.sessionId == sessionID && $0.waitKind == .question
-                    && (bannerActionFallbackPendingID == nil
-                        || $0.pendingId == bannerActionFallbackPendingID)
+                $0.sessionId == sessionID && $0.pendingId == bound
             }) else { return .absent }
             return alert.isAnswerableInOneString ? .actionable : .presentButNotHere
         case .open, .ignore:
@@ -941,8 +981,11 @@ final class WatchStateStore: NSObject, ObservableObject {
         }
         state = next
         hasRelayedState = true
-        refreshFallback()
         pendingAction.reconcile(with: next)
+        // After the reconcile, never before it: the snapshot that retires an
+        // attempt is the same one that would otherwise be judged against a slot
+        // still holding it.
+        refreshFallback()
         completionQueue.reconcile(with: next)
         if let pendingSessionID { openSession(pendingSessionID) }
         settleBannerAction(expired: false)

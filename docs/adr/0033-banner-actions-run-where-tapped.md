@@ -292,3 +292,40 @@ the update lands, so it leaves with the card.
 The fallback inset on the root pages is attached only when there is a sentence;
 an inset that is always present still asks for the system's default spacing,
 and every page would pay for it to serve a sentence almost nobody sees.
+
+## Amendment — a sentence that stops being true is usually replaced, not removed (2026-09-22, review round 5)
+
+Round 3 gave each fallback reason its own clearing rule. Round 5 found all
+three of the remaining defects in that code, and they share a shape: a reason
+stopping being true almost never means there is nothing left to say. It means
+something else is now the reason.
+
+**The in-flight slot freeing is an event in itself.** `.busy` was judged only
+when a new state arrived, and `install` ran the refresh *before*
+`pendingAction.reconcile` — so the snapshot that retired the attempt was judged
+against a slot that still held it, and "another action is still on its way"
+survived the action. A `.failed` reply with no snapshot behind it stuck
+forever. The refresh now runs from `pendingAction`'s own observer when
+`isBusy` changes, and in `install` after the reconcile, never before.
+
+**Either link can be the broken one.** `connection` is `.live` for a fresh
+payload even while the phone is unreachable, and the link sentences cleared
+only on a fully live chain. So when the phone came back and the Mac was still
+down, "can't reach your iPhone" stayed on the card while the link block two
+lines below said the iPhone could not reach the Mac — two contradictory
+sentences on one screen. `.linkDown` and `.macLinkDown` now re-derive from
+`waitingReason(for:)` and swap.
+
+**A reply with no bound question is about nothing.** `standing` treated a nil
+`bannerActionFallbackPendingID` as matching every question on the session, so a
+reply that gave up before any id could be bound had its sentence taken down by
+the next unrelated question the session asked. A nil binding is now `.absent`.
+And `.notDecidableHere` became `.noLongerWaiting` when its request leaves the
+snapshot entirely, rather than describing a card that no longer holds it.
+
+### For the device acceptance
+
+A banner already sitting in Notification Center keeps the category actions it
+was delivered with. After installing a build with this change, an older pending
+cue still routes its buttons to the phone and will look exactly as though
+nothing was fixed. The run must use a freshly posted notification.
