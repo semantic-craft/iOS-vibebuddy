@@ -64,3 +64,16 @@ public final class MenuBarPlacementRecovery: NSObject, ObservableObject {
         repairSavedPosition()
     }
 }
+
+/// The menu-bar icon is on unless the owner turned it off in Settings. macOS
+/// also drives `MenuBarExtra(isInserted:)` — a ⌘-drag off the bar, or the
+/// system dropping the item when the bar is crowded — and that write must not
+/// become a saved "off": the icon would then stay gone across launches with
+/// nothing on screen to bring it back (observed on the owner's Mac 2026-09-22).
+public enum MenuBarIconVisibility {
+    /// What to persist after the status item's insertion binding is written:
+    /// an insertion is always kept; a removal keeps whatever Settings chose.
+    public static func persisted(afterBindingWrite inserted: Bool, current: Bool) -> Bool {
+        inserted ? true : current
+    }
+}
