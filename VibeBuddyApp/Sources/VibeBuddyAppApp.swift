@@ -69,6 +69,14 @@ struct RootView: View {
                 dashboard.start(pairing)
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            // A launch into the background can read the defaults before the
+            // device has been unlocked since it booted and find nothing; the
+            // store keeps that answer for the life of the process. Read again
+            // whenever the app comes forward, when the defaults are readable,
+            // so a saved Mac cannot be lost to a background launch.
+            if phase == .active { connection.reloadSavedPairing() }
+        }
         .onChange(of: connection.pairing) { _, newValue in
             if newValue == nil { dashboard.stop() }
             if !Self.skipNotifications {

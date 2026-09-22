@@ -7,6 +7,7 @@ struct DeviceConnectionView: View {
     @EnvironmentObject private var connectionSync: RemoteConnectionSyncController
     @State private var showScanner = false
     @State private var copiedAddress = false
+    @State private var confirmDisconnect = false
 
     private var macName: String {
         let name = connection.pairing?.macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -88,12 +89,21 @@ struct DeviceConnectionView: View {
                                 Label(copiedAddress ? LocalizedStringKey("Address copied") : LocalizedStringKey("Copy address"), systemImage: "doc.on.doc")
                             }
                         }
+                        // Forgetting a Mac cannot be undone without its
+                        // pairing code, and this row sits one tap from Copy
+                        // address — so the real disconnect asks first.
+                        // Leaving the demo destroys nothing and does not.
                         Button(role: .destructive) {
-                            connection.clear()
-                            dashboard.forgetPairing()
+                            if connection.demo {
+                                dashboard.forgetPairing()
+                                connection.exitDemo()
+                            } else {
+                                confirmDisconnect = true
+                            }
                         } label: {
                             Label(connection.demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect"), systemImage: "eject")
                         }
+                        .accessibilityIdentifier("connection-disconnect")
                     }
                 }
             }
@@ -108,6 +118,16 @@ struct DeviceConnectionView: View {
             PairingScannerSheet()
                 .environmentObject(connection)
                 .environmentObject(dashboard)
+        }
+        .confirmationDialog("Forget this Mac?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
+            Button("Forget Mac", role: .destructive) {
+                connection.clear()
+                dashboard.forgetPairing()
+            }
+            .accessibilityIdentifier("connection-disconnect-confirm")
+            Button("Keep this Mac", role: .cancel) {}
+        } message: {
+            Text("This phone stops showing \(macName)'s sessions and alerts. To connect again you need the pairing code from that Mac.")
         }
     }
 
