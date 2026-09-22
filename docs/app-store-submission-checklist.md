@@ -2,7 +2,7 @@
 
 ## 当前发布必过项：Watch 通知、震动与审批
 
-每次涉及远程连接、推送、Watch 或配对的发布，按 [Watch 正式版验收](watch-notification-acceptance.md)核对导出包，并在 TestFlight 的生产推送环境完成手机锁屏后的通知、真实震动、手表批准和 Mac 回执。记录双方实际版本及推送环境；Debug/APNs 沙盒通过不能替代这一项。该项未通过时，不能标记正式版已验收或提交公开发布。
+每次涉及远程连接、推送、Watch 或配对的发布，按 [Watch 验收](watch-notification-acceptance.md)在日常使用的开发签名直装包上完成手机锁屏后的通知、真实震动、手表批准和 Mac 回执（Mac 端推送切到 sandbox 配合开发包）。记录双方实际版本及推送环境。这是个人开发项目：一轮通过即算数，不需要 TestFlight，不重复跑。
 
 以下保留的旧版本清单属于历史记录；当前包的 Watch App Group、版本和签名以 `project.yml`、entitlements 及归档脚本实测为准。
 
@@ -37,10 +37,10 @@
 ## Phase D — 归档上传(🧑 Xcode,🤖 可先帮你跑通 archive)
 - [ ] D1. `tools/archive-ios.sh`(用 Xcode 里登录的 Apple ID 签名;也支持 `--api-key`)——先核对 Phase B 的配置,再 archive、导出、验证 `.ipa` 里 app / Widget / Watch app 都正确内嵌与签名,最后打印上传命令。等价的纯手工路径:scheme 目标选 **Any iOS Device (arm64)** → Product → **Archive**。
 - [ ] D2. 脚本从不上传 —— Organizer → Distribute App → App Store Connect → **Upload**(或脚本打印的 `xcrun altool` 命令),Automatic 签名需付费 Team。
-- [ ] D3. 等几分钟,build 出现在 App Store Connect 的 **TestFlight** 标签。
+- [ ] D3. 等几分钟,build 出现在 App Store Connect 的版本页可选 build 列表里（页面上叫 TestFlight 标签，只是上传后的存放处，不必装）。
 
 ## Phase E — 提交审核(🧑)
-- [ ] E1. **先走 TestFlight**:Internal Testing(你自己,免审核)在 production 签名下把推送/连接跑通,再 External。
+- [ ] E1. 不走 TestFlight 内测：单人开发，验收已在开发包上完成；直接选 build 提交。
 - [ ] E2. Export Compliance:已加 `ITSAppUsesNonExemptEncryption=NO` 则自动通过。
 - [ ] E3. **App Review Information(伴侣 app 关键)**:写清楚这是开源 Mac 工具 vibebuddy 的手机端、如何配对(扫 Mac 二维码 / 同一 LAN);**附 demo 视频 + 详细步骤**,因为审核员没有你的 Mac。🤖 reviewer notes 已在 `docs/app-store-listing.md`; demo-mode 视频在 `docs/app-store-screenshots/pro-max-demo-reviewer-flow.mp4`; 真实 Mac+iPhone 配对视频仍需人工录制。
 - [ ] E4. 选 build → **Submit for Review**。
