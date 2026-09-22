@@ -18,7 +18,7 @@ struct PhoneAgentStrip: View {
             HStack(spacing: 8) {
                 ForEach(items) { item in
                     PhoneAgentTile(item: item, selected: selection == item.agent,
-                                   reading: reading(for: item.agent), now: now) {
+                                   readings: readings(for: item.agent), now: now) {
                         // The same selection feedback a segmented control gives.
                         UISelectionFeedbackGenerator().selectionChanged()
                         selection = item.agent
@@ -34,10 +34,12 @@ struct PhoneAgentStrip: View {
     }
 
     /// The agent's own allowance, or the fleet's tightest under All — the
-    /// reading that would stop the next turn either way.
-    private func reading(for agent: AgentKind?) -> QuotaReading? {
-        guard let agent else { return quotas.tightestReading }
-        return quotas.reading(for: agent)
+    /// reading that would stop the next turn either way. An agent with several
+    /// independent pools (Cursor) hands over all of them, tightest first: the
+    /// ring draws that one, VoiceOver reads them all.
+    private func readings(for agent: AgentKind?) -> [QuotaReading] {
+        guard let agent else { return quotas.tightestReading(now: now).map { [$0] } ?? [] }
+        return quotas.first { $0.provider.agentKind == agent }?.poolReadings(now: now) ?? []
     }
 }
 
@@ -47,9 +49,12 @@ struct PhoneAgentStrip: View {
 struct PhoneAgentTile: View {
     let item: AgentRoster.Item
     let selected: Bool
-    let reading: QuotaReading?
+    let readings: [QuotaReading]
     let now: Date
     let action: () -> Void
+
+    /// The ring can draw one allowance; it draws the tightest.
+    private var reading: QuotaReading? { readings.first }
 
     var body: some View {
         Button(action: action) {
@@ -111,8 +116,11 @@ struct PhoneAgentTile: View {
         var parts = [item.tally.total == 1 ? String(localized: "1 session") : String(localized: "\(item.tally.total) sessions")]
         if item.tally.needsYou > 0 { parts.append(String(localized: "\(item.tally.needsYou) need you")) }
         if item.tally.working > 0 { parts.append(String(localized: "\(item.tally.working) working")) }
-        if let reading {
+        for reading in readings {
             var quota = String(localized: "\(reading.remainingPercent)% left")
+            // Which pool it is, always — on All the tile shows one number for
+            // the whole fleet, and "0% left" without a name says nothing.
+            if let label = reading.label, !label.isEmpty { quota = "\(label) \(quota)" }
             if let reset = reading.resetsAt { quota += " · " + QuotaPresentation.resetCountdown(from: reset, now: now) }
             parts.append(quota)
         }

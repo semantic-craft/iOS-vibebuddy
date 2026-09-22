@@ -2,14 +2,23 @@ import SwiftUI
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// One agent's allowance, as the rail's ring and the column head read it: the
-/// window closest to running out, because that is the one that decides whether
-/// the next turn goes through. It is the same arithmetic the Usage page shows
-/// in full — here it sits next to the agent it belongs to, so "who should take
+/// One allowance, as the rail's ring and the column head read it: the pool
+/// closest to running out, because that is the one that decides whether the
+/// next turn goes through. Most agents have one of these; an agent running
+/// several pools over one period (Cursor) has one per pool, and the strip that
+/// has room lists them all. It is the same arithmetic the Usage page shows in
+/// full — here it sits next to the agent it belongs to, so "who should take
 /// this next" is one reading rather than two surfaces (the sidebar's old
 /// account-quota plinth is gone; ADR-0017 §6 keeps the detail on Usage).
 @MainActor
-struct AgentQuotaReading {
+struct AgentQuotaReading: Identifiable {
+    /// Identity follows the pool it reads, not its position in a list: when
+    /// two pools cross, the rows move instead of swapping contents in place.
+    nonisolated var id: String {
+        [provider.rawValue, windowName, resetsAt.map { String(Int($0.timeIntervalSinceReferenceDate)) } ?? ""]
+            .joined(separator: "#")
+    }
+
     let provider: AccountUsageProvider
     let usedPercent: Int
     let windowName: String
@@ -48,29 +57,36 @@ struct AgentQuotaReading {
         return text
     }
 
-    /// The agent's own allowance; nil when the agent has no account provider
-    /// (Copilot, OpenCode…), its collection is off, or nothing could be read.
-    static func read(_ agent: AgentKind, model: MenuBarModel, now: Date) -> AgentQuotaReading? {
-        guard let provider = AccountUsageProvider.allCases.first(where: { $0.agentKind == agent }) else { return nil }
-        return read(provider, model: model, now: now)
+    /// The agent's own allowances, tightest first; empty when the agent has no
+    /// account provider (Copilot, OpenCode…), its collection is off, or nothing
+    /// could be read.
+    static func readAll(_ agent: AgentKind, model: MenuBarModel, now: Date) -> [AgentQuotaReading] {
+        guard let provider = AccountUsageProvider.allCases.first(where: { $0.agentKind == agent }) else { return [] }
+        return readAll(provider, model: model, now: now)
     }
 
-    static func read(_ provider: AccountUsageProvider, model: MenuBarModel, now: Date) -> AgentQuotaReading? {
-        guard model.isUsageCollectionEnabled(provider) else { return nil }
+    /// Every allowance this provider has, tightest first. One entry for most
+    /// providers; one per pool where the provider runs several independent
+    /// ones over the same period — Cursor's `Cursor Models` and `Other
+    /// Models`, where the comfortable pool says nothing about the spent one,
+    /// so a strip with room lists both rather than choosing.
+    static func readAll(_ provider: AccountUsageProvider, model: MenuBarModel, now: Date) -> [AgentQuotaReading] {
+        guard model.isUsageCollectionEnabled(provider) else { return [] }
         let state = model.usageState(for: provider)
-        guard let window = state.snapshot?.excludingExpiredWindows(at: now).displayWindows
-            .max(by: { $0.usedPercent < $1.usedPercent }) else { return nil }
-        return AgentQuotaReading(provider: provider, usedPercent: window.usedPercent,
-                                 windowName: windowLabel(window, provider: provider),
-                                 resetsAt: window.resetsAt, isStale: state.isStale,
-                                 observedAt: state.snapshot?.fetchedAt,
-                                 statusLineUnwired: model.usageStatusLineUnwired(provider))
+        guard let snapshot = state.snapshot?.excludingExpiredWindows(at: now) else { return [] }
+        return snapshot.headlineWindows().map { window in
+            AgentQuotaReading(provider: provider, usedPercent: window.usedPercent,
+                              windowName: windowLabel(window, provider: provider),
+                              resetsAt: window.resetsAt, isStale: state.isStale,
+                              observedAt: snapshot.fetchedAt,
+                              statusLineUnwired: model.usageStatusLineUnwired(provider))
+        }
     }
 
     /// The fleet's tightest reading — what the rail's "All agents" entry is
     /// ringed by, since that is the allowance about to stop the day's work.
     static func tightest(model: MenuBarModel, now: Date) -> AgentQuotaReading? {
-        AccountUsageProvider.allCases.compactMap { read($0, model: model, now: now) }
+        AccountUsageProvider.allCases.compactMap { readAll($0, model: model, now: now).first }
             .max { $0.usedPercent < $1.usedPercent }
     }
 

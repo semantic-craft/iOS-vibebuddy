@@ -93,6 +93,37 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         windows + (extraWindows ?? [])
     }
 
+    /// Several independent allowance pools covering **one** period — Cursor
+    /// reports `Cursor Models` and `Other Models`, and spending either one to
+    /// zero stops work while the other still reads comfortable. A weekly pool
+    /// beside a five-hour one is a single allowance read at two scales, not
+    /// two pools, so it is deliberately not one of these.
+    ///
+    /// Empty for every provider that has one pool. `ProviderQuota`'s
+    /// `samePeriodPools` asks the identical question of the relayed window
+    /// type — same test, including a pair that reports no duration at all —
+    /// so the Mac and the wrist cannot disagree about what a pair is.
+    public var independentPools: [AccountUsageWindow] {
+        let pools = quotaWindows
+        guard pools.count > 1, Set(pools.map(\.windowDurationMinutes)).count == 1 else { return [] }
+        return pools
+    }
+
+    /// The allowance a ring or a single bar stands for: the pools when there
+    /// are several over one period, otherwise the one quota window closest to
+    /// running out.
+    ///
+    /// Deliberately `quotaWindows`, not `displayWindows`. A scoped window — a
+    /// Claude model-week, Codex Spark, Grok's extra usage — subdivides one
+    /// allowance and must never be the number that stands for the account
+    /// (CONTEXT.md); a Fable week at 95% used would otherwise ring the Mac at
+    /// 5% while the wrist read the real week at 60%.
+    public func headlineWindows() -> [AccountUsageWindow] {
+        let pools = independentPools
+        guard pools.isEmpty else { return pools.sorted { $0.usedPercent > $1.usedPercent } }
+        return quotaWindows.max { $0.usedPercent < $1.usedPercent }.map { [$0] } ?? []
+    }
+
     public init(
         provider: AccountUsageProvider,
         planType: String?,
