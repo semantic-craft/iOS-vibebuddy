@@ -316,15 +316,6 @@ struct DeviceRegistry {
         return DevicePushFailure(reason: reason, status: status, firstAt: now, lastAt: now, count: 1)
     }
 
-    @discardableResult
-    mutating func remove(token: String) -> Bool {
-        let before = entries.count
-        entries.removeAll { $0.device.token == token }
-        guard entries.count != before else { return false }
-        persistBestEffort()
-        return true
-    }
-
     mutating func removeAll() {
         guard !entries.isEmpty else { return }
         entries = []

@@ -1490,10 +1490,6 @@ enum CodexDesktopAppServer {
         }
     }
 
-    static func isAlive() -> Bool { !identities().isEmpty }
-
-    static func identity() -> Identity? { identities().min(by: { $0.pid < $1.pid }) }
-
     static func identities() -> [Identity] {
         let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
         guard needed > 0 else { return [] }
