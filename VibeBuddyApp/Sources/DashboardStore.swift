@@ -88,9 +88,21 @@ final class DashboardStore: ObservableObject {
     /// already holds one for. The held one is withdrawn so the card's is the
     /// only decision, unless its POST is out this instant — then the card's
     /// tap is refused as "sending", never sent beside it.
+    ///
+    /// Only while connected: a disconnected card decision is held itself and
+    /// replaces the earlier one by target in the queue, while one that cannot
+    /// be held at all (a persisting decision) fails and leaves the held one
+    /// standing rather than withdrawing it for nothing.
     private func replaceHeldDecision(for session: AgentSession) -> Bool {
-        guard let held = heldDecision(for: session) else { return true }
-        return pendingActions.cancel(id: held.id, quietly: true)
+        guard state == .connected, let held = heldDecision(for: session) else { return true }
+        guard pendingActions.cancel(id: held.id, quietly: true) else { return false }
+        // Quiet means no notification; the card, the Inbox and the wrist
+        // still have to stop showing the decision that was just withdrawn,
+        // or the send below is refused as "held" and nothing goes out.
+        if phoneActions[session.id] == .held { phoneActions[session.id] = nil }
+        refreshHeldActions()
+        relayToWatch(allSessions)
+        return true
     }
 
     /// Every attempt reads authenticated authority before sending. Ambiguous POSTs

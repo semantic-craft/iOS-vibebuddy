@@ -216,8 +216,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         case .held:
             await LocalNotifier.settle()
         case .notHeld(let action):
-            // The same failure the wrist gets: nothing applied, decide again.
-            LocalNotifier().reportDelivery(.dropped(action), macName: macName)
+            // Nothing applied, decide again — under its own identifier, so
+            // the live "on hold" banner of the earlier decision stays up.
+            LocalNotifier().warnNotHeld(action, macName: macName)
             await LocalNotifier.settle()
         case .unconfirmed(let action):
             LocalNotifier().warnUnconfirmed(action, macName: macName)

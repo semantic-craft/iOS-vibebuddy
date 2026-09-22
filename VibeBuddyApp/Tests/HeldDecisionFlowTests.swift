@@ -76,15 +76,23 @@ private final class HeldTransport: WatchStateTransport {
 private final class OneShotStreamer: SnapshotStreaming, @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
+    private var reconnects = false
     let snapshot: Snapshot
     init(_ snapshot: Snapshot) { self.snapshot = snapshot }
 
+    /// From now on a reconnect attempt yields the snapshot and stays open,
+    /// the way a real stream does once the link is back.
+    func allowReconnect() { lock.withLock { reconnects = true } }
+
     func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
-        let first = lock.withLock { calls += 1; return calls == 1 }
+        let (first, open) = lock.withLock { calls += 1; return (calls == 1, reconnects) }
         return AsyncThrowingStream { continuation in
-            guard first else { return }
-            continuation.yield(snapshot)
-            continuation.finish()
+            if first {
+                continuation.yield(snapshot)
+                continuation.finish()
+            } else if open {
+                continuation.yield(snapshot)
+            }
         }
     }
 }
@@ -259,9 +267,10 @@ final class HeldDecisionFlowTests: XCTestCase {
         let notifier = DeliveryNotifier()
         let queue = PendingActionStore(url: nil)
         let stream = snapshot([waitingSession()])
+        let streamer = OneShotStreamer(stream)
         mac.set(snapshot: stream, reachable: true)
         let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
-                                    streamer: OneShotStreamer(stream))
+                                    streamer: streamer)
         for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
         mac.set(snapshot: stream, reachable: false)
         // The wrist holds an Allow; the phone's card shows it as its receipt.
@@ -280,6 +289,42 @@ final class HeldDecisionFlowTests: XCTestCase {
         await store.retryHeldDecisions()
         XCTAssertEqual(mac.decisions.map(\.decision), [.deny])
         XCTAssertEqual(store.phoneActionState(for: waitingSession()), .received)
+    }
+
+    func testAConnectedCardDecisionReplacesAHeldOneAndGoesOut() async throws {
+        let transport = HeldTransport()
+        let mac = IntermittentMac()
+        let notifier = DeliveryNotifier()
+        let queue = PendingActionStore(url: nil)
+        let stream = snapshot([waitingSession()])
+        let streamer = OneShotStreamer(stream)
+        mac.set(snapshot: stream, reachable: true)
+        let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
+                                    streamer: streamer)
+        for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        mac.set(snapshot: stream, reachable: false)
+        let request = try relayedApproval(transport, attempt: "wrist-allow")
+        let wrist = await transport.tap(request)
+        XCTAssertEqual(wrist.outcome, .queued)
+        // The stream comes back while the Mac's HTTP side still does not
+        // answer: the reconnect-edge pass leaves the Allow held, and the card
+        // still shows it. (The store retries the stream every two seconds.)
+        streamer.allowReconnect()
+        for _ in 0..<1200 where store.state != .connected { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(store.state, .connected)
+        XCTAssertEqual(store.heldActions.map(\.id), ["wrist-allow"])
+        XCTAssertEqual(store.phoneActionState(for: waitingSession()), .held)
+        // Now the Mac answers. A Deny from the connected card withdraws the
+        // held Allow and goes out itself — once, and it is the only decision.
+        mac.set(snapshot: stream, reachable: true)
+        let receipt = await store.decideConfirmed("ap-1", .deny)
+        XCTAssertEqual(receipt, .received)
+        XCTAssertEqual(mac.decisions.map(\.decision), [.deny])
+        XCTAssertTrue(store.heldActions.isEmpty)
+        XCTAssertEqual(transport.states.last?.heldActions, [])
+        // Nothing left for a later pass to send.
+        await store.retryHeldDecisions()
+        XCTAssertEqual(mac.decisions.count, 1)
     }
 
     func testThePhonesOwnApproveIsHeldWhenTheMacIsUnreachable() async throws {

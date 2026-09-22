@@ -32,12 +32,18 @@ protocol AttentionNotifier: Sendable {
     /// retried for it: the Mac may have acted, so the word is "look, do not
     /// tap again" — the same sentence the wrist gets for `unknown`.
     func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?)
+    /// A banner tap the Mac could not be given and the phone would not hold
+    /// either: the queue is full, or an earlier decision on the same target
+    /// is being delivered this instant. Its own notification, so the live
+    /// "on hold" banner for that earlier decision is not stood down.
+    func warnNotHeld(_ action: QueuedSessionAction, macName: String?)
 }
 
 extension AttentionNotifier {
     func reportDelivery(_ event: HeldDeliveryEvent, macName: String?) {}
     func warnUnreachable(_ reason: ConnectionFailureReason, macName: String?) {}
     func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?) {}
+    func warnNotHeld(_ action: QueuedSessionAction, macName: String?) {}
 }
 
 /// One sentence per missing link, shared by the phone's screens, the toast
@@ -257,6 +263,26 @@ struct LocalNotifier: AttentionNotifier {
         let title = String(localized: "\(what) for \(project) could not be confirmed")
         let body = String(localized: "Your iPhone sent it and lost the receipt. Check the task on \(mac) before deciding again.")
         let id = "held-" + action.targetKey
+        let sessionID = action.sessionId
+        Self.chain.enqueue {
+            try? await Self.post(title: title, body: body, sound: .needsApproval, delivery: .bannerSound,
+                                 id: id, sessionID: sessionID, timeSensitive: true)
+        }
+    }
+
+    func warnNotHeld(_ action: QueuedSessionAction, macName: String?) {
+        let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? macName! : String(localized: "your Mac")
+        let project = action.project?.isEmpty == false ? action.project! : String(localized: "a task")
+        let what: String = switch action.action {
+        case .approval(_, .allow): String(localized: "Approve")
+        case .approval(_, .deny): String(localized: "Deny")
+        case .answer, .answerAll: String(localized: "Answer")
+        case .stop: String(localized: "Stop")
+        }
+        let title = String(localized: "\(what) for \(project) was not taken")
+        let body = String(localized: "Can't reach \(mac), and an earlier decision for this request is already on its way or the hold list is full. Nothing was applied; decide again in VibeBuddy once it is settled.")
+        let id = "nothold-" + action.targetKey
         let sessionID = action.sessionId
         Self.chain.enqueue {
             try? await Self.post(title: title, body: body, sound: .needsApproval, delivery: .bannerSound,
