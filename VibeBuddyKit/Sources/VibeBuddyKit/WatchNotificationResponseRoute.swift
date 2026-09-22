@@ -209,7 +209,9 @@ extension WatchHaptics {
         switch phase {
         case .sending: return []
         case .awaitingResolution: return beats(for: .done)
-        case .failed, .unknown, .refused: return beats(for: .error)
+        // Held on the phone (ADR-0032) is not "taken" either: the Mac has not
+        // seen it, and the card is where it says so — same two beats.
+        case .failed, .unknown, .refused, .queued: return beats(for: .error)
         }
     }
 }
