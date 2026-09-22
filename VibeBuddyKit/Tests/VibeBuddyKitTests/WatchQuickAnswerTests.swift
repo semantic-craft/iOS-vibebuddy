@@ -106,6 +106,22 @@ final class WatchQuickAnswerTests: XCTestCase {
         return session
     }
 
+    /// A walked prompt is answerable — just not with the one string a banner's
+    /// Reply button collects. Sending it anyway loses the dictation to the
+    /// iPhone's `isSinglePart` gate, so every lone-string path asks this.
+    func testAWalkedPromptIsAnswerableButNotInOneString() throws {
+        let walked = try alert(twoPickable)
+        XCTAssertNotNil(walked.questions)
+        XCTAssertTrue(walked.isAnswerable)
+        XCTAssertFalse(walked.isAnswerableInOneString)
+        XCTAssertNil(WatchQuickAnswers.resolve(for: walked))
+
+        // The ordinary one-part question is answerable both ways.
+        let single = try alert(asking())
+        XCTAssertTrue(single.isAnswerable)
+        XCTAssertTrue(single.isAnswerableInOneString)
+    }
+
     func testAPromptWhoseEveryQuestionOffersChoicesIsWalkedAndSentOnce() throws {
         let session = twoPickable
         let card = try alert(session)

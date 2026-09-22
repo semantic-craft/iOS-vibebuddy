@@ -49,3 +49,53 @@ struct WatchNotificationResponseRouteTests {
         #expect(WatchHaptics.actionOutcome(.refused) == [.long, .long])
     }
 }
+
+/// When a state that does not hold the tapped request is allowed to end the
+/// hold — the rule that decides whether a banner Approve reaches the Mac or is
+/// abandoned with "this is no longer waiting on you".
+struct WatchBannerActionPatienceTests {
+    private let route = WatchNotificationResponseRoute.decide(sessionID: "s-build",
+                                                              approvalID: "ap-1", choice: .allow)
+
+    @Test func theSameRevisionComingBackIsNotEvidenceTheRequestIsGone() {
+        // The R6/R8 shape: the approval is newer than anything the wrist holds,
+        // and activation re-delivers the pre-tap context moments after launch.
+        // `WatchStateInbox.accept` takes an equal revision back, so this is a
+        // real install — and it must not end the hold.
+        var held = WatchBannerAction(route: route, baselineRevision: 12)
+        held.noteInstalled(revision: 12)
+        #expect(held.provesRequestGone(currentRevision: 12, expired: false) == false)
+    }
+
+    @Test func aStrictlyNewerRevisionWithoutTheRequestEndsTheHold() {
+        var held = WatchBannerAction(route: route, baselineRevision: 12)
+        held.noteInstalled(revision: 12)
+        #expect(held.provesRequestGone(currentRevision: 13, expired: false))
+    }
+
+    @Test func theFirstStateOfAColdHoldIsABaselineAndProvesNothing() {
+        // Nothing usable on disk: the first payload to arrive is the mark, not
+        // an answer about an approval the wrist has never seen.
+        var held = WatchBannerAction(route: route)
+        #expect(held.baselineRevision == nil)
+        #expect(held.provesRequestGone(currentRevision: 40, expired: false) == false)
+        held.noteInstalled(revision: 40)
+        #expect(held.baselineRevision == 40)
+        #expect(held.provesRequestGone(currentRevision: 40, expired: false) == false)
+        #expect(held.provesRequestGone(currentRevision: 41, expired: false))
+    }
+
+    @Test func theBaselineNeverMoves() {
+        var held = WatchBannerAction(route: route, baselineRevision: 7)
+        held.noteInstalled(revision: 8)
+        held.noteInstalled(revision: 9)
+        #expect(held.baselineRevision == 7)
+        #expect(held.provesRequestGone(currentRevision: 8, expired: false))
+    }
+
+    @Test func thePatienceRunningOutEndsTheHoldWhateverTheRevisionSays() {
+        let held = WatchBannerAction(route: route, baselineRevision: 12)
+        #expect(held.provesRequestGone(currentRevision: 12, expired: true))
+        #expect(held.provesRequestGone(currentRevision: nil, expired: true))
+    }
+}

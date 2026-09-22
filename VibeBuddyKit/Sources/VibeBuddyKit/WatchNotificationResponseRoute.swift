@@ -100,10 +100,42 @@ public struct WatchBannerAction: Equatable, Sendable {
 
     public var route: WatchNotificationResponseRoute
     public var heldAt: Date
+    /// The newest relay revision this hold is known to have seen, and with it
+    /// the only evidence that can say the request is gone. Nil until the hold's
+    /// first state arrives.
+    public private(set) var baselineRevision: UInt64?
 
-    public init(route: WatchNotificationResponseRoute, heldAt: Date = Date()) {
+    public init(route: WatchNotificationResponseRoute, heldAt: Date = Date(),
+                baselineRevision: UInt64? = nil) {
         self.route = route
         self.heldAt = heldAt
+        self.baselineRevision = baselineRevision
+    }
+
+    /// Note a state the wrist has just installed. The first one of a hold sets
+    /// the baseline and proves nothing by itself; the baseline never moves
+    /// after that, because it is the mark everything later is measured against.
+    public mutating func noteInstalled(revision: UInt64) {
+        if baselineRevision == nil { baselineRevision = revision }
+    }
+
+    /// Whether a state that does not hold the tapped request proves the request
+    /// is gone.
+    ///
+    /// Only a *newer* relay revision is that proof. The iPhone re-sends the
+    /// context it already sent — `WatchStateInbox.accept` takes an equal
+    /// revision back when the source, epoch and `observedAt` all match, which
+    /// is exactly what activation does moments after a cold launch — so "a
+    /// payload arrived after the tap" says nothing about whether the approval
+    /// was ever in it. Reading it as proof abandoned the Approve that this
+    /// whole path exists to deliver: the wrist is holding yesterday's context
+    /// precisely because the approval is newer than anything it has.
+    ///
+    /// The patience running out still ends the hold, with its own reason.
+    public func provesRequestGone(currentRevision: UInt64?, expired: Bool) -> Bool {
+        if expired { return true }
+        guard let baselineRevision, let currentRevision else { return false }
+        return currentRevision > baselineRevision
     }
 }
 

@@ -134,3 +134,47 @@ buttons go with it, a held or in-flight attempt is reconciled away, and the
 detail reads "not in the current Watch list". No separate expiry signal is
 needed; what would help is a recovery row that says *why* the wait vanished
 ("your Mac restarted"), which is a Mac-side change outside this record.
+
+## Amendment — what may end a hold (2026-09-22, review round 1)
+
+Holding the tap was right; the first implementation gave the hold up on
+evidence that was not evidence, and in two places let it vanish without saying
+so. Three rules now govern it.
+
+**Only a newer relay revision says the request is gone.** The first version
+compared wall clocks: a payload installed after the tap meant the approval was
+never coming. But the iPhone re-sends the context it has already sent —
+`WatchStateInbox.accept` takes an equal `relayRevision` back when source, epoch
+and `observedAt` all match, which is exactly what WatchConnectivity activation
+does moments after a cold launch. So the R6/R8 tap, whose whole premise is that
+the approval is *newer* than anything the wrist holds, was abandoned within a
+second of arriving, and the card then claimed "this is no longer waiting on
+you" above a live Approve button. The rule is now a revision, not a clock:
+`WatchBannerAction.baselineRevision` is the revision held when the tap arrived,
+or the first one to arrive if the wrist had none, and only a strictly greater
+revision that still lacks the request may end the hold. The patience expiring
+still ends it, with its own reason.
+
+**Only leaving a card withdraws the decision made about it.** "There is no card
+right now" is not "the person left the card". `openSession` clears `taskLink`
+and `quotaSelection` on the way to setting the other, and a hold still waiting
+for the state that can place its session has no card either. Both read as a
+departure, and both dropped the tap with no sentence, no haptic and no
+diagnostic. The withdrawal now hangs off the one event that means it: a
+`taskLink` that had a value changing to another value or to none.
+
+**A hold that gives up always has somewhere to say so.** `.noState` is reached
+precisely when no card exists, so `WatchNoDataView` renders the fallback
+sentence too. Nothing ends a hold silently.
+
+Two further rules from the same round: a banner's Reply is refused for a prompt
+the wrist walks question by question (`WatchAlert.isAnswerableInOneString`,
+shared with `WatchQuickAnswers.resolve`, because the iPhone's `isSinglePart`
+gate would refuse the dictation and lose it); and the phone returns early on
+`UNNotificationDismissActionIdentifier`, which neither category asks for today
+but which would otherwise be opened as a session by the new `.ignored` path.
+
+Deliberately not changed: the eight-second patience. A cold launch that hears
+nothing from the phone in eight seconds has a link problem, and a decision that
+waits longer is a decision about whatever is pending by then. It now ends with
+a sentence on screen instead of silence, which was the real defect.

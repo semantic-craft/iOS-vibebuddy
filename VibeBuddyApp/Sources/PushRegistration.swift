@@ -170,6 +170,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             }
             return
         }
+        // Swiping a notification away is not a request. Neither category asks
+        // for `.customDismissAction`, so this does not arrive today — but
+        // `.ignored` below now opens the session, and a dismissal that ever
+        // reached here would yank the phone onto a session nobody asked for.
+        if actionIdentifier == UNNotificationDismissActionIdentifier { return }
         let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
         let outcome = await BannerActionRunner.perform(
             actionIdentifier: actionIdentifier,

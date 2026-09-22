@@ -16,7 +16,10 @@ import WidgetKit
 final class WatchStateStore: NSObject, ObservableObject {
     @Published private(set) var state: WatchDashboardState?
     @Published var taskLink: WatchTaskLink? {
-        didSet { cancelPendingNavigation() }
+        didSet {
+            if oldValue != nil, oldValue != taskLink { withdrawBannerAction() }
+            cancelPendingNavigation()
+        }
     }
     @Published var quotaSelection: WatchQuotaSelection? {
         didSet { cancelPendingNavigation() }
@@ -49,9 +52,6 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// times out.
     private var bannerAction: WatchBannerAction?
     private var bannerActionTimeout: Task<Void, Never>?
-    /// When the newest state was installed, so a held banner action can tell a
-    /// state relayed after the tap from the one read off disk at launch.
-    private var lastInstalledAt: Date?
     /// Why the last banner action was not sent, shown on the card the tap
     /// opened. Nil once it was sent, or once the card is dismissed.
     @Published var bannerActionFallback: WatchBannerActionFallback?
@@ -179,7 +179,9 @@ final class WatchStateStore: NSObject, ObservableObject {
         openSession(sessionID)
         guard route.isAction else { return }
         bannerActionTimeout?.cancel()
-        bannerAction = WatchBannerAction(route: route)
+        // The revision the wrist is holding as the tap arrives is the mark a
+        // later state has to beat before it may say the request is gone.
+        bannerAction = WatchBannerAction(route: route, baselineRevision: state?.relayRevision)
         WatchNavigationDiagnostics.shared.record("banner.action-held")
         // The relayed state and the phone's reachability arrive moments after a
         // cold launch; wait for them, but not so long that the tap becomes a
@@ -208,6 +210,9 @@ final class WatchStateStore: NSObject, ObservableObject {
             if expired { giveUp(.noState) }
             return
         }
+        // The first state of a hold is the baseline, whether it came off disk
+        // or over the link.
+        bannerAction?.noteInstalled(revision: state.relayRevision)
         // The alert the tap named, as the relayed state holds it now. A
         // decision is bound to its approval id, an answer to the session's
         // current question — a banner cannot name a question id.
@@ -220,16 +225,22 @@ final class WatchStateStore: NSObject, ObservableObject {
         case .open, .ignore:
             alert = nil
         }
-        // A cold launch reads yesterday's state off disk first; an alert that
-        // is not in *that* copy may simply not have reached it. Only a state
-        // relayed after the tap — or the patience running out — may say the
-        // request is gone.
+        // A cold launch reads yesterday's state off disk first, and the iPhone
+        // re-sends the context it already sent; an alert missing from either
+        // may simply never have been in them. Only a strictly newer relay
+        // revision — or the patience running out — may say the request is gone.
         guard let alert else {
-            if expired || (lastInstalledAt ?? .distantPast) > held.heldAt { giveUp(.noLongerWaiting) }
+            if bannerAction?.provesRequestGone(currentRevision: state.relayRevision,
+                                               expired: expired) == true {
+                giveUp(.noLongerWaiting)
+            }
             return
         }
+        // A prompt the wrist walks question by question is answerable, but not
+        // by the one string a banner's Reply collects: the iPhone would refuse
+        // it and the dictation would be lost. The walk on the card is the way.
         switch held.route {
-        case .decide where !alert.isDecidable, .answer where !alert.isAnswerable:
+        case .decide where !alert.isDecidable, .answer where !alert.isAnswerableInOneString:
             giveUp(.notDecidableHere); return
         default: break
         }
@@ -333,20 +344,8 @@ final class WatchStateStore: NSObject, ObservableObject {
         taskRefreshFailed = false
     }
 
-    /// Whether a navigation is part-way through assigning `taskLink` and
-    /// `quotaSelection`. Between those two writes the wrist has no card, which
-    /// is not the same as having left one — see `cancelPendingNavigation`.
-    private var isNavigating = false
-
     func openTask(_ url: URL) {
         WatchNavigationDiagnostics.shared.record("route.url")
-        isNavigating = true
-        // Settled, not mid-flight: a URL that lands on the quota pane really
-        // has left the card, and a held decision goes with it.
-        defer {
-            isNavigating = false
-            if taskLink == nil { withdrawBannerAction() }
-        }
         if let selection = WatchQuotaSelection(url: url) {
             taskLink = nil
             quotaSelection = selection
@@ -365,8 +364,6 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// an unknown target opens an unavailable page instead of waiting forever.
     func openSession(_ sessionID: String) {
         WatchNavigationDiagnostics.shared.record("route.session")
-        isNavigating = true
-        defer { isNavigating = false }
         guard let state, let source = state.sourceID, !source.isEmpty,
               let epoch = state.pairingEpoch, !epoch.isEmpty else {
             taskLink = nil
@@ -455,24 +452,19 @@ final class WatchStateStore: NSObject, ObservableObject {
         cancelActivityOpen()
         pendingSessionID = nil
         pendingPairingEpoch = nil
-        // Navigating away from the card a banner opened withdraws its held
-        // decision: it was made about a screen no longer in front of anyone.
-        // The sentence on that card leaves with the card.
-        //
-        // Only once the navigation has finished, though. `taskLink` and
-        // `quotaSelection` both observe themselves into here, and a navigation
-        // clears one of them on its way to setting the other — so mid-flight
-        // there is a moment with no card that is not a departure. Reading it as
-        // one dropped the held decision in silence, which is the whole thing
-        // this path exists to prevent. Same ordering trap `pendingSessionID` is
-        // assigned last to escape.
-        if taskLink == nil, !isNavigating { withdrawBannerAction() }
     }
 
-    /// Drop a held banner decision and the sentence explaining the last one.
-    /// Only from a settled navigation: while `openSession` waits for a state
-    /// that can place the session there is no card either, and that wait is
-    /// exactly what the patience and its `.noState` ending are for.
+    /// Leaving a card withdraws the banner decision made about it, and takes
+    /// the sentence explaining the last one with it.
+    ///
+    /// The trigger is a card that *was* up going away — not "there is no card
+    /// right now". Those are different, and reading the second as the first
+    /// dropped the tap in silence twice over: `openSession` clears `taskLink`
+    /// and `quotaSelection` on its way to setting the other, so every
+    /// navigation passes through a cardless moment that is not a departure;
+    /// and a hold that is still waiting for the state that can place its
+    /// session has no card yet either, which is what the patience and its
+    /// `.noState` ending are for, not grounds to forget the decision.
     private func withdrawBannerAction() {
         bannerAction = nil
         bannerActionTimeout?.cancel()
@@ -787,7 +779,6 @@ final class WatchStateStore: NSObject, ObservableObject {
             pendingAction = WatchSessionActionState()
         }
         state = next
-        lastInstalledAt = Date()
         pendingAction.reconcile(with: next)
         completionQueue.reconcile(with: next)
         if let pendingSessionID { openSession(pendingSessionID) }

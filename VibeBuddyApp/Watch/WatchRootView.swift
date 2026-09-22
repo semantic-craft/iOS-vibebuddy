@@ -46,7 +46,7 @@ struct WatchRootView: View {
                 if count <= 1, page == .alerts { page = .home }
             }
         } else {
-            WatchNoDataView()
+            WatchNoDataView(fallback: store.bannerActionFallback)
         }
     }
 }
@@ -54,6 +54,11 @@ struct WatchRootView: View {
 /// The Watch has never been told anything. Say that, and say what to do about
 /// it — a placeholder percentage here would be a lie about someone's account.
 struct WatchNoDataView: View {
+    /// A banner button that could not act before any state arrived. The card it
+    /// would normally apologise on does not exist yet, and an error haptic with
+    /// nothing on screen is the silence this whole path exists to end.
+    var fallback: WatchBannerActionFallback?
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -69,6 +74,14 @@ struct WatchNoDataView: View {
                         .font(CompanionType.font(10))
                         .foregroundStyle(CompanionPalette.ink2)
                         .multilineTextAlignment(.center)
+                    if let fallback {
+                        Text(fallback.message)
+                            .font(CompanionType.font(10))
+                            .foregroundStyle(CompanionPalette.status(.requiresInput))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("watch-banner-action-fallback")
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 4)
