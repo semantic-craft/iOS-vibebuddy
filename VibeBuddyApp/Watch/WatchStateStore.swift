@@ -38,8 +38,23 @@ final class WatchStateStore: NSObject, ObservableObject {
     private var retryAfter: [WatchTaskLink: Date] = [:]
     private var retryCount: [WatchTaskLink: Int] = [:]
     /// The one action in flight — approve, deny, or stop — and everything the
-    /// wrist may claim about it.
-    @Published private(set) var pendingAction = WatchSessionActionState()
+    /// wrist may claim about it. When an attempt comes to rest the wrist taps
+    /// once for taken and twice for anything else, so a decision made from a
+    /// banner is felt without reading the card (ADR-0033).
+    @Published private(set) var pendingAction = WatchSessionActionState() {
+        didSet { feelActionOutcome(from: oldValue, to: pendingAction) }
+    }
+    /// A banner button's decision, held until the relayed state can place it
+    /// and the link can carry it. Cleared the moment it is sent, refused, or
+    /// times out.
+    private var bannerAction: WatchBannerAction?
+    private var bannerActionTimeout: Task<Void, Never>?
+    /// When the newest state was installed, so a held banner action can tell a
+    /// state relayed after the tap from the one read off disk at launch.
+    private var lastInstalledAt: Date?
+    /// Why the last banner action was not sent, shown on the card the tap
+    /// opened. Nil once it was sent, or once the card is dismissed.
+    @Published var bannerActionFallback: WatchBannerActionFallback?
     /// Whether the iPhone is in range right now. It is the only way the Watch
     /// can tell "the phone stopped relaying" from "the phone is gone", and it is
     /// read live rather than relayed — a reachability flag inside a payload
@@ -128,9 +143,10 @@ final class WatchStateStore: NSObject, ObservableObject {
             WatchNavigationDiagnostics.shared.record("store.ready")
             activate()
             // A tapped notification names a session; open it here, or as soon
-            // as a state that knows it arrives.
-            WatchNotificationRouter.shared.attach { [weak self] sessionID in
-                self?.openSession(sessionID)
+            // as a state that knows it arrives. A tapped *button* also names
+            // what to do about it.
+            WatchNotificationRouter.shared.attach { [weak self] route in
+                self?.perform(route)
             }
             retryTask = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
@@ -148,6 +164,106 @@ final class WatchStateStore: NSObject, ObservableObject {
         retryTask?.cancel()
         actionReplyTimeout?.cancel()
         activityTimeout?.cancel()
+        bannerActionTimeout?.cancel()
+    }
+
+    // MARK: - Notification routes
+
+    /// Act on a tapped notification: open its session, and when a button was
+    /// tapped, carry that decision through the same path the card's buttons
+    /// use. The card opens first in every case, so whatever happens next is
+    /// happening on a screen the person is looking at.
+    func perform(_ route: WatchNotificationResponseRoute) {
+        guard let sessionID = route.sessionID else { return }
+        bannerActionFallback = nil
+        openSession(sessionID)
+        guard route.isAction else { return }
+        bannerActionTimeout?.cancel()
+        bannerAction = WatchBannerAction(route: route)
+        WatchNavigationDiagnostics.shared.record("banner.action-held")
+        // The relayed state and the phone's reachability arrive moments after a
+        // cold launch; wait for them, but not so long that the tap becomes a
+        // decision about a request the person has stopped looking at.
+        bannerActionTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(WatchBannerAction.patience))
+            guard !Task.isCancelled else { return }
+            self?.settleBannerAction(expired: true)
+        }
+        settleBannerAction(expired: false)
+    }
+
+    /// Try to send the held banner action against what the wrist knows now.
+    /// Runs on every new state and every reachability change until it either
+    /// goes out or is given up with a reason on the card.
+    private func settleBannerAction(expired: Bool) {
+        guard let held = bannerAction else { return }
+        func giveUp(_ reason: WatchBannerActionFallback) {
+            bannerAction = nil
+            bannerActionTimeout?.cancel()
+            bannerActionFallback = reason
+            WatchNavigationDiagnostics.shared.record("banner.action-fallback.\(reason.rawValue)")
+            WatchHapticPlayer.shared.play(WatchHaptics.beats(for: .error), reason: "banner action \(reason.rawValue)")
+        }
+        guard let state, state.sourceID != nil, state.pairingEpoch != nil else {
+            if expired { giveUp(.noState) }
+            return
+        }
+        // The alert the tap named, as the relayed state holds it now. A
+        // decision is bound to its approval id, an answer to the session's
+        // current question — a banner cannot name a question id.
+        let alert: WatchAlert?
+        switch held.route {
+        case .decide(let sessionID, let approvalID, _):
+            alert = state.alerts.first { $0.sessionId == sessionID && $0.approvalId == approvalID }
+        case .answer(let sessionID, _):
+            alert = state.alerts.first { $0.sessionId == sessionID && $0.waitKind == .question }
+        case .open, .ignore:
+            alert = nil
+        }
+        // A cold launch reads yesterday's state off disk first; an alert that
+        // is not in *that* copy may simply not have reached it. Only a state
+        // relayed after the tap — or the patience running out — may say the
+        // request is gone.
+        guard let alert else {
+            if expired || (lastInstalledAt ?? .distantPast) > held.heldAt { giveUp(.noLongerWaiting) }
+            return
+        }
+        switch held.route {
+        case .decide where !alert.isDecidable, .answer where !alert.isAnswerable:
+            giveUp(.notDecidableHere); return
+        default: break
+        }
+        guard isLive(state) else {
+            if expired { giveUp(.linkDown) }
+            return
+        }
+        if pendingAction.isBusy {
+            if expired { giveUp(.busy) }
+            return
+        }
+        bannerAction = nil
+        bannerActionTimeout?.cancel()
+        WatchNavigationDiagnostics.shared.record("banner.action-sent")
+        switch held.route {
+        case .decide(_, _, let choice):
+            submit(alert, choice)
+        case .answer(let sessionID, let text):
+            _ = submitAnswer(sessionId: sessionID, pendingId: alert.pendingId ?? "", text: text)
+        case .open, .ignore:
+            break
+        }
+    }
+
+    /// The tap an attempt earns when it stops travelling. Only a transition out
+    /// of `sending` counts, so a state that merely re-publishes the same phase
+    /// stays quiet, and only while the wrist is looking — `WKInterfaceDevice.
+    /// play` does nothing in the background anyway.
+    private func feelActionOutcome(from old: WatchSessionActionState, to new: WatchSessionActionState) {
+        guard isForeground || isDemo,
+              let attempt = new.action, old.action?.attemptId == attempt.attemptId,
+              old.action?.phase == .sending, attempt.phase != .sending else { return }
+        WatchHapticPlayer.shared.play(WatchHaptics.actionOutcome(attempt.phase),
+                                      reason: "action \(attempt.phase)")
     }
 
     /// The launch input's answer, for the one card in front of the wearer.
@@ -325,6 +441,14 @@ final class WatchStateStore: NSObject, ObservableObject {
         cancelActivityOpen()
         pendingSessionID = nil
         pendingPairingEpoch = nil
+        // Navigating away from the card a banner opened withdraws its held
+        // decision: it was made about a screen no longer in front of anyone.
+        // The sentence on that card leaves with the card.
+        if taskLink == nil {
+            bannerAction = nil
+            bannerActionTimeout?.cancel()
+            bannerActionFallback = nil
+        }
     }
 
     /// Called only by the exact detail body after it has appeared. Viewing is
@@ -635,9 +759,11 @@ final class WatchStateStore: NSObject, ObservableObject {
             pendingAction = WatchSessionActionState()
         }
         state = next
+        lastInstalledAt = Date()
         pendingAction.reconcile(with: next)
         completionQueue.reconcile(with: next)
         if let pendingSessionID { openSession(pendingSessionID) }
+        settleBannerAction(expired: false)
         persistCompletions()
         if let request = completionAttempt,
            request.link.sourceID != next.sourceID || request.link.pairingEpoch != next.pairingEpoch {
@@ -747,6 +873,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         scheduleDiagnostics()
         isPhoneReachable = reachable
         flushCompletions()
+        settleBannerAction(expired: false)
     }
 
     /// Take a payload from the relay. A payload that cannot be decoded leaves

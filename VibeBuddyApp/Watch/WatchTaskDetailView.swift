@@ -1,6 +1,20 @@
 import SwiftUI
 import VibeBuddyKit
 
+extension WatchBannerActionFallback {
+    /// The sentence above the card when a banner button could not act. Each
+    /// one names what to do next; the buttons below are that next thing.
+    var message: LocalizedStringResource {
+        switch self {
+        case .noLongerWaiting: return "The banner's button wasn't sent: this is no longer waiting on you."
+        case .notDecidableHere: return "The banner's button wasn't sent: this request can only be decided on your iPhone or Mac."
+        case .linkDown: return "The banner's button wasn't sent: can't reach your iPhone. Use the buttons here when it's back."
+        case .busy: return "The banner's button wasn't sent: another action is still on its way."
+        case .noState: return "The banner's button wasn't sent: waiting for an update from your iPhone."
+        }
+    }
+}
+
 /// One session, opened on purpose: from a row, a complication, or the tap on
 /// a mirrored notification. The URL's session stays selected even if another
 /// becomes more urgent, and the body is re-read from the live state on every
@@ -31,6 +45,16 @@ struct WatchTaskDetailView: View {
                             .font(CompanionType.font(11)).foregroundStyle(.orange)
                         Button("Retry") { store.refreshTask() }
                     }
+                }
+                // A banner button that could not act says so here, above the
+                // buttons that still can. Never silent: the tap was made.
+                if let fallback = store.bannerActionFallback {
+                    Text(fallback.message)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.status(.requiresInput))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("watch-banner-action-fallback")
                 }
                 if let task = link.task(in: store.state) {
                     taskBody(task)

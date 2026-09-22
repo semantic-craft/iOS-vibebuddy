@@ -9,6 +9,11 @@ enum BannerActionOutcome: Equatable {
 
 /// Maps the three shared action ids onto `DecisionClient`. Default tap stays
 /// in `AppDelegate` — this only handles Approve / Deny / Reply.
+///
+/// Runs only for a button tapped on *this phone's* banner: since ADR-0033 every
+/// action is a foreground action, and Apple runs those where they were tapped,
+/// so a button tapped on the Watch's mirrored copy is handled by the Watch app
+/// and never arrives here.
 enum BannerActionRunner {
     static func perform(
         actionIdentifier: String,

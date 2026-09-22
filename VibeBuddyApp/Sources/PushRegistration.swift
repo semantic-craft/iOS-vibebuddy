@@ -177,9 +177,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             text: text,
             pairing: pairing,
             client: HTTPDecisionClient())
-        if case .openSession(let id) = outcome {
+        // Every banner action is a foreground action (ADR-0033), so this app
+        // is on screen by now. Land on the session either way: after a success
+        // it shows the wait resolving; after a failure it is where the retry
+        // is. A background action's failure used to end here with an `open`
+        // the system ignored, and nothing anywhere said the tap was lost.
+        let sessionID: String?
+        switch outcome {
+        case .openSession(let id): sessionID = id
+        case .ignored: sessionID = userInfo[NotificationUserInfoKey.sessionId]
+        }
+        if let sessionID, !sessionID.isEmpty {
             await MainActor.run {
-                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: sessionID))
             }
         }
     }

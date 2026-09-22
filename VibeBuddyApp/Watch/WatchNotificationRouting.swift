@@ -3,32 +3,76 @@ import UserNotifications
 import VibeBuddyKit
 import WatchKit
 
-/// Where a tapped notification lands.
+/// Where a tapped notification lands, and what its buttons do.
 ///
-/// Notifications are mirrored from the iPhone. Foreground actions run where
-/// selected; background actions belong to the notification's original target.
-/// The default tap is expected to open this app, and
-/// without a delegate it opens on whatever the home screen happens to lead
-/// with. That is fine with one thing waiting and wrong with three: the buzz was
-/// about a session, so the screen it opens should be that session's.
+/// Notifications are mirrored from the iPhone. Apple runs a *foreground*
+/// action on the device where it was tapped and a *background* action on the
+/// device the notification was sent to — the iPhone, always, for anything the
+/// wrist sees. Every action the iPhone registers is a foreground action
+/// (ADR-0033), so a tap on Approve here launches this app and arrives in this
+/// delegate, where it is mapped (`WatchNotificationResponseRoute`) onto the
+/// same `WatchSessionActionRequest` path the card's own buttons use. The
+/// outcome — sent, taken, failed — is shown on the card that opens, with a
+/// tap, exactly as a card-initiated action is. A background action would have
+/// run on a phone in a pocket, out of sight, and its failure would have been
+/// invisible from the wrist: that was the shape of the 2026-09-22 rounds in
+/// which Approve on the banner never reached the Mac.
+///
+/// The default tap opens the session the buzz was about; without a delegate it
+/// would open on whatever the home screen happens to lead with, which is fine
+/// with one thing waiting and wrong with three.
 ///
 /// The delegate is registered at launch, before any scene exists, and the
 /// store may not exist yet either (a cold launch from a notification). So the
-/// router holds the session id until the main window is active. The window
+/// router holds the route until the main window is active. The window
 /// refreshes the relayed state before it lets the router present the target.
 /// The app delegate exists for one reason: to be the notification centre's
 /// delegate from the first moment of the process, which a SwiftUI scene cannot
 /// promise.
 final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching() {
-        UNUserNotificationCenter.current().delegate = self
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.setNotificationCategories(Self.categories())
         Task { @MainActor in WatchNavigationDiagnostics.shared.record("delegate.ready") }
     }
 
-    /// The default tap on a mirrored notification. Only the session id is
-    /// read from it — the notification's userInfo is data, not instructions,
-    /// and the store re-derives everything about that session from the
-    /// relayed state before it draws a single button.
+    /// The same two categories the iPhone registers (`LocalNotifier.
+    /// registerCategories`), with the same identifiers and the same foreground
+    /// option. A mirrored notification draws the iPhone's actions; this
+    /// registration is what an independent watchOS delivery would draw, and it
+    /// must not disagree with the phone's about what a button means.
+    static func categories() -> Set<UNNotificationCategory> {
+        let approve = UNNotificationAction(
+            identifier: NotificationActionID.approve.rawValue,
+            title: String(localized: "Approve"),
+            options: [.authenticationRequired, .foreground])
+        let deny = UNNotificationAction(
+            identifier: NotificationActionID.deny.rawValue,
+            title: String(localized: "Deny"),
+            options: [.destructive, .foreground])
+        let approval = UNNotificationCategory(
+            identifier: NotificationCategoryID.approval.rawValue,
+            actions: [approve, deny],
+            intentIdentifiers: [])
+        let reply = UNTextInputNotificationAction(
+            identifier: NotificationActionID.answer.rawValue,
+            title: String(localized: "Reply"),
+            options: [.foreground],
+            textInputButtonTitle: String(localized: "Send"),
+            textInputPlaceholder: String(localized: "Answer"))
+        let question = UNNotificationCategory(
+            identifier: NotificationCategoryID.question.rawValue,
+            actions: [reply],
+            intentIdentifiers: [])
+        return [approval, question]
+    }
+
+    /// A tap on a mirrored notification — its body, or one of its buttons.
+    /// Only the session id and the approval id are read from it: the
+    /// notification's userInfo is data, not instructions, and the store
+    /// re-derives everything about that session from the relayed state before
+    /// it draws a single button or sends a single message.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -36,18 +80,22 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     ) {
         // Complete the OS callback independently of main-window presentation.
         // Extract Sendable values before crossing to the UI actor.
-        let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
-        let sessionID = response.notification.request.content.userInfo[NotificationUserInfoKey.sessionId] as? String
+        let actionIdentifier = response.actionIdentifier
+        let isDismiss = actionIdentifier == UNNotificationDismissActionIdentifier
+        let action = NotificationActionID(rawValue: actionIdentifier)
+        let userInfo = response.notification.request.content.userInfo
+        let sessionID = userInfo[NotificationUserInfoKey.sessionId] as? String
+        let approvalID = userInfo[NotificationUserInfoKey.approvalId] as? String
+        let userText = (response as? UNTextInputNotificationResponse)?.userText
         Task { @MainActor in
             // Save the target before releasing the OS background execution
             // opportunity. This does not wait for a window or navigation.
             defer { completionHandler() }
-            WatchNavigationDiagnostics.shared.record(isDefault ? "notification.default" : "notification.action")
-            guard isDefault else { return }
-            guard let sessionID, !sessionID.isEmpty else {
-                WatchNavigationDiagnostics.shared.record("notification.missing-target")
-                return
-            }
+            let route = WatchNotificationResponseRoute.resolve(action: action, isDismiss: isDismiss,
+                                                               sessionID: sessionID, approvalID: approvalID,
+                                                               userText: userText)
+            WatchNavigationDiagnostics.shared.record(Self.diagnostic(for: route, action: action))
+            guard let sessionID = route.sessionID else { return }
             if let state = WatchComplicationStore.loadState()?.state,
                let source = state.sourceID, let epoch = state.pairingEpoch {
                 let intent = WatchNotificationIntent(link: WatchTaskLink(sourceID: source,
@@ -57,8 +105,21 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
                     WatchNavigationDiagnostics.shared.record("notification.target-saved")
                 }
             }
-            WatchNotificationRouter.shared.open(sessionID: sessionID)
+            WatchNotificationRouter.shared.route(route)
             WatchNavigationDiagnostics.shared.record("notification.target-enqueued")
+        }
+    }
+
+    /// Content-free lifecycle evidence: which kind of tap arrived, never what
+    /// it was about.
+    private static func diagnostic(for route: WatchNotificationResponseRoute,
+                                   action: NotificationActionID?) -> String {
+        switch route {
+        case .open where action == nil: return "notification.default"
+        case .open: return "notification.action-opens"
+        case .decide: return "notification.action-decide"
+        case .answer: return "notification.action-answer"
+        case .ignore: return action == nil ? "notification.missing-target" : "notification.action-ignored"
         }
     }
 
