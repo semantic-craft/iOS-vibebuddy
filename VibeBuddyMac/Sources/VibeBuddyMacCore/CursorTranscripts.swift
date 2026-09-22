@@ -48,10 +48,14 @@ public enum CursorTranscripts {
         }
     }
 
-    /// Every transcript under `root`, newest first.
+    /// Every transcript under `root`, newest first. `projectPath` turns a
+    /// flattened directory name into the checkout it stands for; a caller that
+    /// polls passes a memoised one, since the answer only changes when a
+    /// project is created or deleted.
     public static func discover(
         root: URL = projectsRoot(),
-        fileManager fm: FileManager = .default
+        fileManager fm: FileManager = .default,
+        projectPath resolve: ((String) -> String?)? = nil
     ) -> [Located] {
         guard let projects = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil,
                                                          options: [.skipsHiddenFiles]) else { return [] }
@@ -61,7 +65,8 @@ public enum CursorTranscripts {
             guard let entries = try? fm.contentsOfDirectory(
                 at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
             ) else { continue }
-            let path = projectPath(forDirectoryName: project.lastPathComponent, fileManager: fm)
+            let path = if let resolve { resolve(project.lastPathComponent) }
+                       else { projectPath(forDirectoryName: project.lastPathComponent, fileManager: fm) }
             for entry in entries {
                 // `<id>/<id>.jsonl` (3.x) and a flat `<id>.jsonl` (older) both count.
                 let candidates: [URL] = entry.pathExtension == "jsonl"

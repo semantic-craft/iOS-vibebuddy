@@ -29,6 +29,35 @@ public actor CursorTranscriptMonitor {
     private let interval: Duration
     private var cursors: [String: Cursor] = [:]   // keyed by file path
     private var pathsBySession: [String: String] = [:]
+    /// Flattened directory name → resolved checkout, remembered for a while.
+    /// Resolving probes the file system once per `-` in the name, for every
+    /// project directory, on every 2 s pass. Only an answer that read every
+    /// `-` as a path separator is kept: it is the preferred reading and can
+    /// only stop being true by deletion, which `resolveTTL` bounds. A miss,
+    /// and a path that folded a hyphen into a component (which a directory
+    /// created later would outrank), are resolved again on every pass.
+    private var projectPaths: [String: (path: String, at: Date)] = [:]
+    static let resolveTTL: TimeInterval = 600
+
+    private func discover(now: Date) -> [CursorTranscripts.Located] {
+        var fresh: [String: String] = [:]
+        let located = CursorTranscripts.discover(root: root) { [projectPaths] name in
+            if let cached = projectPaths[name], now.timeIntervalSince(cached.at) < Self.resolveTTL {
+                return cached.path
+            }
+            let path = CursorTranscripts.projectPath(forDirectoryName: name)
+            if let path, Self.isSeparatorOnly(name: name, path: path) { fresh[name] = path }
+            return path
+        }
+        for (name, path) in fresh { projectPaths[name] = (path, now) }
+        return located
+    }
+
+    /// Every `-` in the name became a `/`: the components count matches.
+    static func isSeparatorOnly(name: String, path: String) -> Bool {
+        name.split(separator: "-", omittingEmptySubsequences: false).count
+            == path.split(separator: "/", omittingEmptySubsequences: false).dropFirst().count
+    }
 
     public init(root: URL = CursorTranscripts.projectsRoot(),
                 interval: Duration = .seconds(2)) {
@@ -58,7 +87,7 @@ public actor CursorTranscriptMonitor {
     /// Returns how many files are now being tailed (for tests and diagnostics).
     @discardableResult
     public func seed(now: Date) -> Int {
-        for located in CursorTranscripts.discover(root: root) {
+        for located in discover(now: now) {
             guard cursors[located.url.path] == nil else { continue }
             cursors[located.url.path] = Cursor(
                 offset: UInt64(max(0, located.size)),
@@ -74,7 +103,7 @@ public actor CursorTranscriptMonitor {
     /// transcripts, from their first byte) and turn them into events.
     public func poll(now: Date) -> [HookEvent] {
         var events: [HookEvent] = []
-        for located in CursorTranscripts.discover(root: root).reversed() {
+        for located in discover(now: now).reversed() {
             let key = located.url.path
             var cursor = cursors[key] ?? Cursor(
                 offset: 0, conversationID: located.conversationID,

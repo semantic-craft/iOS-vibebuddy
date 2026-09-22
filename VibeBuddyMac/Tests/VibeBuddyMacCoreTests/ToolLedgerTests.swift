@@ -3,6 +3,41 @@ import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
 final class ToolLedgerTests: XCTestCase {
+    /// An agent mid-task observes several tool calls a second; the sidecar is
+    /// written once per window, the change inside it goes out with the next
+    /// prune or observation after the window, and nothing is lost.
+    func testWritesAtMostOncePerWindowAndFlushesAfterwards() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("ledger.json")
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        var ledger = ToolLedger(url: url, now: t0)
+        for i in 0..<5 {
+            let record = ToolCallRecord(id: "t\(i)", tool: "Bash", result: .succeeded,
+                                        observedAt: t0.addingTimeInterval(Double(i) * 0.1), source: "hook")
+            ledger.observe(record, sessionID: "s", now: t0.addingTimeInterval(Double(i) * 0.1))
+        }
+        XCTAssertEqual(ledger.writeCount, 1)
+        XCTAssertEqual(ToolLedger(url: url, now: t0).sessions["s"]?.count, 1)  // only the first made it to disk so far
+
+        XCTAssertTrue(ledger.needsTrailingWrite)
+        // Inside the window a prune writes nothing, whatever `now` says — the
+        // anchor is monotonic, so an older event timestamp cannot reopen it.
+        ledger.prune(now: t0.addingTimeInterval(-60))
+        XCTAssertEqual(ledger.writeCount, 1)
+
+        // Once the window has passed, the next prune writes the rest.
+        Thread.sleep(forTimeInterval: ToolLedger.writeInterval)
+        ledger.prune(now: t0.addingTimeInterval(1))
+        XCTAssertEqual(ledger.writeCount, 2)
+        XCTAssertFalse(ledger.needsTrailingWrite)
+        XCTAssertEqual(ToolLedger(url: url, now: t0).sessions["s"]?.count, 5)
+
+        // Nothing pending: a prune writes nothing.
+        ledger.prune(now: t0.addingTimeInterval(2))
+        XCTAssertEqual(ledger.writeCount, 2)
+    }
+
     func testRepeatedObservationRetriesFailedPersistence() throws {
         let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: parent) }
@@ -54,6 +89,10 @@ final class ToolLedgerTests: XCTestCase {
         try initial.write(to: url)
         var ledger = ToolLedger(url: url, now: now)
         for index in 35..<50 { ledger.observe(record(index, session: 3), sessionID: "s3", now: now) }
+        // Writes are one per window; the next snapshot pass after it flushes
+        // the rest, and the cap is applied on that write.
+        Thread.sleep(forTimeInterval: ToolLedger.writeInterval)
+        ledger.prune(now: now)
         XCTAssertNil(ledger.sessions["s0"])
         XCTAssertEqual(ledger.sessions["s3"]?.count, 50)
         XCTAssertLessThanOrEqual(try Data(contentsOf: url).count, 8_000_000)
