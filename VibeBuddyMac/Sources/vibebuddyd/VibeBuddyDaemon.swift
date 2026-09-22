@@ -34,14 +34,16 @@ struct VibeBuddyDaemon {
         let registryURL = env["VIBEBUDDY_DEVICE_REGISTRY_PATH"].map {
             URL(fileURLWithPath: $0)
         } ?? DeviceRegistryLocation.defaultURL()
-        let deviceTokens = DeviceTokens(url: registryURL)
+        let apnsConfig = APNsConfig.load()
+        let deliveryRecorder = NotificationDeliveryRecorder(
+            url: deliveryURL, apnsConfigured: apnsConfig != nil)
+        // A phone Apple keeps refusing is stood down here, with one `pruned`
+        // row in the delivery ledger instead of a `failed` per push.
+        let deviceTokens = DeviceTokens(url: registryURL, recorder: deliveryRecorder)
         if arguments.contains("--pair") {
             await deviceTokens.acceptNewRegistrations()
             FileHandle.standardError.write(Data("Pairing enabled for 120 seconds. Enter this Mac's address and token on the phone.\n".utf8))
         }
-        let apnsConfig = APNsConfig.load()
-        let deliveryRecorder = NotificationDeliveryRecorder(
-            url: deliveryURL, apnsConfigured: apnsConfig != nil)
         // Phones report the cues they posted themselves here; the pusher stands
         // its own push down for those (ADR-0012).
         let phoneReceipts = PhoneReceipts(recorder: deliveryRecorder)
