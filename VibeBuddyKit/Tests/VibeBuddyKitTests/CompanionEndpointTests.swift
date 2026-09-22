@@ -2,10 +2,6 @@ import Foundation
 import Testing
 @testable import VibeBuddyKit
 
-private extension String {
-    func repeated(_ count: Int) -> String { String(repeating: self, count: count) }
-}
-
 @Suite("Companion addresses")
 struct CompanionEndpointTests {
     @Test func headscaleAddressRetainsPairing() throws {
@@ -53,15 +49,23 @@ struct CompanionEndpointTests {
         #expect(CompanionEndpoint.normalizedHost(blob) == nil)
         #expect(CompanionEndpoint(host: blob, port: 9876) == nil)
 
+        // The blob is long enough that the length cap alone would reject it,
+        // so pin the character rules too, on a short excerpt of the same
+        // script: otherwise this passes even if the per-label check is gone.
+        #expect(blob.count > 253)
+        let excerpt = "zotero-bridge@glaux.local"
+        #expect(excerpt.count < 253)
+        #expect(CompanionEndpoint.normalizedHost(excerpt) == nil)
+
         let lan = PairingPayload(host: "192.168.1.20", port: 9876, token: "fixture", macName: "Home Mac")
         #expect(lan.usingTailnetIPv4(blob, port: 9876) == nil)
         let advertised = PairingPayload(host: blob, port: 9876, token: "fixture", macName: "Home Mac")
         #expect(!advertised.isValidConnection)
         #expect(advertised.companionURL(path: "ws", webSocket: true) == nil)
 
-        // The shape, not just this one string: a single hostile line, and a
-        // host under the length cap that still cannot be one.
-        for host in ["a".repeated(254), "echo hi", "100.64.0.8 && curl evil.example", "100.64.0.8\nrm -rf /"] {
+        // The shape, not just this one string: over the length cap, and well
+        // under it but still impossible.
+        for host in [String(repeating: "a", count: 254), "echo hi", "100.64.0.8 && curl evil.example", "100.64.0.8\nrm -rf /"] {
             #expect(CompanionEndpoint.normalizedHost(host) == nil, "accepted: \(host)")
         }
     }
