@@ -148,6 +148,56 @@ final class RemoteConnectionAttemptTests: XCTestCase {
         XCTAssertEqual(connection.pairing, replacement)
     }
 
+    /// The pairing-QR sheet runs the scanned payload through the same check.
+    /// When that check cannot reach the Mac the sheet says "Your saved pairing
+    /// has not changed" — this is what makes that sentence true, in memory and
+    /// on disk, and it must not leave the store looking like a failed load.
+    func testScannedCodeThatFailsItsCheckLeavesTheSavedMacAlone() async throws {
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let connection = ConnectionStore(defaults: defaults, protectedDataAvailable: { true })
+        let original = PairingPayload(host: "192.168.1.20", port: 9876, token: "old", macName: "Studio")
+        connection.save(original)
+        let scanned = PairingPayload(host: "192.168.1.30", port: 9876, token: "scanned", macName: "Other")
+
+        let streamers: [any SnapshotStreaming] = [EmptyStreamer(), RejectedStream()]
+        for streamer in streamers {
+            let check = RemoteConnectionAttempt()
+            var completed = false
+            check.start(scanned, connection: connection, streamer: streamer) { completed = true }
+            try await waitUntil { !check.isChecking }
+            XCTAssertFalse(completed)
+            XCTAssertEqual(connection.pairing, original)
+            XCTAssertNil(connection.loadFailure)
+            XCTAssertEqual(try JSONDecoder().decode(PairingPayload.self, from: XCTUnwrap(defaults.data(forKey: "vibebuddy.pairing"))), original)
+        }
+    }
+
+    /// Dismissing the sheet mid-check (Cancel, or a swipe away) cancels it. The
+    /// saved Mac survives that too, and a late snapshot cannot revive the scan.
+    func testCancellingTheScanSheetKeepsTheSavedMac() async throws {
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let connection = ConnectionStore(defaults: defaults, protectedDataAvailable: { true })
+        let original = PairingPayload(host: "192.168.1.20", port: 9876, token: "old")
+        connection.save(original)
+        let stream = HeldRemoteStream()
+        let check = RemoteConnectionAttempt()
+        var completed = false
+        check.start(PairingPayload(host: "192.168.1.30", port: 9876, token: "scanned"),
+                    connection: connection, streamer: stream) { completed = true }
+        try await waitUntil { stream.started }
+        check.cancel()
+        stream.deliver()
+        await Task.yield()
+        XCTAssertEqual(check.phase, .idle)
+        XCTAssertFalse(completed)
+        XCTAssertEqual(connection.pairing, original)
+        XCTAssertEqual(try JSONDecoder().decode(PairingPayload.self, from: XCTUnwrap(defaults.data(forKey: "vibebuddy.pairing"))), original)
+    }
+
     func testSavedPairingChangeDuringCheckIsNotOverwritten() async throws {
         let connection = ConnectionStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let stream = HeldRemoteStream()

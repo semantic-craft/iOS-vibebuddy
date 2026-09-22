@@ -60,6 +60,7 @@ struct ConnectView: View {
                         .font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink2)
                 }
                 VStack(spacing: 16) {
+                    if let failure = connection.loadFailure { savedPairingNotice(failure) }
                     installStep
                     pairStep
 
@@ -107,6 +108,28 @@ struct ConnectView: View {
             }
             .presentationDetents([.medium, .large])
         }
+    }
+
+    /// A Mac is saved on this phone and this launch could not read it back.
+    /// Saying so — with a retry — keeps the screen honest: scanning again is
+    /// the way out, but the phone is not the new one this screen assumes.
+    private func savedPairingNotice(_ failure: ConnectionStore.LoadFailure) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Your saved Mac could not be read", systemImage: "exclamationmark.triangle")
+                .font(CompanionType.font(15, .medium))
+            Text(failure == .protectedDataUnavailable
+                 ? LocalizedStringKey("This phone was still locked when VibeBuddy started. Unlock it and try again — the saved Mac has not been removed.")
+                 : LocalizedStringKey("The saved connection did not load. Try again, or scan your Mac's code below to replace it."))
+                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Try again") { connection.reloadSavedPairing() }
+                .buttonStyle(PhoneButtonStyle(kind: .soft, size: .small))
+                .accessibilityIdentifier("connect-retry-saved-pairing")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .companionCard()
+        .accessibilityIdentifier("connect-saved-pairing-notice")
     }
 
     /// Step 1: get the DMG onto the Mac. The phone cannot install it, so the
