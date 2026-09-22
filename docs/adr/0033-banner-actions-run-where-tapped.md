@@ -104,10 +104,24 @@ banner: a background POST that fails leaves no trace.
 
    **Residual.** Between the tap and the first relayed state the wrist has only
    its disk cache, which `WatchStoredState` strips of every id, so no binding
-   can be made from it. Closing the window entirely needs the question's id in
-   the notification payload the way `approvalId` already travels — an APNs,
-   Mac-notifier and phone-notifier change, tracked separately rather than
-   coupled to this Watch fix.
+   can be made from it: a question that changed inside that gap is inherited
+   silently.
+
+   The binding is therefore taken from the first *relayed* state, not the first
+   state that passes the evidence guard. That distinction is the whole
+   mitigation. `isLive` requires the phone to be reachable, and an unreachable
+   stretch is exactly when a hold waits — so binding behind that guard let
+   snapshots arrive, none of them able to bind, until the phone returned and
+   the first settle took whatever was being asked *by then* as first sight.
+   That moved the window rather than closing it, and stretched it to the full
+   patience. Real ids do not depend on the phone being reachable this instant;
+   only sending does.
+
+   Closing the gap that remains needs the question's id in the notification
+   payload the way `approvalId` already travels — an APNs, Mac-notifier and
+   phone-notifier change, tracked separately rather than coupled to this Watch
+   fix. Until then the wrist refuses rather than guesses whenever the binding
+   and the live question disagree.
 
 ## Alternatives rejected
 

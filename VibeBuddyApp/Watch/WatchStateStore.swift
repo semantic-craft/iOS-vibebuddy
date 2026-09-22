@@ -246,6 +246,22 @@ final class WatchStateStore: NSObject, ObservableObject {
         //
         // So: wait for a state that came over the link from a connected relay.
         // Only that state may place the request, refuse it, or say it ended.
+        //
+        // Binding a reply to its question is the exception, and it happens
+        // first. Any relayed state carries real ids; whether the phone is
+        // reachable *right now* is about whether a message can travel, not
+        // about whether those ids are true. Requiring a live link to bind
+        // reopened the very window the binding exists to close: while the
+        // phone was away, snapshots kept arriving and none of them could bind,
+        // so the first settle after the phone returned took whatever was being
+        // asked by then as "first sight" and sent the dictation to it. Binding
+        // sends nothing by itself, and a state with no id to bind (the cache,
+        // or a preserved payload built from it) binds nothing.
+        if hasRelayedState, case .answer(let sessionID, _) = held.route,
+           bannerAction?.boundPendingID == nil {
+            let asking = state.alerts.first { $0.sessionId == sessionID && $0.waitKind == .question }
+            _ = bannerAction?.bindsAnswer(to: asking?.pendingId)
+        }
         guard hasRelayedState, isLive(state) else {
             if expired { giveUp(waitingReason(for: state)) }
             return
