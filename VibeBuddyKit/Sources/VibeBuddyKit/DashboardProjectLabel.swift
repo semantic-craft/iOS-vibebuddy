@@ -4,7 +4,27 @@ public struct DashboardProjectLabel: Equatable, Sendable {
     public let title: String
     public let parentPath: String?
 
+    /// Pure over its input, and every dashboard body asks for the same
+    /// project list several times per evaluation: the last answer is kept.
+    private static let memo = Memo()
+    private final class Memo: @unchecked Sendable {
+        private let lock = NSLock()
+        private var key: [String] = []
+        private var value: [String: DashboardProjectLabel]?
+        func labels(for projects: [String], compute: ([String]) -> [String: DashboardProjectLabel]) -> [String: DashboardProjectLabel] {
+            lock.lock(); defer { lock.unlock() }
+            if let value, key == projects { return value }
+            let computed = compute(projects)
+            key = projects; value = computed
+            return computed
+        }
+    }
+
     public static func labels(for projects: [String]) -> [String: Self] {
+        memo.labels(for: projects, compute: compute)
+    }
+
+    private static func compute(_ projects: [String]) -> [String: Self] {
         var labels: [String: Self] = [:]
         var groups: [String: [(path: String, parent: String, suffixes: [String])]] = [:]
         for project in Set(projects) {

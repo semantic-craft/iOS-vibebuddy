@@ -153,10 +153,42 @@ struct DashboardView: View {
         _reader = StateObject(wrappedValue: SessionReaderModel(history: history, model: model))
     }
 
+    /// One body evaluation reads the projection many times, and only the
+    /// inputs decide it; the last one is kept until an input changes.
+    @State private var projectionCache = ProjectionCache()
+
     private var projection: DashboardSessionList {
-        DashboardSessionList(model.sessions, project: projectScope, status: statusFilter,
-                             agent: agentFilter, query: query, selection: selection, showOlder: showOlder,
-                             recentDirectories: model.recentDirectories)
+        projectionCache.value(sessions: model.sessions, project: projectScope, status: statusFilter,
+                              agent: agentFilter, query: query, selection: selection, showOlder: showOlder,
+                              recentDirectories: model.recentDirectories)
+    }
+
+    final class ProjectionCache {
+        private struct Key: Equatable {
+            var sessions: [AgentSession]
+            var project: DashboardSessionList.ProjectScope
+            var status: DashboardSessionList.StatusFilter?
+            var agent: AgentKind?
+            var query: String
+            var selection: String?
+            var showOlder: Bool
+            var recentDirectories: [String]
+        }
+        private var key: Key?
+        private var value: DashboardSessionList?
+
+        func value(sessions: [AgentSession], project: DashboardSessionList.ProjectScope,
+                   status: DashboardSessionList.StatusFilter?, agent: AgentKind?, query: String,
+                   selection: String?, showOlder: Bool, recentDirectories: [String]) -> DashboardSessionList {
+            let next = Key(sessions: sessions, project: project, status: status, agent: agent, query: query,
+                           selection: selection, showOlder: showOlder, recentDirectories: recentDirectories)
+            if let value, key == next { return value }
+            let computed = DashboardSessionList(sessions, project: project, status: status, agent: agent,
+                                                query: query, selection: selection, showOlder: showOlder,
+                                                recentDirectories: recentDirectories)
+            key = next; value = computed
+            return computed
+        }
     }
     private func subject(for session: AgentSession) -> ReaderSubject {
         let record = SessionReaderSource.recordID(for: session).flatMap { id in history.snapshot.sessions.first { $0.id == id } }

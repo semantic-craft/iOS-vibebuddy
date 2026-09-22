@@ -301,6 +301,16 @@ public enum GrokSessionReader {
     // MARK: - Helpers
 
     /// The last `maxBytes` of a file, or nil when it cannot be read.
+    /// Size and mtime of the files `read` looks at; equal stamps mean an equal
+    /// snapshot, so a caller that is told about every event can skip the read.
+    public static func stamp(directory: URL) -> [String] {
+        ["summary.json", "signals.json", "updates.jsonl", "events.jsonl"].map { name in
+            guard let values = try? directory.appendingPathComponent(name)
+                .resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return "missing" }
+            return "\(values.fileSize ?? -1)/\(values.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        }
+    }
+
     static func tail(at url: URL, maxBytes: Int) -> Data? {
         guard let handle = FileHandle(forReadingAtPath: url.path) else { return nil }
         defer { try? handle.close() }

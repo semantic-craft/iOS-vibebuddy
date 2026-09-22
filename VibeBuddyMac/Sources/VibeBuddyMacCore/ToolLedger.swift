@@ -7,6 +7,14 @@ struct ToolLedger: Sendable {
     private(set) var sessions: [String: [ToolCallRecord]] = [:]
     private let url: URL?
     private var persistencePending = false
+    /// The whole sidecar is re-encoded on every write, and an agent mid-task
+    /// observes several tool calls a second; one write per window is enough
+    /// for a recovery aid. A change inside the window is written by the next
+    /// `prune(now:)` (every snapshot) or the next observation after it.
+    static let writeInterval: TimeInterval = 2
+    private var lastWriteAt: Date?
+    /// Files actually written. Exposed for tests.
+    private(set) var writeCount = 0
     init(url: URL?, now: Date) {
         self.url = url
         if let url, let data = try? Data(contentsOf: url), data.count <= 8_000_000,
@@ -30,15 +38,15 @@ struct ToolLedger: Sendable {
         } else { records.append(record) }
         let retained = Array(records.suffix(50))
         guard retained != sessions[sessionID] else {
-            if pruneRetained(now: now) || persistencePending { persist() }
+            if pruneRetained(now: now) || persistencePending { persist(now: now) }
             return
         }
         sessions[sessionID] = retained
         _ = pruneRetained(now: now)
-        persist()
+        persist(now: now)
     }
     mutating func prune(now: Date) {
-        if pruneRetained(now: now) { persist() }
+        if pruneRetained(now: now) || persistencePending { persist(now: now) }
     }
     private mutating func pruneRetained(now: Date) -> Bool {
         let previous = sessions
@@ -56,8 +64,9 @@ struct ToolLedger: Sendable {
         persistencePending = false
         return true
     }
-    private mutating func persist() {
+    private mutating func persist(now: Date) {
         persistencePending = url != nil
+        if let last = lastWriteAt, now.timeIntervalSince(last) < Self.writeInterval, now >= last { return }
         // Bound the entire sidecar as well as each session. Drop oldest sessions
         // before serializing beyond the read cap; retained scope is shown in UI.
         guard var data = try? JSONEncoder().encode(sessions) else { return }
@@ -73,6 +82,8 @@ struct ToolLedger: Sendable {
             try data.write(to: url, options: [.atomic])
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             persistencePending = false
+            lastWriteAt = now  // a failed write keeps the window open for the retry
+            writeCount += 1
         } catch {}
     }
     func applying(to input: AgentSession) -> AgentSession {

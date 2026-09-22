@@ -233,6 +233,9 @@ public actor SessionStore {
     /// with the daemon, so nothing here outlives it either.
     private var acpHosted: Set<String> = []
     private var acpRecoveryRows: [String: AgentSession] = [:]
+    /// Last Grok session directory read per path, with the file stamps it was
+    /// read at. See `enrichFromGrokSession`.
+    private var grokReads: [String: (stamp: [String], snapshot: GrokSessionReader.Snapshot)] = [:]
 
     public func registerACPRecovery(sessionID: String, cwd: String, model: String?, unavailable: String?, updatedAt: Date, retryable: Bool = false) {
         var row = AgentSession(id: sessionID, agent: .cursor, project: cwd, checkoutPath: cwd,
@@ -1175,7 +1178,17 @@ public actor SessionStore {
                                   at: event.timestamp, health: health)
         recordSignal(agent: .grok, source: .transcript, at: event.timestamp,
                      health: health, coverage: .turn)
-        guard let snapshot = GrokSessionReader.read(directory: directory) else { return }
+        // Every hook event lands here, and a Grok turn emits several a second;
+        // the directory only needs re-reading when one of its files moved.
+        let stamp = GrokSessionReader.stamp(directory: directory)
+        let snapshot: GrokSessionReader.Snapshot
+        if let cached = grokReads[directory.path], cached.stamp == stamp {
+            snapshot = cached.snapshot
+        } else {
+            guard let fresh = GrokSessionReader.read(directory: directory) else { return }
+            grokReads[directory.path] = (stamp, fresh)
+            snapshot = fresh
+        }
         enrichSession(sessionID: event.sessionID, with: snapshot.info)
 
         // The hook path is authoritative on a child's *state*: `SubagentStop`

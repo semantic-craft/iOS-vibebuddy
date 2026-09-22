@@ -29,6 +29,26 @@ public actor CursorTranscriptMonitor {
     private let interval: Duration
     private var cursors: [String: Cursor] = [:]   // keyed by file path
     private var pathsBySession: [String: String] = [:]
+    /// Flattened directory name → resolved checkout, remembered for a while.
+    /// Resolving probes the file system once per `-` in the name, for every
+    /// project directory, on every 2 s pass; the answer only changes when a
+    /// checkout appears or disappears, so a miss is re-tried after `resolveTTL`.
+    private var projectPaths: [String: (path: String?, at: Date)] = [:]
+    static let resolveTTL: TimeInterval = 600
+
+    private func discover(now: Date) -> [CursorTranscripts.Located] {
+        var fresh: [String: String?] = [:]
+        let located = CursorTranscripts.discover(root: root) { [projectPaths] name in
+            if let cached = projectPaths[name], now.timeIntervalSince(cached.at) < Self.resolveTTL {
+                return cached.path
+            }
+            let path = CursorTranscripts.projectPath(forDirectoryName: name)
+            fresh[name] = path
+            return path
+        }
+        for (name, path) in fresh { projectPaths[name] = (path, now) }
+        return located
+    }
 
     public init(root: URL = CursorTranscripts.projectsRoot(),
                 interval: Duration = .seconds(2)) {
@@ -58,7 +78,7 @@ public actor CursorTranscriptMonitor {
     /// Returns how many files are now being tailed (for tests and diagnostics).
     @discardableResult
     public func seed(now: Date) -> Int {
-        for located in CursorTranscripts.discover(root: root) {
+        for located in discover(now: now) {
             guard cursors[located.url.path] == nil else { continue }
             cursors[located.url.path] = Cursor(
                 offset: UInt64(max(0, located.size)),
@@ -74,7 +94,7 @@ public actor CursorTranscriptMonitor {
     /// transcripts, from their first byte) and turn them into events.
     public func poll(now: Date) -> [HookEvent] {
         var events: [HookEvent] = []
-        for located in CursorTranscripts.discover(root: root).reversed() {
+        for located in discover(now: now).reversed() {
             let key = located.url.path
             var cursor = cursors[key] ?? Cursor(
                 offset: 0, conversationID: located.conversationID,
