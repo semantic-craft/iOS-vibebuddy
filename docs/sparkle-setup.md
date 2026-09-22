@@ -152,10 +152,12 @@ The installed copy therefore proves nothing about what shipped. Check the
 published asset instead:
 
 ```bash
-gh release download v<version> -p 'vibebuddy-mac-v<version>.dmg'
+# --repo is required: you are in a temp dir, not the checkout.
+gh release download v<version> --repo semantic-craft/iOS-vibebuddy \
+  -p 'vibebuddy-mac-v<version>.dmg'
 stapler validate vibebuddy-mac-v<version>.dmg   # The validate action worked!
 
-hdiutil attach vibebuddy-mac-v<version>.dmg     # mounts /Volumes/vibebuddy <version>
+hdiutil attach -nobrowse vibebuddy-mac-v<version>.dmg   # /Volumes/vibebuddy <version>
 spctl -a -vv "/Volumes/vibebuddy <version>/VibeBuddyMacApp.app"
 # accepted, source=Notarized Developer ID
 hdiutil detach "/Volumes/vibebuddy <version>"
@@ -167,8 +169,9 @@ user's Mac, so validate the file users download.
 
 ## Per release
 
-1. Confirm no other session is mid real-device acceptance — step 7 replaces the
-   shared app (§ The installed app is shared).
+1. Confirm no other session is mid real-device acceptance (§ The installed app
+   is shared), and check again at step 7 — steps 4 and 5 take about an hour
+   between them, which is long enough for a peer to start a device run.
 2. Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
    `VibeBuddyMacApp/project.yml`. Sparkle compares `CURRENT_PROJECT_VERSION`
    (`CFBundleVersion`), so it **must** increase or installed copies will not see the
@@ -177,8 +180,13 @@ user's Mac, so validate the file users download.
 4. `tools/release-mac.sh`
 5. Run the two publish commands it prints.
 6. Validate the published DMG (§ Verify the DMG, not the installed copy).
-7. Check for Updates… from an older installed copy, and confirm it offers and
-   installs the new one.
+7. Re-check for a peer run. Step 1 is an hour stale by now, and step 8 is the
+   one that quits the shared app.
+8. Check for Updates… from an older installed copy, and confirm it offers and
+   installs the new one. Installing the DMG by hand instead — quit the running
+   app, `ditto` the bundle out of the mounted volume — replaces the shared copy
+   just the same, and skips the proof that the feed works. That hand path is
+   how Mac 1.3.29 landed at 03:45 on 2026-09-22.
 
 A build that is notarized but never published drifts from `main` as soon as the
 next commit lands — either publish it or discard it, and do not ship yesterday's
