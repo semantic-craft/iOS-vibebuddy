@@ -327,6 +327,67 @@ final class HeldDecisionFlowTests: XCTestCase {
         XCTAssertEqual(mac.decisions.count, 1)
     }
 
+    /// The 2026-09-22 gate, round 1: the phone locked in a pocket, its
+    /// stream dropped by the suspension, the Mac reachable all along. The
+    /// wrist's tap woke the phone, which held the decision for a link that
+    /// was never actually missing — and delivered it three and a half minutes
+    /// later, when the phone was unlocked. A tap that finds no stream gets
+    /// one delivery pass now, and the wrist hears what happened.
+    func testAWristTapBeforeTheStreamIsBackIsDeliveredAtOnceAndReportedThroughTheTap() async throws {
+        let transport = HeldTransport()
+        let mac = IntermittentMac()
+        let notifier = DeliveryNotifier()
+        let queue = PendingActionStore(url: nil)
+        let stream = snapshot([waitingSession()])
+        mac.set(snapshot: stream, reachable: true)
+        let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
+                                    streamer: OneShotStreamer(stream), tailnet: true)
+        // The stream ended (a suspension drops the socket) and has not come
+        // back; the Mac's HTTP side answers throughout.
+        for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotEqual(store.state, .connected)
+
+        let request = try relayedApproval(transport, attempt: "tap-1")
+        let result = await transport.tap(request)
+        XCTAssertEqual(result.outcome, .accepted, "\(result)")
+        XCTAssertEqual(mac.decisions, [.init(approvalId: "ap-1", decision: .allow, requestID: "tap-1")])
+        XCTAssertTrue(store.heldActions.isEmpty)
+        XCTAssertEqual(transport.states.last?.heldActions ?? [], [])
+        // The reply to the tap is the report; no "on hold" and no
+        // "delivered" banner is posted beside it.
+        XCTAssertTrue(notifier.reports.isEmpty, "\(notifier.reports)")
+        // A later pass has nothing left to send.
+        await store.retryHeldDecisions()
+        XCTAssertEqual(mac.decisions.count, 1)
+    }
+
+    /// Same tap, but the Mac's request has already been resolved from its
+    /// own screen: the pass finds it gone, nothing is applied, and the wrist
+    /// is told so through the tap rather than a notification.
+    func testAWristTapBeforeTheStreamIsBackForAResolvedRequestIsRefusedThroughTheTap() async throws {
+        let transport = HeldTransport()
+        let mac = IntermittentMac()
+        let notifier = DeliveryNotifier()
+        let queue = PendingActionStore(url: nil)
+        let stream = snapshot([waitingSession()])
+        mac.set(snapshot: stream, reachable: true)
+        let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
+                                    streamer: OneShotStreamer(stream), tailnet: true)
+        for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        var resolved = waitingSession()
+        resolved.pendingApproval = nil
+        resolved.waitKind = nil
+        resolved.status = .working
+        mac.set(snapshot: snapshot([resolved]), reachable: true)
+
+        let request = try relayedApproval(transport, attempt: "tap-1")
+        let result = await transport.tap(request)
+        XCTAssertEqual(result.outcome, .refused, "\(result)")
+        XCTAssertEqual(mac.decisions, [])
+        XCTAssertTrue(store.heldActions.isEmpty)
+        XCTAssertTrue(notifier.reports.isEmpty, "\(notifier.reports)")
+    }
+
     func testThePhonesOwnApproveIsHeldWhenTheMacIsUnreachable() async throws {
         let transport = HeldTransport()
         let mac = IntermittentMac()

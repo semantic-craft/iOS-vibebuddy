@@ -532,12 +532,21 @@ final class DashboardStore: ObservableObject {
             if !allSessions.isEmpty, case .refused = watchActions.admit(request, sessions: allSessions) {
                 return result(.refused)
             }
-            if let reason = hold(request.action, sessionId: request.sessionId,
-                                 key: request.attemptId, origin: .watch) {
-                return WatchSessionActionResult(attemptId: request.attemptId, outcome: .queued, reason: reason)
+            guard let reason = hold(request.action, sessionId: request.sessionId,
+                                    key: request.attemptId, origin: .watch, quietly: true) else {
+                return WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed,
+                                                reason: currentFailureReason())
             }
-            return WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed,
-                                            reason: currentFailureReason())
+            // The stream being down is not the Mac being away. A wrist tap
+            // that woke this app cold — the phone locked in a pocket — finds
+            // no stream because nothing has started one, not because the Mac
+            // cannot be reached; and until this app came forward nothing
+            // would have run the pass that delivers what it holds. The tap
+            // gets one pass now, judged against the Mac's own snapshot like
+            // any held decision, and the wrist hears what actually happened.
+            if let outcome = await deliverHeldNow(id: request.attemptId) { return result(outcome) }
+            pendingActions.announceHeld(id: request.attemptId)
+            return WatchSessionActionResult(attemptId: request.attemptId, outcome: .queued, reason: reason)
         }
         let admitted = watchActions.admit(request, sessions: allSessions)
         switch admitted {
@@ -980,6 +989,17 @@ final class DashboardStore: ObservableObject {
         refreshHeldActions()
         relayToWatch(allSessions)
         let action = event.action
+        // A hold whose pass is being run on the tap's behalf reports through
+        // the tap's own reply: the wrist hears `accepted`, not "on hold" and
+        // then "delivered" a second apart. Only the queue and the cards are
+        // kept current here; the settlement is read back by `deliverHeldNow`.
+        if watchedHolds.contains(action.id) {
+            switch event {
+            case .delivered, .gone, .uncertain, .dropped: awaitedSettlements[action.id] = event
+            case .held, .stillHeld, .superseded, .cancelled: break
+            }
+        }
+        let answeredThroughTheTap = watchedHolds.contains(action.id)
         // The phone's own card shows the held decision as its receipt, whichever
         // surface it came from, so its buttons cannot send a second one beside it.
         if let session = allSessions.first(where: { $0.id == action.sessionId }) {
@@ -1018,7 +1038,9 @@ final class DashboardStore: ObservableObject {
         }
         // The wrist and the lock screen hear it as a notification; the app's
         // own card already toasted.
-        if action.origin != .phone { notifier.reportDelivery(event, macName: pairing?.macName) }
+        if action.origin != .phone, !answeredThroughTheTap {
+            notifier.reportDelivery(event, macName: pairing?.macName)
+        }
     }
 
     private func refreshHeldActions() {
@@ -1051,7 +1073,7 @@ final class DashboardStore: ObservableObject {
     /// Returns the reason it was held under, or nil when it was not held.
     @discardableResult
     private func hold(_ action: WatchSessionAction, sessionId: String, key: String,
-                      origin: QueuedSessionAction.Origin) -> ConnectionFailureReason? {
+                      origin: QueuedSessionAction.Origin, quietly: Bool = false) -> ConnectionFailureReason? {
         // A pairing the person ended has no link to wait for. A pairing that
         // is merely not started yet — a wrist tap waking the app cold, before
         // the stream is up — does: the saved one is what the flush will use.
@@ -1062,8 +1084,31 @@ final class DashboardStore: ObservableObject {
         let session = allSessions.first { $0.id == sessionId }
         let stored = pendingActions.hold(QueuedSessionAction(
             id: key, sessionId: sessionId, action: action, origin: origin, pairingEpoch: pairingEpoch,
-            queuedAt: Date(), project: session?.project, agent: session?.agent), reason: reason)
+            queuedAt: Date(), project: session?.project, agent: session?.agent),
+            reason: reason, quietly: quietly)
         return stored ? reason : nil
+    }
+
+    /// How held decisions ended while a pass was run on a tap's behalf, so
+    /// the tap can be answered with what happened rather than "held".
+    private var awaitedSettlements: [String: HeldDeliveryEvent] = [:]
+    private var watchedHolds: Set<String> = []
+
+    /// One delivery pass for a decision just held, against the saved pairing
+    /// — the stream may not have been started at all. Nil means the pass
+    /// left it in the queue (or could not run), and it is held after all.
+    private func deliverHeldNow(id: String) async -> WatchSessionActionOutcome? {
+        guard !isDemo, let pairing = pairing ?? ConnectionStore().pairing else { return nil }
+        watchedHolds.insert(id)
+        defer { watchedHolds.remove(id); awaitedSettlements[id] = nil }
+        await pendingActions.flush(pairing: pairing, epoch: pairingEpoch, client: decisionClient)
+        switch awaitedSettlements[id] {
+        case .delivered?: return .accepted
+        case .gone?: return .refused
+        case .uncertain?: return .unknown
+        case .dropped?: return .failed
+        default: return nil
+        }
     }
 
     /// The transport's error, in the three shapes the diagnosis reads.
