@@ -316,12 +316,27 @@ lines below said the iPhone could not reach the Mac — two contradictory
 sentences on one screen. `.linkDown` and `.macLinkDown` now re-derive from
 `waitingReason(for:)` and swap.
 
-**A reply with no bound question is about nothing.** `standing` treated a nil
-`bannerActionFallbackPendingID` as matching every question on the session, so a
-reply that gave up before any id could be bound had its sentence taken down by
-the next unrelated question the session asked. A nil binding is now `.absent`.
-And `.notDecidableHere` became `.noLongerWaiting` when its request leaves the
-snapshot entirely, rather than describing a card that no longer holds it.
+**A reply with no bound question is about nothing — usually.** `standing`
+treated a nil `bannerActionFallbackPendingID` as matching every question on the
+session, so a reply that gave up before any id could be bound had its sentence
+taken down by the next unrelated question. And `.notDecidableHere` now becomes
+`.noLongerWaiting` once its request leaves the snapshot, rather than describing
+a card that no longer holds it.
+
+Round 6 caught the over-correction. There are two ways to reach a missing
+binding and they mean opposite things. `.notDecidableHere` is refused *before*
+the binding is taken, and refused precisely when the question carries no id to
+bind — a prompt some part of which must be typed. So the missing id is the
+sentence's own subject, still on screen, and reading it as "the request left"
+rewrote a true sentence into "this is no longer waiting on you" while the
+wearer looked at the thing that was waiting, above a card still offering to
+answer it on the Mac. A question alert with no id is therefore
+`.presentButNotHere`; `.absent` is kept for a later question that has one,
+which is the case the nil rule was written for.
+
+`.busy` keeps the stricter reading: it is only reachable after the binding
+succeeded, so a missing id there honestly means the question left. The two arms
+look alike and must not be folded together.
 
 ### For the device acceptance
 

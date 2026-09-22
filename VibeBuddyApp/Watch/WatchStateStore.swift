@@ -444,10 +444,30 @@ final class WatchStateStore: NSObject, ObservableObject {
         case .answer(let sessionID, _):
             // A reply's sentence keeps its own question: the one that replaced
             // it is what the sentence is explaining, not a reason to drop it.
-            // And a reply that never got far enough to bind one has no question
-            // to be about, so the next unrelated thing this session asks is not
-            // its request coming back.
-            guard let bound = bannerActionFallbackPendingID else { return .absent }
+            guard let bound = bannerActionFallbackPendingID else {
+                // No id was ever bound. There are two ways to arrive here and
+                // they mean opposite things.
+                //
+                // `.notDecidableHere` is refused *before* the binding is taken,
+                // and it is refused precisely when the question carries no id
+                // to bind — a prompt some part of which has to be typed. The
+                // sentence is about that prompt, and that prompt is still on
+                // screen. Reading the missing id as "the request left" turned a
+                // true sentence into "this is no longer waiting on you" while
+                // the wearer was looking at the very thing that was waiting.
+                //
+                // A later question that does have an id is the other way, and
+                // it is the one the nil rule was written for: an unrelated
+                // thing this session went on to ask is not the request coming
+                // back. (`.busy` never lands here — it is only reachable after
+                // the binding succeeded — so its arm may keep reading a missing
+                // id as gone. Do not fold the two together.)
+                guard let asking = state.alerts.first(where: {
+                    $0.sessionId == sessionID && $0.waitKind == .question
+                }) else { return .absent }
+                return asking.pendingId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+                    ? .presentButNotHere : .absent
+            }
             guard let alert = state.alerts.first(where: {
                 $0.sessionId == sessionID && $0.pendingId == bound
             }) else { return .absent }
