@@ -38,6 +38,9 @@ final class HandoffFactsTests: XCTestCase {
         ledger.observe(ToolCallRecord(id: "b9", tool: "Bash", command: "git status", result: .unconfirmed,
                                       observedAt: now.addingTimeInterval(-350), source: "hook"), sessionID: "abc", now: now, agent: .claudeCode)
         ledger.observe(ToolCallRecord(id: "acp1", tool: "shell", result: .succeeded, observedAt: now.addingTimeInterval(-50), source: "acp"), sessionID: "cur", now: now, agent: .cursor)
+        // The ledger writes at most once per window; the facts tool reads the
+        // file, so the fixture must be on disk before it is read.
+        ledger.flush(now: now)
         return dir
     }
 
@@ -142,6 +145,7 @@ final class HandoffFactsTests: XCTestCase {
                                       observedAt: now, source: "hook"), sessionID: "abc", now: now)
         ledger.observe(ToolCallRecord(id: "t1", tool: "Bash", command: "codex-check", result: .succeeded,
                                       observedAt: now, source: "hook"), sessionID: "abc", now: now, agent: .codex)
+        ledger.flush(now: now)
         let text = try HandoffFacts.call(arguments: ["key": "codex:abc"], directory: dir, git: fakeGit, now: now)
         XCTAssertTrue(text.contains("codex-check"))
         let claude = try HandoffFacts.call(arguments: ["key": "claude-code:abc"], directory: dir, git: fakeGit, now: now)

@@ -38,6 +38,29 @@ final class ToolLedgerTests: XCTestCase {
         XCTAssertEqual(ledger.writeCount, 2)
     }
 
+    func testFlushWritesThroughTheWindow() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("ledger.json")
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        var ledger = ToolLedger(url: url, now: t0)
+        for i in 0..<3 {
+            ledger.observe(ToolCallRecord(id: "t\(i)", tool: "Bash", result: .succeeded,
+                                          observedAt: t0.addingTimeInterval(Double(i) * 0.1), source: "hook"),
+                           sessionID: "s", now: t0.addingTimeInterval(Double(i) * 0.1))
+        }
+        XCTAssertEqual(ledger.writeCount, 1)
+        XCTAssertTrue(ledger.needsTrailingWrite)
+        // A reader in another process sees the file: flush hands it over now.
+        ledger.flush(now: t0.addingTimeInterval(0.3))
+        XCTAssertEqual(ledger.writeCount, 2)
+        XCTAssertFalse(ledger.needsTrailingWrite)
+        XCTAssertEqual(ToolLedger(url: url, now: t0).sessions["s"]?.count, 3)
+        // Nothing pending: a flush writes nothing.
+        ledger.flush(now: t0.addingTimeInterval(0.4))
+        XCTAssertEqual(ledger.writeCount, 2)
+    }
+
     func testRepeatedObservationRetriesFailedPersistence() throws {
         let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: parent) }
