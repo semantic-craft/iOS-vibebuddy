@@ -64,13 +64,13 @@ struct WatchBannerActionPatienceTests {
         // real install — and it must not end the hold.
         var held = WatchBannerAction(route: route, baselineRevision: 12)
         held.noteInstalled(revision: 12)
-        #expect(held.provesRequestGone(currentRevision: 12, expired: false) == false)
+        #expect(held.provesRequestGone(currentRevision: 12) == false)
     }
 
     @Test func aStrictlyNewerRevisionWithoutTheRequestEndsTheHold() {
         var held = WatchBannerAction(route: route, baselineRevision: 12)
         held.noteInstalled(revision: 12)
-        #expect(held.provesRequestGone(currentRevision: 13, expired: false))
+        #expect(held.provesRequestGone(currentRevision: 13))
     }
 
     @Test func theFirstStateOfAColdHoldIsABaselineAndProvesNothing() {
@@ -78,11 +78,11 @@ struct WatchBannerActionPatienceTests {
         // an answer about an approval the wrist has never seen.
         var held = WatchBannerAction(route: route)
         #expect(held.baselineRevision == nil)
-        #expect(held.provesRequestGone(currentRevision: 40, expired: false) == false)
+        #expect(held.provesRequestGone(currentRevision: 40) == false)
         held.noteInstalled(revision: 40)
         #expect(held.baselineRevision == 40)
-        #expect(held.provesRequestGone(currentRevision: 40, expired: false) == false)
-        #expect(held.provesRequestGone(currentRevision: 41, expired: false))
+        #expect(held.provesRequestGone(currentRevision: 40) == false)
+        #expect(held.provesRequestGone(currentRevision: 41))
     }
 
     @Test func theBaselineNeverMoves() {
@@ -90,12 +90,15 @@ struct WatchBannerActionPatienceTests {
         held.noteInstalled(revision: 8)
         held.noteInstalled(revision: 9)
         #expect(held.baselineRevision == 7)
-        #expect(held.provesRequestGone(currentRevision: 8, expired: false))
+        #expect(held.provesRequestGone(currentRevision: 8))
     }
 
-    @Test func thePatienceRunningOutEndsTheHoldWhateverTheRevisionSays() {
+    @Test func runningOutOfPatienceIsNotProofTheRequestEnded() {
+        // The wrist gave up waiting; that is not the same as learning the
+        // request left, and the card must not claim it was. The store picks the
+        // honest sentence — this only refuses to hand it the wrong one.
         let held = WatchBannerAction(route: route, baselineRevision: 12)
-        #expect(held.provesRequestGone(currentRevision: 12, expired: true))
-        #expect(held.provesRequestGone(currentRevision: nil, expired: true))
+        #expect(held.provesRequestGone(currentRevision: 12) == false)
+        #expect(held.provesRequestGone(currentRevision: nil) == false)
     }
 }

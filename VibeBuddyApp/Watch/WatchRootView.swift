@@ -40,6 +40,22 @@ struct WatchRootView: View {
                     .tag(WatchPage.quota)
             }
             .tabViewStyle(.page)
+            // A banner button that could not act, when no card was ever opened
+            // to apologise on — the phone published a state with no Mac in it,
+            // so these pages are up and `openSession` had nothing to build a
+            // card from. The sentence belongs wherever the wrist is looking.
+            .safeAreaInset(edge: .top) {
+                if let fallback = store.bannerActionFallback, store.taskLink == nil {
+                    Text(fallback.message)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.status(.requiresInput))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 6)
+                        .accessibilityIdentifier("watch-banner-action-fallback")
+                }
+            }
             .onChange(of: page) { _, _ in store.cancelPendingNavigation() }
             // The last waiting session was resolved while its page was open.
             .onChange(of: state.alerts.count) { _, count in

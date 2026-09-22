@@ -178,3 +178,41 @@ Deliberately not changed: the eight-second patience. A cold launch that hears
 nothing from the phone in eight seconds has a link problem, and a decision that
 waits longer is a decision about whatever is pending by then. It now ends with
 a sentence on screen instead of silence, which was the real defect.
+
+## Amendment — what counts as evidence (2026-09-22, review round 2)
+
+Round 1 fixed *when* a newer revision may end a hold. Round 2 found that the
+states being measured were often not evidence at all.
+
+**Only a state that came over the link, from a connected relay, may say
+anything about a request.** Two others reach the settle path and neither can:
+
+- The cache on disk. `WatchStoredState` strips `approvalId`, `pendingId`,
+  `questions`, `request` and `summary` from every alert it saves — a cached
+  command is deliberately never actionable. So on a cold launch the disk copy
+  cannot match a tapped approval (`approvalId` is nil), and a tapped question
+  matches on `waitKind` but then fails `isAnswerable` because `pendingId` is
+  nil. A decision read from it looked resolved; a reply looked unanswerable and
+  was refused outright with "this request can only be decided on your iPhone or
+  Mac". Both false, both about the redaction rather than the world.
+- A payload taken while the relay is down. `WatchStateInbox.accept` preserves
+  the previous content and adopts the incoming `relayRevision`, so the
+  no-source publish the phone makes before its first snapshot advances the
+  number without changing the alerts — last week's list wearing a fresh
+  revision, which the round-1 rule then read as proof.
+
+The settle path now waits for `hasRelayedState && isLive(state)` before it
+places, refuses, or retires anything.
+
+**Running out of patience is not proof the request ended.** `provesRequestGone`
+no longer takes `expired`; the timeout is the caller's to name, and it names it
+`.noState` ("waiting for an update from your iPhone") or `.linkDown`, never
+"this is no longer waiting on you". The wrist says what it knows, and after
+eight quiet seconds what it knows is that it never found out.
+
+**A sentence comes down when the state contradicts it.** `giveUp` records what
+the sentence was about, and a later state holding that approval or question
+again clears it — "this is no longer waiting on you" above a live Approve
+button is worse than silence. The sentence also now renders on the tab pages
+when no card exists, not only on the card and the no-data screen, because the
+gap between them is exactly the no-Mac publish that produces `.noState`.

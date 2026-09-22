@@ -122,18 +122,20 @@ public struct WatchBannerAction: Equatable, Sendable {
     /// Whether a state that does not hold the tapped request proves the request
     /// is gone.
     ///
-    /// Only a *newer* relay revision is that proof. The iPhone re-sends the
-    /// context it already sent — `WatchStateInbox.accept` takes an equal
-    /// revision back when the source, epoch and `observedAt` all match, which
-    /// is exactly what activation does moments after a cold launch — so "a
-    /// payload arrived after the tap" says nothing about whether the approval
-    /// was ever in it. Reading it as proof abandoned the Approve that this
-    /// whole path exists to deliver: the wrist is holding yesterday's context
-    /// precisely because the approval is newer than anything it has.
+    /// Only a *newer* relay revision is that proof, and only from a state worth
+    /// measuring — the caller establishes that the payload came over the link
+    /// from a connected relay before asking. The iPhone re-sends the context it
+    /// already sent (`WatchStateInbox.accept` takes an equal revision back when
+    /// source, epoch and `observedAt` match, which is exactly what activation
+    /// does moments after a cold launch), so "a payload arrived after the tap"
+    /// says nothing about whether the approval was ever in it. Reading it as
+    /// proof abandoned the Approve this whole path exists to deliver: the wrist
+    /// is holding yesterday's context *because* the approval is newer than
+    /// anything it has.
     ///
-    /// The patience running out still ends the hold, with its own reason.
-    public func provesRequestGone(currentRevision: UInt64?, expired: Bool) -> Bool {
-        if expired { return true }
+    /// Running out of patience is not proof either — it means the wrist never
+    /// found out, which is a different sentence and the caller's to choose.
+    public func provesRequestGone(currentRevision: UInt64?) -> Bool {
         guard let baselineRevision, let currentRevision else { return false }
         return currentRevision > baselineRevision
     }

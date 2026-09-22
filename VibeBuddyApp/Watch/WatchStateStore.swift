@@ -52,6 +52,14 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// times out.
     private var bannerAction: WatchBannerAction?
     private var bannerActionTimeout: Task<Void, Never>?
+    /// Whether any state has arrived over the link this launch. Until one has,
+    /// the state on screen is the cache on disk, whose approval and question
+    /// ids are stripped — it can draw a card but cannot answer a question about
+    /// what is still waiting.
+    private var hasRelayedState = false
+    /// What the sentence on the card is about, so it can be taken down the
+    /// moment a state arrives that contradicts it.
+    private var bannerActionFallbackRoute: WatchNotificationResponseRoute?
     /// Why the last banner action was not sent, shown on the card the tap
     /// opened. Nil once it was sent, or once the card is dismissed.
     @Published var bannerActionFallback: WatchBannerActionFallback?
@@ -176,6 +184,7 @@ final class WatchStateStore: NSObject, ObservableObject {
     func perform(_ route: WatchNotificationResponseRoute) {
         guard let sessionID = route.sessionID else { return }
         bannerActionFallback = nil
+        bannerActionFallbackRoute = nil
         openSession(sessionID)
         guard route.isAction else { return }
         bannerActionTimeout?.cancel()
@@ -203,6 +212,7 @@ final class WatchStateStore: NSObject, ObservableObject {
             bannerAction = nil
             bannerActionTimeout?.cancel()
             bannerActionFallback = reason
+            bannerActionFallbackRoute = held.route
             WatchNavigationDiagnostics.shared.record("banner.action-fallback.\(reason.rawValue)")
             WatchHapticPlayer.shared.play(WatchHaptics.beats(for: .error), reason: "banner action \(reason.rawValue)")
         }
@@ -210,12 +220,29 @@ final class WatchStateStore: NSObject, ObservableObject {
             if expired { giveUp(.noState) }
             return
         }
-        // The first state of a hold is the baseline, whether it came off disk
-        // or over the link.
+        // Nothing is concluded from a state that is not evidence.
+        //
+        // Two kinds reach here and neither can answer a question about what the
+        // Mac is waiting for. The cache on disk has every approval and question
+        // id stripped out of it (`WatchStoredState` keeps no actionable card),
+        // so its alerts can never match the tap — a decision read from it looks
+        // resolved and a reply looks unanswerable, both false. And a payload
+        // taken while the relay is down carries the previous alerts forward
+        // under a fresh revision (`WatchStateInbox.accept`), which is last
+        // week's list with a new number on it. Reading either as an answer
+        // abandoned a live Approve and told the wrist the request was gone.
+        //
+        // So: wait for a state that came over the link from a connected relay.
+        // Only that state may place the request, refuse it, or say it ended.
+        guard hasRelayedState, isLive(state) else {
+            if expired { giveUp(canReachPhone ? .noState : .linkDown) }
+            return
+        }
+        // The first such state of a hold is the baseline it measures from.
         bannerAction?.noteInstalled(revision: state.relayRevision)
-        // The alert the tap named, as the relayed state holds it now. A
-        // decision is bound to its approval id, an answer to the session's
-        // current question — a banner cannot name a question id.
+        // The alert the tap named, as that state holds it now. A decision is
+        // bound to its approval id, an answer to the session's current question
+        // — a banner cannot name a question id.
         let alert: WatchAlert?
         switch held.route {
         case .decide(let sessionID, let approvalID, _):
@@ -225,14 +252,16 @@ final class WatchStateStore: NSObject, ObservableObject {
         case .open, .ignore:
             alert = nil
         }
-        // A cold launch reads yesterday's state off disk first, and the iPhone
-        // re-sends the context it already sent; an alert missing from either
-        // may simply never have been in them. Only a strictly newer relay
-        // revision — or the patience running out — may say the request is gone.
+        // The iPhone re-sends the context it already sent, so an alert missing
+        // from a revision the wrist already had says nothing. Only a strictly
+        // newer one that still lacks the request may say the request ended;
+        // running out of patience means the wrist never found out, which is a
+        // different sentence.
         guard let alert else {
-            if bannerAction?.provesRequestGone(currentRevision: state.relayRevision,
-                                               expired: expired) == true {
+            if bannerAction?.provesRequestGone(currentRevision: state.relayRevision) == true {
                 giveUp(.noLongerWaiting)
+            } else if expired {
+                giveUp(.noState)
             }
             return
         }
@@ -243,10 +272,6 @@ final class WatchStateStore: NSObject, ObservableObject {
         case .decide where !alert.isDecidable, .answer where !alert.isAnswerableInOneString:
             giveUp(.notDecidableHere); return
         default: break
-        }
-        guard isLive(state) else {
-            if expired { giveUp(.linkDown) }
-            return
         }
         if pendingAction.isBusy {
             if expired { giveUp(.busy) }
@@ -263,6 +288,33 @@ final class WatchStateStore: NSObject, ObservableObject {
         case .open, .ignore:
             break
         }
+    }
+
+    /// Take down a fallback sentence the newest state has made untrue.
+    ///
+    /// "This is no longer waiting on you" above a live Approve button is worse
+    /// than saying nothing: the sentence outlived the moment it described, and
+    /// the buttons under it are drawn from a state that disagrees with it. A
+    /// sentence stays only while the state still fails to hold what it was
+    /// about; the tap it describes is already spent either way.
+    private func clearContradictedFallback(against next: WatchDashboardState) {
+        guard let route = bannerActionFallbackRoute else { return }
+        let backAgain: Bool
+        switch route {
+        case .decide(let sessionID, let approvalID, _):
+            backAgain = next.alerts.contains {
+                $0.sessionId == sessionID && $0.approvalId == approvalID && $0.isDecidable
+            }
+        case .answer(let sessionID, _):
+            backAgain = next.alerts.contains {
+                $0.sessionId == sessionID && $0.isAnswerableInOneString
+            }
+        case .open, .ignore:
+            backAgain = false
+        }
+        guard backAgain else { return }
+        bannerActionFallback = nil
+        bannerActionFallbackRoute = nil
     }
 
     /// The tap an attempt earns when it stops travelling. Only a transition out
@@ -469,6 +521,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         bannerAction = nil
         bannerActionTimeout?.cancel()
         bannerActionFallback = nil
+        bannerActionFallbackRoute = nil
     }
 
     /// Called only by the exact detail body after it has appeared. Viewing is
@@ -779,6 +832,8 @@ final class WatchStateStore: NSObject, ObservableObject {
             pendingAction = WatchSessionActionState()
         }
         state = next
+        hasRelayedState = true
+        clearContradictedFallback(against: next)
         pendingAction.reconcile(with: next)
         completionQueue.reconcile(with: next)
         if let pendingSessionID { openSession(pendingSessionID) }
