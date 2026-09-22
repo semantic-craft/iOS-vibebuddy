@@ -7,8 +7,19 @@ public struct CompanionEndpoint: Sendable, Equatable {
     public let port: Int
 
     public init?(host: String, port: Int) {
+        guard (1...65535).contains(port), let host = Self.normalizedHost(host) else { return nil }
+        self.host = host
+        self.port = port
+    }
+
+    /// The address check without a port: trims, lower-cases, and answers nil
+    /// for anything that cannot be a hostname at all. A caller that persists a
+    /// host uses this to drop a stored value instead of advertising it, since
+    /// a pairing payload carrying a garbage host reaches the phone as nothing
+    /// more legible than an unreachable Mac.
+    public static func normalizedHost(_ host: String) -> String? {
         let host = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard (1...65535).contains(port), !host.isEmpty, host.count <= 253 else { return nil }
+        guard !host.isEmpty, host.count <= 253 else { return nil }
         let labels = host.split(separator: ".", omittingEmptySubsequences: false)
         guard labels.allSatisfy({ label in
             !label.isEmpty && label.count <= 63 && label.first != "-" && label.last != "-"
@@ -17,8 +28,7 @@ public struct CompanionEndpoint: Sendable, Equatable {
         if host.utf8.allSatisfy({ (48...57).contains($0) || $0 == 46 }) {
             guard labels.count == 4, labels.allSatisfy({ UInt8($0) != nil }) else { return nil }
         }
-        self.host = host
-        self.port = port
+        return host
     }
 
     public var isTailscale: Bool {

@@ -147,7 +147,7 @@ final class MenuBarModel: ObservableObject {
     @Published var useTailscale = UserDefaults.standard.bool(forKey: "pairing.useTailscale") {
         didSet { UserDefaults.standard.set(useTailscale, forKey: "pairing.useTailscale"); preparePairing() }
     }
-    @Published var tailscaleHost = UserDefaults.standard.string(forKey: "pairing.tailscaleHost") ?? "" {
+    @Published var tailscaleHost = MenuBarModel.loadTailscaleHost() {
         didSet { UserDefaults.standard.set(tailscaleHost, forKey: "pairing.tailscaleHost"); preparePairing() }
     }
     @Published private(set) var pairing: PairingPayload?
@@ -1626,6 +1626,22 @@ final class MenuBarModel: ObservableObject {
     func setLaunchAtLogin(_ enabled: Bool) {
         LaunchAtLogin.set(enabled)
         launchAtLogin = LaunchAtLogin.isEnabled
+    }
+
+    /// A stored address that cannot be a hostname is dropped on read rather
+    /// than kept and offered to pairing. `preparePairing` already refuses to
+    /// build a payload from it, but a junk value left in place keeps the field
+    /// occupied, so `discoverRemoteAddress` will not fill in the real address
+    /// and the Mac reads as merely unprepared. Only the persisted value is
+    /// checked: a half-typed address never reaches here.
+    private static func loadTailscaleHost() -> String {
+        let defaults = UserDefaults.standard
+        guard let stored = defaults.string(forKey: "pairing.tailscaleHost"), !stored.isEmpty else { return "" }
+        guard let host = CompanionEndpoint.normalizedHost(stored) else {
+            defaults.removeObject(forKey: "pairing.tailscaleHost")
+            return ""
+        }
+        return host
     }
 
     var remoteAddressIsValid: Bool {
