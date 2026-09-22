@@ -121,9 +121,17 @@ So before you replace it, find out whether another session is running a
 real-device acceptance, and say what you are about to do:
 
 ```bash
-git worktree list                                    # other sessions' checkouts
 vibebuddy-mcp status --exclude-session '<own-native-thread-id>'
+git worktree list
 ```
+
+**Neither command can see a phone or a Watch.** `status` reads the daemon's
+`/snapshot` and lists live *agent* sessions grouped by checkout — `agent`,
+`status`, `waitKind`, `controlChannel`, last activity, and "Another agent is
+working in this checkout." It never says what hardware a session is driving.
+`git worktree list` lists worktrees, and two sessions can share one. So
+"No other live sessions found." does **not** mean the Watch is idle: ask the
+owner of every session it does list, and look at the running menu-bar app.
 
 Status is an observation, not a lock
 (`docs/agents/skills/vibebuddy-history/SKILL.md`) — if anything is live on the
@@ -152,7 +160,8 @@ The installed copy therefore proves nothing about what shipped. Check the
 published asset instead:
 
 ```bash
-# --repo is required: you are in a temp dir, not the checkout.
+# --repo: this runs from a scratch dir, and the release lives on that repo
+# whatever this checkout's gh default resolves to.
 gh release download v<version> --repo semantic-craft/iOS-vibebuddy \
   -p 'vibebuddy-mac-v<version>.dmg'
 stapler validate vibebuddy-mac-v<version>.dmg   # The validate action worked!
@@ -163,9 +172,12 @@ spctl -a -vv "/Volumes/vibebuddy <version>/VibeBuddyMacApp.app"
 hdiutil detach "/Volumes/vibebuddy <version>"
 ```
 
-`xcrun notarytool history --keychain-profile xw-notary` shows only that Apple
-accepted the submission. A stapling slip passes that check and still fails on a
-user's Mac, so validate the file users download.
+`xcrun notarytool history --keychain-profile xw-notary` is not a substitute for
+this. An `Accepted` row means Apple accepted the submission and nothing more;
+`stapler validate` is what shows the ticket actually made it into the file you
+are holding. An unstapled DMG still passes Gatekeeper *online*, so that gap does
+not surface on the release machine — it surfaces on a first launch with no
+network, which is why § What the script does staples both the app and the DMG.
 
 ## Per release
 
