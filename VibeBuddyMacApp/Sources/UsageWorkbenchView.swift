@@ -48,28 +48,48 @@ struct UsageWorkbenchView: View {
         .background(MacTheme.bg2)
     }
 
+    /// One bar for most providers — the pool closest to running out. Cursor
+    /// runs two independent pools over the same billing period, so it gets one
+    /// named bar each: picking between them would hide whichever is spent.
     private func railRow(_ provider: AccountUsageProvider, now: Date) -> some View {
         let state = model.usageState(for: provider)
         let snapshot = state.snapshot?.excludingExpiredWindows(at: now)
-        let window = snapshot?.displayWindows.max { $0.usedPercent < $1.usedPercent }
-        return VStack(alignment: .leading, spacing: 4) {
+        let pools = snapshot?.independentPools ?? []
+        let windows = pools.isEmpty
+            ? (snapshot?.displayWindows.max { $0.usedPercent < $1.usedPercent }).map { [$0] } ?? []
+            : pools.sorted { $0.usedPercent > $1.usedPercent }
+        return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 Text(provider.displayName).font(MacTheme.font(12, .medium))
                 Spacer(minLength: 4)
-                if let window {
+                if windows.count == 1, let window = windows.first {
                     Text("\(max(0, 100 - window.usedPercent))%")
                         .font(MacTheme.mono(11, .semibold))
                         .foregroundStyle(QuotaPresentation.severity(usedPercent: window.usedPercent).tint)
                 }
             }
-            if let window {
-                QuotaBullet(usedPercent: window.usedPercent,
-                            pacePercent: AccountUsageSummaryView.pacePercent(window, now: now),
-                            height: 8)
-            } else {
+            if windows.isEmpty {
                 Text(AgentQuotaReading.shortReason(state, filtered: snapshot,
                                                    unwiredStatusLine: model.usageStatusLineUnwired(provider)))
                     .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+            } else {
+                ForEach(windows) { window in
+                    VStack(alignment: .leading, spacing: 3) {
+                        if windows.count > 1 {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(AgentQuotaReading.windowLabel(window, provider: provider))
+                                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text("\(max(0, 100 - window.usedPercent))%")
+                                    .font(MacTheme.mono(10, .semibold))
+                                    .foregroundStyle(QuotaPresentation.severity(usedPercent: window.usedPercent).tint)
+                            }
+                        }
+                        QuotaBullet(usedPercent: window.usedPercent,
+                                    pacePercent: AccountUsageSummaryView.pacePercent(window, now: now),
+                                    height: 8)
+                    }
+                }
             }
         }
         .padding(9)

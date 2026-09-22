@@ -93,6 +93,21 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         windows + (extraWindows ?? [])
     }
 
+    /// Several independent allowance pools covering the same period — Cursor
+    /// reports `Cursor Models` and `Other Models`, and spending either one to
+    /// zero stops work while the other still reads comfortable. A weekly pool
+    /// beside a five-hour one is a single allowance read at two scales, not
+    /// two pools, so it is deliberately not one of these.
+    ///
+    /// Empty for every provider that has one pool. The relayed side asks the
+    /// same question of `ProviderQuota.stripWindows`.
+    public var independentPools: [AccountUsageWindow] {
+        let pools = quotaWindows
+        guard pools.count > 1 else { return [] }
+        guard pools.allSatisfy({ $0.windowDurationMinutes != nil }) else { return [] }
+        return Set(pools.compactMap(\.windowDurationMinutes)).count == 1 ? pools : []
+    }
+
     public init(
         provider: AccountUsageProvider,
         planType: String?,

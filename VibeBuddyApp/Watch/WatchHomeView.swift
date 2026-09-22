@@ -262,28 +262,31 @@ struct WatchQuotaStrips: View {
             // on the rail and the strip).
             VStack(spacing: 4) {
                 ForEach(state.quotas.displayedLowestFirst(now: now)) { quota in
-                    strip(quota)
+                    // Cursor runs two pools over the same period and either can
+                    // stop work on its own, so each gets its own line, named.
+                    let pools = quota.stripWindows(now: now)
+                    ForEach(Array(pools.enumerated()), id: \.offset) { _, reading in
+                        strip(quota, reading: reading, pool: pools.count > 1 ? reading.label : nil)
+                    }
                 }
             }
         }
     }
 
-    private func strip(_ quota: ProviderQuota) -> some View {
+    private func strip(_ quota: ProviderQuota, reading: QuotaWindow, pool: String?) -> some View {
         let freshness = quota.freshness(now: now)
-        // Prefer weekly; fall back to short / otherWindows (Cursor/Grok monthly).
-        let reading = quota.displayWindow(preferring: .weekly)
         let agent = quota.provider.agentKind
         return HStack(spacing: 5) {
             // The allowance belongs to the agent, not to a provider name in a
             // list of its own: the same mark the rows and the detail carry.
             AgentAvatar(agent: agent, size: 16)
                 .accessibilityHidden(true)
-            Text(agent.shortName)
+            Text(pool ?? agent.shortName)
                 .font(CompanionType.font(10))
                 .foregroundStyle(CompanionPalette.ink)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(width: 38, alignment: .leading)
+                .minimumScaleFactor(0.65)
+                .frame(width: 44, alignment: .leading)
             if let remaining = reading.currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
                     .tint(freshness == .stale ? CompanionPalette.ink3
@@ -307,7 +310,9 @@ struct WatchQuotaStrips: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(agent.displayName))
-        .accessibilityValue(Text(WatchQuotaVoice.summary(quota, freshness: freshness, now: now)))
+        .accessibilityLabel(Text(pool.map { "\(agent.displayName) \($0)" } ?? agent.displayName))
+        // A pool row speaks for its own pool; a single row speaks for them all.
+        .accessibilityValue(Text(pool == nil ? WatchQuotaVoice.summary(quota, freshness: freshness, now: now)
+                                 : WatchQuotaVoice.line(reading, now: now)))
     }
 }

@@ -88,19 +88,20 @@ public extension ProviderQuota {
     /// The window closest to running out — the one that decides whether the
     /// next turn goes through. Scoped windows are named subdivisions of the
     /// same allowance, never an independent pool, so they are left out.
-    var tightest: QuotaReading? {
-        var readings: [QuotaReading] = []
-        if let weekly = weeklyRemainingPercent {
-            readings.append(QuotaReading(remainingPercent: weekly, label: weeklyLabel, resetsAt: weeklyResetsAt))
-        }
-        if let short = shortWindowRemainingPercent {
-            readings.append(QuotaReading(remainingPercent: short, label: shortWindowLabel, resetsAt: shortWindowResetsAt))
-        }
-        for window in otherWindows ?? [] {
-            guard let remaining = window.remainingPercent else { continue }
-            readings.append(QuotaReading(remainingPercent: remaining, label: window.label, resetsAt: window.resetsAt))
-        }
-        return readings.min { $0.remainingPercent < $1.remainingPercent }
+    var tightest: QuotaReading? { poolReadings.first }
+
+    /// Every independent pool as its own reading, tightest first. A ring or a
+    /// tile can only draw one of them; its tooltip and its VoiceOver value say
+    /// all of them, so a Cursor mark showing 0% still admits that the other
+    /// pool has room, and one showing 87% still admits the other is spent.
+    var poolReadings: [QuotaReading] {
+        independentWindows
+            .compactMap { window in
+                window.remainingPercent.map {
+                    QuotaReading(remainingPercent: $0, label: window.label, resetsAt: window.resetsAt)
+                }
+            }
+            .sorted { $0.remainingPercent < $1.remainingPercent }
     }
 }
 
@@ -120,11 +121,12 @@ public extension Collection where Element == ProviderQuota {
     /// unreadable ones sunk to the bottom rather than jumping the queue, ties
     /// settled by name so the list never reshuffles under the eye.
     ///
-    /// It sorts by the number each row *shows* — `displayWindow`, which
-    /// prefers the weekly pool — not by `tightest`. A Cursor row that reads
-    /// 74% while an inner window sits at 31% must not be filed above a row
-    /// reading 41%: a list whose order contradicts its own numbers is worse
-    /// than an unsorted one.
+    /// It sorts by the number each row *shows* — `displayWindow`, which prefers
+    /// the weekly pool and otherwise reads the tightest independent pool. A
+    /// list whose order contradicts its own numbers is worse than an unsorted
+    /// one, so the two stay defined together: a provider drawn at 31% files
+    /// above one drawn at 41%, and a provider whose pools each get a row
+    /// (Cursor) is placed by the tightest of them.
     func displayedLowestFirst(preferring kind: QuotaWindowKind = .weekly,
                               now: Date = Date()) -> [ProviderQuota] {
         sorted { lhs, rhs in

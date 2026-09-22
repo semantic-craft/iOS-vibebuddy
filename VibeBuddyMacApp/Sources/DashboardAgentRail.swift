@@ -21,7 +21,7 @@ struct DashboardAgentRail: View {
                 VStack(spacing: 2) {
                     ForEach(items) { item in
                         AgentRailTile(item: item, selected: selection == item.agent,
-                                      quota: reading(for: item.agent, now: context.date),
+                                      quotas: readings(for: item.agent, now: context.date),
                                       now: context.date) {
                             selection = item.agent
                         }
@@ -47,18 +47,22 @@ struct DashboardAgentRail: View {
     }
 
     /// The tile's ring: the agent's own allowance, or the fleet's tightest one
-    /// under "All agents" — the reading that would stop the next turn.
-    private func reading(for agent: AgentKind?, now: Date) -> AgentQuotaReading? {
-        guard let agent else { return AgentQuotaReading.tightest(model: model, now: now) }
-        return AgentQuotaReading.read(agent, model: model, now: now)
+    /// under "All agents" — the reading that would stop the next turn. An agent
+    /// with several independent pools (Cursor) hands over all of them, tightest
+    /// first: the ring draws that one, the tip reads them all out.
+    private func readings(for agent: AgentKind?, now: Date) -> [AgentQuotaReading] {
+        guard let agent else { return AgentQuotaReading.tightest(model: model, now: now).map { [$0] } ?? [] }
+        return AgentQuotaReading.readAll(agent, model: model, now: now)
     }
 }
 
 struct AgentRailTile: View {
     let item: AgentRoster.Item
     let selected: Bool
-    let quota: AgentQuotaReading?
+    let quotas: [AgentQuotaReading]
     let now: Date
+    /// The ring can draw one allowance; it draws the tightest.
+    private var quota: AgentQuotaReading? { quotas.first }
     let action: () -> Void
 
     var body: some View {
@@ -106,7 +110,7 @@ struct AgentRailTile: View {
         var parts = [item.tally.total == 1 ? String(localized: "1 session") : String(localized: "\(item.tally.total) sessions")]
         if item.tally.needsYou > 0 { parts.append(String(localized: "\(item.tally.needsYou) need you")) }
         if item.tally.working > 0 { parts.append(String(localized: "\(item.tally.working) working")) }
-        if let quota { parts.append(quota.summaryLine(now: now)) }
+        parts.append(contentsOf: quotas.map { $0.summaryLine(now: now) })
         return parts.joined(separator: " · ")
     }
 

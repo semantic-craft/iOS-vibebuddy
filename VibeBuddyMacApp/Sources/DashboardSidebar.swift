@@ -119,37 +119,48 @@ struct DashboardSidebar: View {
     }
 
     /// The agent's allowance where the agent is, rather than in a plinth of
-    /// its own: the window closest to running out, its share and its reset.
+    /// its own: its share and its reset, one line per pool. Most agents have
+    /// one; Cursor runs two independent pools over the same billing period, and
+    /// the spent one never hides behind the comfortable one.
     @ViewBuilder private var quotaStrip: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            let reading = agent.flatMap { AgentQuotaReading.read($0, model: model, now: context.date) }
-                ?? (agent == nil ? AgentQuotaReading.tightest(model: model, now: context.date) : nil)
-            if let reading {
+            let readings = agent.map { AgentQuotaReading.readAll($0, model: model, now: context.date) }
+                ?? AgentQuotaReading.tightest(model: model, now: context.date).map { [$0] } ?? []
+            if !readings.isEmpty {
+                let summary = readings.map { $0.summaryLine(now: context.date) }
                 Button { DashboardRoute.open(.usage) } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
-                            Text(agent == nil ? reading.provider.displayName : reading.windowName)
-                                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(1)
-                            Spacer(minLength: 4)
-                            Text("\(reading.remainingPercent)%")
-                                .font(MacTheme.mono(10, .semibold)).foregroundStyle(reading.tint)
-                            if let warning = reading.warningText(now: context.date) {
-                                Text(warning).font(MacTheme.font(9)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
-                                    .lineLimit(1)
-                            } else if let reset = reading.resetText(now: context.date) {
-                                Text(reset).font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3).lineLimit(1)
-                            }
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
+                            quotaRow(reading, now: context.date)
                         }
-                        QuotaBullet(usedPercent: reading.usedPercent, pacePercent: nil, height: 4)
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(Text("Account quota · \(reading.summaryLine(now: context.date))"))
+                .help(Text("Account quota · \(summary.joined(separator: " · "))"))
                 .accessibilityLabel("Account quota")
-                .accessibilityValue(reading.summaryLine(now: context.date))
+                .accessibilityValue(summary.joined(separator: ", "))
                 .opacity(labels.opacity)
             }
+        }
+    }
+
+    private func quotaRow(_ reading: AgentQuotaReading, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(agent == nil ? reading.provider.displayName : reading.windowName)
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(reading.remainingPercent)%")
+                    .font(MacTheme.mono(10, .semibold)).foregroundStyle(reading.tint)
+                if let warning = reading.warningText(now: now) {
+                    Text(warning).font(MacTheme.font(9)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                        .lineLimit(1)
+                } else if let reset = reading.resetText(now: now) {
+                    Text(reset).font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3).lineLimit(1)
+                }
+            }
+            QuotaBullet(usedPercent: reading.usedPercent, pacePercent: nil, height: 4)
         }
     }
 

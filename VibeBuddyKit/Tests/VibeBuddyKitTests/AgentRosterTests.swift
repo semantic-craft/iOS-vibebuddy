@@ -66,10 +66,11 @@ struct AgentRosterTests {
                 "ties settle by name so the strip never reshuffles under the eye")
     }
 
-    /// The Watch reads the weekly pool and files the row by that same number:
-    /// a Cursor row showing 74% must not sort above one showing 41% just
-    /// because an inner window is lower.
-    @Test func theOrderFollowsTheNumberEachRowShows() {
+    /// Cursor runs two pools over one billing period and either can stop work
+    /// on its own, so a strip with room draws both — tightest first — and a
+    /// surface with room for one draws the tightest. The order still follows
+    /// the number each row shows: 31% files above Claude's 41%.
+    @Test func bothCursorPoolsAreShownAndTheOrderFollowsTheTightest() {
         let observed = now.addingTimeInterval(-60)
         let cursor = ProviderQuota(provider: .cursor, otherWindows: [
             QuotaWindow(remainingPercent: 74, durationMinutes: 43_200, resetsAt: nil, observedAt: observed, label: "Cursor Models"),
@@ -79,7 +80,23 @@ struct AgentRosterTests {
                                    weeklyWindowDurationMinutes: 10_080, observedAt: observed)
 
         #expect(cursor.tightest?.remainingPercent == 31, "the pool itself is still read honestly")
-        #expect([cursor, claude].displayedLowestFirst(now: now).map(\.provider) == [.claude, .cursor])
+        #expect(cursor.poolReadings.map(\.label) == ["Other Models", "Cursor Models"])
+        #expect(cursor.stripWindows(now: now).map(\.remainingPercent) == [31, 74],
+                "a strip lists every independent pool, so the spent one cannot hide behind the other")
+        #expect(cursor.displayWindow().remainingPercent == 31,
+                "one row means the pool that decides whether the next turn goes through")
+        #expect([cursor, claude].displayedLowestFirst(now: now).map(\.provider) == [.cursor, .claude])
+    }
+
+    /// A weekly pool beside a short one is one allowance read at two scales,
+    /// so it keeps its single preferred row.
+    @Test func aWeeklyAndShortPairStaysOneRow() {
+        let observed = now.addingTimeInterval(-60)
+        let codex = ProviderQuota(provider: .codex, weeklyRemainingPercent: 50,
+                                  weeklyWindowDurationMinutes: 10_080,
+                                  shortWindowRemainingPercent: 90,
+                                  shortWindowDurationMinutes: 300, observedAt: observed)
+        #expect(codex.stripWindows(now: now).map(\.remainingPercent) == [50])
     }
 
     @Test func onlyAnAllowanceThatChangesTheNextMoveCountsAsLow() {

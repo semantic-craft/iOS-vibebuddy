@@ -97,7 +97,7 @@ struct PhoneQuotaOverviewTimeline: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PhoneQuotaEntry>) -> Void) {
         let snapshot = WidgetQuotaStore.load()
-        let windows = (snapshot?.quotas ?? []).map { $0.displayWindow(preferring: .weekly) }
+        let windows = (snapshot?.quotas ?? []).flatMap { $0.stripWindows() }
         completion(PhoneQuotaTimeline.timeline(snapshot: snapshot, windows: windows))
     }
 }
@@ -499,21 +499,32 @@ struct PhoneQuotaOverviewView: View {
             Spacer(minLength: 6)
             VStack(spacing: 5) {
                 ForEach(AccountUsageProvider.allCases) { provider in
-                    row(provider, quota: snapshot.quotas.first { $0.provider == provider },
-                        faded: fadedProviders.contains(provider))
+                    let quota = snapshot.quotas.first { $0.provider == provider }
+                    let faded = fadedProviders.contains(provider)
+                    // Cursor's two pools each take a named line: the overview
+                    // is the one place that claims to show everything at once.
+                    let pools = quota?.stripWindows(now: now) ?? []
+                    if pools.count > 1 {
+                        ForEach(Array(pools.enumerated()), id: \.offset) { _, window in
+                            row(provider, window: window, name: window.label, quota: quota, faded: faded)
+                        }
+                    } else {
+                        row(provider, window: quota.map(QuotaWidgetWindows.headline),
+                            name: nil, quota: quota, faded: faded)
+                    }
                 }
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 13)
     }
 
-    private func row(_ provider: AccountUsageProvider, quota: ProviderQuota?, faded: Bool) -> some View {
-        let window = quota.map(QuotaWidgetWindows.headline)
+    private func row(_ provider: AccountUsageProvider, window: QuotaWindow?, name: String?,
+                     quota: ProviderQuota?, faded: Bool) -> some View {
         let (value, tint) = percentText(window, now: now)
         return HStack(spacing: 8) {
             HStack(spacing: 5) {
                 QuotaMark(provider: provider, size: 16)
-                Text(provider.displayName)
+                Text(name ?? provider.displayName)
                     .font(CompanionType.fixedFont(11, .medium))
                     .foregroundStyle(quota == nil ? CompanionPalette.ink3 : CompanionPalette.ink)
                     .lineLimit(1).minimumScaleFactor(0.8)

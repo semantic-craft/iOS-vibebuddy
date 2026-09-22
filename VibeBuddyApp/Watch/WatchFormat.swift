@@ -117,18 +117,23 @@ enum WatchQuotaVoice {
         return String(localized: "\(minutes)-minute window")
     }
 
+    /// One window read out: its name and what is left of it.
+    static func line(_ reading: QuotaWindow, now: Date) -> String {
+        let name = windowName(reading)
+        switch reading.status(now: now) {
+        case .awaitingReset: return name + ": " + String(localized: "Reset reached · awaiting update")
+        case .unavailable: return name + ": " + String(localized: "Unavailable")
+        case .live, .stale:
+            let value = reading.currentRemainingPercent(now: now).map(WatchFormat.percent) ?? "—"
+            return name + ": " + value + (reading.status(now: now) == .stale ? ", " + String(localized: "Cached reading") : "")
+        }
+    }
+
     static func summary(_ quota: ProviderQuota, freshness: QuotaFreshness, now: Date) -> String {
         let exact = QuotaWindowKind.allCases.map { quota.window($0) }
-        let readings = exact.contains { $0.remainingPercent != nil } ? exact : [quota.displayWindow()]
-        return readings.map { reading in
-            let name = windowName(reading)
-            switch reading.status(now: now) {
-            case .awaitingReset: return name + ": " + String(localized: "Reset reached · awaiting update")
-            case .unavailable: return name + ": " + String(localized: "Unavailable")
-            case .live, .stale:
-                let value = reading.currentRemainingPercent(now: now).map(WatchFormat.percent) ?? "—"
-                return name + ": " + value + (reading.status(now: now) == .stale ? ", " + String(localized: "Cached reading") : "")
-            }
-        }.joined(separator: "; ")
+        // Several independent pools (Cursor) are all read out: the one with
+        // room says nothing about the one that is spent.
+        let readings = exact.contains { $0.remainingPercent != nil } ? exact : quota.stripWindows(now: now)
+        return readings.map { line($0, now: now) }.joined(separator: "; ")
     }
 }

@@ -36,10 +36,14 @@ enum MacDemoData {
             secondary: nil, lifetimeTokens: nil, latestDailyTokens: nil,
             fetchedAt: now.addingTimeInterval(-900),
             spend: [QuotaSpend(label: "Extra usage", amount: 4.2)])
+        // Two independent pools over one billing period, as Cursor reports them.
         let cursor = AccountUsageSnapshot(
             provider: .cursor, planType: "Pro",
-            primary: window(.primary, used: 64, minutes: 43_200, elapsed: 0.40),
-            secondary: nil, lifetimeTokens: nil, latestDailyTokens: nil,
+            primary: window(.primary, used: 64, minutes: 43_200, elapsed: 0.40,
+                            label: String(localized: "Cursor Models")),
+            secondary: window(.secondary, used: 92, minutes: 43_200, elapsed: 0.40,
+                              label: String(localized: "Other Models")),
+            lifetimeTokens: nil, latestDailyTokens: nil,
             fetchedAt: now.addingTimeInterval(-420),
             spend: [QuotaSpend(label: "This month", amount: 41.2)])
         return [

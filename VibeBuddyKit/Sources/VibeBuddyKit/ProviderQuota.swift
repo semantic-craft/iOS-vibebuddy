@@ -199,10 +199,40 @@ public extension ProviderQuota {
         }
     }
 
+    /// Every pool that can stop the next turn on its own, in the order the
+    /// provider reports them. Weekly and short where a provider has them,
+    /// plus the billing-period pools that landed in `otherWindows`. Scoped
+    /// windows stay out: they subdivide one pool, they are not pools.
+    ///
+    /// Cursor reports two of these — `Cursor Models` and `Other Models` — and
+    /// neither stands in for the other: running Other Models to zero stops
+    /// work while Cursor Models still reads comfortable. Any surface with room
+    /// for more than one reading draws a row per entry rather than picking.
+    var independentWindows: [QuotaWindow] {
+        (QuotaWindowKind.allCases.map { window($0) } + (otherWindows ?? []).map(stampingCache))
+            .filter { $0.remainingPercent != nil }
+    }
+
+    /// What a strip draws for one provider: a single preferred reading, except
+    /// where the allowance is several independent billing pools — there each
+    /// pool takes its own row, tightest first, because hiding the exhausted one
+    /// behind the comfortable one is the reading that gets someone stuck.
+    func stripWindows(preferring kind: QuotaWindowKind = .weekly, now: Date = Date()) -> [QuotaWindow] {
+        let pools = (otherWindows ?? []).filter { $0.remainingPercent != nil }.map(stampingCache)
+        guard pools.count > 1,
+              !QuotaWindowKind.allCases.contains(where: { window($0).remainingPercent != nil })
+        else { return [displayWindow(preferring: kind)] }
+        return pools.sorted {
+            ($0.currentRemainingPercent(now: now) ?? 101) < ($1.currentRemainingPercent(now: now) ?? 101)
+        }
+    }
+
     /// Compact surfaces (Watch home strips, weekly/short widgets) prefer the
     /// requested window. When weekly and short are both missing — Cursor/Grok
-    /// billing periods land in `otherWindows` — fall back to the first other
-    /// window that has a remaining percent so freshness and the strip agree.
+    /// billing periods land in `otherWindows` — fall back to the **tightest**
+    /// other window, the one that decides whether the next turn goes through.
+    /// Taking the first instead would have shown Cursor Models at 87% left on
+    /// a wrist whose Other Models pool was already spent.
     ///
     /// Choice for #113: fall back to `otherWindows` rather than promoting a
     /// billing-cycle window as a first-class `QuotaWindowKind`. Weekly/short
@@ -213,11 +243,20 @@ public extension ProviderQuota {
         let alternate: QuotaWindowKind = kind == .weekly ? .short : .weekly
         let secondary = window(alternate)
         if secondary.remainingPercent != nil { return secondary }
-        if var other = (otherWindows ?? []).first(where: { $0.remainingPercent != nil }) {
-            other.isCached = other.isCached == true || isCached == true
-            return other
+        if let other = (otherWindows ?? [])
+            .filter({ $0.remainingPercent != nil })
+            .min(by: { ($0.remainingPercent ?? 101) < ($1.remainingPercent ?? 101) }) {
+            return stampingCache(other)
         }
         return preferred
+    }
+
+    /// A relayed window inherits the provider's cached flag: a pool read from
+    /// a saved snapshot must not look fresher than the reading it came in.
+    private func stampingCache(_ window: QuotaWindow) -> QuotaWindow {
+        var result = window
+        result.isCached = result.isCached == true || isCached == true
+        return result
     }
 }
 
