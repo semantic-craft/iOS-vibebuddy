@@ -31,23 +31,32 @@ public actor CursorTranscriptMonitor {
     private var pathsBySession: [String: String] = [:]
     /// Flattened directory name → resolved checkout, remembered for a while.
     /// Resolving probes the file system once per `-` in the name, for every
-    /// project directory, on every 2 s pass; the answer only changes when a
-    /// checkout appears or disappears, so a miss is re-tried after `resolveTTL`.
-    private var projectPaths: [String: (path: String?, at: Date)] = [:]
+    /// project directory, on every 2 s pass. Only an answer that read every
+    /// `-` as a path separator is kept: it is the preferred reading and can
+    /// only stop being true by deletion, which `resolveTTL` bounds. A miss,
+    /// and a path that folded a hyphen into a component (which a directory
+    /// created later would outrank), are resolved again on every pass.
+    private var projectPaths: [String: (path: String, at: Date)] = [:]
     static let resolveTTL: TimeInterval = 600
 
     private func discover(now: Date) -> [CursorTranscripts.Located] {
-        var fresh: [String: String?] = [:]
+        var fresh: [String: String] = [:]
         let located = CursorTranscripts.discover(root: root) { [projectPaths] name in
             if let cached = projectPaths[name], now.timeIntervalSince(cached.at) < Self.resolveTTL {
                 return cached.path
             }
             let path = CursorTranscripts.projectPath(forDirectoryName: name)
-            fresh[name] = path
+            if let path, Self.isSeparatorOnly(name: name, path: path) { fresh[name] = path }
             return path
         }
         for (name, path) in fresh { projectPaths[name] = (path, now) }
         return located
+    }
+
+    /// Every `-` in the name became a `/`: the components count matches.
+    static func isSeparatorOnly(name: String, path: String) -> Bool {
+        name.split(separator: "-", omittingEmptySubsequences: false).count
+            == path.split(separator: "/", omittingEmptySubsequences: false).dropFirst().count
     }
 
     public init(root: URL = CursorTranscripts.projectsRoot(),

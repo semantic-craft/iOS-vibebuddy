@@ -65,8 +65,8 @@ public enum CursorTranscripts {
             guard let entries = try? fm.contentsOfDirectory(
                 at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
             ) else { continue }
-            let path = resolve?(project.lastPathComponent)
-                ?? projectPath(forDirectoryName: project.lastPathComponent, fileManager: fm)
+            let path = if let resolve { resolve(project.lastPathComponent) }
+                       else { projectPath(forDirectoryName: project.lastPathComponent, fileManager: fm) }
             for entry in entries {
                 // `<id>/<id>.jsonl` (3.x) and a flat `<id>.jsonl` (older) both count.
                 let candidates: [URL] = entry.pathExtension == "jsonl"

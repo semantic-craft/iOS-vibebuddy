@@ -12,7 +12,14 @@ struct ToolLedger: Sendable {
     /// for a recovery aid. A change inside the window is written by the next
     /// `prune(now:)` (every snapshot) or the next observation after it.
     static let writeInterval: TimeInterval = 2
-    private var lastWriteAt: Date?
+    /// Monotonic: the caller's `now` is an event timestamp (hook receipt, a
+    /// rollout line's own clock) and may run backwards during catch-up; it
+    /// bounds the retention window, never the write anchor.
+    private var lastWriteAt: ContinuousClock.Instant?
+    /// True while a change is waiting for the window to pass. The owner arms
+    /// a trailing `prune` from it so a headless daemon or a quiet app does
+    /// not sit on an unwritten tail.
+    var needsTrailingWrite: Bool { persistencePending && url != nil }
     /// Files actually written. Exposed for tests.
     private(set) var writeCount = 0
     init(url: URL?, now: Date) {
@@ -46,7 +53,9 @@ struct ToolLedger: Sendable {
         persist(now: now)
     }
     mutating func prune(now: Date) {
-        if pruneRetained(now: now) || persistencePending { persist(now: now) }
+        // Expiry is rare and must not linger on disk: it writes through the window.
+        if pruneRetained(now: now) { persist(now: now, force: true) }
+        else if persistencePending { persist(now: now) }
     }
     private mutating func pruneRetained(now: Date) -> Bool {
         let previous = sessions
@@ -62,11 +71,12 @@ struct ToolLedger: Sendable {
         }
         sessions = [:]
         persistencePending = false
+        lastWriteAt = nil
         return true
     }
-    private mutating func persist(now: Date) {
+    private mutating func persist(now: Date, force: Bool = false) {
         persistencePending = url != nil
-        if let last = lastWriteAt, now.timeIntervalSince(last) < Self.writeInterval, now >= last { return }
+        if !force, let last = lastWriteAt, ContinuousClock.now - last < .seconds(Self.writeInterval) { return }
         // Bound the entire sidecar as well as each session. Drop oldest sessions
         // before serializing beyond the read cap; retained scope is shown in UI.
         guard var data = try? JSONEncoder().encode(sessions) else { return }
@@ -82,7 +92,7 @@ struct ToolLedger: Sendable {
             try data.write(to: url, options: [.atomic])
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             persistencePending = false
-            lastWriteAt = now  // a failed write keeps the window open for the retry
+            lastWriteAt = .now  // a failed write keeps the window open for the retry
             writeCount += 1
         } catch {}
     }

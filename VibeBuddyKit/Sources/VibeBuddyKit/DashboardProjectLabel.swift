@@ -12,10 +12,11 @@ public struct DashboardProjectLabel: Equatable, Sendable {
         private var key: [String] = []
         private var value: [String: DashboardProjectLabel]?
         func labels(for projects: [String], compute: ([String]) -> [String: DashboardProjectLabel]) -> [String: DashboardProjectLabel] {
+            let sorted = projects.sorted()  // the answer is a function of the set
             lock.lock(); defer { lock.unlock() }
-            if let value, key == projects { return value }
-            let computed = compute(projects)
-            key = projects; value = computed
+            if let value, key == sorted { return value }
+            let computed = compute(sorted)
+            key = sorted; value = computed
             return computed
         }
     }

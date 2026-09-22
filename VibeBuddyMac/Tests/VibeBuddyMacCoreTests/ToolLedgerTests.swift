@@ -20,13 +20,21 @@ final class ToolLedgerTests: XCTestCase {
         XCTAssertEqual(ledger.writeCount, 1)
         XCTAssertEqual(ToolLedger(url: url, now: t0).sessions["s"]?.count, 1)  // only the first made it to disk so far
 
-        // The next snapshot pass after the window writes the rest.
-        ledger.prune(now: t0.addingTimeInterval(ToolLedger.writeInterval))
+        XCTAssertTrue(ledger.needsTrailingWrite)
+        // Inside the window a prune writes nothing, whatever `now` says — the
+        // anchor is monotonic, so an older event timestamp cannot reopen it.
+        ledger.prune(now: t0.addingTimeInterval(-60))
+        XCTAssertEqual(ledger.writeCount, 1)
+
+        // Once the window has passed, the next prune writes the rest.
+        Thread.sleep(forTimeInterval: ToolLedger.writeInterval)
+        ledger.prune(now: t0.addingTimeInterval(1))
         XCTAssertEqual(ledger.writeCount, 2)
+        XCTAssertFalse(ledger.needsTrailingWrite)
         XCTAssertEqual(ToolLedger(url: url, now: t0).sessions["s"]?.count, 5)
 
-        // Nothing pending: a prune inside the next window writes nothing.
-        ledger.prune(now: t0.addingTimeInterval(ToolLedger.writeInterval + 0.5))
+        // Nothing pending: a prune writes nothing.
+        ledger.prune(now: t0.addingTimeInterval(2))
         XCTAssertEqual(ledger.writeCount, 2)
     }
 
@@ -83,7 +91,8 @@ final class ToolLedgerTests: XCTestCase {
         for index in 35..<50 { ledger.observe(record(index, session: 3), sessionID: "s3", now: now) }
         // Writes are one per window; the next snapshot pass after it flushes
         // the rest, and the cap is applied on that write.
-        ledger.prune(now: now.addingTimeInterval(ToolLedger.writeInterval))
+        Thread.sleep(forTimeInterval: ToolLedger.writeInterval)
+        ledger.prune(now: now)
         XCTAssertNil(ledger.sessions["s0"])
         XCTAssertEqual(ledger.sessions["s3"]?.count, 50)
         XCTAssertLessThanOrEqual(try Data(contentsOf: url).count, 8_000_000)

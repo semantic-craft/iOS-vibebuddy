@@ -46,6 +46,9 @@ final class ToolLedgerPerformanceTests: XCTestCase {
                 let components = elapsed.components
                 let milliseconds = Double(components.seconds) * 1000 + Double(components.attoseconds) / 1e15
                 print("LEDGER_BENCH operation=\(operation) trial=\(trial) operations=10 records=12500 bytes=\(data.count) milliseconds=\(milliseconds)")
+                // Writes are one per window; flush the tail before comparing to disk.
+                Thread.sleep(forTimeInterval: ToolLedger.writeInterval)
+                ledger.prune(now: instant.addingTimeInterval(ToolLedger.writeInterval))
                 XCTAssertEqual(ToolLedger(url: url, now: instant).sessions, ledger.sessions)
             }
         }

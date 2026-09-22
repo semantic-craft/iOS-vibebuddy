@@ -173,6 +173,10 @@ struct DashboardView: View {
             var selection: String?
             var showOlder: Bool
             var recentDirectories: [String]
+            /// The list ages finished sessions on the clock (24 h currency
+            /// window), so the key carries the minute; a currency change can
+            /// only be missed for under a minute.
+            var minute: Int
         }
         private var key: Key?
         private var value: DashboardSessionList?
@@ -181,7 +185,8 @@ struct DashboardView: View {
                    status: DashboardSessionList.StatusFilter?, agent: AgentKind?, query: String,
                    selection: String?, showOlder: Bool, recentDirectories: [String]) -> DashboardSessionList {
             let next = Key(sessions: sessions, project: project, status: status, agent: agent, query: query,
-                           selection: selection, showOlder: showOlder, recentDirectories: recentDirectories)
+                           selection: selection, showOlder: showOlder, recentDirectories: recentDirectories,
+                           minute: Int(Date().timeIntervalSince1970 / 60))
             if let value, key == next { return value }
             let computed = DashboardSessionList(sessions, project: project, status: status, agent: agent,
                                                 query: query, selection: selection, showOlder: showOlder,

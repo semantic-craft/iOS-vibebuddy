@@ -304,11 +304,20 @@ public enum GrokSessionReader {
     /// Size and mtime of the files `read` looks at; equal stamps mean an equal
     /// snapshot, so a caller that is told about every event can skip the read.
     public static func stamp(directory: URL) -> [String] {
-        ["summary.json", "signals.json", "updates.jsonl", "events.jsonl"].map { name in
-            guard let values = try? directory.appendingPathComponent(name)
-                .resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return "missing" }
+        func stamp(_ url: URL) -> String {
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return "missing" }
             return "\(values.fileSize ?? -1)/\(values.contentModificationDate?.timeIntervalSince1970 ?? 0)"
         }
+        var stamps = ["summary.json", "signals.json", "updates.jsonl", "events.jsonl"].map { stamp(directory.appendingPathComponent($0)) }
+        // A child that finished after its spawn line left the updates tail is
+        // known only from its meta.json, so those files are part of the stamp.
+        let subagents = directory.appendingPathComponent("subagents", isDirectory: true)
+        if let children = try? FileManager.default.contentsOfDirectory(at: subagents, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for child in children.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                stamps.append(child.lastPathComponent + ":" + stamp(child.appendingPathComponent("meta.json")))
+            }
+        }
+        return stamps
     }
 
     static func tail(at url: URL, maxBytes: Int) -> Data? {
