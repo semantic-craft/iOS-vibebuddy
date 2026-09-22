@@ -11,12 +11,13 @@ import WatchKit
 /// look, the screen you get when you *do* raise your arm, is ours, and this is
 /// the only place a mirrored cue can be given the wrist's own rhythm.
 ///
-/// The action row below this view is deliberately not ours either. It comes
-/// from the category the iPhone registered (`Notifier.registerCategories`,
-/// where Approve is already the first action) and a tap on it is answered by
-/// the iPhone, which holds the pairing. Apple routes background actions to the
-/// original notification target, so these mirrored notifications register their
-/// categories on iPhone. Registration location does not reroute their replies.
+/// The action row below this view is not drawn here either. It comes from the
+/// category the iPhone registered (`LocalNotifier.registerCategories`, where
+/// Approve is already the first action, and `WatchAppDelegate.categories`
+/// mirrors it). Every action is a foreground action, and Apple runs those on
+/// the device where they were tapped: a tap here launches this app and lands in
+/// `WatchAppDelegate`, which carries it through the Watch's own send path and
+/// shows the outcome on the card (ADR-0033).
 final class WatchNotificationController: WKUserNotificationHostingController<WatchNotificationView> {
     private var content = WatchNotificationContent()
 
