@@ -2,6 +2,10 @@ import Foundation
 import Testing
 @testable import VibeBuddyKit
 
+private extension String {
+    func repeated(_ count: Int) -> String { String(repeating: self, count: count) }
+}
+
 @Suite("Companion addresses")
 struct CompanionEndpointTests {
     @Test func headscaleAddressRetainsPairing() throws {
@@ -37,6 +41,42 @@ struct CompanionEndpointTests {
         #expect(CompanionEndpoint(host: "mac.local", port: 0) == nil)
         #expect(CompanionEndpoint(host: "mac.local", port: 65536) == nil)
     }
+    /// Found in `pairing.tailscaleHost` on a real Mac: a block of unrelated
+    /// script had been written into the address field. It is inert only while
+    /// the remote connection method is off, so the check has to hold on the
+    /// value itself, not on the surrounding setting.
+    @Test func scriptBlobIsNeverAHost() throws {
+        let blob = #"""
+        var addon = await (ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs").AddonManager).getAddonByID("zotero-bridge@glaux.local");
+        return JSON.stringify({zotero: Zotero.version, bridge: addon && addon.version, active: addon && addon.isActive});
+        """#
+        #expect(CompanionEndpoint.normalizedHost(blob) == nil)
+        #expect(CompanionEndpoint(host: blob, port: 9876) == nil)
+
+        let lan = PairingPayload(host: "192.168.1.20", port: 9876, token: "fixture", macName: "Home Mac")
+        #expect(lan.usingTailnetIPv4(blob, port: 9876) == nil)
+        let advertised = PairingPayload(host: blob, port: 9876, token: "fixture", macName: "Home Mac")
+        #expect(!advertised.isValidConnection)
+        #expect(advertised.companionURL(path: "ws", webSocket: true) == nil)
+
+        // The shape, not just this one string: a single hostile line, and a
+        // host under the length cap that still cannot be one.
+        for host in ["a".repeated(254), "echo hi", "100.64.0.8 && curl evil.example", "100.64.0.8\nrm -rf /"] {
+            #expect(CompanionEndpoint.normalizedHost(host) == nil, "accepted: \(host)")
+        }
+    }
+
+    /// The host check is reused to vet a *persisted* address on read. It must
+    /// keep normalizing good input, and it must reject a half-typed address —
+    /// which is why the Mac applies it on load only, never on every keystroke.
+    @Test func normalizedHostTrimsAndLowercases() {
+        #expect(CompanionEndpoint.normalizedHost(" My-Mac.Example.TS.net \n") == "my-mac.example.ts.net")
+        #expect(CompanionEndpoint.normalizedHost("100.64.0.8") == "100.64.0.8")
+        for partial in ["", "   ", "100.", "100.64.", "-"] {
+            #expect(CompanionEndpoint.normalizedHost(partial) == nil, "accepted: \(partial)")
+        }
+    }
+
     @Test func legacyPairingUnchanged() throws {
         let json = Data(#"{"host":"100.64.0.1","port":9876,"token":"fixture"}"#.utf8)
         let pairing = try JSONDecoder().decode(PairingPayload.self, from: json)
