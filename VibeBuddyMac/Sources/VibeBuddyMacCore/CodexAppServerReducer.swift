@@ -289,10 +289,6 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         }
     }
 
-    static func lastAgentMessage(in items: [[String: Any]]) -> String? {
-        fullLastAgentMessage(in: items)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private static func fullLastAgentMessage(in items: [[String: Any]]) -> String? {
         items.last(where: { $0["type"] as? String == "agentMessage"
             && ($0["phase"] == nil || $0["phase"] as? String == "final_answer") })
