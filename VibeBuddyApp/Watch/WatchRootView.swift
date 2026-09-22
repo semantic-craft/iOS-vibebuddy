@@ -44,18 +44,12 @@ struct WatchRootView: View {
             // to apologise on — the phone published a state with no Mac in it,
             // so these pages are up and `openSession` had nothing to build a
             // card from. The sentence belongs wherever the wrist is looking.
-            .safeAreaInset(edge: .top) {
-                if let fallback = store.bannerActionFallback, store.taskLink == nil {
-                    Text(fallback.message)
-                        .font(CompanionType.font(10))
-                        .foregroundStyle(CompanionPalette.status(.requiresInput))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 6)
-                        .accessibilityIdentifier("watch-banner-action-fallback")
-                }
-            }
+            // Attached only when there is something to say. An inset that is
+            // always present, even holding an empty view, still asks for the
+            // system's default spacing, and every page on a 40mm screen would
+            // pay for it forever to serve a sentence almost nobody sees.
+            .modifier(BannerFallbackInset(
+                message: store.taskLink == nil ? store.bannerActionFallback?.message : nil))
             .onChange(of: page) { _, _ in store.cancelPendingNavigation() }
             // The last waiting session was resolved while its page was open.
             .onChange(of: state.alerts.count) { _, count in
@@ -63,6 +57,30 @@ struct WatchRootView: View {
             }
         } else {
             WatchNoDataView(fallback: store.bannerActionFallback)
+        }
+    }
+}
+
+/// The sentence a banner button leaves when it could not act and no card was
+/// opened to carry it. `spacing: 0` so the text's own padding is the only gap.
+private struct BannerFallbackInset: ViewModifier {
+    var message: LocalizedStringResource?
+
+    func body(content: Content) -> some View {
+        if let message {
+            content.safeAreaInset(edge: .top, spacing: 0) {
+                Text(message)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.status(.requiresInput))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 2)
+                    .accessibilityIdentifier("watch-banner-action-fallback")
+            }
+        } else {
+            content
         }
     }
 }

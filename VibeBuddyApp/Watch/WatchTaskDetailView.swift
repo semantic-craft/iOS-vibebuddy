@@ -9,6 +9,7 @@ extension WatchBannerActionFallback {
         case .noLongerWaiting: return "The banner's button wasn't sent: this is no longer waiting on you."
         case .notDecidableHere: return "The banner's button wasn't sent: this request can only be decided on your iPhone or Mac."
         case .linkDown: return "The banner's button wasn't sent: can't reach your iPhone. Use the buttons here when it's back."
+        case .macLinkDown: return "The banner's button wasn't sent: your iPhone can't reach your Mac. Use the buttons here when it's back."
         case .busy: return "The banner's button wasn't sent: another action is still on its way."
         case .noState: return "The banner's button wasn't sent: waiting for an update from your iPhone."
         }

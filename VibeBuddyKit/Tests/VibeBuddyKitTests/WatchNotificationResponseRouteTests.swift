@@ -73,9 +73,14 @@ struct WatchBannerActionPatienceTests {
         #expect(held.provesRequestGone(currentRevision: 13))
     }
 
-    @Test func theFirstStateOfAColdHoldIsABaselineAndProvesNothing() {
-        // Nothing usable on disk: the first payload to arrive is the mark, not
-        // an answer about an approval the wrist has never seen.
+    @Test func theFirstEvidenceStateIsTheBaselineAndProvesNothing() {
+        // A hold starts with no mark at all. Whatever was on screen at the tap
+        // is the cache (ids stripped) or a context taken while the relay was
+        // down, and a mark read off either makes the first honest live snapshot
+        // — newer than the cache, and not yet carrying an approval still in
+        // flight — look like proof the request ended. The store seeds nothing;
+        // the first state it accepts as evidence is the mark, and that one
+        // answers nothing by itself.
         var held = WatchBannerAction(route: route)
         #expect(held.baselineRevision == nil)
         #expect(held.provesRequestGone(currentRevision: 40) == false)

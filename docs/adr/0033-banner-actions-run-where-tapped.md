@@ -246,3 +246,35 @@ again clears it — "this is no longer waiting on you" above a live Approve
 button is worse than silence. The sentence also now renders on the tab pages
 when no card exists, not only on the card and the no-data screen, because the
 gap between them is exactly the no-Mac publish that produces `.noState`.
+
+### Round 3, continued — the baseline, and sentences that were not true
+
+Three more from the same round, on top of the reply binding above.
+
+**The baseline may only come from evidence.** Round 2 left `perform` seeding
+`baselineRevision` from whatever was on screen at the tap, which on a cold
+launch is the cache. A live snapshot is legitimately newer than the cache and
+legitimately may not yet carry an approval in flight, so it read as proof and
+ended the hold at once — not even at the timeout, and the later snapshot that
+did carry the approval then cleared the sentence without sending. The mark is
+now set by `noteInstalled`, past the evidence guard: the first evidence state
+is the baseline and proves nothing.
+
+**The wrist names the link that is actually down.** "Waiting for an update from
+your iPhone" was shown when the update had arrived and it was the Mac that had
+gone. `waitingReason(for:)` reads the connection, and `.macLinkDown` says so.
+
+**Each sentence stays exactly as long as it is true.** They were all cleared
+together as soon as the request came back, which took down "another action is
+still on its way" while that action was still in flight, and left "can't reach
+your iPhone" up after the phone returned. Clearing is now per reason and runs
+on link changes as well as new states: `.busy` waits for the slot, `.linkDown`
+and `.macLinkDown` for a live link, `.notDecidableHere` for the request to
+become actionable, and `.noLongerWaiting` either clears or — when the request
+is back but not for this wrist — becomes `.notDecidableHere` rather than
+staying false. `.noState` is the exception: "it wasn't sent" is still true once
+the update lands, so it leaves with the card.
+
+The fallback inset on the root pages is attached only when there is a sentence;
+an inset that is always present still asks for the system's default spacing,
+and every page would pay for it to serve a sentence almost nobody sees.

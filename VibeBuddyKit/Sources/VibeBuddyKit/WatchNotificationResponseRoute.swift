@@ -100,9 +100,13 @@ public struct WatchBannerAction: Equatable, Sendable {
 
     public var route: WatchNotificationResponseRoute
     public var heldAt: Date
-    /// The newest relay revision this hold is known to have seen, and with it
-    /// the only evidence that can say the request is gone. Nil until the hold's
-    /// first state arrives.
+    /// The relay revision of the first *evidence* state this hold saw, and the
+    /// mark every later one is measured against. Nil until that state arrives.
+    ///
+    /// Only the caller knows which states are evidence, so only the caller sets
+    /// this, through `noteInstalled`. Seeding it from whatever happened to be on
+    /// screen at the tap put yesterday's cached number here, and the first live
+    /// snapshot then read as proof the request had ended.
     public private(set) var baselineRevision: UInt64?
     /// The question a held reply is bound to, fixed the first time a relayed
     /// state showed the wrist an answerable question for this session. Nil for
@@ -182,9 +186,11 @@ public enum WatchBannerActionFallback: String, Equatable, Sendable, CaseIterable
     /// The relayed state holds it, but not in a form the wrist may decide —
     /// an Edit's diff, an over-long command, a multi-part question.
     case notDecidableHere
-    /// The iPhone is out of range, or the iPhone has lost the Mac: the
-    /// message could not have travelled.
+    /// The iPhone is out of range: the message could not have travelled.
     case linkDown
+    /// The iPhone is here, but it has lost the Mac. A different sentence,
+    /// because a different thing is broken and the wrist can see which.
+    case macLinkDown
     /// Another action from this Watch is still in flight.
     case busy
     /// The state that would place this session never arrived in time.
