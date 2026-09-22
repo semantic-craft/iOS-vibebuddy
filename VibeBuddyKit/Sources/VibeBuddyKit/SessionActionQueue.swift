@@ -81,20 +81,6 @@ public struct QueuedSessionAction: Codable, Equatable, Sendable, Identifiable {
     public var isHoldable: Bool { !action.isDestructive }
 }
 
-/// Why a held action left the queue.
-public enum QueuedActionDisposal: Equatable, Sendable {
-    /// The Mac took it.
-    case delivered
-    /// The Mac said the request is gone — resolved elsewhere, or expired.
-    case gone
-    /// Too old, too many attempts, or a re-pairing made it meaningless.
-    case dropped
-    /// Replaced by a later decision on the same target.
-    case superseded
-    /// The person withdrew it.
-    case cancelled
-}
-
 /// The phone's queue of held decisions, as a value.
 public struct SessionActionQueue: Codable, Equatable, Sendable {
     public private(set) var items: [QueuedSessionAction]
