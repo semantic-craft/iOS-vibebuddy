@@ -1,6 +1,6 @@
 # 01: Swift 安装器替换 python 安装脚本（C-1，吸收 AI-08）
 
-**Status:** ready-for-agent
+**Status:** ready-for-human（#266 已合并，等 owner 真机验收）
 
 **Executor:** Claude（Opus 实现）· branch `claude/c1-swift-hook-installer` · 2026-09-23
 
