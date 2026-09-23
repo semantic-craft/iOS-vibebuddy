@@ -34,6 +34,14 @@ final class LegacyHistoryCleanupTests: XCTestCase {
                        .init(removed: [], bytesFreed: 0))
     }
 
+    func testInvalidE2ERootCleansNothing() {
+        for root in ["", "relative/path", "/"] {
+            let targets = LegacyHistoryCleanup.targets(home: URL(fileURLWithPath: "/Users/nobody"),
+                temporaryDirectory: URL(fileURLWithPath: "/nonexistent"), environment: ["VIBEBUDDY_E2E_ROOT": root])
+            XCTAssertEqual(targets, [], root)
+        }
+    }
+
     func testE2ERunCleansOnlyItsOwnRoot() {
         let targets = LegacyHistoryCleanup.targets(home: URL(fileURLWithPath: "/Users/nobody"), temporaryDirectory: URL(fileURLWithPath: "/nonexistent"),
                                                    environment: ["VIBEBUDDY_E2E_ROOT": "/tmp/e2e-run"])

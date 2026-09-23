@@ -72,9 +72,17 @@ public actor SessionTranscriptReader {
 
     /// The cached file while it is still a regular file, else a fresh lookup
     /// by native file name only — never by parsing other conversations.
+    private var missed: [String: ContinuousClock.Instant] = [:]
+    static let missWindow: Duration = .seconds(5)
+
     private func locate(_ reference: HistorySessionReference) throws -> URL {
         if let cached = located[reference.key], Self.isPlainFile(cached) { return cached }
         located[reference.key] = nil
+        // A session not written yet is asked for on every reader refresh; the
+        // Codex lookup walks thousands of rollout files, so a miss is kept briefly.
+        if let missedAt = missed[reference.key], ContinuousClock.now - missedAt < Self.missWindow {
+            throw HistoryToolError.executionFailed("Unknown session key.")
+        }
         var candidates: [URL] = []
         let fm = FileManager.default
         for (root, agent) in roots where agent == reference.agent {
@@ -105,8 +113,10 @@ public actor SessionTranscriptReader {
             candidates += found.filter { Self.isPlainFile($0) && $0.resolvingSymlinksInPath().path.hasPrefix(root.path + "/") }
         }
         guard candidates.count == 1 else {
+            if candidates.isEmpty { missed[reference.key] = .now }
             throw HistoryToolError.executionFailed(candidates.isEmpty ? "Unknown session key." : "Ambiguous session key: multiple source files.")
         }
+        missed[reference.key] = nil
         located[reference.key] = candidates[0]
         return candidates[0]
     }

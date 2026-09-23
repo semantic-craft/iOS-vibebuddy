@@ -230,7 +230,9 @@ list inventory, and the tools `vibebuddy_list_sessions`,
 `vibebuddy_list_projects`, `vibebuddy_search` and `vibebuddy_get_summary`
 with their CLI commands `sessions`, `projects`, `search`, `summary` and
 `index`. No tool needs an index any more. The Mac app deletes the old
-`SessionHistory/` directory once at launch. `docs/session-history.md` is gone.
+`SessionHistory/` directory, and any stale `$TMPDIR/vibebuddy-history-*`
+reader directories, at launch (a no-op once they are gone; an E2E run cleans
+only its own `history` directory). `docs/session-history.md` is gone.
 
 What remains of this decision: the one read-only `vibebuddy-mcp` binary
 (MCP with no arguments, CLI otherwise, `call` and `setup`), session keys and

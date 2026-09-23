@@ -612,7 +612,14 @@ public actor SessionStore {
     private var handoffCache: (at: ContinuousClock.Instant, directories: [String], records: [HandoffRecord])?
     static let handoffCacheWindow: Duration = .seconds(5)
 
+    /// A tool call that runs `vibebuddy-mcp facts` (CLI) or the MCP tool.
+    static func readsHandoffFacts(_ record: ToolCallRecord) -> Bool {
+        record.tool.hasSuffix("vibebuddy_handoff_facts")
+            || (record.command?.contains("vibebuddy-mcp facts") ?? false)
+    }
+
     private func cachedHandoffs(directories: [String]) -> [HandoffRecord] {
+        let directories = directories.sorted()
         if let cache = handoffCache, cache.directories == directories,
            ContinuousClock.now - cache.at < Self.handoffCacheWindow {
             return cache.records
@@ -796,7 +803,17 @@ public actor SessionStore {
             if !appServerOutranks(event, from: .hook), !acpOutranks(event, from: .hook),
                let record = ToolLedger.hook(data, event: event) {
                 toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt, agent: event.agent)
+                // The handoff facts tool reads this file from another process;
+                // the agent calls it right after its last step, inside the write
+                // window. Write through before that call runs.
+                if Self.readsHandoffFacts(record) { toolLedger.flush(now: receivedAt) }
+                // A handoff note just written must reach the next pushed snapshot.
+                if record.files.contains(where: { $0.contains("/.scratch/") }) { handoffCache = nil }
                 armToolLedgerFlush()
+            }
+            if event.kind == .stop || event.kind == .sessionEnd {
+                toolLedger.flush(now: receivedAt)
+                handoffCache = nil
             }
             ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true

@@ -18,6 +18,9 @@ public enum LegacyHistoryCleanup {
                                environment: [String: String] = ProcessInfo.processInfo.environment,
                                fileManager fm: FileManager = .default) -> [URL] {
         if let root = environment["VIBEBUDDY_E2E_ROOT"] {
+            // Same rule as E2ERunConfiguration: an absolute path that is not
+            // the filesystem root; anything else cleans nothing.
+            guard root.hasPrefix("/"), root != "/", !root.contains("\0") else { return [] }
             return [URL(fileURLWithPath: root).appendingPathComponent("history")]
         }
         var result = [home.appendingPathComponent("Library/Application Support/VibeBuddy/SessionHistory")]
