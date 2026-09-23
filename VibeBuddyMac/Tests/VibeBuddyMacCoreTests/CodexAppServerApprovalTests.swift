@@ -15,20 +15,21 @@ struct CodexAppServerApprovalTests {
         let questions = QuestionRegistry()
         let sessionAllow = SessionAllowList()
         let allowStore: VibeBuddyAllowStore
-        let allowURL: URL
         let context = ApprovalContextStore()
         let monitor: CodexAppServerMonitor
         let socket: URL
         let run: Task<Void, Never>
 
         init(rules: [String] = []) async {
-            journal = FileManager.default.temporaryDirectory.appendingPathComponent("vb-journal-\(UUID().uuidString).json")
+            // A private directory: SessionStore keeps its ledgers beside the journal.
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("vb-journal-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            journal = directory.appendingPathComponent("journal.json")
             store = SessionStore(journalURL: journal)
             socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-sock-\(UUID().uuidString)")
             FileManager.default.createFile(atPath: socket.path, contents: Data())
             connection = FakeConnection(results: fakeDaemonResults())
-            allowURL = FileManager.default.temporaryDirectory.appendingPathComponent("vb-allow-\(UUID().uuidString).json")
-            allowStore = VibeBuddyAllowStore(url: allowURL)
+            allowStore = VibeBuddyAllowStore(url: directory.appendingPathComponent("allow.json"))
             for rule in rules { _ = await allowStore.add(rule) }
             monitor = CodexAppServerMonitor(
                 enabled: true, socketPath: socket.path,
@@ -41,9 +42,12 @@ struct CodexAppServerApprovalTests {
             run = Task { await monitor.run(store: store) }
         }
 
-        func stop() {
-            try? FileManager.default.removeItem(at: journal); run.cancel(); connection.close(); try? FileManager.default.removeItem(at: socket)
-            try? FileManager.default.removeItem(at: allowURL)
+        /// Waits for the monitor to finish: its last disconnect still writes the journal.
+        func stop() async {
+            run.cancel(); connection.close()
+            await run.value
+            try? FileManager.default.removeItem(at: journal.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: socket)
         }
 
         func session(_ id: String) async -> AgentSession? {
@@ -69,7 +73,7 @@ struct CodexAppServerApprovalTests {
     @Test("a command approval becomes a card; approve answers accept and clears it")
     func approveCommand() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-1")
         h.pushCommandApproval(thread: "thr-1", requestID: 7, command: "npm test")
         #expect(await waitFor { await h.session("thr-1")?.pendingApproval != nil })
@@ -88,7 +92,7 @@ struct CodexAppServerApprovalTests {
     @Test("deny answers decline; allow-for-session answers acceptForSession and skips the next card")
     func denyAndSession() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-2")
         h.pushCommandApproval(thread: "thr-2", requestID: 1, command: "rm -rf build")
         #expect(await waitFor { await h.session("thr-2")?.pendingApproval != nil })
@@ -111,7 +115,7 @@ struct CodexAppServerApprovalTests {
     @Test("an exact always-allow rule in the vibebuddy store answers accept without a card")
     func alwaysAllowRule() async throws {
         let h = await Harness(rules: ["Bash(npm test)"])
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-3")
         h.pushCommandApproval(thread: "thr-3", requestID: 9, command: "npm test")
         #expect(await waitFor { h.connection.decisions == ["accept"] })
@@ -121,7 +125,7 @@ struct CodexAppServerApprovalTests {
     @Test("a request resolved elsewhere withdraws the card silently and sends nothing")
     func resolvedElsewhere() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-4")
         h.pushCommandApproval(thread: "thr-4", requestID: 5, command: "make")
         #expect(await waitFor { await h.session("thr-4")?.pendingApproval != nil })
@@ -137,7 +141,7 @@ struct CodexAppServerApprovalTests {
     @Test("losing the socket withdraws a held approval: the card goes down and nothing is sent later")
     func disconnectWithdrawsHeldRequests() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-dc")
         h.pushCommandApproval(thread: "thr-dc", requestID: 9, command: "npm test")
         #expect(await waitFor { await h.session("thr-dc")?.pendingApproval != nil })
@@ -155,7 +159,7 @@ struct CodexAppServerApprovalTests {
     @Test("a file change approval carries the paths and diff of the item that asked")
     func fileChange() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-5")
         h.connection.push(["method": "item/started", "params": ["threadId": "thr-5", "turnId": "t", "startedAtMs": 1,
                                                                   "item": ["type": "fileChange", "id": "fc-1", "status": "inProgress",
@@ -176,7 +180,7 @@ struct CodexAppServerApprovalTests {
     @Test("request_user_input becomes a multi-question card and the answers go back per question id")
     func userInput() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-6")
         h.connection.push(["id": 11, "method": "item/tool/requestUserInput",
                            "params": ["threadId": "thr-6", "turnId": "t", "itemId": "ui-1", "isBlocking": true,
@@ -224,7 +228,7 @@ struct CodexAppServerApprovalTests {
     @Test("a sandbox escalation becomes a card that spells out what it grants, and an approval grants exactly that")
     func permissionsApproval() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-7")
         pushPermissions(h, thread: "thr-7", requestID: 21)
 
@@ -269,7 +273,7 @@ struct CodexAppServerApprovalTests {
     @Test("denying a sandbox escalation grants nothing; there is no decision word for it")
     func permissionsDenial() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-8")
         pushPermissions(h, thread: "thr-8", requestID: 22)
         #expect(await waitFor { await h.session("thr-8")?.pendingApproval != nil })
@@ -284,7 +288,7 @@ struct CodexAppServerApprovalTests {
     @Test("a standing session allow never silently widens the sandbox")
     func sessionAllowDoesNotGrantPermissions() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.sessionAllow.add("thr-9")
         await h.startThread("thr-9")
 
@@ -301,7 +305,7 @@ struct CodexAppServerApprovalTests {
     @Test("an MCP elicitation shows as a wait vibebuddy cannot answer, and resolving elsewhere clears it")
     func mcpElicitation() async throws {
         let h = await Harness()
-        defer { h.stop() }
+        defer { await h.stop() }
         await h.startThread("thr-10")
         h.connection.push(["id": "eli-1", "method": "mcpServer/elicitation/request",
                            "params": ["threadId": "thr-10", "turnId": "t", "serverName": "linear",
