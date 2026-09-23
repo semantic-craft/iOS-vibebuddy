@@ -52,6 +52,25 @@ final class WatchStateStore: NSObject, ObservableObject {
             // reply is the end of the story. So the phase change is the event,
             // not the next state.
             if oldValue.isBusy != pendingAction.isBusy { refreshFallback() }
+            // Once the iPhone or the Mac holds an answer for this session, the
+            // banner's words have been superseded by one that travelled.
+            if unsentBannerReply?.isSuperseded(from: oldValue.action, to: pendingAction.action) == true {
+                unsentBannerReply = nil
+            }
+            // A banner reply that did leave the wrist and was refused or failed
+            // said nothing to the agent: its words go back on the card.
+            if let sent = bannerSentReply {
+                if pendingAction.action?.attemptId != sent.attemptID {
+                    bannerSentReply = nil
+                } else if let restored = sent.restored(by: pendingAction.action) {
+                    unsentBannerReply = restored
+                    bannerSentReply = nil
+                } else if let phase = pendingAction.action?.phase, phase != .sending, phase != .queued {
+                    // Held on the phone is not the end: a held reply the phone
+                    // later drops comes back as `failed`, and its words with it.
+                    bannerSentReply = nil
+                }
+            }
         }
     }
     /// A banner button's decision, held until the relayed state can place it
@@ -75,6 +94,15 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// Why the last banner action was not sent, shown on the card the tap
     /// opened. Nil once it was sent, or once the card is dismissed.
     @Published var bannerActionFallback: WatchBannerActionFallback?
+    /// The words of a banner reply that was not sent, kept on the card so a
+    /// refusal never costs the wearer what they dictated. Outlives the
+    /// sentence above it — that one comes down when it stops being true, the
+    /// words stay until the card closes, a new banner reply replaces them, or
+    /// an answer for this session reaches the iPhone or the Mac.
+    @Published private(set) var unsentBannerReply: WatchUnsentReply?
+    /// A banner reply the wrist did send, until its attempt comes to rest —
+    /// so a refusal or a failure can put the words back (`unsentBannerReply`).
+    private var bannerSentReply: WatchUnsentReply?
     /// Whether the iPhone is in range right now. It is the only way the Watch
     /// can tell "the phone stopped relaying" from "the phone is gone", and it is
     /// read live rather than relayed — a reachability flag inside a payload
@@ -198,6 +226,11 @@ final class WatchStateStore: NSObject, ObservableObject {
         bannerActionFallback = nil
         bannerActionFallbackRoute = nil
         bannerActionFallbackPendingID = nil
+        if case .answer = route {
+            unsentBannerReply = nil
+            bannerSentReply = nil
+        }
+        if unsentBannerReply?.sessionID != sessionID { unsentBannerReply = nil }
         openSession(sessionID)
         guard route.isAction else { return }
         bannerActionTimeout?.cancel()
@@ -232,6 +265,10 @@ final class WatchStateStore: NSObject, ObservableObject {
             bannerActionFallback = reason
             bannerActionFallbackRoute = held.route
             bannerActionFallbackPendingID = bound
+            if case .answer(let sessionID, _, let text) = held.route {
+                unsentBannerReply = WatchUnsentReply(sessionID: sessionID, text: text,
+                                                     attemptID: pendingAction.action?.attemptId)
+            }
             WatchNavigationDiagnostics.shared.record("banner.action-fallback.\(reason.rawValue)")
             WatchHapticPlayer.shared.play(WatchHaptics.beats(for: .error), reason: "banner action \(reason.rawValue)")
         }
@@ -264,7 +301,12 @@ final class WatchStateStore: NSObject, ObservableObject {
         // asked by then as "first sight" and sent the dictation to it. Binding
         // sends nothing by itself, and a state with no id to bind (the cache,
         // or a preserved payload built from it) binds nothing.
-        if hasRelayedState, case .answer(let sessionID, _) = held.route,
+        //
+        // A notification that named its question (`questionId`) was bound at
+        // the hold and skips this: no state can move it, and the window between
+        // the tap and the first relayed state — where the wrist has only its
+        // stripped cache — is closed. This is the path for older senders.
+        if hasRelayedState, case .answer(let sessionID, _, _) = held.route,
            bannerAction?.boundPendingID == nil {
             let asking = state.alerts.first { $0.sessionId == sessionID && $0.waitKind == .question }
             _ = bannerAction?.bindsAnswer(to: asking?.pendingId)
@@ -276,14 +318,36 @@ final class WatchStateStore: NSObject, ObservableObject {
         // The first such state of a hold is the baseline it measures from.
         bannerAction?.noteInstalled(revision: state.relayRevision)
         // The alert the tap named, as that state holds it now. A decision is
-        // bound to its approval id, an answer to the session's current question
-        // — a banner cannot name a question id.
+        // bound to its approval id, an answer to its question id.
         let alert: WatchAlert?
         switch held.route {
         case .decide(let sessionID, let approvalID, _):
             alert = state.alerts.first { $0.sessionId == sessionID && $0.approvalId == approvalID }
-        case .answer(let sessionID, _):
-            alert = state.alerts.first { $0.sessionId == sessionID && $0.waitKind == .question }
+        case .answer(let sessionID, _, _):
+            // The words were dictated for the question on the banner. When the
+            // agent has moved on to another one, they are refused and kept on
+            // the card — never re-pointed: "no" to "Delete the database?" must
+            // not be recorded against "Ship the release?", which the iPhone's
+            // gate would accept because that id is the live one. A prompt with
+            // no id is one part of which must be typed; it may be this very
+            // question, and either way the card is where it is answered.
+            switch WatchBannerAction.replyStanding(boundPendingID: bannerAction?.boundPendingID,
+                                                   sessionID: sessionID, alerts: state.alerts) {
+            case .asking(let asking): alert = asking
+            case .unbindable: giveUp(.notDecidableHere); return
+            // Another question on the session is refused, but not on the first
+            // look: a cold launch's first relayed state can be the context the
+            // iPhone sent before this notification, still showing the previous
+            // question. Held like an absent request — nothing can be sent
+            // meanwhile except to the bound id — and refused once a newer
+            // revision still shows another question, or patience runs out.
+            case .replaced:
+                if expired || bannerAction?.provesRequestGone(currentRevision: state.relayRevision) == true {
+                    giveUp(.noLongerWaiting)
+                }
+                return
+            case .absent: alert = nil
+            }
         case .open, .ignore:
             alert = nil
         }
@@ -308,14 +372,10 @@ final class WatchStateStore: NSObject, ObservableObject {
             giveUp(.notDecidableHere); return
         default: break
         }
-        // The words were dictated for the question on the banner, and a banner
-        // cannot name one. Bind to the first question a relayed state shows for
-        // this session and hold that binding: otherwise a reply waiting for the
-        // link follows the session onto whatever is being asked by the time it
-        // travels, and "no" to "Delete the database?" is recorded against
-        // "Ship the release?" — accepted by the iPhone's gate, because that id
-        // is the live one. `WatchBannerAction.bindsAnswer` is where the promise
-        // the card's own draft makes (`WatchAnswerDraft`) is kept here too.
+        // Hold the binding: an older sender's reply is bound here, at the first
+        // question a live relayed state shows, if the relayed-but-not-live pass
+        // above had nothing to bind. `WatchBannerAction.bindsAnswer` is where
+        // the promise the card's own draft makes (`WatchAnswerDraft`) is kept.
         if case .answer = held.route, bannerAction?.bindsAnswer(to: alert.pendingId) != true {
             giveUp(.noLongerWaiting); return
         }
@@ -329,10 +389,26 @@ final class WatchStateStore: NSObject, ObservableObject {
         switch held.route {
         case .decide(_, _, let choice):
             started = submit(alert, choice)
-        case .answer(let sessionID, let text):
+        case .answer(let sessionID, _, let text):
             started = submitAnswer(sessionId: sessionID, pendingId: alert.pendingId ?? "", text: text)
+            if started {
+                let sent = WatchUnsentReply(sessionID: sessionID, text: text,
+                                            attemptID: pendingAction.action?.attemptId)
+                // `submitAnswer` fails the attempt on the spot over a dead link,
+                // before there was anything here to watch it.
+                if let restored = sent.restored(by: pendingAction.action) {
+                    unsentBannerReply = restored
+                    WatchNavigationDiagnostics.shared.record("banner.action-failed-on-start")
+                    return
+                } else {
+                    bannerSentReply = sent
+                }
+            }
         case .open, .ignore:
-            started = false
+            // Nothing to send is not a failure, and nothing was sent either, so
+            // no sentence and no diagnostic. Unreachable: `perform` holds only
+            // actions, and neither of these finds an alert above.
+            return
         }
         // Both send paths re-run the checks just made, so a refusal here should
         // be unreachable. If one ever is not, it must still leave a sentence: a
@@ -441,7 +517,7 @@ final class WatchStateStore: NSObject, ObservableObject {
                 $0.sessionId == sessionID && $0.approvalId == approvalID
             }) else { return .absent }
             return alert.isDecidable ? .actionable : .presentButNotHere
-        case .answer(let sessionID, _):
+        case .answer(let sessionID, _, _):
             // A reply's sentence keeps its own question: the one that replaced
             // it is what the sentence is explaining, not a reason to drop it.
             guard let bound = bannerActionFallbackPendingID else {
@@ -468,10 +544,16 @@ final class WatchStateStore: NSObject, ObservableObject {
                 return asking.pendingId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
                     ? .presentButNotHere : .absent
             }
-            guard let alert = state.alerts.first(where: {
-                $0.sessionId == sessionID && $0.pendingId == bound
-            }) else { return .absent }
-            return alert.isAnswerableInOneString ? .actionable : .presentButNotHere
+            switch WatchBannerAction.replyStanding(boundPendingID: bound, sessionID: sessionID,
+                                                   alerts: state.alerts) {
+            case .asking(let alert): return alert.isAnswerableInOneString ? .actionable : .presentButNotHere
+            // A question the wrist holds no id for may be the bound one (a
+            // notification names the Mac's id, and an id-less prompt drops it
+            // on the wrist). "Decide it on your iPhone or Mac" is true of it
+            // either way; "no longer waiting" would not be.
+            case .unbindable: return .presentButNotHere
+            case .replaced, .absent: return .absent
+            }
         case .open, .ignore:
             return .absent
         }
@@ -683,6 +765,8 @@ final class WatchStateStore: NSObject, ObservableObject {
         bannerActionFallback = nil
         bannerActionFallbackRoute = nil
         bannerActionFallbackPendingID = nil
+        unsentBannerReply = nil
+        bannerSentReply = nil
     }
 
     /// Called only by the exact detail body after it has appeared. Viewing is

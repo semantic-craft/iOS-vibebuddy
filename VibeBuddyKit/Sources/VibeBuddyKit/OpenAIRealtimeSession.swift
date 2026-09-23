@@ -196,6 +196,11 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         case "response.done":
             continuation?.yield(.responseDone)
         case "error":
+            if ProviderLimitSignal.isOpenAIRealtimeLimit(error: obj) {
+                continuation?.yield(.providerLimitReached)
+                close()
+                return
+            }
             let message = (obj["error"] as? [String: Any])?["message"] as? String ?? "realtime error"
             continuation?.yield(.failed(message))
         default:

@@ -3,7 +3,7 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Claude, Codex and Grok observation health diagnostics")
+@Suite("Claude, Codex, Grok and Cursor observation health diagnostics")
 struct ObservationHealthDetectorTests {
     let now = Date(timeIntervalSince1970: 1_700_000_000)
     /// A `$GROK_HOME` that never exists, so a Claude or Codex test cannot reach
@@ -28,11 +28,12 @@ struct ObservationHealthDetectorTests {
         home: URL?,
         grokHome: URL? = nil,
         signals: [ObservationRuntimeSignal] = [],
-        staleAfter: TimeInterval = 10 * 60
+        staleAfter: TimeInterval = 10 * 60,
+        environment: [String: String] = [:]
     ) -> [AgentObservationDiagnostic] {
         ObservationHealthDetector.detect(
             home: home, signals: signals, now: now, staleAfter: staleAfter,
-            grokHome: grokHome ?? absentGrokHome)
+            grokHome: grokHome ?? absentGrokHome, environment: environment)
     }
 
     private func write(_ text: String, to url: URL) throws {
@@ -471,6 +472,114 @@ struct ObservationHealthDetectorTests {
         #expect(found.health(agent: .grok, source: .hook) == .healthy)
         #expect(found.diagnostic(agent: .grok, source: .hook)?.configuredCoverage
             == ObservationEventCoverage.allCases)
+    }
+
+    // MARK: - Cursor and config-directory overrides
+
+    /// Hooks written by the real installer, so the detector is checked against
+    /// what `vibebuddyd hooks install` actually produces.
+    private func install(_ agents: [HookAgent], approval: Bool, home: URL,
+                         environment: [String: String] = [:]) {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let installer = HookInstaller(environment: HookInstallerEnvironment(
+            home: home, variables: environment, claudeVersion: { ClaudeCodeVersion(2, 1, 261) }),
+            scriptSource: repo.appendingPathComponent("hooks"))
+        _ = installer.install(agents, approval: approval)
+    }
+
+    @Test("cursor's row is present with every source, and says not installed without hooks")
+    func cursorNotInstalled() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let result = detect(home: home)
+        #expect(Set(result.first(where: { $0.agent == .cursor })?.sources.map(\.source) ?? [])
+            == [.hook, .transcript, .acp, .cloud])
+        #expect(result.health(agent: .cursor, source: .hook) == .notInstalled)
+        #expect(result.health(agent: .cursor, source: .transcript) == .notInstalled)
+        // The optional sources are informational, never a warning.
+        #expect(result.diagnostic(agent: .cursor, source: .acp)?.isInformational == true)
+        #expect(result.diagnostic(agent: .cursor, source: .cloud)?.isInformational == true)
+
+        // Cursor present with only the user's own hooks: incomplete, with Repair,
+        // the way the other agents report a config that lacks vibebuddy's.
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".cursor", isDirectory: true), withIntermediateDirectories: true)
+        try write(#"{"version":1,"hooks":{"stop":[{"command":"/usr/local/bin/mine.sh"}]}}"#,
+                  to: home.appendingPathComponent(".cursor/hooks.json"))
+        let foreignOnly = detect(home: home).diagnostic(agent: .cursor, source: .hook)
+        #expect(foreignOnly?.health == .eventsMissing)
+        #expect(foreignOnly?.reasonCode == "configurationIncomplete")
+    }
+
+    @Test("cursor hooks from the installer are recognised, with or without the approval gate")
+    func cursorInstalled() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".cursor", isDirectory: true), withIntermediateDirectories: true)
+
+        install([.cursor], approval: false, home: home)
+        let statusOnly = detect(home: home).diagnostic(agent: .cursor, source: .hook)
+        #expect(statusOnly?.health == .temporarilySilent)
+        #expect(statusOnly?.reasonCode == "awaitingActivity")
+        #expect(statusOnly?.configuredCoverage == [.lifecycle, .turn, .tool])
+
+        install([.cursor], approval: true, home: home)
+        let signals = [
+            ObservationRuntimeSignal(agent: .cursor, source: .hook, lastObservedAt: now),
+            ObservationRuntimeSignal(agent: .cursor, source: .cloud, lastObservedAt: now),
+        ]
+        let gated = detect(home: home, signals: signals)
+        #expect(gated.health(agent: .cursor, source: .hook) == .healthy)
+        #expect(gated.diagnostic(agent: .cursor, source: .hook)?.configuredCoverage
+            == ObservationEventCoverage.allCases)
+        #expect(gated.health(agent: .cursor, source: .cloud) == .healthy)
+    }
+
+    @Test("a hosted cursor-agent starting clears the idle note from the cached row")
+    func acpSignalClearsIdleNote() async throws {
+        let store = SessionStore(sourceID: "acp-idle")
+        await store.recordSourceSignal(agent: .cursor, source: .cloud, health: .healthy, at: Date())
+        func acpRow() async -> ObservationSourceDiagnostic? {
+            await store.snapshot(now: Date()).observationDiagnostics?
+                .first(where: { $0.agent == .cursor })?.sources.first(where: { $0.source == .acp })
+        }
+        #expect(await acpRow()?.reasonCode == "acpIdle")
+        await store.recordSourceSignal(agent: .cursor, source: .acp, health: .healthy, at: Date())
+        let row = await acpRow()
+        #expect(row?.health == .healthy)
+        #expect(row?.reasonCode == nil)
+    }
+
+    @Test("CLAUDE_CONFIG_DIR and CODEX_HOME move what the detector inspects")
+    func configDirectoryOverrides() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let environment = [
+            "CLAUDE_CONFIG_DIR": home.appendingPathComponent("profiles/claude").path,
+            "CODEX_HOME": "~/profiles/codex",
+        ]
+        for dir in ["profiles/claude", "profiles/codex"] {
+            try FileManager.default.createDirectory(
+                at: home.appendingPathComponent(dir, isDirectory: true), withIntermediateDirectories: true)
+        }
+        install([.claude, .codex], approval: false, home: home, environment: environment)
+
+        let redirected = detect(home: home, environment: environment)
+        #expect(redirected.diagnostic(agent: .claudeCode, source: .hook)?.reasonCode == "awaitingActivity")
+        #expect(redirected.diagnostic(agent: .codex, source: .hook)?.reasonCode == "awaitingActivity")
+        // Without the overrides the default directories are empty.
+        let defaults = detect(home: home)
+        #expect(defaults.health(agent: .claudeCode, source: .hook) == .notInstalled)
+        #expect(defaults.health(agent: .codex, source: .hook) == .notInstalled)
+
+        try write("[features]\nhooks = false\n",
+                  to: home.appendingPathComponent("profiles/codex/config.toml"))
+        #expect(ObservationHealthDetector.codexHookConfigurationIssue(
+            home: home, hook: nil, now: now, environment: environment) == .hooksFeatureDisabled)
+        #expect(ObservationHealthDetector.codexHookConfigurationIssue(
+            home: home, hook: nil, now: now) == nil)
     }
 }
 

@@ -235,6 +235,9 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
         case "session.closed":
             usageSeconds = (event["usage"] as? [String: Any])?["seconds"] as? Double ?? usageSeconds
             finalized = true
+            if !closing, ProviderLimitSignal.isOpenAILiveLimit(closed: event) {
+                continuation?.yield(.providerLimitReached)
+            }
             finish()
         case "error":
             // Provider error bodies may echo submitted context. Don't log them.

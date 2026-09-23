@@ -822,3 +822,7 @@
 "Not started" = "尚未开始";
 
 "Stop task" = "停止任务";
+
+/* Voice call ended at the provider's per-call limit (D-1) */
+"Redial" = "重拨";
+"Starts a new voice call without the earlier conversation" = "开始新的语音通话，不带之前的对话";

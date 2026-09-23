@@ -51,18 +51,30 @@ public struct CLIHookStatus: Sendable, Equatable {
 /// `NSWorkspace` (not here, to keep this pure and testable).
 public enum EnvironmentDetector {
     /// Substrings vibebuddy's installers (current and past) leave in a CLI config:
-    /// the script names, the early inline-curl endpoint and the OpenCode plugin
-    /// header. Deliberately not a bare `/hook`, which matches any user path
-    /// under a `hooks/` directory, and not the status line wrapper, which is
-    /// reported on its own (`statusLineWired`). A format-agnostic scan.
+    /// the script names and the OpenCode plugin header, plus the early
+    /// inline-curl endpoint (`containsInlineCurlHook`). Deliberately not a bare
+    /// `/hook`, which matches any user path under a `hooks/` directory, and not
+    /// the status line wrapper, which is reported on its own
+    /// (`statusLineWired`). A format-agnostic scan.
     public static let hookMarkers = [
         "vibebuddy-forward.sh",
         "approval-hook.sh",
         "capture-terminal.sh",
         "cursor-followup.sh",
-        "127.0.0.1:9876/hook",        // the early inline-curl hooks
         "VibeBuddy OpenCode plugin",  // the OpenCode plugin's header
     ]
+
+    /// The early inline-curl hooks: the default endpoint `127.0.0.1:9876/hook`
+    /// anywhere, or — at any port, since `VIBEBUDDY_PORT` was baked in when
+    /// they were written — the exact command the first installer wrote
+    /// (`curl … --data-binary @- http://127.0.0.1:<port>/hook 2>/dev/null`).
+    /// A user's own local webhook at another port (`curl -X POST
+    /// http://127.0.0.1:3000/hook -d @-`) is not ours: the installer strips
+    /// whatever this matches.
+    public static func containsInlineCurlHook(_ text: String) -> Bool {
+        text.contains("127.0.0.1:9876/hook")
+            || text.contains(/--data-binary @- http:\/\/127\.0\.0\.1:\d{1,5}\/hook 2>\/dev\/null/)
+    }
 
     /// The status line wrapper the Claude installer writes. Same boundary the
     /// installer's `is_statusline_wrapper` uses.
@@ -111,6 +123,6 @@ public enum EnvironmentDetector {
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue,
               let content = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
-        return hookMarkers.contains(where: content.contains)
+        return hookMarkers.contains(where: content.contains) || containsInlineCurlHook(content)
     }
 }

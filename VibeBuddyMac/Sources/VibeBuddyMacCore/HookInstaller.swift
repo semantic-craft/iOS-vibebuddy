@@ -262,7 +262,6 @@ public struct HookInstaller: Sendable {
 
     struct Context {
         var knownCommands: Set<String>
-        var port: String
         var claudeVersion: @Sendable () -> ClaudeCodeVersion?
     }
 
@@ -274,9 +273,7 @@ public struct HookInstaller: Sendable {
     }
 
     func context(manifest: HookManifest) -> Context {
-        let port = paths.environment.variables["VIBEBUDDY_PORT"].flatMap { Int($0) }.map(String.init) ?? "9876"
-        return Context(knownCommands: manifest.allCommands, port: port,
-                       claudeVersion: paths.environment.claudeVersion)
+        Context(knownCommands: manifest.allCommands, claudeVersion: paths.environment.claudeVersion)
     }
 
     private func perform(_ operation: Operation, _ agent: HookAgent, _ context: Context) throws -> Outcome {

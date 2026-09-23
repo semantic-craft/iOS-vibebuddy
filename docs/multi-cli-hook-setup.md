@@ -39,8 +39,9 @@ Python is involved. What it guarantees:
 - **One stable path.** The runtime scripts are copied to
   `~/Library/Application Support/vibebuddy/bin/` (from the app bundle's
   `Contents/Resources/hooks/`; `vibebuddyd` takes `--hooks-dir` /
-  `VIBEBUDDY_HOOKS_DIR`, then an app bundle, then a checkout's `hooks/`, and
-  prints which) on every
+  `VIBEBUDDY_HOOKS_DIR`, then its own app bundle or checkout, then
+  `/Applications/VibeBuddyMacApp.app`, prints which, and notes when they
+  differ from the installed app's) on every
   install and repair, and on app launch while hooks are installed. Configs name
   only that path, so an app update never changes a command string — and Codex's
   trust, keyed to the command, survives it. Install refuses to write any config

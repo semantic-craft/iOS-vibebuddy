@@ -1,8 +1,9 @@
 # 02: Provider-limit call ending and redial
 
-Status: ready-for-agent
+Status: ready-for-human
 Node: D-1
 Blocked by: none
+**Executor:** Claude (Opus 5.5) · branch claude/hopeful-colden-c7fe90 · 2026-09-23
 
 ## Release placement
 
@@ -42,11 +43,24 @@ The roadmap criterion is unchanged: **Kit 测试覆盖状态机；两端构建�
 
 Roadmap verification: **Kit 测试。** Use `cd VibeBuddyKit && swift test` and the two app build commands from the node's complete prompt; never pass `-sdk iphonesimulator` to the iOS scheme. Record commands/results and provider-limit research below. Do not claim a real provider audio session has been verified from fixtures or builds. Existing issue 01 audio round-trip acceptance is unchanged.
 
-## Provider-limit research — to be completed during implementation
+## Provider-limit research (verified 2026-09-23)
 
-- Qwen-Audio 3.0 Realtime: source, event/close/refusal behavior, and mapping evidence pending.
-- OpenAI Realtime: corresponding source and reason evidence pending.
-- Gemini Live: corresponding source and reason evidence pending.
+Official pages were read directly on 2026-09-23; field reports are marked as such. Rules live in `VibeBuddyKit/Sources/VibeBuddyKit/ProviderLimitSignal.swift` and the Gemini/Qwen session files.
+
+- **Qwen-Audio 3.0 Realtime.** The [Qwen-Audio realtime page](https://help.aliyun.com/zh/model-studio/fun-audiochat-realtime) states no session or connection duration; its only limit is context (50 turns / 300 s of audio, older history dropped, connection kept). The [Omni-Realtime page](https://help.aliyun.com/zh/model-studio/realtime) for the same `/api-ws/v1/realtime` endpoint says a single session lasts at most 120 minutes, after which the service closes the connection. No error event, close code or reason is documented, and audio is not refused before the close. **Verified behavior: the server closes the connection; nothing announces it.** Mapping (inferred, conservative): a close frame the server sent (`closeCode` not `invalid`/`abnormalClosure`/`internalServerError`) once the connection has lived ≥ 119 minutes since `session.created` → provider limit. An earlier close, a drop without a close frame, HTTP 401/403/404/429 and `error` events stay failures.
+- **OpenAI Realtime.** [Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations): the maximum session duration is 60 minutes. The limit arrives as an `error` event with `code: "session_expired"` ("Your session hit the maximum duration of N minutes"); the code comes from field reports (OpenAI community thread 975036, livekit/agents#2341), not the docs. Mapping: `error.code == "session_expired"` → provider limit, then the client closes; the message text is not matched.
+- **OpenAI GPT-Live.** [Live conversations](https://developers.openai.com/api/docs/guides/live-conversations): `session.closed` carries `reason`; `expired` means the session reached its duration limit (no value stated). `close_requested`, `content`, `remote_hangup` and `connection_lost` are other endings. Mapping: `session.closed` with `reason: "expired"` while we are not closing → provider limit.
+- **Gemini Live.** [Session management](https://ai.google.dev/gemini-api/docs/live-api/session-management): audio-only sessions are limited to 15 minutes without compression, a connection to about 10 minutes; the server sends `goAway` with `timeLeft` before the connection is terminated as ABORTED. Mapping: the socket ending after a `goAway` → provider limit; any close without one is a failure. Field reports on discuss.ai.google.dev say `gemini-3.1-flash-live-preview` sometimes drops at the limit with 1006 and no `goAway`; those calls still read as a connection failure. Session resumption is out of scope.
+- **Doubao Realtime.** No session duration documented; `45000003` (10 minutes without interaction) is an idle release and `ExceededConcurrentDurationLimit` is quota. Not mapped.
+
+## Implementation evidence (2026-09-23)
+
+- Kit: `RealtimeVoiceEvent.providerLimitReached`; `VoiceCallPhase.ended(VoiceCallEndReason.providerLimit)` is terminal — audio stops, the session closes once, late events and tool calls are ignored, no `errorText`. `VoiceCallEndReason.notice(provider:)` is localized en + zh-Hans in the Kit table.
+- iPhone: the voice strip and voice page show the notice with a **Redial** button; Mac: the menu-bar panel, the expanded Glance and the Voice and reading panel show it with **Redial**, the dashboard sidebar's Voice row shows the notice. Changing the voice provider or language, or turning the companion off, clears the notice.
+- At Gemini's and Qwen's cap a microphone frame in flight fails as the server closes; send failures are then left to the receive loop so the limit is not pre-empted by a generic send error. `VoiceChat.redial()` starts an ordinary new call from the current Settings; nothing from the ended call is sent.
+- `cd VibeBuddyKit && swift test` (after merging main at 7fbb6b95): 595 Swift Testing tests in 92 suites plus the XCTest suites pass, including `ProviderLimitSignalTests` (per-provider mapping, send failure at the cap) and the new `VoiceCallCoordinatorTests` cases (limit ending, unrelated endings, zh-Hans notice).
+- iOS `xcodebuild -scheme VibeBuddyApp -destination 'generic/platform=iOS' -configuration Debug build -quiet CODE_SIGNING_ALLOWED=NO` and Mac `xcodebuild -scheme VibeBuddyMacApp -configuration Debug build -quiet` succeed.
+- **Not verified:** no real call has reached a provider cap (60–120 minutes of billed audio for OpenAI Realtime and Qwen, about 10 minutes for Gemini). Real-call acceptance: hold a Gemini Live call past ~10 minutes and confirm the notice + Redial on iPhone and Mac; the others when a long call happens naturally.
 
 ## Execution and delivery
 

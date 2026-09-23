@@ -15,6 +15,7 @@ struct TokenConsumptionScanTests {
     @Test("Claude counts cache creation, keeps the first cwd, and drops zero-usage rows")
     func claudeCacheAndCwd() throws {
         let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
         try writeClaude(root, project: "-Users-dev-my-hyphen-project", session: "session-a", lines: [
             claudeUser("2026-07-21T10:00:00.000Z", cwd: "/Users/dev/my-hyphen-project"),
             claudeAssistant("2026-07-21T10:05:00.000Z", cwd: "/Users/dev/my-hyphen-project/packages/api",
@@ -43,6 +44,7 @@ struct TokenConsumptionScanTests {
     @Test("Claude streaming blocks that share a message id count once, keeping the higher usage")
     func claudeDedupeByMessageID() throws {
         let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
         try writeClaude(root, project: "-proj", session: "s1", lines: [
             claudeAssistant("2026-07-21T10:05:00.000Z", cwd: "/tmp/proj", model: "claude-sonnet-4-5",
                             uuid: "a", messageID: "msg-1", requestID: "req-1",
@@ -62,6 +64,7 @@ struct TokenConsumptionScanTests {
     @Test("Codex last_token_usage is normalized and duplicate cumulative totals count once")
     func codexDuplicateAndCacheSplit() throws {
         let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
         try writeCodex(root, name: "rollout-a.jsonl", lines: [
             sessionMeta("2026-07-21T10:00:00.000Z", id: "a-1", cwd: "/Users/x/search-indexer"),
             event("2026-07-21T10:00:00.000Z", "task_started"),
@@ -85,6 +88,7 @@ struct TokenConsumptionScanTests {
     @Test("Codex turn_context names the model; cached_input_tokens is not summed with cache_read")
     func codexTurnContextAndCacheFallback() throws {
         let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
         try writeCodex(root, name: "rollout-b.jsonl", lines: [
             sessionMeta("2026-07-21T10:00:00.000Z", id: "b-1", cwd: "/Users/x/search-indexer"),
             json(["timestamp": "2026-07-21T10:00:01.000Z", "type": "turn_context",
@@ -111,6 +115,7 @@ struct TokenConsumptionScanTests {
     @Test("A copied parent block after a second session_meta is skipped until the child's task_started")
     func codexSkipsReplayedHistory() throws {
         let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
         try writeCodex(root, name: "rollout-child.jsonl", lines: [
             sessionMeta("2026-07-21T11:00:00.000Z", id: "child-1", cwd: "/Users/x/proj"),
             sessionMeta("2026-07-21T10:00:00.000Z", id: "parent-1", cwd: "/Users/x/proj"),
@@ -148,6 +153,7 @@ struct TokenConsumptionScanTests {
     @Test("a repeat scan reuses the memo until a transcript's size or mtime moves")
     func cachedScanSkipsUnchangedTranscripts() throws {
         let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
         let dir = root.appendingPathComponent("projects/-proj", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let file = dir.appendingPathComponent("s1.jsonl")

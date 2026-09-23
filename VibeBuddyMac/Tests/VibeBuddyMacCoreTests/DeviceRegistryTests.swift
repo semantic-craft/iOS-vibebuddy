@@ -42,6 +42,7 @@ struct DeviceRegistryTests {
 
     @Test func registrationSurvivesARestart() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let first = DeviceTokens(url: url)
         await first.register(DeviceRegistrationPayload(
             token: "abc", name: "Hermes", model: "iPhone",
@@ -76,6 +77,7 @@ struct DeviceRegistryTests {
 
     @Test func fileIsOwnerOnly() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "abc"))
 
@@ -85,6 +87,7 @@ struct DeviceRegistryTests {
 
     @Test func partialReportKeepsPreviouslyUploadedPrefs() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         var categories = NotificationCategoryPrefs.default
         categories.set(NotificationSound.agentDone, enabled: false)
@@ -109,6 +112,7 @@ struct DeviceRegistryTests {
     /// delivered to it.
     @Test func reinstalledPhoneReplacesItsOldTokenInsteadOfSittingBesideIt() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         var on = NotificationCategoryPrefs.default
         on.set(NotificationSound.agentDone, enabled: true)
@@ -128,7 +132,9 @@ struct DeviceRegistryTests {
     }
 
     @Test func newTokenStartsWithoutTheOldTokensStanding() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "old", deviceID: "hermes"))
         await tokens.applySendResult(sent(200), token: "old")
 
@@ -139,7 +145,9 @@ struct DeviceRegistryTests {
     }
 
     @Test func recordWithoutAnIDIsAdoptedByTheSameToken() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         var prefs = NotificationCategoryPrefs.default
         prefs.set(NotificationSound.agentDone, enabled: false)
         // Written by the previous phone build, or by the raw-token POST.
@@ -156,7 +164,9 @@ struct DeviceRegistryTests {
     }
 
     @Test func twoPhonesStayTwoRecords() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "a", deviceID: "hermes"))
         await tokens.register(DeviceRegistrationPayload(token: "b", deviceID: "second-phone"))
         await tokens.register(DeviceRegistrationPayload(token: "a2", deviceID: "hermes"))
@@ -165,7 +175,9 @@ struct DeviceRegistryTests {
     }
 
     @Test func partialReportUnderTheSameIDKeepsPrefs() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(
             token: "old", deviceID: "hermes", playSound: false))
         // Token rotated; this report carries no switches.
@@ -174,7 +186,9 @@ struct DeviceRegistryTests {
     }
 
     @Test func tokenlessPayloadIsNotRegistered() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(name: "Hermes"))
         #expect(await tokens.all().isEmpty)
     }
@@ -186,6 +200,7 @@ struct DeviceRegistryTests {
 
     @Test func unregisteredResponseEvictsTheToken() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "abc"))
         await tokens.applySendResult(sent(200), token: "abc")   // even a proven token
@@ -199,6 +214,7 @@ struct DeviceRegistryTests {
     /// a test fixture, or another process posting a fake registration.
     @Test func badTokenThatWasNeverAcceptedIsEvicted() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "junk"))
 
@@ -212,6 +228,7 @@ struct DeviceRegistryTests {
     /// that has never been accepted still survives them.
     @Test func request400sNeverEvict() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "fresh"))
         for reason in ["BadTopic", "BadCollapseId", "PayloadEmpty", "TopicDisallowed"] {
@@ -226,6 +243,7 @@ struct DeviceRegistryTests {
     /// pairing QR again, which is the explicit intent to pair.
     @Test func forgetBlocksReRegistrationUntilPairingIsShownAgain() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "abc", name: "Hermes"))
         await tokens.forgetAll()
@@ -251,6 +269,7 @@ struct DeviceRegistryTests {
     /// that would recreate the silent failure the registry exists to prevent.
     @Test func badTokenThatWasAcceptedBeforeIsKept() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "real"))
         await tokens.applySendResult(sent(200), token: "real")
@@ -264,7 +283,9 @@ struct DeviceRegistryTests {
     }
 
     @Test func transientFailuresNeverEvict() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "abc"))
 
         // Offline says nothing; throttling and server errors are about Apple.
@@ -275,7 +296,9 @@ struct DeviceRegistryTests {
     }
 
     @Test func reconnectingDoesNotResetAProvenToken() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "real"))
         await tokens.applySendResult(sent(200), token: "real")
 
@@ -287,6 +310,7 @@ struct DeviceRegistryTests {
 
     @Test func forgettingThePhoneClearsTheFile() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "abc"))
         await tokens.removeAll()
@@ -295,6 +319,7 @@ struct DeviceRegistryTests {
 
     @Test func corruptFileStartsEmptyInsteadOfThrowing() async throws {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("not json".utf8).write(to: url)

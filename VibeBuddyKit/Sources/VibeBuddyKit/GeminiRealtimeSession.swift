@@ -12,6 +12,7 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
     private var ready = false   // gate audio until setupComplete
+    private var goAwayReceived = false
     private var tools: [VoiceTool] = []
 
     public init(apiKey: String, model: String = "gemini-3.1-flash-live-preview") {
@@ -27,6 +28,7 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
         let (stream, cont) = AsyncStream<RealtimeVoiceEvent>.makeStream()
         continuation = cont
         self.tools = tools
+        goAwayReceived = false
 
         let socket = URLSession.shared.webSocketTask(with: endpoint)
         task = socket
@@ -94,8 +96,18 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { [weak self] error in
             guard let error else { return }
-            Task { await self?.yield(.failed("send: \(error.localizedDescription)")) }
+            Task { await self?.sendFailed(error.localizedDescription) }
         }
+    }
+
+    private func sendFailed(_ detail: String) {
+        if let event = Self.sendFailureEvent(afterGoAway: goAwayReceived, detail: detail) { yield(event) }
+    }
+
+    /// After `goAway` a microphone frame in flight fails as the server closes;
+    /// the receive loop classifies that end, so the send must not pre-empt it.
+    static func sendFailureEvent(afterGoAway: Bool, detail: String) -> RealtimeVoiceEvent? {
+        afterGoAway ? nil : .failed("send: \(detail)")
     }
 
     private func yield(_ event: RealtimeVoiceEvent) { continuation?.yield(event) }
@@ -110,16 +122,29 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
                 @unknown default: break
                 }
             } catch {
-                continuation?.yield(.failed("recv: \(error.localizedDescription)"))
+                continuation?.yield(Self.connectionEndEvent(afterGoAway: goAwayReceived, detail: error.localizedDescription))
                 continuation?.finish()
                 return
             }
         }
     }
 
+    /// Gemini's per-connection limit is announced by `goAway`; the socket ending
+    /// after it is that limit. Any close without one is a failure.
+    static func connectionEndEvent(afterGoAway: Bool, detail: String) -> RealtimeVoiceEvent {
+        afterGoAway ? .providerLimitReached : .failed("recv: \(detail)")
+    }
+
     private func handle(_ text: String) {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+        // The server announces the connection's end (`timeLeft`) and then
+        // terminates it; keep talking until it does. Not resumed: redial is fresh.
+        if obj["goAway"] != nil {
+            goAwayReceived = true
+            return
+        }
 
         if obj["setupComplete"] != nil {
             ready = true

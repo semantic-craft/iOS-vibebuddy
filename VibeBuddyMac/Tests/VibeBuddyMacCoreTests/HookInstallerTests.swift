@@ -492,7 +492,8 @@ struct HookInstallerTests {
         {"hooks":{
           "Stop":[{"hooks":[{"type":"command","command":"\(bundle)/vibebuddy-forward.sh","args":["claude"],"timeout":5,"async":true}]},
                   {"hooks":[{"type":"command","command":"say done"}]}],
-          "Notification":[{"hooks":[{"type":"command","command":"curl -s -X POST http://127.0.0.1:9876/hook -d @-"}]}],
+          "Notification":[{"hooks":[{"type":"command","command":"curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9877/hook 2>/dev/null || true"}]},
+                          {"hooks":[{"type":"command","command":"curl -s -X POST http://127.0.0.1:3000/hook -d @-"}]}],
           "SessionStart":[{"hooks":[{"type":"command","command":"\\"\(checkout)/capture-terminal.sh\\" claude"}]}],
           "PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"\\"\(bundle)/approval-hook.sh\\"","timeout":30}]}]
         },
@@ -514,12 +515,15 @@ struct HookInstallerTests {
             let text = String(decoding: try #require(home.bytes(path)), as: UTF8.self)
             #expect(!text.contains(bundle), "\(path) kept a bundle path")
             #expect(!text.contains(checkout), "\(path) kept a checkout path")
-            #expect(!text.contains("9876/hook"), "\(path) kept the inline curl")
+            // Written under another VIBEBUDDY_PORT: still recognised as ours.
+            #expect(!text.contains("9877/hook"), "\(path) kept the inline curl")
         }
         let claude = try home.json(".claude/settings.json")
         #expect(Self.commands(claude, "Stop").filter { $0.contains("vibebuddy-forward.sh") }.count == 1)
         #expect(Self.commands(claude, "Stop").contains("say done"))
-        #expect(Self.commands(claude, "Notification").count == 1)
+        // The user's own local webhook is not the early installer's command, whatever its path.
+        #expect(Self.commands(claude, "Notification").contains("curl -s -X POST http://127.0.0.1:3000/hook -d @-"))
+        #expect(Self.commands(claude, "Notification").filter { $0.contains("vibebuddy-forward.sh") }.count == 1)
         #expect(Self.commands(claude, "PermissionRequest").filter { $0.contains("approval-hook.sh") }.count == 1)
         // The re-pointed wrapper never became its own saved original.
         #expect(!FileManager.default.fileExists(atPath: home.paths.statusLineOriginal.path))
@@ -667,7 +671,7 @@ struct HookInstallerTests {
         #expect(FileManager.default.isExecutableFile(atPath: home.paths.script("vibebuddy-statusline.sh").path),
                 "bin/ must stay while .claude-work still names it")
         let manifest = HookFileStore(paths: home.paths).loadManifest()
-        #expect(manifest.agents.keys.sorted() == ["claude:" + home.url(".claude-work/settings.json").standardizedFileURL.path])
+        #expect(manifest.agents.keys.sorted() == ["claude:" + HookPaths.canonicalPath(home.url(".claude-work/settings.json"))])
 
         // Then the work directory: its own original comes back and bin/ goes.
         home.variables["CLAUDE_CONFIG_DIR"] = home.url(".claude-work").path
@@ -696,6 +700,100 @@ struct HookInstallerTests {
         }
     }
 
+    @Test("one Claude dir reached through a symlink and through CLAUDE_CONFIG_DIR gets one key")
+    func symlinkedClaudeDirOneKey() throws {
+        var home = try Home()
+        defer { home.remove() }
+        try home.write("dotfiles/claude/settings.json", #"{"statusLine":{"type":"command","command":"my-sl"}}"#)
+        try FileManager.default.createSymbolicLink(at: home.url(".claude"), withDestinationURL: home.url("dotfiles/claude"))
+        let viaLink = home.paths
+        home.variables["CLAUDE_CONFIG_DIR"] = home.url("dotfiles/claude").path
+        let viaVariable = home.paths
+        #expect(viaLink.claudeKey == viaVariable.claudeKey)
+        #expect(viaLink.entryKey(.claude) == viaVariable.entryKey(.claude))
+        #expect(viaVariable.isDefaultClaudeDirectory)
+        // A config file that does not exist yet still resolves through its parent link.
+        #expect(viaLink.configKey(home.url(".claude/missing.json")) == viaVariable.configKey(home.url("dotfiles/claude/missing.json")))
+
+        // Installed one way, uninstalled the other: the saved original is found.
+        home.variables = [:]
+        #expect(home.installer.install([.claude]).failures == 0)
+        home.variables["CLAUDE_CONFIG_DIR"] = home.url("dotfiles/claude").path
+        #expect(home.installer.uninstall([.claude]).failures == 0)
+        #expect((try home.json("dotfiles/claude/settings.json")["statusLine"] as? [String: Any])?["command"] as? String == "my-sl")
+        #expect(HookFileStore(paths: home.paths).loadManifest().agents.isEmpty)
+    }
+
+    @Test("a status line saved under #266's unresolved key is carried over and restored")
+    func unresolvedKeyStatusLineMigrates() throws {
+        var home = try Home()
+        defer { home.remove() }
+        try home.mkdir("real-claude")
+        try FileManager.default.createSymbolicLink(at: home.url("linked-claude"), withDestinationURL: home.url("real-claude"))
+        home.variables["CLAUDE_CONFIG_DIR"] = home.url("linked-claude").path
+        let old = try #require(home.paths.unresolvedKeyStatusLineOriginals.first)
+        let oldWrapper = ShellWords.quoted(home.paths.script("vibebuddy-statusline.sh").path) + " "
+            + home.paths.unresolvedConfigKey(home.paths.claudeSettings)
+        try home.write("real-claude/settings.json", String(decoding: OrderedJSON.obj(["statusLine": .obj([
+            "type": .string("command"), "command": .string(oldWrapper)])]).serialized(), as: UTF8.self))
+        try FileManager.default.createDirectory(at: home.paths.support, withIntermediateDirectories: true)
+        try Data(#"{"statusLine":{"type":"command","command":"mine"}}"#.utf8).write(to: old.json)
+        try Data("mine".utf8).write(to: old.command)
+        #expect(home.installer.enableStatusLine().failures == 0)
+        let wrapper = try #require((try home.json("real-claude/settings.json")["statusLine"] as? [String: Any])?["command"] as? String)
+        #expect(wrapper.hasSuffix(" " + home.paths.claudeKey))
+        #expect(FileManager.default.contents(atPath: home.paths.statusLineOriginalCommand.path) == Data("mine".utf8))
+        #expect(home.installer.uninstall([.claude]).failures == 0)
+        #expect((try home.json("real-claude/settings.json")["statusLine"] as? [String: Any])?["command"] as? String == "mine")
+        for url in [old.json, old.command, home.paths.statusLineOriginal, home.paths.statusLineOriginalCommand] {
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    @Test("bare manifest and uninstall keys from b95d7ce9 load as path-qualified keys")
+    func bareManifestKeysMigrate() throws {
+        let home = try Home()
+        defer { home.remove() }
+        try seed(home)
+        try FileManager.default.createDirectory(at: home.paths.support, withIntermediateDirectories: true)
+        let codexHooks = home.paths.codexHooks.path
+        try Data("""
+        {"version":1,"agents":{
+          "codex":{"config":"\(codexHooks)","commands":["old-codex"],"approval":false,"installedAt":"2026-09-20T00:00:00Z"},
+          "claude":{"config":"\(home.paths.claudeSettings.path)","commands":["bare"],"approval":false,"installedAt":"2026-09-23T00:00:00Z"},
+          "claude:\(home.paths.claudeSettings.path)":{"config":"\(home.paths.claudeSettings.path)","commands":["keyed"],"approval":true,"installedAt":"2026-09-21T00:00:00Z"}
+        }}
+        """.utf8).write(to: home.paths.manifest)
+        try Data(#"{"uninstalled":["grok","grok"]}"#.utf8).write(to: home.paths.state)
+        let store = HookFileStore(paths: home.paths)
+        let manifest = store.loadManifest()
+        #expect(manifest.agents[home.paths.entryKey(.codex)]?.commands == ["old-codex"])
+        // Same config: commands merge, the path-qualified entry supplies the rest.
+        #expect(manifest.agents[home.paths.entryKey(.claude)]?.commands == ["bare", "keyed"])
+        #expect(manifest.agents[home.paths.entryKey(.claude)]?.approval == true)
+        #expect(manifest.agents.keys.allSatisfy { $0.contains(":") })
+        #expect(store.loadState().uninstalled == [home.paths.entryKey(.grok)])
+        // The remembered Grok uninstall still holds, and old commands are still recognised as ours.
+        #expect(home.installer.status().first { $0.agent == .grok }?.explicitlyUninstalled == true)
+        #expect(home.installer.install([.codex]).failures == 0)
+        let raw = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: home.paths.manifest)) as? [String: Any])
+        #expect((raw["agents"] as? [String: Any])?.keys.allSatisfy { $0.contains(":") } == true)
+    }
+
+    @Test("a config path with no symlink keeps #266's key: nothing to carry over")
+    func unsymlinkedKeyUnchanged() throws {
+        let home = try Home()
+        defer { home.remove() }
+        try home.mkdir(".claude")
+        // The owner's case: a real home directory, already canonical (the test
+        // temp dir itself sits behind /var -> /private/var).
+        let real = URL(fileURLWithPath: HookPaths.canonicalPath(home.root), isDirectory: true)
+        let paths = HookPaths(HookInstallerEnvironment(home: real, claudeVersion: { nil }))
+        #expect(paths.configKey(paths.claudeSettings) == paths.unresolvedConfigKey(paths.claudeSettings))
+        #expect(paths.unresolvedKeyStatusLineOriginals.isEmpty)
+        #expect(paths.entryKey(.claude) == "claude:" + paths.claudeSettings.standardizedFileURL.path)
+    }
+
     @Test("a Cursor hooks.json that is not valid JSON is refused, never replaced")
     func cursorUnreadableRefused() throws {
         let home = try Home()
@@ -709,7 +807,7 @@ struct HookInstallerTests {
         #expect(home.bytes(".cursor/hooks.json") == Data(text.utf8))
     }
 
-    @Test("the script source prefers explicit, then the app bundle, then a checkout")
+    @Test("the script source follows the running binary: explicit, its own bundle or checkout, then the installed app")
     func scriptSourceOrder() throws {
         let home = try Home()
         defer { home.remove() }
@@ -718,19 +816,33 @@ struct HookInstallerTests {
             return home.url(relative)
         }
         let checkout = try scripts("checkout")
+        let other = try scripts("other-checkout")
         let app = try scripts("App.app/Contents/Resources")
+        let own = try scripts("Own.app/Contents/Resources")
         let exe = checkout.appendingPathComponent("VibeBuddyMac/.build/debug/vibebuddyd")
-        func locate(explicit: String? = nil, env: [String: String] = [:], installed: URL?) -> String? {
-            HookScriptSource.locate(explicit: explicit, environment: env, executable: exe, workingDirectory: checkout,
-                                    bundleResources: nil, installedApp: installed)?.standardizedFileURL.path
+        let loose = home.url("usr/local/bin/vibebuddyd")
+        func hooks(_ root: URL) -> String { root.appendingPathComponent("hooks").standardizedFileURL.path }
+        func locate(explicit: String? = nil, env: [String: String] = [:], executable: URL? = nil,
+                    cwd: URL? = nil, bundle: URL? = nil, installed: URL?) -> String? {
+            HookScriptSource.locate(explicit: explicit, environment: env, executable: executable ?? exe,
+                                    workingDirectory: cwd ?? other, bundleResources: bundle,
+                                    installedApp: installed)?.standardizedFileURL.path
         }
-        #expect(locate(installed: app) == app.appendingPathComponent("hooks").standardizedFileURL.path)
-        #expect(locate(installed: nil) == checkout.appendingPathComponent("hooks").standardizedFileURL.path)
-        #expect(locate(env: ["VIBEBUDDY_HOOKS_DIR": checkout.appendingPathComponent("hooks").path], installed: app)
-                == checkout.appendingPathComponent("hooks").standardizedFileURL.path)
-        #expect(locate(explicit: checkout.appendingPathComponent("hooks").path, installed: app)
-                == checkout.appendingPathComponent("hooks").standardizedFileURL.path)
+        // W1: a checkout build installs its own scripts even with an (older) app installed.
+        #expect(locate(installed: app) == hooks(checkout))
+        #expect(locate(bundle: own, installed: app) == hooks(own))
+        // A binary with no bundle or checkout of its own: the installed app, then the working directory.
+        #expect(locate(executable: loose, installed: app) == hooks(app))
+        #expect(locate(executable: loose, installed: nil) == hooks(other))
+        #expect(locate(env: ["VIBEBUDDY_HOOKS_DIR": hooks(other)], installed: app) == hooks(other))
+        #expect(locate(explicit: hooks(app), installed: nil) == hooks(app))
         #expect(locate(explicit: home.url("nowhere").path, installed: app) == nil)
+        // A checkout whose scripts differ from the installed app's is flagged; the app itself is not.
+        #expect(HookScriptSource.differingInstalledApp(checkout.appendingPathComponent("hooks"), installedApp: app) == nil)
+        try home.write("checkout/hooks/approval-hook.sh", "#!/bin/sh\n# newer\n")
+        #expect(HookScriptSource.differingInstalledApp(checkout.appendingPathComponent("hooks"), installedApp: app) != nil)
+        #expect(HookScriptSource.differingInstalledApp(app.appendingPathComponent("hooks"), installedApp: app) == nil)
+        #expect(HookScriptSource.differingInstalledApp(checkout.appendingPathComponent("hooks"), installedApp: nil) == nil)
     }
 
     // MARK: - Requirement 5: status line recursion guard
@@ -937,15 +1049,19 @@ struct HookInstallerTests {
         try home.write(".claude/settings.json", #"{"hooks":{"Stop":[{"hooks":[{"command":"echo user-hook"}]}]}}"#)
         try home.mkdir(".codex")
         try home.mkdir(".grok")
+        try home.mkdir(".cursor")
         for (version, approval) in [(ClaudeCodeVersion(2, 1, 261), false), (nil, true)] {
             home.version = version
-            #expect(home.installer.install([.claude, .codex, .grok], approval: approval).failures == 0)
+            #expect(home.installer.install([.claude, .codex, .grok, .cursor], approval: approval).failures == 0)
             let rows = ObservationHealthDetector.detect(home: home.root, signals: [], now: Date(),
                                                         grokHome: home.url(".grok"))
             for agent in rows {
                 let hook = try #require(agent.sources.first { $0.source == .hook })
                 #expect(hook.reasonCode == "awaitingActivity", "\(agent.agent) \(approval)")
-                #expect(hook.configuredCoverage == ObservationEventCoverage.allCases, "\(agent.agent)")
+                // Cursor can only ask for attention through its approval gate.
+                let expected: [ObservationEventCoverage] = agent.agent == .cursor && !approval
+                    ? [.lifecycle, .turn, .tool] : ObservationEventCoverage.allCases
+                #expect(hook.configuredCoverage == expected, "\(agent.agent)")
             }
         }
     }

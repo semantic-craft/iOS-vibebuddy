@@ -51,17 +51,19 @@ private func grokBash(_ cmd: String, tool: String = "run_terminal_command",
 
 @Suite("Approval routes")
 struct ApprovalRoutesTests {
+    /// A throwaway temp-file allow store keeps each test hermetic (ADR 0010);
+    /// a test whose alwaysAllow writes it removes it.
+    private let allowStoreURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("vbapproval-\(UUID().uuidString).json")
+
     private func server(allow: [String] = [], deny: [String] = [],
                         store: SessionStore = SessionStore(),
                         approvalTimeout: Duration = .seconds(5),
                         port: Int = 9876, host: String = "0.0.0.0") -> VibeBuddyServer {
-        // A throwaway temp-file allow store keeps each test hermetic (ADR 0010).
-        let storeURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vbapproval-\(UUID().uuidString).json")
-        return VibeBuddyServer(store: store, token: "t0k", host: host, port: port,
+        VibeBuddyServer(store: store, token: "t0k", host: host, port: port,
                         approvalRegistry: ApprovalRegistry(),
                         rules: { _ in PermissionRules(allow: allow, deny: deny) },
-                        allowStore: VibeBuddyAllowStore(url: storeURL),
+                        allowStore: VibeBuddyAllowStore(url: allowStoreURL),
                         approvalTimeout: approvalTimeout,
                         approvalID: { "s" })
     }
@@ -255,6 +257,7 @@ struct ApprovalRoutesTests {
     @Test("alwaysAllow persists a rule so the next identical call auto-allows")
     func alwaysAllowPersists() async throws {
         let store = SessionStore()
+        defer { try? FileManager.default.removeItem(at: allowStoreURL) }
         let srv = server(store: store)   // empty native allow → first call holds
         try await srv.buildApplication().test(.router) { client in
             async let first = client.execute(uri: "/approval", method: .post,
@@ -388,6 +391,7 @@ struct ApprovalRoutesTests {
     @Test("alwaysAllow without a suggestion still persists vibebuddy's own rule")
     func alwaysAllowFallsBackToStore() async throws {
         let store = SessionStore()
+        defer { try? FileManager.default.removeItem(at: allowStoreURL) }
         let srv = server(store: store)
         try await srv.buildApplication().test(.router) { client in
             async let held = client.execute(uri: "/approval", method: .post,
@@ -600,6 +604,7 @@ struct ApprovalRoutesTests {
     @Test("alwaysAllow from a grok approval matches the next grok call, alias included")
     func grokAlwaysAllowPersists() async throws {
         let store = SessionStore()
+        defer { try? FileManager.default.removeItem(at: allowStoreURL) }
         try await server(store: store).buildApplication().test(.router) { client in
             async let first = approve(client, body: grokBash("git status", mode: "default"), agent: "grok")
             try await waitForPendingApproval(store, session: "gs")
@@ -659,6 +664,7 @@ struct ApprovalRoutesTests {
     @Test("alwaysAllow from a claude PermissionRequest also auto-allows the same call on a PreToolUse gate")
     func claudePermissionRequestAlwaysAllowSharesRules() async throws {
         let store = SessionStore()
+        defer { try? FileManager.default.removeItem(at: allowStoreURL) }
         try await server(store: store).buildApplication().test(.router) { client in
             async let first = approve(client, body: claudeRequest("git status"))
             try await waitForPendingApproval(store, session: "ps")
@@ -841,6 +847,7 @@ struct ApprovalRoutesTests {
     @Test("alwaysAllow from a codex approval matches the next identical codex command")
     func codexAlwaysAllowPersists() async throws {
         let store = SessionStore()
+        defer { try? FileManager.default.removeItem(at: allowStoreURL) }
         try await server(store: store).buildApplication().test(.router) { client in
             async let first = approve(client, body: codexRequest("git status"), agent: "codex")
             try await waitForPendingApproval(store, session: "cs")

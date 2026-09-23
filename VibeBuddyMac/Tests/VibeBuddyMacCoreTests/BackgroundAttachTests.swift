@@ -97,4 +97,31 @@ struct AttachJumpRouteTests {
         #expect(recorder.calls.first?.0 == "abc12345")
         #expect(recorder.calls.first?.1 == "iTerm.app")
     }
+
+    @Test("a fresh lookup finds a session the cached list does not know, and wins over a stale cache entry")
+    func attachFromFreshLookup() async throws {
+        let store = SessionStore()
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "new-bg", agent: .claudeCode, cwd: "/x/c", timestamp: Date()))
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "moved-bg", agent: .claudeCode, cwd: "/x/d", timestamp: Date()))
+        let recorder = Recorder()
+        let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876,
+                                  backgroundSessions: { [ClaudeBackgroundSession(id: "0000aaaa", sessionID: "moved-bg")] },
+                                  findBackgroundSession: { sid in
+                                      switch sid {
+                                      case "new-bg": return ClaudeBackgroundSession(id: "1111bbbb", sessionID: sid)
+                                      case "moved-bg": return ClaudeBackgroundSession(id: "2222cccc", sessionID: sid)
+                                      default: return nil
+                                      }
+                                  },
+                                  onAttach: { id, term in recorder.record(id, term); return .attached })
+        try await srv.buildApplication().test(.router) { client in
+            for sid in ["new-bg", "moved-bg"] {
+                try await client.execute(uri: "/jump", method: .post, headers: [.authorization: "Bearer t0k"],
+                                         body: ByteBuffer(string: #"{"sessionId":"\#(sid)"}"#)) { res in
+                    #expect(String(buffer: res.body).contains(#""outcome":"attached""#))
+                }
+            }
+        }
+        #expect(recorder.calls.map(\.0) == ["1111bbbb", "2222cccc"])
+    }
 }

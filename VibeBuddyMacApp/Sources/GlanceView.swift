@@ -330,6 +330,16 @@ struct GlanceView: View {
                 .buttonStyle(.plain)
                 .help("Hide glance (\(model.toggleGlanceHotkey.displayString))")
             }
+            if let notice = voice.endNotice, voice.errorText == nil, !voice.isActive {
+                HStack(alignment: .firstTextBaseline, spacing: 8 * s) {
+                    Text(notice)
+                        .font(MacTheme.font(11 * s, .medium))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .fixedSize(horizontal: false, vertical: true)
+                    linkButton("Redial") { voice.redial() }
+                        .help("Start a new voice call without the earlier conversation")
+                }
+            }
             ScrollView {
             if model.sessions.isEmpty {
                 Text("No agent sessions yet")

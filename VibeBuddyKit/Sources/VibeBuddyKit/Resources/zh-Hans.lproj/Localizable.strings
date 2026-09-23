@@ -140,6 +140,11 @@
 "Not installed" = "未安装";
 "Unknown version" = "版本未知";
 "Stored conversation · live status unavailable" = "已存对话 · 无实时状态";
+/* Mac Settings diagnostics — the Cursor row (AI-06) */
+"No hosted task" = "没有托管任务";
+"Cloud agents not connected" = "未连接云端 Agent";
+"VibeBuddy runs cursor-agent only while a task started from VibeBuddy is in progress. None has run since this launch." = "VibeBuddy 只在从 VibeBuddy 发起的任务运行期间托管 cursor-agent；本次启动以来还没有这样的任务。";
+"Optional: add a Cursor API key in Settings to follow cloud agents. Local Cursor chats are still observed through hooks and transcripts." = "可选：在设置里填入 Cursor API 密钥即可跟进云端 Agent。本地 Cursor 对话仍通过 Hook 和对话记录观测。";
 
 /* MARK: QuotaPresentation — reset countdowns on every quota surface */
 "now" = "现在";
@@ -220,3 +225,6 @@
 "Background tasks running: %lld" = "等待 %lld 项后台任务";
 "Loop scheduled" = "已排定循环";
 "Background tasks still running: %lld" = "还有 %lld 项后台任务在运行";
+
+/* Voice call ended at the provider's per-call limit (D-1) */
+"Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation." = "通话已结束：%@ 单次通话时长已到上限。重拨会开始新通话，不带这次的对话内容。";
