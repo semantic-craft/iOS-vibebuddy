@@ -89,6 +89,36 @@ struct ClaudeAgentsSourceTests {
         #expect(await source.currentFresh() == [fallback])
     }
 
+    @Test("find answers from the cache once its time limit passes, and finds a new session in time",
+          .timeLimit(.minutes(1)))
+    func findTimeLimit() async {
+        let print = Box("a"), gate = DispatchSemaphore(value: 0)
+        let source = ClaudeAgentsSource(run: {
+            // The first run answers; later ones hang like a wedged CLI.
+            if print.value != "a" { _ = gate.wait(timeout: .now() + 10) }
+            return Self.sample
+        }, fingerprint: { print.value }, fallback: { [] }, needs: { _ in nil })
+        let id = "747978a2-9efa-4859-8365-9f209d4fe9fe"
+        #expect(await ClaudeBackgroundSessions.find(sessionID: id, in: source)?.id == "747978a2")
+        print.value = "b"   // stale: the next lookup has to wait for a refresh
+        let start = Date()
+        #expect(await ClaudeBackgroundSessions.find(sessionID: id, in: source, timeLimit: .milliseconds(200))?.id == "747978a2")
+        #expect(await ClaudeBackgroundSessions.find(sessionID: "nope", in: source, timeLimit: .milliseconds(200)) == nil)
+        #expect(Date().timeIntervalSince(start) < 2)
+        print.value = "a"   // release the held run; the refresh the late lookup starts answers at once
+        gate.signal()
+    }
+
+    @Test("the jobs directory follows CLAUDE_CONFIG_DIR, like the hook installer")
+    func jobsDirectoryHonoursConfigDir() {
+        let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
+        #expect(ClaudeBackgroundSessions.jobsDirectory(environment: [:], home: home).path == "/Users/someone/.claude/jobs")
+        #expect(ClaudeBackgroundSessions.jobsDirectory(environment: ["CLAUDE_CONFIG_DIR": "/cfg/work"], home: home).path
+                == "/cfg/work/jobs")
+        #expect(ClaudeBackgroundSessions.jobsDirectory(environment: ["CLAUDE_CONFIG_DIR": "~/.claude-work"], home: home).path
+                == "/Users/someone/.claude-work/jobs")
+    }
+
     /// A fake `claude` at `<home>/.local/bin/claude`, which `ClaudeExecutable.resolve` tries first.
     private static func fakeCLI(_ body: String) throws -> URL {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("vb-agents-\(UUID().uuidString)")

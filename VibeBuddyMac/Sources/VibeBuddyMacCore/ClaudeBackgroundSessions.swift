@@ -27,8 +27,12 @@ public struct ClaudeBackgroundSession: Sendable, Equatable {
 }
 
 public enum ClaudeBackgroundSessions {
-    public static func jobsDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appendingPathComponent(".claude/jobs", isDirectory: true)
+    /// `<Claude config dir>/jobs`: `$CLAUDE_CONFIG_DIR` when set, else
+    /// `~/.claude` — the directory the hook installer resolves (`HookPaths`).
+    public static func jobsDirectory(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                     home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        HookPaths(HookInstallerEnvironment(home: home, variables: environment, claudeVersion: { nil }))
+            .claudeDirectory.appendingPathComponent("jobs", isDirectory: true)
     }
 
     /// The shared cached list, never blocking (see `ClaudeAgentsSource`).
@@ -42,10 +46,41 @@ public enum ClaudeBackgroundSessions {
     }
 
     /// The session for this id, refreshing once if the cache does not know it
-    /// (a session started seconds ago, or a jump right after a change).
-    public static func find(sessionID: String) async -> ClaudeBackgroundSession? {
-        if let hit = await loadFresh().first(where: { $0.sessionID == sessionID }) { return hit }
-        return await ClaudeAgentsSource.shared.refreshNow().first { $0.sessionID == sessionID }
+    /// (a session started seconds ago, or a jump right after a change). A jump
+    /// is waiting on this, so the whole lookup gets `timeLimit`; past it the
+    /// cached list answers and the refresh carries on for the next caller.
+    public static func find(sessionID: String, in source: ClaudeAgentsSource = .shared,
+                            timeLimit: Duration = .seconds(3)) async -> ClaudeBackgroundSession? {
+        await firstOf(timeLimit, fallback: { source.cachedValue().first { $0.sessionID == sessionID } }) {
+            if let hit = await source.currentFresh().first(where: { $0.sessionID == sessionID }) { return hit }
+            return await source.refreshNow().first { $0.sessionID == sessionID }
+        }
+    }
+
+    /// `work`'s result, or `fallback()` once `limit` passes. The refresh behind
+    /// `work` waits on a continuation and cannot be cancelled, so the two race
+    /// in unstructured tasks rather than a task group (which would wait for
+    /// both); the loser's result is dropped.
+    static func firstOf<T: Sendable>(_ limit: Duration, fallback: @escaping @Sendable () -> T,
+                                     _ work: @escaping @Sendable () async -> T) async -> T {
+        let once = FirstClaim()
+        return await withCheckedContinuation { continuation in
+            let timer = Task {
+                try? await Task.sleep(for: limit)
+                if once.claim() { continuation.resume(returning: fallback()) }
+            }
+            Task {
+                let value = await work()
+                if once.claim() { timer.cancel(); continuation.resume(returning: value) }
+            }
+        }
+    }
+
+    /// True for the first caller only.
+    private final class FirstClaim: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func claim() -> Bool { lock.withLock { defer { done = true }; return !done } }
     }
 
     /// `claude agents --json` output: background entries only. Fields are
@@ -78,7 +113,7 @@ public enum ClaudeBackgroundSessions {
     }
 
     /// Fallback for CLIs without `claude agents --json`: the supervisor's
-    /// `~/.claude/jobs/<id>/state.json` files, which the docs call "not a
+    /// `<config dir>/jobs/<id>/state.json` files, which the docs call "not a
     /// stable interface". Unreadable or malformed entries are skipped.
     public static func loadFromJobsDirectory(_ jobsDirectory: URL = jobsDirectory(),
                                              fileManager fm: FileManager = .default) -> [ClaudeBackgroundSession] {
@@ -112,7 +147,7 @@ public enum ClaudeBackgroundSessions {
 /// The one place `claude agents --json --all` runs. The command costs about
 /// half a second of CPU (1–2 s cold), and the Mac polls background sessions
 /// every few seconds, so it runs only when something may have changed: a
-/// cheap stat fingerprint of `~/.claude/jobs` differs from the last run, or
+/// cheap stat fingerprint of the jobs directory differs from the last run, or
 /// `maxAge` has passed. It runs on its own serial queue, one refresh at a
 /// time: `current()` never blocks (it returns the cache and starts a refresh
 /// when stale), async callers join the refresh already in flight. When the
@@ -155,6 +190,9 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
         self.maxAge = maxAge
         self.now = now
     }
+
+    /// The cached list as it stands, starting nothing.
+    func cachedValue() -> [ClaudeBackgroundSession] { lock.withLock { cached } }
 
     /// The cached list, immediately. A stale cache starts a refresh in the
     /// background; the next call sees its result.
@@ -210,16 +248,15 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
             if warn { warnedFallback = true }
             lock.unlock()
             if warn {
-                FileHandle.standardError.write(Data("vibebuddy: `claude agents --json` unavailable; reading ~/.claude/jobs (not a stable interface)\n".utf8))
+                FileHandle.standardError.write(Data("vibebuddy: `claude agents --json` unavailable; reading the Claude jobs directory (not a stable interface)\n".utf8))
             }
             ready.forEach { $0.resume(returning: result) }
         }
     }
 
-    /// Names plus modification times of `~/.claude/jobs` and each job's
+    /// Names plus modification times of the jobs directory and each job's
     /// state file: a change hint only, never parsed for content.
-    static func jobsFingerprint(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
-        let jobs = ClaudeBackgroundSessions.jobsDirectory(home: home)
+    static func jobsFingerprint(jobs: URL = ClaudeBackgroundSessions.jobsDirectory()) -> String {
         func mtime(_ path: String) -> String {
             var info = stat()
             guard stat(path, &info) == 0 else { return "-" }
