@@ -42,8 +42,13 @@ struct ClaudeBackgroundLauncherTests {
     func launch() async throws {
         let jobs = FileManager.default.temporaryDirectory.appendingPathComponent("vb-jobs-\(UUID().uuidString)")
         let cwd = FileManager.default.temporaryDirectory.appendingPathComponent("vb-cwd-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: jobs)
+            try? FileManager.default.removeItem(at: cwd)
+        }
         try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
         let fake = try fakeClaude(jobs: jobs)
+        defer { try? FileManager.default.removeItem(at: fake.exe.deletingLastPathComponent()) }
         let launcher = ClaudeBackgroundLauncher(executable: fake.exe, agents: .jobsOnly(jobs))
         #expect(await launcher.isSupported())
         let outcome = await launcher.dispatch(DispatchRequest(agent: .claudeCode, cwd: cwd.path, prompt: "-- list uncommitted changes", name: "listing"))
@@ -58,6 +63,10 @@ struct ClaudeBackgroundLauncherTests {
     func unsupported() async throws {
         let jobs = FileManager.default.temporaryDirectory.appendingPathComponent("vb-jobs-\(UUID().uuidString)")
         let old = try fakeClaude(jobs: jobs, supportsBG: false)
+        defer {
+            try? FileManager.default.removeItem(at: jobs)
+            try? FileManager.default.removeItem(at: old.exe.deletingLastPathComponent())
+        }
         let launcher = ClaudeBackgroundLauncher(executable: old.exe, agents: .jobsOnly(jobs))
         #expect(await !launcher.isSupported())
         if case .unavailable = await launcher.dispatch(DispatchRequest(agent: .claudeCode, cwd: "/tmp", prompt: "x")) {} else {
@@ -78,8 +87,13 @@ struct ClaudeBackgroundLauncherTests {
     func route() async throws {
         let jobs = FileManager.default.temporaryDirectory.appendingPathComponent("vb-jobs-\(UUID().uuidString)")
         let cwd = FileManager.default.temporaryDirectory.appendingPathComponent("vb-cwd-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: jobs)
+            try? FileManager.default.removeItem(at: cwd)
+        }
         try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
         let fake = try fakeClaude(jobs: jobs)
+        defer { try? FileManager.default.removeItem(at: fake.exe.deletingLastPathComponent()) }
         let store = SessionStore()
         await store.ingest(HookEvent(kind: .sessionStart, sessionID: "s0", agent: .claudeCode, cwd: cwd.path, timestamp: Date()))
         let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876,
