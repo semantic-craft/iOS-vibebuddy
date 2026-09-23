@@ -65,7 +65,9 @@ final class WatchStateStore: NSObject, ObservableObject {
                 } else if let restored = sent.restored(by: pendingAction.action) {
                     unsentBannerReply = restored
                     bannerSentReply = nil
-                } else if pendingAction.action?.phase != .sending {
+                } else if let phase = pendingAction.action?.phase, phase != .sending, phase != .queued {
+                    // Held on the phone is not the end: a held reply the phone
+                    // later drops comes back as `failed`, and its words with it.
                     bannerSentReply = nil
                 }
             }
@@ -224,7 +226,10 @@ final class WatchStateStore: NSObject, ObservableObject {
         bannerActionFallback = nil
         bannerActionFallbackRoute = nil
         bannerActionFallbackPendingID = nil
-        if case .answer = route { unsentBannerReply = nil }
+        if case .answer = route {
+            unsentBannerReply = nil
+            bannerSentReply = nil
+        }
         if unsentBannerReply?.sessionID != sessionID { unsentBannerReply = nil }
         openSession(sessionID)
         guard route.isAction else { return }
@@ -393,6 +398,8 @@ final class WatchStateStore: NSObject, ObservableObject {
                 // before there was anything here to watch it.
                 if let restored = sent.restored(by: pendingAction.action) {
                     unsentBannerReply = restored
+                    WatchNavigationDiagnostics.shared.record("banner.action-failed-on-start")
+                    return
                 } else {
                     bannerSentReply = sent
                 }
