@@ -69,3 +69,5 @@ Spec: Spec v2（本工作线综合稿）+ 2026-09-08 用户范围裁定
 ### 2026-09-09 Desktop 验收收尾
 
 此次 Desktop 原生审批随后由用户拒绝，记录窗口内 VibeBuddy 始终没有待审批卡片。用户另报手机当时尚未配对，因此本轮不能裁定手机投递成功或失败。独立 daemon 持有的测试任务已通过真实本轮权限批准和撤卡（15.191 秒）；该证据不覆盖 Desktop 私有实例。维持现行范围和待重裁状态，不据此扩大或否定所有 Desktop 通道。完整证据位于独立 worktree `codex-integration-acceptance/.scratch/agent-integration-currency/acceptance-20260909.md`。
+
+- 2026-09-23 重裁（对照同类项目后拍板）：**维持 2026-09-08 的范围**——商店版只观察 Codex Desktop 进度，不承诺等待提醒。依据：Octane0411/open-vibe-island#506（open）与我们 09-09 实测一致，Desktop 线程在自建 app-server 上是 `notLoaded`，回答回不到 Desktop；openai/codex#28833（open）`PermissionRequest` 在自动审批分流之前触发、会误报；clawd-on-desk#1040（Desktop 26.915）细粒度 `request_permissions` 不触发该 hook；官方给 Desktop 审批的出路是 ChatGPT 手机端 Codex Remote。若 hook 真的触发，照 CLI 走同一张卡，但审核材料不承诺；每个 Codex Desktop 新版本复测一次并跟踪 #28833。

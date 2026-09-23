@@ -322,3 +322,12 @@ The wrist bounds its wait to twelve seconds and consumes only the matching reply
 ## Amendment — banner buttons act on the wrist (2026-09-22)
 
 Decision 3's "Approve / Deny / Reply on a forwarded notification are answered by the iPhone, as Apple routes them" is superseded by ADR-0033. Apple routes *background* actions to the iPhone; every banner action is now a foreground action, so a button tapped on the wrist launches the Watch app, is mapped by `WatchNotificationResponseRoute` and sent through the card's own `WatchSessionActionRequest` path, with the card's sentences and a haptic for the outcome. Decision 4 is unchanged: the card still never says "approved".
+
+## Amendment — roadmap M-07 / M-09 / M-10 scope (2026-09-23)
+
+A survey of first-party and open-source products settles the three open Watch nodes. Neither Anthropic's Claude app nor OpenAI's Codex Remote ships a Watch app; both keep start, steer and approve on the phone and forward notifications to the wrist. Third-party Watch apps for coding agents (shobhit99/claude-watch, Handwave, watch-control) converge on remind → approve or answer, with dictation sent only to an existing session. None starts a new task from preset Mac / project / agent combinations.
+
+- **M-07 narrowed.** Show the full question or approval object on the wrist and let a result excerpt expand. On-wrist read-aloud is not built.
+- **M-09 deferred.** Answering a waiting session already covers dictation to an existing session. No evidence yet of demand for steering a running turn from the wrist.
+- **M-10 wontfix.** Starting a new task stays on the iPhone. A wrong project picked by dictation is costly, and the node would need a confirmation page and another reliable send path.
+

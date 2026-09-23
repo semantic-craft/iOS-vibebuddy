@@ -1,8 +1,8 @@
 # How the APNs provider key reaches the Mac
 
-**Status:** Proposed (project-operated relay rejected; key-delivery choice remains open)
+**Status:** Accepted direction D for the public path (2026-09-23), pending the prototype gate in `docs/planning/backlog/public-push/issues/01-cloudkit-alert-push-prototype.md`; C rejected (2026-09-06); A rejected (2026-09-23); B stays the owner's path
 
-**Ticket:** ready-for-human
+**Ticket:** DEC-APNS decided 2026-09-23 (direction D); A-12 waits on the CloudKit prototype ticket
 
 **Executor:** cursor-grok-4.6 · 分支 claude/a-11-apns-key-delivery · 2026-09-06 04:12 +0800
 
@@ -114,6 +114,16 @@ A tiny HTTPS service the project runs holds the `.p8`. The Mac, after pairing, P
 
 **Ops.** Contradicts Q8, Q16 ("no vibebuddy cloud"), and ADR-0002's "no vibebuddy server" privacy story. Needs uptime, TLS, a domain, abuse handling, a privacy-policy rewrite ("we operate a server that receives device tokens and notification text"), and someone on the hook when it breaks. A Cloudflare Worker is cheap. It is still a server.
 
+### D — CloudKit private-database alert push (added 2026-09-23)
+
+The Mac saves a small `Cue` record (project, kind, short summary) to a custom zone in the **user's own** iCloud private database. On first launch the iPhone creates a `CKQuerySubscription` whose `CKNotificationInfo` carries `title` / `alertBody` (or localization args), `soundName`, `category` (the existing Approve / Deny buttons), `collapseIDKey` and `shouldSendMutableContent`. Apple's CloudKit servers sign and send the push; no `.p8` exists anywhere outside Apple, and the project runs nothing.
+
+- **No key to leak.** The iOS 27 `CKSubscription.h` header: "You don't need to enable push notifications for your App ID … Xcode automatically adds the APNs entitlement … when you enable CloudKit"; the push goes "to all devices with that subscription except for the one that makes the original changes". Query subscriptions work in private databases.
+- **Killed app still alerts.** [QA1917](https://developer.apple.com/library/archive/qa/qa1917/_index.html) only excludes silent (`shouldSendContentAvailable`) pushes to a force-quit app; an alert push is shown by the system.
+- **Developer ID Mac can write.** Apple's [macOS capability table](https://developer.apple.com/help/account/reference/supported-capabilities-macos) lists iCloud: CloudKit for Developer ID. The Mac needs an iCloud entitlement and an embedded Developer ID provisioning profile (`tools/vibebuddy-mac.entitlements` has neither today).
+- **Costs.** Mac and iPhone must use the same Apple Account with iCloud on; no SLA on latency (production reports range from fast to over a minute) and APNs coalesces bursts; no interruption-level field (Time Sensitive via a Notification Service Extension is unverified); Apple can read alert text, so keep it generic and let the extension fetch details; records use the user's iCloud quota and are deleted after delivery; the schema must be promoted to production.
+- **Precedent.** Tact (App Store chat app) retired its push server in 2024 for `CKDatabaseSubscription` pushes ([blog](https://blog.justtact.com/direct-cloudkit-notifications/)). No open-source Mac→iPhone agent companion uses CloudKit yet; the comparable projects run or rent a key-holding relay (slopus/happy via Expo, Home Assistant, Bark) or skip closed-app push (wxtsky/CodeIsland uses BLE and Live Activities; open-vibe-island is Mac-only).
+
 ## Comparison
 
 | | A bundled key | B per-user Developer key | C minimal relay |
@@ -156,6 +166,15 @@ Not implementation. A-12 writes the ticket and the code after DEC-APNS.
 On 2026-09-06 the owner explicitly rejected operating a service. Option C is out of scope, preserving Q8 / Q16 and ADR-0002. Do not propose or implement a project-operated relay as the default next step.
 
 This is a binding product boundary, not acceptance of option A or B for public distribution. Keep the existing owner-controlled push path while developing the personal-use release. Reassess public closed-app delivery within the no-operated-service boundary; bring only a concrete directional trade-off back to the owner. A-12 remains blocked until the key-delivery choice is accepted. Do not bundle or distribute project credentials on the strength of this decision.
+
+### 2026-09-23 — direction D, gated by a prototype
+
+The owner delegated this decision after a survey of comparable projects. D is the only road that meets both boundaries — no operated relay, no distributed project credential — and still gives strangers a closed-app alert with VibeBuddy's own buttons.
+
+- **Public path: D.** A-12 implements D once the prototype ticket passes (Hermes, app force-quit and locked, ~20 cues, p95 ≤ 30 s, category buttons work). The phone's LAN stream and local notifications stay the foreground path.
+- **Owner path: B.** The owner's own `.p8` keeps working as the low-latency override; nothing is removed.
+- **A rejected.** Every comparable project that ships to strangers keeps the key on a server or publishes it deliberately (Bark); none hides a secret `.p8` in a distributed client, and Apple's guidance is "keep it private".
+- If the prototype fails the gate, bring the measurements back here; do not fall back to A or C on the strength of this decision.
 
 ## Comments
 

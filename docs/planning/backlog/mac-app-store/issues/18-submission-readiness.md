@@ -37,3 +37,5 @@ Spec: Spec v2（本工作线综合稿）
 - 2026-09-08 Codex 第一阶段静态评估（未领取、未实施）：删除候选中自动签名/创建平台/强制导出 pkg 的预设动作；Archive 与 Apple Development 本地沙盒验证分开留证。审核备注改为目录授权，OpenCode 不得一边复制外部代码一边声称只引用 bundle。 详见修订后的 IMPLEMENTATION-PLAN.html 票 18；实现与验收仍未执行。
 
 - 2026-09-08 to-tickets：依据 Spec v2 重写为可验证的用户行为切片，保留编号、历史 Comments 和未领取状态；当前正文替代此前分歧建议，具体实现方法仍需实际验证。Status 调整为 needs-triage；不代表已确认实施。
+
+- 2026-09-23 审核先例（写进审核说明）：商店里已有同类沙盒应用多次过审——Earcon（描述写明"自动接入 Claude Code 和 Codex 的 hooks，不覆盖已有配置"）、SessionRadar（授权文件夹 + 只接受本机连接的端口）、Opsnook（授权文件夹 + 刘海内批准 Claude Code 权限请求）。未找到"修改 `~/.claude/settings.json` 被拒"的公开报告。
