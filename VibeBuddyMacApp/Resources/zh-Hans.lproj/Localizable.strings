@@ -1220,3 +1220,7 @@
 "Link copied" = "已复制链接";
 "Send to iPhone…" = "发送到 iPhone…";
 "AirDrop, Messages or Mail the App Store link to your iPhone" = "通过隔空投送、信息或邮件把 App Store 链接发到 iPhone";
+
+/* Voice call ended at the provider's per-call limit (D-1) */
+"Redial" = "重拨";
+"Start a new voice call without the earlier conversation" = "开始新的语音通话，不带之前的对话";

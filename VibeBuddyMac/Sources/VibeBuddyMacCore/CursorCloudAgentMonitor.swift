@@ -34,6 +34,8 @@ public actor CursorCloudAgentMonitor {
     /// cannot change for a given agent, so it is fetched once and kept.
     private var repositories: [String: String] = [:]
     private var started = false
+    /// The API health last handed to Settings diagnostics, and when.
+    private var reported: (health: ObservationHealth, at: Date)?
 
     /// 20 seconds: fast enough that a cloud turn's end reaches the phone while
     /// the person still cares, slow enough to be three calls a minute on an
@@ -58,9 +60,26 @@ public actor CursorCloudAgentMonitor {
     /// then the lifecycle events this pass justifies.
     public func poll(store: SessionStore, now: Date) async {
         let (agents, events) = await pass(now: now)
+        if client.isConfigured {
+            await report(agents == nil ? .sourceUnreadable : .healthy, to: store, at: now)
+        } else if reported != nil {
+            // The key was removed: neither the last verdict nor its staleness
+            // describes a source that is no longer set up.
+            reported = nil
+            await store.clearSourceSignal(agent: .cursor, source: .cloud)
+        }
         guard let agents else { return }
         await store.applyCursorCloudAgents(agents)
         for event in events { await store.ingest(event) }
+    }
+
+    /// Whether the API answers, for Settings diagnostics. Sent on a change and
+    /// otherwise every five minutes — inside the diagnostics' ten-minute
+    /// staleness window, without a snapshot broadcast on every 20-second pass.
+    private func report(_ health: ObservationHealth, to store: SessionStore, at now: Date) async {
+        if let reported, reported.health == health, now.timeIntervalSince(reported.at) < 5 * 60 { return }
+        reported = (health, now)
+        await store.recordSourceSignal(agent: .cursor, source: .cloud, health: health, at: now)
     }
 
     /// The pure half, for tests: what this pass saw and what it justifies.

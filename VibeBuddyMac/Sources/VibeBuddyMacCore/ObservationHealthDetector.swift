@@ -103,9 +103,11 @@ public enum ObservationHealthDetector {
     public static func codexHookConfigurationIssue(
         home: URL?, hook: ObservationSourceDiagnostic?, now: Date,
         hookTrust: CodexHookTrust? = nil,
-        staleAfter: TimeInterval = 10 * 60
+        staleAfter: TimeInterval = 10 * 60,
+        environment: [String: String] = [:]
     ) -> CodexHookConfigurationIssue? {
-        if hooksFeatureDisabled(home: home, hook: hook, now: now, staleAfter: staleAfter) {
+        if hooksFeatureDisabled(paths: paths(home: home, environment: environment),
+                                hook: hook, now: now, staleAfter: staleAfter) {
             return .hooksFeatureDisabled
         }
         if let hookTrust, hookTrust.blocked > 0 { return .hooksNotTrusted(hookTrust) }
@@ -120,10 +122,12 @@ public enum ObservationHealthDetector {
     /// version in the path `current` points at, so nothing has to be executed
     /// to learn it.
     public static func codexAppServerVersionDrift(
-        home: URL?, serverUserAgent: String?, fileManager fm: FileManager = .default
+        home: URL?, serverUserAgent: String?, environment: [String: String] = [:],
+        fileManager fm: FileManager = .default
     ) -> CodexAppServerVersionDrift? {
         guard let running = versionInUserAgent(serverUserAgent),
-              let installed = installedCodexVersion(home: home, fileManager: fm),
+              let installed = installedCodexVersion(
+                  paths: paths(home: home, environment: environment), fileManager: fm),
               running != installed
         else { return nil }
         return CodexAppServerVersionDrift(running: running, installed: installed)
@@ -138,8 +142,8 @@ public enum ObservationHealthDetector {
 
     /// The managed standalone install: `packages/standalone/current` is a
     /// symlink to `releases/<version>-<target>`.
-    private static func installedCodexVersion(home: URL?, fileManager fm: FileManager) -> String? {
-        guard let current = home?.appendingPathComponent(".codex/packages/standalone/current"),
+    private static func installedCodexVersion(paths: HookPaths?, fileManager fm: FileManager) -> String? {
+        guard let current = paths?.codexDirectory.appendingPathComponent("packages/standalone/current"),
               let destination = try? fm.destinationOfSymbolicLink(atPath: current.path)
         else { return nil }
         let release = URL(fileURLWithPath: destination).lastPathComponent
@@ -156,12 +160,12 @@ public enum ObservationHealthDetector {
     /// outside this diagnostic's scope. Never writes the configuration. A fresh
     /// healthy runtime signal takes precedence over the file's static setting.
     private static func hooksFeatureDisabled(
-        home: URL?, hook: ObservationSourceDiagnostic?, now: Date, staleAfter: TimeInterval
+        paths: HookPaths?, hook: ObservationSourceDiagnostic?, now: Date, staleAfter: TimeInterval
     ) -> Bool {
         if let hook, hook.health == .healthy, let observed = hook.lastObservedAt,
            now.timeIntervalSince(observed) <= staleAfter { return false }
-        guard let home,
-              let data = readData(at: home.appendingPathComponent(".codex/config.toml"),
+        guard let paths,
+              let data = readData(at: paths.codexConfig,
                                   upToCount: (1 << 20) + 1, fileManager: .default),
               data.count <= 1 << 20, let text = String(data: data, encoding: .utf8)
         else { return false }
@@ -225,6 +229,9 @@ public enum ObservationHealthDetector {
     }
 
     private static let requiredHookCoverage = Set(ObservationEventCoverage.allCases)
+    /// Cursor has no notification hook: attention exists only through the
+    /// optional `preToolUse` approval gate, so a status-only install is whole.
+    private static let requiredCursorHookCoverage: Set<ObservationEventCoverage> = [.lifecycle, .turn, .tool]
     private static let supportedEventMessages: Set<String> = [
         "task_started", "task_complete", "turn_aborted",
         "exec_approval_request", "apply_patch_approval_request",
@@ -241,65 +248,71 @@ public enum ObservationHealthDetector {
         case unreadable
     }
 
+    /// Where each CLI keeps its configuration under `home`, resolved exactly
+    /// as the hook installer resolves it — `CLAUDE_CONFIG_DIR`, `CODEX_HOME`
+    /// and `CURSOR_HOME` included — so diagnostics inspect the files that were
+    /// installed. `environment` is empty unless the caller passes the live one.
+    private static func paths(home: URL?, environment: [String: String]) -> HookPaths? {
+        home.map { HookPaths(HookInstallerEnvironment(home: $0, variables: environment, claudeVersion: { nil })) }
+    }
+
     public static func detect(
         home: URL?,
         signals: [ObservationRuntimeSignal],
         now: Date,
         staleAfter: TimeInterval = 10 * 60,
         grokHome: URL = GrokHome.url,
+        environment: [String: String] = [:],
         fileManager fm: FileManager = .default
     ) -> [AgentObservationDiagnostic] {
+        let paths = paths(home: home, environment: environment)
         let claude = agentDiagnostic(
             agent: .claudeCode,
             daemon: statusLineEvidence(
-                config: home?.appendingPathComponent(".claude/settings.json"),
+                config: paths?.claudeSettings,
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm),
             hook: hookEvidence(
-                config: home?.appendingPathComponent(".claude/settings.json"),
-                installMarker: home?.appendingPathComponent(".claude", isDirectory: true),
+                config: paths?.claudeSettings,
+                installMarker: paths?.claudeDirectory,
                 agent: .claudeCode,
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm),
             passive: passiveEvidence(
-                root: home?.appendingPathComponent(".claude/projects", isDirectory: true),
+                root: paths?.claudeDirectory.appendingPathComponent("projects", isDirectory: true),
                 source: .transcript,
                 agent: .claudeCode,
-                installed: home.map { fm.fileExists(atPath: $0.appendingPathComponent(".claude").path) },
+                installed: paths.map { fm.fileExists(atPath: $0.claudeDirectory.path) },
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm))
 
-        let codexInstalled = home.map {
-            fm.fileExists(atPath: $0.appendingPathComponent(".codex/config.toml").path)
-                || fm.fileExists(atPath: $0.appendingPathComponent(".codex").path)
-        }
         let codex = agentDiagnostic(
             agent: .codex,
             daemon: appServerEvidence(
-                socket: home?.appendingPathComponent(".codex/app-server-control/app-server-control.sock"),
+                socket: paths?.codexControlSocket,
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm),
             hook: hookEvidence(
-                config: home?.appendingPathComponent(".codex/hooks.json"),
-                installMarker: home?.appendingPathComponent(".codex", isDirectory: true),
+                config: paths?.codexHooks,
+                installMarker: paths?.codexDirectory,
                 agent: .codex,
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm),
             passive: passiveEvidence(
-                root: home?.appendingPathComponent(".codex/sessions", isDirectory: true),
+                root: paths?.codexDirectory.appendingPathComponent("sessions", isDirectory: true),
                 source: .rollout,
                 agent: .codex,
-                installed: codexInstalled,
+                installed: paths.map { fm.fileExists(atPath: $0.codexDirectory.path) },
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,
@@ -329,7 +342,40 @@ public enum ObservationHealthDetector {
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm))
-        return [claude, codex, grok]
+
+        // Cursor (ADR-0016/0018): its user-level hooks and agent transcripts,
+        // the cursor-agent VibeBuddy hosts over ACP, and the Cloud Agents API.
+        let cursorInstalled = paths.map { fm.fileExists(atPath: $0.cursorDirectory.path) }
+        let cursor = AgentObservationDiagnostic(agent: .cursor, sources: [
+            hookEvidence(
+                config: paths?.cursorHooks,
+                installMarker: paths?.cursorDirectory,
+                agent: .cursor,
+                signals: signals,
+                now: now,
+                staleAfter: staleAfter,
+                fileManager: fm),
+            passiveEvidence(
+                root: paths?.cursorDirectory.appendingPathComponent("projects", isDirectory: true),
+                source: .transcript,
+                agent: .cursor,
+                installed: cursorInstalled,
+                signals: signals,
+                now: now,
+                staleAfter: staleAfter,
+                fileManager: fm),
+            // A hosted cursor-agent exists only while a task started from
+            // VibeBuddy runs, so no signal is the ordinary idle state.
+            diagnostic(source: .acp, signal: latestSignal(agent: .cursor, source: .acp, in: signals),
+                       fallback: .temporarilySilent, reasonCode: "acpIdle",
+                       now: now, staleAfter: staleAfter),
+            // The cloud monitor reports only with an API key; without one the
+            // optional source is simply not set up.
+            diagnostic(source: .cloud, signal: latestSignal(agent: .cursor, source: .cloud, in: signals),
+                       fallback: .notInstalled, reasonCode: "optionalSourceNotConfigured",
+                       now: now, staleAfter: staleAfter),
+        ])
+        return [claude, codex, grok, cursor]
     }
 
     private static func agentDiagnostic(
@@ -429,7 +475,10 @@ public enum ObservationHealthDetector {
         for (event, groups) in hooks {
             guard let groups = groups as? [[String: Any]] else { continue }
             for group in groups {
-                guard let commands = group["hooks"] as? [[String: Any]] else { continue }
+                // Cursor lists commands directly under the event; the others
+                // nest them in matcher groups.
+                guard let commands = agent == .cursor ? [group] : group["hooks"] as? [[String: Any]]
+                else { continue }
                 for command in commands {
                     guard let value = command["command"] as? String,
                           isManagedHook(command, value: value, agent: agent, event: event)
@@ -438,12 +487,16 @@ public enum ObservationHealthDetector {
                     if command["async"] as? Bool == true, value.contains("approval-hook.sh") {
                         hasAsyncGate = true
                     }
-                    if let family = eventFamily(event) { coverage.insert(family) }
+                    if agent == .cursor {
+                        coverage.formUnion(cursorEventFamilies(event, gate: value.contains("approval-hook.sh")))
+                    } else if let family = eventFamily(event) {
+                        coverage.insert(family)
+                    }
                 }
             }
         }
         let configurationIncomplete = !hasManagedHook
-            || !requiredHookCoverage.isSubset(of: coverage)
+            || !(agent == .cursor ? requiredCursorHookCoverage : requiredHookCoverage).isSubset(of: coverage)
         // An async hook runs, but detached: the agent never waits for it and
         // never applies its answer. That is what the status forwarder wants and
         // what the blocking approval gate cannot survive, so only an async gate
@@ -480,9 +533,18 @@ public enum ObservationHealthDetector {
         case .claudeCode: expected = "claude"
         case .codex: expected = "codex"
         case .grok: expected = "grok"
+        case .cursor: expected = "cursor"
         default: return false
         }
         if name == "vibebuddy-forward.sh" { return argv.count == 2 && argv[1] == expected }
+        if agent == .cursor {
+            switch name {
+            case "approval-hook.sh": return argv == [executable, expected] && event == "preToolUse"
+            case "capture-terminal.sh": return argv == [executable, expected] && event == "sessionStart"
+            case "cursor-followup.sh": return argv.count == 1 && event == "stop"
+            default: return false
+            }
+        }
         guard name == "approval-hook.sh" else { return false }
         if agent == .claudeCode {
             return (argv.count == 1 || argv == [executable, expected])
@@ -694,6 +756,18 @@ public enum ObservationHealthDetector {
         case "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch": .tool
         case "PermissionRequest", "PermissionDenied", "Notification", "Elicitation": .attention
         default: nil
+        }
+    }
+
+    /// Cursor's camelCase events (`CursorHooks` in the installer). The
+    /// `preToolUse` approval gate is the only way Cursor can ask for attention.
+    private static func cursorEventFamilies(_ event: String, gate: Bool) -> Set<ObservationEventCoverage> {
+        switch event {
+        case "sessionStart", "sessionEnd", "subagentStart", "subagentStop", "preCompact": [.lifecycle]
+        case "beforeSubmitPrompt", "stop", "afterAgentResponse", "afterAgentThought": [.turn]
+        case "postToolUse", "postToolUseFailure", "afterFileEdit": [.tool]
+        case "preToolUse": gate ? [.tool, .attention] : [.tool]
+        default: []
         }
     }
 

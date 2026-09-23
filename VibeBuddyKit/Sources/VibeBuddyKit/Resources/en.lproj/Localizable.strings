@@ -110,6 +110,11 @@
 "Not installed" = "Not installed";
 "Unknown version" = "Unknown version";
 "Stored conversation · live status unavailable" = "Stored conversation · live status unavailable";
+/* Mac Settings diagnostics — the Cursor row (AI-06) */
+"No hosted task" = "No hosted task";
+"Cloud agents not connected" = "Cloud agents not connected";
+"VibeBuddy runs cursor-agent only while a task started from VibeBuddy is in progress. None has run since this launch." = "VibeBuddy runs cursor-agent only while a task started from VibeBuddy is in progress. None has run since this launch.";
+"Optional: add a Cursor API key in Settings to follow cloud agents. Local Cursor chats are still observed through hooks and transcripts." = "Optional: add a Cursor API key in Settings to follow cloud agents. Local Cursor chats are still observed through hooks and transcripts.";
 
 /* MARK: QuotaPresentation — reset countdowns on every quota surface */
 "now" = "now";
@@ -189,3 +194,6 @@
 "Background tasks running: %lld" = "Background tasks running: %lld";
 "Loop scheduled" = "Loop scheduled";
 "Background tasks still running: %lld" = "Background tasks still running: %lld";
+
+/* Voice call ended at the provider's per-call limit (D-1) */
+"Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation." = "Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation.";

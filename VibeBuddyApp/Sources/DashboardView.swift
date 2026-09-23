@@ -213,7 +213,7 @@ struct DashboardView: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityHint("Open the voice page")
                 }
-                if voice.phase != .idle || voice.errorText != nil {
+                if voice.phase != .idle || voice.errorText != nil || voice.endNotice != nil {
                     VoiceStrip(voice: voice)
                         .contentShape(Rectangle())
                         .onTapGesture { showVoicePage = true }

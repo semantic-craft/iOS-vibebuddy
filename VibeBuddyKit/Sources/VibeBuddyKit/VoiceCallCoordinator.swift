@@ -9,6 +9,23 @@ public enum VoiceCallPhase: Equatable, Sendable {
     case listening
     case thinking
     case speaking
+    /// Terminal: the call ended for a reason the UI explains and can redial from.
+    case ended(VoiceCallEndReason)
+}
+
+/// Why a call ended on its own, when the person should be told and offered a
+/// redial. A user hangup or a failure is not one of these (`.idle` / `errorText`).
+public enum VoiceCallEndReason: Equatable, Sendable {
+    /// The provider's per-connection limit was reached. Redial opens a fresh
+    /// session with the same Settings; nothing from this call carries over.
+    case providerLimit
+
+    public func notice(provider: VoiceProvider) -> String {
+        switch self {
+        case .providerLimit:
+            String(localized: "Call ended: \(provider.display) reached its per-call time limit. Redial starts a new call without this conversation.", bundle: .module)
+        }
+    }
 }
 
 /// Actual audio availability, independent of provider connection status.
@@ -37,6 +54,12 @@ public final class VoiceCallCoordinator {
     public private(set) var lastUserText = ""
     public private(set) var lastReply = ""
     public private(set) var errorText: String?
+    public var endReason: VoiceCallEndReason? {
+        if case .ended(let reason) = phase { return reason }
+        return nil
+    }
+    /// Stopped for any reason; late provider events no longer change anything.
+    public var isFinished: Bool { stopped }
 
     private let audio: any VoiceCallAudio
     private let actionHandler: (VoiceAction) async -> String
@@ -189,6 +212,9 @@ public final class VoiceCallCoordinator {
         case .failed(let message):
             errorText = message
             stop()
+        case .providerLimitReached:
+            stop()
+            phase = .ended(.providerLimit)
         case .closed:
             stop()
         case .speechStarted:

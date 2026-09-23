@@ -14,6 +14,7 @@ struct EnvironmentDetectorTests {
     @Test("a CLI with no config is not configured and not injected")
     func absent() {
         let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let spec = CLISpec(name: "claude", configPath: dir.appendingPathComponent("missing.json").path)
         let status = EnvironmentDetector.detect([spec]).first!
         #expect(status.configured == false)
@@ -26,6 +27,7 @@ struct EnvironmentDetectorTests {
     @Test("the Claude status line is reported separately from the hooks")
     func statusLineWiring() throws {
         let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let cfg = dir.appendingPathComponent("settings.json")
         let spec = CLISpec(name: "claude", configPath: cfg.path, statusLinePath: cfg.path)
 
@@ -58,6 +60,7 @@ struct EnvironmentDetectorTests {
     @Test("a config without the vibebuddy marker is configured but not injected")
     func configuredNotInjected() throws {
         let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let cfg = dir.appendingPathComponent("settings.json")
         try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}"#
             .write(to: cfg, atomically: true, encoding: .utf8)
@@ -69,6 +72,7 @@ struct EnvironmentDetectorTests {
     @Test("a user's own hook under a hooks/ directory is not mistaken for vibebuddy's")
     func userHooksDirectoryIsNotInjected() throws {
         let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let cfg = dir.appendingPathComponent("settings.json")
         try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/Users/me/.claude/hooks/lint.sh"}]}]}}"#
             .write(to: cfg, atomically: true, encoding: .utf8)
@@ -80,6 +84,7 @@ struct EnvironmentDetectorTests {
     @Test("a config carrying the forward marker is detected as injected")
     func injected() throws {
         let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let cfg = dir.appendingPathComponent("settings.json")
         try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"curl 127.0.0.1:9876/hook"}]}]}}"#
             .write(to: cfg, atomically: true, encoding: .utf8)
@@ -91,6 +96,7 @@ struct EnvironmentDetectorTests {
     @Test("Codex lifecycle hooks are detected as injected")
     func codexInjected() throws {
         let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let cfg = dir.appendingPathComponent("config.toml")
         let hooks = dir.appendingPathComponent("hooks.json")
         try "model = \"gpt\"\n".write(to: cfg, atomically: true, encoding: .utf8)
@@ -139,6 +145,7 @@ struct EnvironmentDetectorTests {
     @Test("Cursor is detected by its home directory and wired in hooks.json")
     func cursor() throws {
         let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let cursorHome = dir.appendingPathComponent(".cursor")
         try FileManager.default.createDirectory(at: cursorHome, withIntermediateDirectories: true)
         let spec = CLISpec(name: "cursor", configPath: cursorHome.path,

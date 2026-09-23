@@ -684,6 +684,12 @@ private struct DiagnosticsPage: View {
         return parts.joined(separator: " · ")
     }
 
+    /// The overrides the detector resolves config directories with; none in an
+    /// isolated run, whose agent homes are its own.
+    private var diagnosticsEnvironment: [String: String] {
+        E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment : [:]
+    }
+
     private var codexAppServerStatus: String {
         let d = model.codexAppServerDiagnostics
         guard d.enabled else { return "Off — Codex is observed from the rollout stream and hooks." }
@@ -698,7 +704,7 @@ private struct DiagnosticsPage: View {
             // protocol than this Mac expects, and nothing else says so.
             if let drift = ObservationHealthDetector.codexAppServerVersionDrift(
                 home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
-                serverUserAgent: d.serverUserAgent) {
+                serverUserAgent: d.serverUserAgent, environment: diagnosticsEnvironment) {
                 text += "\n⚠︎ \(drift.explanation)"
             }
             return text
@@ -720,7 +726,8 @@ private struct DiagnosticsPage: View {
             ? ObservationHealthDetector.codexHookConfigurationIssue(
                 home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
                 hook: source, now: now,
-                hookTrust: model.codexAppServerDiagnostics.hookTrust) : nil
+                hookTrust: model.codexAppServerDiagnostics.hookTrust,
+                environment: diagnosticsEnvironment) : nil
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)
                 .foregroundStyle(issue != nil ? MacTheme.status(.requiresInput) : source.diagnosticColor)

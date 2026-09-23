@@ -36,13 +36,13 @@
 |---|---|---|---|---|---|
 | PERF-01 | Mac App 性能收尾 | [01](performance/issues/01-mac-cpu-and-memory.md) | ready-for-agent（主因已修，#265） | 稳定后 CPU 均值 2.7%；待补：三档负载 × 10 min、2 h 内存曲线；启动后第一分钟约 50% CPU（加载几 MB 账本） | **优先** |
 | A-12 前置 | CloudKit 私有库提醒推送原型 | [01](public-push/issues/01-cloudkit-alert-push-prototype.md) | ready-for-agent | ADR-0013 已选方向 D，需实测延迟与按钮 | 保留，通过后 A-12 按 D 实现 |
-| C-1b | 评审留下的小尾巴 | — | done（#277） | ① 后台会话的 jobs 目录尊重 `CLAUDE_CONFIG_DIR`（诊断那半归 AI-06，未动）；② `configKey` / manifest key 解析软链，#266 旧 key 下保存的状态栏原件会迁移；③ 旧 manifest / 卸载记录的裸 key 读取时迁移；④ 早期 inline-curl 标记：9876 照旧，其他端口只认当年安装器的原命令，用户自己的本地 webhook 不会被删；⑤ `vibebuddyd hooks install` 先用自身 bundle / checkout 的脚本，再用 `/Applications`，与已装 App 不同时提示；⑥ 跳转查找 3 s 总时限，`/jump` 新分支有测试；⑦ `/ledger/flush` 路由测试，`VIBEBUDDY_PORT` 非法时不发请求，`LedgerFlushRequest` 与 live status 共用无代理 / 无 cookie / 不跟随重定向的会话。全部完成，无跳过 | — |
-| T-1 | 测试不清理临时目录 | — | ready-for-agent | 约 10 个测试文件（`DeviceRegistryTests`、`EnvironmentDetectorTests`、`TokenConsumptionScanTests`、`ApprovalRoutesTests`、`DevicePushFailureTests`、`ClaudeBackgroundLauncherTests`、`AttentionTests`、`BackgroundAttachTests`、`CodexAppServerApprovalTests` 等）在 `$TMPDIR` 建 `vb-*` 目录不删；每跑一次全量约留下几十个，2026-09-23 已手动清掉约 6500 个 | 小票：补 `defer` 清理 |
-| AI-06 | 观测健康诊断补 Cursor 行 | [06](agent-integration-2026-09/issues/06-cursor-observation-health-row.md) | ready-for-agent | `ObservationHealthDetector` 只有 Claude / Codex / Grok | 保留，小票 |
+| C-1b | 评审留下的小尾巴 | — | done（#277） | ① 后台会话的 jobs 目录尊重 `CLAUDE_CONFIG_DIR`（诊断那半已在 #278 完成）；② `configKey` / manifest key 解析软链，#266 旧 key 下保存的状态栏原件会迁移；③ 旧 manifest / 卸载记录的裸 key 读取时迁移；④ 早期 inline-curl 标记：9876 照旧，其他端口只认当年安装器的原命令，用户自己的本地 webhook 不会被删；⑤ `vibebuddyd hooks install` 先用自身 bundle / checkout 的脚本，再用 `/Applications`，与已装 App 不同时提示；⑥ 跳转查找 3 s 总时限，`/jump` 新分支有测试；⑦ `/ledger/flush` 路由测试，`VIBEBUDDY_PORT` 非法时不发请求，`LedgerFlushRequest` 与 live status 共用无代理 / 无 cookie / 不跟随重定向的会话。全部完成，无跳过 | — |
+| T-1 | 测试不清理临时目录 | — | **done**（#276） | 9 个测试文件补 `defer` 清理（`DeviceRegistryTests`、`DevicePushFailureTests`、`EnvironmentDetectorTests`、`TokenConsumptionScanTests`、`ApprovalRoutesTests`、`RecapLedgerTests`、`AttentionTests`、`ClaudeBackgroundLauncherTests`、`CodexAppServerApprovalTests`）；Codex app-server 测试的账本不再写进 `$TMPDIR` 根目录（曾反复覆盖 `tool-ledger.json`）；生产代码无泄漏 | 全量 `swift test` 在 `$TMPDIR` 留下的测试条目 58 → 0，根目录文件不再被改写 |
+| AI-06 | 观测健康诊断补 Cursor 行 | [06](agent-integration-2026-09/issues/06-cursor-observation-health-row.md) | done（#278） | Cursor 行含 hook / transcript / ACP / cloud 四个来源，没装 hooks 时显示“未安装”；隔离 daemon 快照已验证；设置页界面等协调会话统一重新部署后再看一眼 | — |
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok -r` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | ready-for-agent | 代码里只有 `--no-leader`，没有恢复逻辑 | 保留 |
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | ready-for-agent | 代码里没有对应实现 | 保留 |
-| WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | needs-triage | Mac 与 iPhone 的推送已带 `questionId`（#248），但手表仍绑定第一份中继状态；ADR-0033 仍把它列为剩余缺口 | 保留，只剩手表侧 |
-| D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | ready-for-agent | 没有重拨代码 | 保留 |
+| WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | 已合并（#275），待真机验收 | 手表读 `questionId`，持有时即绑定；换题则拒绝并把口述留在卡片（「Use my reply」可改投当前问题）；无 id 的旧通知降级为首份中继状态绑定；ADR-0033 Residual 已改写 | 只剩你在手腕上验收（见下节） |
+| D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | ready-for-human（代码已合入，#280） | Kit 状态机与四家信号映射有测试，两端构建通过；还没有真实通话到过上限 | 待真机：Gemini 通话超过约 10 分钟，看到结束提示后点重拨 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
 | G-4 | 无障碍检查（VoiceOver / 动态字体 / Reduce Motion），并入 G-5 的设计检查表 | roadmap JSON `G-4` | 部分完成 | Xcode 27 构建和 zh-Hans 已完成，无障碍检查没做 | 缩成只做无障碍 + 检查表 |
 | M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | roadmap JSON `M-07`（按 ADR-0021 2026-09-23 修订缩小） | 可开工 | 不做腕上朗读 | 保留 |
@@ -70,6 +70,7 @@
 - **AI-04 真实会话**（#264 已合并）：本机 `claude` CLI 的 OAuth 已过期。你登录一次后，agent 用隔离 daemon 跑一次真实的 `/loop 1m` 和一个后台 subagent，核对 `background_tasks` 的 `type` / `status` 取值（规则见 CONTEXT.md「Background work at a Claude Stop」）。
 - **H-2**：冻结候选版本后，连续实际使用半小时，不能有新增漏接。不能用提交审核代替。
 - **ADR-0033**：批准已在 2026-09-23 03:08 通过；拒绝和回答还没单独验证。
+- **WR-07 横幅回答绑定**（#275 已合并）：装含 #275 的 iPhone + Watch 构建、用新发出的通知、手机锁屏。① 单段问题横幅口述回答，Mac 收到的是横幅上那一题；② 口述时在 Mac 上答掉并换题，手表不发送（最多等约 8 秒），卡片显示「未发送：“…”」且「用我的回答」打开的确认页显示新题；③ 多段问题不发送、口述仍在卡片上。步骤详见[票 07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) Comments。
 - **手表腕上功能**（喊停、快捷回答、触觉、Double Tap）：[06](watch-wrist-resolve/issues/06-device-acceptance.md)。
 - **roadmap 中的 A-03、B-U、M-01、M-11、D-U、E-2、H-1、H-5**：已被历次发布门部分覆盖。下次整理 roadmap 时，把发布门已覆盖的条目标为完成，其余保留。
 

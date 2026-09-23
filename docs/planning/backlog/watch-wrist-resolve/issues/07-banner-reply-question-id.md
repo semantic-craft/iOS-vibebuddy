@@ -6,7 +6,7 @@
 
 **Blocked by:** PR #249（ADR-0033，横幅动作在点击设备上执行）
 
-**Status:** needs-triage
+**Status:** ready-for-human（代码已完成；剩真机验收，归 owner）
 
 ## 为什么
 
@@ -18,12 +18,23 @@ PR #249 的做法是：取第一份**中继**状态里该会话正在问的问�
 
 ## 验收
 
-- [ ] 通知 `userInfo` 带 question id，Mac 与 iPhone 两侧构造一致；旧版本手机发来的、不带该 id 的通知仍按现有「第一份中继状态绑定」降级，不崩不误发。
-- [ ] 手表从横幅回答时，绑定在**持有那一刻**完成，不依赖任何后续状态。
+- [x] 通知 `userInfo` 带 question id，Mac 与 iPhone 两侧构造一致；旧版本手机发来的、不带该 id 的通知仍按现有「第一份中继状态绑定」降级，不崩不误发。
+- [x] 手表从横幅回答时，绑定在**持有那一刻**完成，不依赖任何后续状态。
 - [ ] 真机：手表横幅听写一次回答，Mac 收到的答案对应横幅上那个问题；在听写与发送之间让 agent 换一个问题，结果是被拒绝并在卡片上留下句子，而不是答到新问题上。
-- [ ] 多段问题（`questions != nil`）仍然拒绝单串回答，走卡片上的逐题流程。
-- [ ] ADR-0033 residual 段落改写为已关闭，或写明剩余边界。
+- [x] 多段问题（`questions != nil`）仍然拒绝单串回答，走卡片上的逐题流程。
+- [x] ADR-0033 residual 段落改写为已关闭，或写明剩余边界。
 
 ## Comments
 
 - 2026-09-22：顺带处理一个够不着的默认值——`WatchStateStore.settleBannerAction` 发送分支里 `.open` / `.ignore` 写的是 `started = false`，若被走到会误报 `giveUp`。`perform` 的 `route.isAction` 闸门加上 alert 查找两道都排除了它们，所以目前不可达；本票会动到这个 switch，顺手改成 `true`（「没有要发的东西」不是失败）。两个并行会话都确认过不可达，因此没有为它单开提交。
+- 2026-09-23 triage + 实现：Mac（`APNs.swift` / `VibeBuddyServer`）与 iPhone（`Notifier.swift`）自 #248 起已带 `questionId`，本票只剩手表侧。改动：
+  - `WatchNotificationResponseRoute.answer` 带上 `questionID`（`WatchAppDelegate` 从 `userInfo` 读出）；`WatchBannerAction` 在持有时即绑定，任何后续状态都挪不动。没有 `questionId` 的旧通知照旧在第一份中继状态绑定（诊断记为 `notification.action-answer-unbound`，有 id 的是 `notification.action-answer`）。
+  - 去向由纯函数 `WatchBannerAction.replyStanding` 决定：绑定的问题 → 能一串答完就发；会话在问**另一个**问题 → 先按缺席持有（冷启动的第一份状态可能早于通知），更新的 revision 仍是别的问题或 8 秒耐心用完时拒绝（`.noLongerWaiting`）；手表上没有 id 的问题 → `.notDecidableHere`；什么都没问 → 只有更新的 revision 才算已结束。
+  - 被拒的听写不丢：卡片上显示「Not sent: “…”」（`unsentBannerReply`），能一串作答时另给 **Use my reply**，走普通确认页、对准*当前*问题——改投哪一题由佩戴者决定。卡片关闭、新的横幅回答取代、或该会话**之后**的回答到达 iPhone/Mac 时才清掉（`WatchUnsentReply.isSuperseded` 只认变化）。已从手表发出、却被 iPhone 拒绝或失败的横幅回答，文字同样放回卡片（`restored`；`unknown` 不放，Mac 可能已收到）。
+  - 顺手：`settleBannerAction` 的 `.open` / `.ignore` 不再算失败，直接 `return`（不留句子、不记 `banner.action-sent`）。
+  - 剩余边界写在 ADR-0033 决策 5 的 Residual 段。
+- 手表真机验收步骤（owner）：先装含本改动的 iPhone + Watch 构建，**用新发出的通知**（旧横幅保留旧 category）；手机锁屏、手表戴好。
+  1. 让 agent 问一个单段问题（如 Claude `AskUserQuestion` 单题）。手表横幅点 Reply，口述一句并发送。预期：卡片打开，轻敲一次；Mac 收到的回答对应横幅上的那个问题。
+  2. 换题拒绝：让 agent 问问题 A；在手表横幅点 Reply、开始口述时，在 Mac 上把 A 答掉并让 agent 立刻问问题 B；再在手表上发送。预期：不发送（最多等约 8 秒）；卡片显示「这项请求已经不需要你处理了」+「未发送：“你说的话”」，双击震动；B 下方有「用我的回答」，点开确认页显示的是 B，确认后才发到 B。
+  3. 多段问题：让 agent 问两题以上的问题，横幅 Reply 口述一句。预期：不发送，卡片说「只能在 iPhone 或 Mac 上处理」（或走逐题流程），口述内容仍显示在卡片上。
+  4. 可选：诊断里点 Reply 那一刻应记为 `notification.action-answer`（不是 `-unbound`），证明通知带了 `questionId`。

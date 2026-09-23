@@ -75,7 +75,9 @@ struct DevicePushFailureTests {
 
     /// Nothing accepted in between is part of the rule: one accept ends the run.
     @Test func anAcceptInTheMiddleEndsTheRun() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "real", deviceID: "hermes"), now: t0)
         await tokens.applySendResult(sent(200), token: "real", now: t0)
         await tokens.applySendResult(sent(400, reason: "BadDeviceToken"), token: "real", now: hours(1))
@@ -93,7 +95,9 @@ struct DevicePushFailureTests {
     /// The count alone is not enough: a burst of refusals in one afternoon
     /// (the Mac pointed at the wrong environment) never parks a proven token.
     @Test func aBurstWithinADayDoesNotPark() async throws {
-        let tokens = DeviceTokens(url: tempURL())
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "real", deviceID: "hermes"), now: t0)
         await tokens.applySendResult(sent(200), token: "real", now: t0)
         for minute in stride(from: 1.0, through: 120.0, by: 1.0) {
@@ -109,7 +113,9 @@ struct DevicePushFailureTests {
     /// reconnect, never a day of `failed` rows. A new token has no history.
     @Test func parkedPhoneRevivesWhenItReportsAToken() async throws {
         let spy = SpyDelivery()
-        let tokens = DeviceTokens(url: tempURL(), recorder: spy)
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url, recorder: spy)
         await tokens.register(DeviceRegistrationPayload(token: "stale", deviceID: "hermes", name: "Hermes"), now: t0)
         await tokens.applySendResult(sent(200), token: "stale", now: t0)
         for hour in [1.0, 2.0, 26.0] {
@@ -157,7 +163,9 @@ struct DevicePushFailureTests {
     /// phone keeps its identity, pairing and switches for the list.
     @Test func unregisteredParksAtOnceWithOneLedgerRow() async throws {
         let spy = SpyDelivery()
-        let tokens = DeviceTokens(url: tempURL(), recorder: spy)
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url, recorder: spy)
         await tokens.acceptNewRegistrations(now: t0)
         #expect(await tokens.registerFromPhone(DeviceRegistrationPayload(token: "gone", deviceID: "old-phone", name: "Old", playSound: false), now: t0))
         await tokens.applySendResult(sent(200), token: "gone", now: t0)
@@ -182,7 +190,9 @@ struct DevicePushFailureTests {
     /// does not quietly put the phone back on the push list.
     @Test func refusalsAfterParkingChangeNothing() async throws {
         let spy = SpyDelivery()
-        let tokens = DeviceTokens(url: tempURL(), recorder: spy)
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url, recorder: spy)
         await tokens.register(DeviceRegistrationPayload(token: "stale", deviceID: "hermes"), now: t0)
         await tokens.applySendResult(sent(200), token: "stale", now: t0)
         for hour in [1.0, 2.0, 26.0] {
@@ -200,7 +210,9 @@ struct DevicePushFailureTests {
 
         // The other order: a 410 parks, and a later BadDeviceToken must not
         // start a fresh, un-parked run on a token that is still "ever accepted".
-        let gone = DeviceTokens(url: tempURL(), recorder: spy)
+        let goneURL = tempURL()
+        defer { try? FileManager.default.removeItem(at: goneURL.deletingLastPathComponent()) }
+        let gone = DeviceTokens(url: goneURL, recorder: spy)
         await gone.register(DeviceRegistrationPayload(token: "dead", deviceID: "old"), now: t0)
         await gone.applySendResult(sent(200), token: "dead", now: t0)
         #expect(await gone.applySendResult(sent(410, reason: "Unregistered"), token: "dead", now: hours(1)))
@@ -214,7 +226,9 @@ struct DevicePushFailureTests {
     /// row still says which one.
     @Test func junkTokenIsPrunedUnderItsPrefix() async throws {
         let spy = SpyDelivery()
-        let tokens = DeviceTokens(url: tempURL(), recorder: spy)
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url, recorder: spy)
         await tokens.register(DeviceRegistrationPayload(token: "deadbeefcafe"), now: t0)
         #expect(await tokens.applySendResult(sent(400, reason: "BadDeviceToken"), token: "deadbeefcafe", now: t0))
         #expect(spy.records.first?.deviceID == "deadbeef…")

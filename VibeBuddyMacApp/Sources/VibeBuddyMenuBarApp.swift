@@ -504,6 +504,7 @@ struct MenuContent: View {
                                listHeight: min(listContentHeight, Self.listCeiling)) {
             VStack(spacing: 0) {
                 commandRow(feed)
+                VoiceEndNoticeRow(voice: model.voiceChat)
                 MenuHairline()
                 // Summary and First up stay global even when search narrows
                 // the list. Search cannot imply that pending work disappeared.
@@ -1097,6 +1098,27 @@ struct MenuContent: View {
         switch state {
         case .noSessions: "moon.zzz"
         case .noMatches: "magnifyingglass"
+        }
+    }
+}
+
+/// A call the provider's per-call limit ended: why, and a one-tap redial. Its
+/// own observer, because the panel observes the menu model, not the call.
+private struct VoiceEndNoticeRow: View {
+    @ObservedObject var voice: VoiceChat
+
+    var body: some View {
+        if let notice = voice.endNotice, voice.errorText == nil, !voice.isActive {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(notice).font(MacTheme.font(11.5)).foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button("Redial") { voice.redial() }
+                    .controlSize(.small)
+                    .help("Start a new voice call without the earlier conversation")
+                    .accessibilityIdentifier("mac-menu-voice-redial")
+            }
+            .padding(.horizontal, MenuMetrics.gutter).padding(.bottom, 8)
         }
     }
 }
