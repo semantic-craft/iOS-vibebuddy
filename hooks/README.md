@@ -3,26 +3,39 @@
 Every wire-up is a fail-open POST to the local daemon — if no daemon is running it
 fails instantly and never affects the agent.
 
-## Universal installer (all CLIs at once)
+## Installing (no Python)
+
+This directory holds the **runtime** pieces only — shell scripts that need `sh`
+and `curl`, and the OpenCode plugin. Installing them into each CLI's config is
+done natively by `HookInstaller` (VibeBuddyMacCore), from the Mac app's Settings
+(**Install / repair**, per-agent **Repair**, **Uninstall**) or headless:
 
 ```bash
-python3 hooks/install-agent-hooks.py --dry-run    # detect + preview
-python3 hooks/install-agent-hooks.py --install    # wire every detected CLI
-python3 hooks/install-agent-hooks.py --approval   # + the phone-approval gate where supported
-python3 hooks/install-agent-hooks.py --uninstall  # revert every detected CLI
+cd VibeBuddyMac
+swift run vibebuddyd hooks install                      # every detected CLI
+swift run vibebuddyd hooks install --agent codex        # one CLI (repeatable / comma-separated)
+swift run vibebuddyd hooks install --approval           # + the phone-approval gate where supported
+swift run vibebuddyd hooks install --statusline         # Claude's status line only
+swift run vibebuddyd hooks status                       # per CLI, plus what Codex will run
+swift run vibebuddyd hooks uninstall [--agent NAME]     # revert (remembered)
 ```
 
-Detects which CLIs are configured (by their config dir/file — no PATH scanning)
-and delegates to the per-CLI installer for each: **Claude, Codex, Grok,
-Antigravity, OpenCode, Cursor**. Idempotent (re-run = no-op), reversible (removes
-exactly what it added; pre-existing user hooks untouched), each per-CLI installer
-backs up before writing. Codex uses its first-class lifecycle hooks in
-`~/.codex/hooks.json`; the separate `notify` command is never changed, so Codex
-Computer Use or another notifier keeps working. The per-CLI installers below
-remain available if you want to wire one CLI at a time.
+Detection is by config directory (no PATH scanning): **Claude, Codex, Grok,
+Antigravity, OpenCode, Cursor**. Every install first copies these scripts to
+`~/Library/Application Support/vibebuddy/bin/` and verifies them; configs name
+only that path, so an app update or a moved checkout never changes a command
+(`vibebuddyd` takes `--hooks-dir DIR` or `VIBEBUDDY_HOOKS_DIR`, then an app
+bundle — its own, else `/Applications/VibeBuddyMacApp.app` — then this directory
+found above its executable or the working directory, and prints which). Idempotent (a re-run changes nothing on
+disk), reversible (removes exactly our entries — old bundle and checkout paths
+included — and restores the status line), with a timestamped backup of every
+changed config under `…/vibebuddy/backups/`. Codex uses its first-class
+lifecycle hooks in `~/.codex/hooks.json`; `config.toml` and its `notify` command
+are never written. `docs/multi-cli-hook-setup.md` § Installing lists the rules.
 
 `--approval` installs the blocking phone-approval gate for the CLIs that have one
-(Claude, the Codex CLI, and Grok); every other detected CLI gets a plain `--install`.
+(Claude, the Codex CLI, Grok and Cursor); every other detected CLI gets a plain
+install.
 
 Claude hooks use the default decoder; Codex / Grok /
 Antigravity are decoded per-source inside the daemon. (Note: Antigravity `agy`
@@ -32,11 +45,12 @@ wiring is ready for when an agy update fixes it.)
 ## Claude Code and Claude Desktop
 
 ```bash
-python3 hooks/install-claude-hooks.py --dry-run    # preview
-python3 hooks/install-claude-hooks.py --install    # back up + install
-python3 hooks/install-claude-hooks.py --uninstall  # revert
+vibebuddyd hooks install --agent claude      # back up + install (hooks + status line)
+vibebuddyd hooks uninstall --agent claude    # revert
 ```
-Installs the current high-signal lifecycle set into `~/.claude/settings.json`:
+Installs the high-signal lifecycle set the installed Claude Code knows (the
+installer reads `claude --version` and gates newer events, since Claude skips a
+settings file naming an event it does not know) into `~/.claude/settings.json`:
 session/turn start and end, permission and elicitation waits, successful and
 failed tools, subagents, compaction, normal stop, stop failure, model switches,
 and working-directory changes. Claude Code uses the same hooks in the terminal,
@@ -66,7 +80,7 @@ the agent either way. The blocking approval gate stays synchronous: Codex
 applies a hook's decision only when it waited for it.
 
 ```bash
-python3 hooks/install-codex-hooks.py --install
+vibebuddyd hooks install --agent codex
 ```
 
 ### Trust: installing a hook is not the same as running it
@@ -77,22 +91,24 @@ leaves every changed entry `modified` (or a new one `untrusted`), and Codex then
 **skips it in silence**: no error, no warning, nothing in the logs. Start a
 fresh Codex session, run `/hooks`, review the VibeBuddy entries, and trust them.
 
-Install and `--verify` end by asking the running app-server daemon what it will
+Install and `status` end by asking the running app-server daemon what it will
 actually run, so a half-trusted installation is visible instead of mysterious:
 
 ```bash
-python3 hooks/install-codex-hooks.py --verify
+vibebuddyd hooks status
 ```
 
-`hooks/codex_hook_trust.py` is the same check on its own (`--json` for
-scripting). It is read-only: it never writes a `trusted_hash`, because trusting
-a hook is the user's security decision. The Mac app makes the same call over
-its existing daemon connection and shows the verdict in Settings.
+The check is read-only: it never writes a `trusted_hash`, because trusting a
+hook is the user's security decision. The Mac app makes the same call over its
+existing daemon connection and shows the verdict in Settings. Because configs
+name the stable `bin/` path, the command — and so the trust — survives app
+updates; moving an older install (bundle or checkout path) to it needs one
+re-trust.
 
 ### Remote approval (`--approval`, Codex CLI only)
 
 ```bash
-python3 hooks/install-codex-hooks.py --approval
+vibebuddyd hooks install --agent codex --approval
 ```
 
 Codex fires `PermissionRequest` only when it would prompt you — a shell
@@ -112,7 +128,7 @@ within 25s prints nothing and Codex shows its own prompt as usual. `Bash` and
 `mcp__…` names are already the canonical vocabulary; `apply_patch` is decided as
 `Edit`, with a `file_path` derived from the patch when it touches exactly one file
 (so `Edit(<path>)` rules and "Always allow" apply) and path-less otherwise (always
-asks, persists no rule). A plain `--install` afterwards keeps the gate. Re-trust
+asks, persists no rule). A plain install afterwards keeps the gate. Re-trust
 via `/hooks` after installing, as after any `hooks.json` change.
 
 **Codex Desktop is not covered**: it never runs `hooks.json`, and its approval
@@ -166,10 +182,9 @@ What the rollout does and does not tell us:
 ## Grok Build
 
 ```bash
-python3 hooks/install-grok-hooks.py --dry-run     # preview
-python3 hooks/install-grok-hooks.py --install     # write ~/.grok/hooks/vibebuddy.json
-python3 hooks/install-grok-hooks.py --approval    # + the blocking approval gate
-python3 hooks/install-grok-hooks.py --uninstall   # revert
+vibebuddyd hooks install --agent grok              # write ~/.grok/hooks/vibebuddy.json
+vibebuddyd hooks install --agent grok --approval   # + the blocking approval gate
+vibebuddyd hooks uninstall --agent grok            # revert
 ```
 
 Grok loads every `~/.grok/hooks/*.json`, so vibebuddy writes its own file and never
@@ -196,8 +211,8 @@ argument both CLIs shell-parse it, and the script ignores `$1`.
 ### Grok remote approval
 
 `--approval` swaps the fire-and-forget `PreToolUse` group for the blocking
-`approval-hook.sh grok` (`timeout: 30`, every tool). A later plain `--install`
-(including the Mac app's Repair button) keeps the gate; only `--uninstall`
+`approval-hook.sh grok` (`timeout: 30`, every tool). A later plain install
+(including the Mac app's Repair button) keeps the gate; only uninstall
 removes it. **The phone's answer is
 authoritative only when grok runs with `[ui] permission_mode = "always-approve"` in
 `~/.grok/config.toml`.** In grok's `default` mode a hook `allow` only means "not
@@ -213,9 +228,9 @@ is listening.
 ## Remote approval (opt-in)
 
 ```bash
-python3 hooks/install-claude-hooks.py --approval   # the blocking gate on PermissionRequest
-python3 hooks/install-claude-hooks.py --uninstall  # removes it too
-python3 hooks/install-codex-hooks.py --approval    # Codex CLI: same gate, same event
+vibebuddyd hooks install --agent claude --approval   # the blocking gate on PermissionRequest
+vibebuddyd hooks uninstall --agent claude            # removes it too
+vibebuddyd hooks install --agent codex --approval    # Codex CLI: same gate, same event
 ```
 Both gates sit on `PermissionRequest`, which fires only when the agent would stop
 and ask — for Claude that is a permission prompt in default mode, or an uncertain
@@ -229,7 +244,7 @@ It answers `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision
 still fires the event but ignores the answer.
 
 An older install put Claude's gate on `PreToolUse` — every tool call, held for
-the phone. `--install` and `--approval` both migrate such a gate to
+the phone. A plain install and `--approval` both migrate such a gate to
 `PermissionRequest`; the daemon still answers a `PreToolUse` payload in that
 event's `permissionDecision` contract (Grok's gate lives there by necessity).
 
@@ -246,7 +261,7 @@ short-circuited: by definition the agent would have asked.
 
 `capture-terminal.sh` is installed automatically as a second hook group on
 `SessionStart` and `UserPromptSubmit` by the Claude, Codex, and Grok installers'
-`--install` (and removed by their `--uninstall`). SessionStart catches new
+install (and removed by uninstall). SessionStart catches new
 sessions; UserPromptSubmit re-captures so a session that missed SessionStart
 self-heals on its next prompt. The re-capture reports less than the first one —
 it skips the Ghostty AppleScript probe, which is only valid while the surface is

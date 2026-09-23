@@ -11,36 +11,35 @@ struct ObservationCorrectionTests {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     }
 
+    /// The real installer, into a support directory whose path has a space
+    /// and an apostrophe; a known Claude version instead of spawning Claude.
+    private func installer(home: URL) -> HookInstaller {
+        HookInstaller(environment: HookInstallerEnvironment(
+            home: home, supportDirectory: home.appendingPathComponent("support with space's"),
+            variables: ["GROK_HOME": home.appendingPathComponent(".grok").path],
+            claudeVersion: { ClaudeCodeVersion(2, 1, 257) }),
+            scriptSource: root.appendingPathComponent("hooks"))
+    }
+
     private func install(home: URL, approval: Bool) throws {
-        let scripts = home.appendingPathComponent("scripts with space's")
-        if !FileManager.default.fileExists(atPath: scripts.path) {
-            try FileManager.default.copyItem(at: root.appendingPathComponent("hooks"), to: scripts)
+        let settings = home.appendingPathComponent(".claude/settings.json")
+        if !FileManager.default.fileExists(atPath: settings.path) {
+            try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(#"{"hooks":{"Stop":[{"hooks":[{"command":"echo user-hook"}]}]}}"#.utf8).write(to: settings)
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        // Import real installers; supply a known version instead of spawning Claude.
-        process.arguments = ["-c", """
-        import importlib.util, json, os, pathlib
-        base = pathlib.Path(os.environ['HOME']) / "scripts with space's"
-        for name in ['claude', 'codex', 'grok']:
-            spec = importlib.util.spec_from_file_location(name, base / ('install-' + name + '-hooks.py'))
-            m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-            target = pathlib.Path(os.environ['HOME']) / {'claude':'.claude/settings.json','codex':'.codex/hooks.json','grok':'.grok/hooks/vibebuddy.json'}[name]
-            target.parent.mkdir(parents=True, exist_ok=True)
-            data = json.loads(target.read_text()) if target.exists() else {'hooks': {'Stop': [{'hooks':[{'command':'echo user-hook'}]}]}}
-            if name == 'grok': data = m.build(approval=\(approval ? "True" : "False"))
-            else:
-                m.install(data\(approval ? ", approval=True" : "")) if name == 'codex' else m.install(data)
-                if name == 'claude' and \(approval ? "True" : "False"): m.install_approval(data, (2,1,257))
-            target.write_text(json.dumps(data))
-        """]
-        process.environment = ["HOME": home.path, "PATH": "/usr/bin:/bin",
-                               "GROK_HOME": home.appendingPathComponent(".grok").path]
-        let pipe = Pipe(); process.standardOutput = pipe; process.standardError = pipe
-        try process.run()
-        let output = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        #expect(process.terminationStatus == 0, "\(String(decoding: output, as: UTF8.self))")
+        for directory in [".codex", ".grok"] {
+            try FileManager.default.createDirectory(at: home.appendingPathComponent(directory), withIntermediateDirectories: true)
+        }
+        // Hooks only: the status line stays an explicit, separate action.
+        let before = try Data(contentsOf: settings)
+        let report = installer(home: home).install([.claude, .codex, .grok], approval: approval)
+        #expect(report.failures == 0, "\(report.text)")
+        if var root = try JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as? [String: Any],
+           let original = try JSONSerialization.jsonObject(with: before) as? [String: Any],
+           original["statusLine"] == nil {
+            root["statusLine"] = nil
+            try JSONSerialization.data(withJSONObject: root).write(to: settings)
+        }
     }
 
     @Test("ordinary and approval installs wait, then accept partial observed coverage")
@@ -76,13 +75,7 @@ struct ObservationCorrectionTests {
             #expect(stale.row(.codex, .hook)?.lastObservedAt == now)
             #expect(stale.sessions.map(\.status) == active.sessions.map(\.status))
         }
-        let enable = Process()
-        enable.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        enable.arguments = [home.appendingPathComponent("scripts with space's/install-claude-hooks.py").path, "--statusline"]
-        enable.environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
-        enable.standardOutput = FileHandle.nullDevice
-        try enable.run(); enable.waitUntilExit()
-        #expect(enable.terminationStatus == 0)
+        #expect(installer(home: home).enableStatusLine().failures == 0)
         let enabledStore = SessionStore(diagnosticsHome: home, grokHome: home.appendingPathComponent(".grok"))
         let waiting = await enabledStore.snapshot(now: now)
         #expect(waiting.row(.claudeCode, .statusline)?.health == .temporarilySilent)

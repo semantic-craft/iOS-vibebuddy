@@ -8,8 +8,11 @@ import VibeBuddyMacCore
 struct VibeBuddyDaemon {
     static func main() async throws {
         let arguments = CommandLine.arguments.dropFirst()
+        if arguments.first == "hooks" {
+            exit(await HooksCommand.run(Array(arguments.dropFirst())))
+        }
         guard arguments.allSatisfy({ $0 == "--pair" }) else {
-            FileHandle.standardError.write(Data("Usage: vibebuddyd [--pair]\n".utf8))
+            FileHandle.standardError.write(Data("Usage: vibebuddyd [--pair]\n       vibebuddyd hooks install|uninstall|status [options]\n".utf8))
             exit(EXIT_FAILURE)
         }
         let env = ProcessInfo.processInfo.environment

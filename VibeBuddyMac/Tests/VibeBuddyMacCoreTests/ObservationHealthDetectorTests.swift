@@ -381,7 +381,7 @@ struct ObservationHealthDetectorTests {
 
     // MARK: - Grok
 
-    /// The event set `hooks/install-grok-hooks.py` writes.
+    /// The event set `HookInstaller` writes for Grok (`GrokHooks.events`).
     private func grokHooks(_ events: [String]) -> String {
         let groups = events.map {
             #""\#($0)":[{"hooks":[{"type":"command","command":"/app/vibebuddy-forward.sh grok","timeout":5}]}]"#

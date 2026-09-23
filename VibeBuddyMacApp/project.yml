@@ -23,8 +23,9 @@ targets:
     sources:
       - path: Sources
       - path: Resources
-      # Bundle the tested Python hook installers so the in-app setup (issue 06) can
-      # shell out to them. Folder reference → copied to Contents/Resources/hooks/.
+      # Bundle the runtime hook scripts (sh + curl) and the OpenCode plugin.
+      # Folder reference → Contents/Resources/hooks/; HookInstaller copies them to
+      # ~/Library/Application Support/vibebuddy/bin/, the one path configs name.
       - path: ../hooks
         name: hooks
         type: folder

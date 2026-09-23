@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] `install-grok-hooks.py --statusline` 写 `[ui.status_line]`，`--uninstall` 还原；Grok 读该表只在启动时。
+- [ ] Swift `HookInstaller`（`GrokHooks`）加 status line 选项，写 `[ui.status_line]`，卸载时还原；Grok 读该表只在启动时。
 - [ ] `StatusLineSample` 解 Grok 字段差异（`workspace.repo_root` 无 `project_dir`；`transcript_path` 指 `updates.jsonl`；缺字段不填零）。
 - [ ] `GrokActiveSessions` 读名册（mtime 变化时），pid 存活校验。
 - [ ] 验收：真实 grok 会话行出现上下文 % 与成本；关掉 TUI 后名册移除、行离开 working。

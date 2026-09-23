@@ -29,6 +29,50 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`,
 `Stop`, `SessionEnd`.
 
+## Installing
+
+The Mac app's Settings (**Install / repair**, per-agent **Repair**, **Uninstall**)
+and `vibebuddyd hooks install|uninstall|status [--agent NAME] [--approval]
+[--statusline]` both run the native `HookInstaller` (VibeBuddyMacCore); no
+Python is involved. What it guarantees:
+
+- **One stable path.** The runtime scripts are copied to
+  `~/Library/Application Support/vibebuddy/bin/` (from the app bundle's
+  `Contents/Resources/hooks/`; `vibebuddyd` takes `--hooks-dir` /
+  `VIBEBUDDY_HOOKS_DIR`, then an app bundle, then a checkout's `hooks/`, and
+  prints which) on every
+  install and repair, and on app launch while hooks are installed. Configs name
+  only that path, so an app update never changes a command string — and Codex's
+  trust, keyed to the command, survives it. Install refuses to write any config
+  when a script is missing there.
+- **Traceable writes.** A config that changes is first copied to
+  `…/vibebuddy/backups/<agent>-<path key>/<file>.<UTC timestamp>-<n>` (newest 10
+  kept, plus `<file>.first`, the copy from before vibebuddy's first write, never
+  pruned), then replaced atomically (written through a symlink).
+  `…/vibebuddy/hooks-manifest.json` records the entries written, per agent and
+  config path. A repeated install changes nothing on disk. An unreadable
+  config (Claude, Codex or Cursor) is refused, never rewritten.
+- **Only our entries.** Entries are recognised by command — the stable path, the
+  old app-bundle path, a checkout path, or the early inline `curl …:9876/hook` —
+  so installs migrate old entries and uninstall removes only ours. Unknown keys,
+  key order and number text are preserved; foreign hooks keep their place.
+- **Version-gated Claude events.** `claude --version` (5 s cap, with
+  Homebrew/`~/.local/bin`/the binary's own directory on PATH;
+  `VIBEBUDDY_CLAUDE_VERSION` overrides) selects the events that release knows —
+  Claude skips a whole `settings.json` with an unknown event name. With no
+  version, a fresh install gets the core set and existing forwarders are kept:
+  only a known version removes an event. Commands are always shell form with a
+  quoted path (`"…/Application Support/…/vibebuddy-forward.sh" claude`), never
+  exec-form `args`: Grok's `[compat.claude]` bridge has no `args` field and
+  older Claude releases ignore it.
+- **Environment.** `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `CURSOR_HOME`,
+  `XDG_CONFIG_HOME` (OpenCode) and `HOME` are honoured.
+- **Remembered uninstall.** `…/vibebuddy/hooks-state.json` lists agents you
+  uninstalled; launches and updates never reinstall them. An explicit install
+  clears the entry.
+- **Codex `config.toml` is never written** (only read for the hooks-feature
+  warning). Cursor's `hooks.json` keeps `"version": 1`.
+
 ## Per-CLI configuration
 
 | CLI | source | config | hook style | status |
@@ -78,7 +122,7 @@ this is a bounded dashboard integration.
 
 #### Remote approval (`--approval`)
 
-`install-claude-hooks.py --approval` replaces the asynchronous `PermissionRequest`
+`--approval` replaces the asynchronous `PermissionRequest`
 status group with a blocking `hooks/approval-hook.sh` (`timeout: 30`, matcher
 `*`). Claude fires `PermissionRequest` only when it would stop and ask — a prompt
 in default mode, an uncertain classifier in auto mode — and honours the hook's
@@ -87,7 +131,7 @@ in default mode, an uncertain classifier in auto mode — and honours the hook's
 phone. Silence (no phone answer in 25s) leaves Claude's own prompt in place;
 `bypassPermissions` fires the event but ignores the answer. The `PreToolUse`
 status forwarder stays asynchronous. An older gate on `PreToolUse` (every call
-held) is migrated by `--install`; on a Claude Code older than 2.1.257 (which
+held) is migrated by a plain install; on a Claude Code older than 2.1.257 (which
 does not honour the `decision` reply) the installer keeps the gate on
 `PreToolUse` and says so (`VIBEBUDDY_CLAUDE_VERSION` overrides the probe).
 
@@ -121,14 +165,21 @@ Settings → "Always ask the phone first" turns this off. A headless
 
 #### Status line (`statusLine`)
 
-`--install` also points Claude's `statusLine.command` at
+Install also points Claude's `statusLine.command` at
 `hooks/vibebuddy-statusline.sh`. Claude runs it on every event with its session
 JSON on stdin; the wrapper copies that JSON to the daemon's `/statusline`
 (background, 1s cap, bearer token, fail-open) and then runs the status line
 command that was configured before, with the same stdin, printing its output —
 the terminal display is unchanged. The original object is saved under
 `~/Library/Application Support/vibebuddy/statusline-original.{json,cmd}` and
-`--uninstall` restores it (or removes the key when there was none). The daemon
+uninstall restores it (or removes the key when there was none). Each Claude
+config directory (`CLAUDE_CONFIG_DIR`) has its own saved original,
+`statusline-original.<path key>.{json,cmd}`, and the wrapper is installed as
+`"…/vibebuddy-statusline.sh" <path key>` so it runs the right one. The wrapper is
+never saved as its own original (an older wrapper path is only re-pointed), and
+the script refuses to run a saved command that names itself, so wrapping can
+never recurse. When no saved original exists, uninstall leaves the status line
+in place and says so rather than delete it. The daemon
 uses the sample for context, cost, session name, effort, PR and worktree on the
 session row, and for the 5-hour / 7-day allowance; `claude -p /usage` only runs
 when no sample has arrived for 15 minutes.
@@ -136,9 +187,10 @@ when no sample has arrived for 15 minutes.
 ### Codex CLI (`~/.codex/hooks.json`)
 
 ```bash
-python3 hooks/install-codex-hooks.py --install     # status hooks (12 events) + terminal capture
-python3 hooks/install-codex-hooks.py --approval    # + the blocking phone-approval gate
-python3 hooks/install-codex-hooks.py --uninstall   # revert
+vibebuddyd hooks install --agent codex              # status hooks (12 events) + terminal capture
+vibebuddyd hooks install --agent codex --approval   # + the blocking phone-approval gate
+vibebuddyd hooks uninstall --agent codex            # revert
+vibebuddyd hooks status                             # includes what Codex will actually run
 ```
 
 Codex reads a Claude-compatible `hooks` object and pipes Claude-shaped JSON to
@@ -164,10 +216,9 @@ does not establish Desktop approval coverage; see the
 ### Grok Build (`~/.grok/hooks/vibebuddy.json`)
 
 ```bash
-python3 hooks/install-grok-hooks.py --dry-run     # preview
-python3 hooks/install-grok-hooks.py --install     # write ~/.grok/hooks/vibebuddy.json
-python3 hooks/install-grok-hooks.py --approval    # + the blocking phone-approval gate
-python3 hooks/install-grok-hooks.py --uninstall   # revert
+vibebuddyd hooks install --agent grok              # write ~/.grok/hooks/vibebuddy.json
+vibebuddyd hooks install --agent grok --approval   # + the blocking phone-approval gate
+vibebuddyd hooks uninstall --agent grok            # revert
 ```
 
 Grok loads every `~/.grok/hooks/*.json` file, so vibebuddy owns its own file and
@@ -234,10 +285,9 @@ does not change it.
 ### Cursor (`~/.cursor/hooks.json`)
 
 ```bash
-python3 hooks/install-cursor-hooks.py --dry-run     # preview the merged file
-python3 hooks/install-cursor-hooks.py --install     # merge vibebuddy's entries in
-python3 hooks/install-cursor-hooks.py --approval    # + the blocking phone-approval gate
-python3 hooks/install-cursor-hooks.py --uninstall   # remove only our entries
+vibebuddyd hooks install --agent cursor              # merge vibebuddy's entries in
+vibebuddyd hooks install --agent cursor --approval   # + the blocking phone-approval gate
+vibebuddyd hooks uninstall --agent cursor            # remove only our entries
 ```
 
 One user-level file serves both Cursor surfaces — the IDE's Agent panel and the
@@ -303,8 +353,7 @@ app, Cursor, Zed, a JetBrains IDE — is still reachable even though it exports 
 `LSUIElement` in their `Info.plist`) are stepped over, because such a bundle id
 can never be activated: the Claude Code CLI is itself one of these wrapper
 `.app`s, nested under the Claude desktop app that actually owns the window. Empty values are omitted, and the Mac reads an empty
-string as absence. Run the script with `--print` to see what it would send. `install-claude-hooks.py`, `install-codex-hooks.py`, and
-`install-grok-hooks.py` all wire it to **both `SessionStart` and
+string as absence. Run the script with `--print` to see what it would send. The Claude, Codex and Grok installs all wire it to **both `SessionStart` and
 `UserPromptSubmit`**: SessionStart catches new sessions, and UserPromptSubmit
 re-captures so a session that missed SessionStart — e.g. the hook was added while
 the session was already open — **self-heals on its next prompt**. That re-capture
@@ -328,16 +377,16 @@ grok imports through `[compat.claude]`).
 
 ### Reversibility
 
-Every managed entry should carry a marker comment so it can be removed cleanly,
-e.g. `# vibebuddy: managed, do not remove`, and uninstall does
-`sed -i '' '/vibebuddy/d' <config>` (mirroring Vibe Island's approach). A future
-`vibebuddy --install/--uninstall` helper will write/strip these automatically.
+Uninstall (Settings, or `vibebuddyd hooks uninstall`) removes exactly the
+entries whose command names one of vibebuddy's scripts — any path, old ones
+included — plus the commands recorded in the manifest, restores the status line,
+and leaves everything else in each file as it was.
 
 ## Roadmap
 
 - [x] Source routing + per-agent display (app understands all 8 sources)
-- [ ] `--install/--uninstall` that detects installed CLIs and writes/strips
-      marked hooks (Claude/Codex first, then the templates above)
+- [x] Native install/uninstall that detects configured CLIs and writes/strips
+      only vibebuddy's entries (`HookInstaller`; Settings and `vibebuddyd hooks`)
 - [ ] Per-CLI event-shape validation against the real tools
 - [x] Copilot CLI read-only history (Wake database format; no lifecycle monitoring)
 - [x] Cursor: hooks + agent transcript + composer store, remote approval and

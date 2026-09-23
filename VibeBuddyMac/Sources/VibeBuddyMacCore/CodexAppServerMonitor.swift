@@ -820,15 +820,6 @@ public actor CodexAppServerMonitor {
         }
     }
 
-    /// The script basenames `install-codex-hooks.py` writes into `hooks.json`.
-    /// A hook naming one of these is ours; everything else in the list belongs
-    /// to the user or another tool and is none of our business.
-    private static let hookMarkers = ["vibebuddy-forward.sh", "approval-hook.sh", "capture-terminal.sh"]
-    /// `HookTrustStatus` values that let Codex run a hook. `modified` (edited
-    /// since it was trusted) and `untrusted` (never trusted) are skipped
-    /// silently — writing hooks.json does not make a hook run.
-    private static let hookTrustRunning: Set<String> = ["trusted", "managed"]
-
     /// Ask the daemon which of our hooks it will actually run. Read-only, and
     /// never fatal: a daemon that does not answer leaves the verdict unknown
     /// rather than accusing a working installation.
@@ -837,33 +828,7 @@ public actor CodexAppServerMonitor {
             state.hookTrust = nil
             return
         }
-        let entries = result["data"] as? [[String: Any]] ?? []
-        var seen: Set<String> = []
-        var installed = 0
-        var blocked = 0
-        var blockedEvents: Set<String> = []
-        for entry in entries {
-            for hook in entry["hooks"] as? [[String: Any]] ?? [] {
-                guard let command = hook["command"] as? String,
-                      Self.hookMarkers.contains(where: command.contains) else { continue }
-                // The same hook is reported once per working directory it
-                // applies to; its key identifies the definition, not the cwd.
-                let key = (hook["key"] as? String) ?? command
-                guard seen.insert(key).inserted else { continue }
-                installed += 1
-                let trusted = Self.hookTrustRunning.contains((hook["trustStatus"] as? String) ?? "")
-                guard hook["enabled"] as? Bool == false || !trusted else { continue }
-                blocked += 1
-                if let event = hook["eventName"] as? String { blockedEvents.insert(event) }
-            }
-        }
-        guard installed > 0 else {
-            state.hookTrust = nil
-            return
-        }
-        state.hookTrust = CodexHookTrust(installed: installed,
-                                         blockedEvents: blockedEvents.sorted(),
-                                         blocked: blocked)
+        state.hookTrust = CodexHookTrust(hooksList: result)
     }
 
     /// Missing windows in an update are unknown. Reusing old window values here
