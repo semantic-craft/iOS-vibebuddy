@@ -139,11 +139,14 @@ struct ClaudeAgentsSourceTests {
     @Test("runCLI closes stdout's read end before it returns: no reader outlives it",
           .timeLimit(.minutes(1)))
     func runCLIClosesStdoutOnReturn() throws {
-        // The grandchild writes after runCLI has given up. A reader still blocked
-        // in read() would take the line; a closed read end fails the write (EPIPE).
-        let home = try Self.fakeCLI(#"( (trap '' PIPE; sleep 3; echo late || touch "$HOME/closed") & ); echo '[]'; exit 0"#)
+        // The grandchild writes only once runCLI has returned (the `go` file). A
+        // reader still blocked in read() would take the line; a closed read end
+        // fails the write (EPIPE). The wait is bounded so no grandchild lingers.
+        let home = try Self.fakeCLI(#"( (trap '' PIPE; i=0; while [ ! -e "$HOME/go" ] && [ $i -lt 200 ]; do sleep 0.1; i=$((i+1)); done; echo late || touch "$HOME/closed") & ); echo '[]'; exit 0"#)
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 1) == nil)
+        // As in runCLIKillsAStuckChild, the timeout leaves the shell time to fork.
+        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 2) == nil)
+        FileManager.default.createFile(atPath: home.appendingPathComponent("go").path, contents: nil)
         let closed = home.appendingPathComponent("closed")
         let limit = Date().addingTimeInterval(10)
         while !FileManager.default.fileExists(atPath: closed.path), Date() < limit {

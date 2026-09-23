@@ -279,10 +279,8 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
             let now = DispatchTime.now()
             guard now < deadline else { return nil }
             let milliseconds = (deadline.uptimeNanoseconds - now.uptimeNanoseconds) / 1_000_000
-            var descriptors = [pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)]
-            let ready = descriptors.withUnsafeMutableBufferPointer {
-                Darwin.poll($0.baseAddress, nfds_t($0.count), Int32(clamping: max(1, milliseconds)))
-            }
+            var target = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+            let ready = Darwin.poll(&target, 1, Int32(clamping: max(1, milliseconds)))
             if ready == 0 { return nil }
             if ready < 0 {
                 if errno == EINTR { continue }
