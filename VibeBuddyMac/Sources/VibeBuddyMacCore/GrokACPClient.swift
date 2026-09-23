@@ -72,6 +72,8 @@ final class GrokACPClient: @unchecked Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
         } catch {
@@ -82,7 +84,7 @@ final class GrokACPClient: @unchecked Sendable {
         self.process = process
         let cancelledBeforeInstall = isCancelled
         lock.unlock()
-        defer { teardown(process: process, input: input, output: output) }
+        defer { teardown(process: process, exited: exited, input: input, output: output) }
         if cancelledBeforeInstall { throw CancellationError() }
 
         let inputDescriptor = input.fileHandleForWriting.fileDescriptor
@@ -151,23 +153,20 @@ final class GrokACPClient: @unchecked Sendable {
     }
 
     /// Closing stdin is the agent's normal shutdown signal; TERM and then KILL
-    /// bound how long a stuck child can outlive the request.
-    private func teardown(process: Process, input: Pipe, output: Pipe) {
+    /// bound how long a stuck child can outlive the request. Every wait is on
+    /// the termination handler with a limit, never `waitUntilExit()`: a child
+    /// stuck in uninterruptible I/O outlives SIGKILL, and Foundation reaps it
+    /// later. `isRunning` guards KILL so an exited child's PID is never signalled.
+    private func teardown(process: Process, exited: DispatchSemaphore, input: Pipe, output: Pipe) {
         try? input.fileHandleForWriting.close()
         try? output.fileHandleForReading.close()
-        let graceDeadline = ContinuousClock.now + .milliseconds(200)
-        while process.isRunning, ContinuousClock.now < graceDeadline {
-            Darwin.usleep(5_000)
+        if exited.wait(timeout: .now() + .milliseconds(200)) == .timedOut {
+            if process.isRunning { process.terminate() }
+            if exited.wait(timeout: .now() + .milliseconds(200)) == .timedOut {
+                if process.isRunning { _ = Darwin.kill(process.processIdentifier, SIGKILL) }
+                _ = exited.wait(timeout: .now() + 2)
+            }
         }
-        if process.isRunning { process.terminate() }
-        let terminationDeadline = ContinuousClock.now + .milliseconds(200)
-        while process.isRunning, ContinuousClock.now < terminationDeadline {
-            Darwin.usleep(5_000)
-        }
-        if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
-        }
-        process.waitUntilExit()
         lock.lock()
         self.process = nil
         lock.unlock()

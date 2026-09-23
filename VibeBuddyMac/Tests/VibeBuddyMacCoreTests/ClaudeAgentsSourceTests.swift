@@ -89,6 +89,40 @@ struct ClaudeAgentsSourceTests {
         #expect(await source.currentFresh() == [fallback])
     }
 
+    /// A fake `claude` at `<home>/.local/bin/claude`, which `ClaudeExecutable.resolve` tries first.
+    private static func fakeCLI(_ body: String) throws -> URL {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("vb-agents-\(UUID().uuidString)")
+        let bin = home.appendingPathComponent(".local/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let script = bin.appendingPathComponent("claude")
+        try Data("#!/bin/sh\n\(body)\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return home
+    }
+
+    @Test("runCLI returns the CLI's stdout on a clean exit, nil on a failing one")
+    func runCLIExitStatus() throws {
+        let ok = try Self.fakeCLI(#"echo '[]'"#)
+        defer { try? FileManager.default.removeItem(at: ok) }
+        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: ok, timeout: 10) == Data("[]\n".utf8))
+        let failing = try Self.fakeCLI(#"echo '[]'; exit 3"#)
+        defer { try? FileManager.default.removeItem(at: failing) }
+        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: failing, timeout: 10) == nil)
+    }
+
+    @Test("runCLI stops a CLI that ignores TERM: nil, and the child is gone when it returns",
+          .timeLimit(.minutes(1)))
+    func runCLIKillsAStuckChild() throws {
+        let home = try Self.fakeCLI(#"trap '' TERM; echo $$ > "$HOME/pid"; exec sleep 60"#)
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 0.3) == nil)
+        let pid = try #require(Int32(try String(contentsOf: home.appendingPathComponent("pid"), encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        errno = 0
+        #expect(kill(pid, 0) == -1)
+        #expect(errno == ESRCH)
+    }
+
     private final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_800_000_000) }
     private final class Box: @unchecked Sendable { var value: String; init(_ v: String) { value = v } }
 }
