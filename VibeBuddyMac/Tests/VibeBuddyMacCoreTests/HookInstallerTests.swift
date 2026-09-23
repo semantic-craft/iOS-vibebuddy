@@ -492,7 +492,8 @@ struct HookInstallerTests {
         {"hooks":{
           "Stop":[{"hooks":[{"type":"command","command":"\(bundle)/vibebuddy-forward.sh","args":["claude"],"timeout":5,"async":true}]},
                   {"hooks":[{"type":"command","command":"say done"}]}],
-          "Notification":[{"hooks":[{"type":"command","command":"curl -s -X POST http://127.0.0.1:9877/hook -d @-"}]}],
+          "Notification":[{"hooks":[{"type":"command","command":"curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9877/hook 2>/dev/null || true"}]},
+                          {"hooks":[{"type":"command","command":"curl -s -X POST http://127.0.0.1:3000/hook -d @-"}]}],
           "SessionStart":[{"hooks":[{"type":"command","command":"\\"\(checkout)/capture-terminal.sh\\" claude"}]}],
           "PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"\\"\(bundle)/approval-hook.sh\\"","timeout":30}]}]
         },
@@ -520,7 +521,9 @@ struct HookInstallerTests {
         let claude = try home.json(".claude/settings.json")
         #expect(Self.commands(claude, "Stop").filter { $0.contains("vibebuddy-forward.sh") }.count == 1)
         #expect(Self.commands(claude, "Stop").contains("say done"))
-        #expect(Self.commands(claude, "Notification").count == 1)
+        // The user's own local webhook is not the early installer's command, whatever its path.
+        #expect(Self.commands(claude, "Notification").contains("curl -s -X POST http://127.0.0.1:3000/hook -d @-"))
+        #expect(Self.commands(claude, "Notification").filter { $0.contains("vibebuddy-forward.sh") }.count == 1)
         #expect(Self.commands(claude, "PermissionRequest").filter { $0.contains("approval-hook.sh") }.count == 1)
         // The re-pointed wrapper never became its own saved original.
         #expect(!FileManager.default.fileExists(atPath: home.paths.statusLineOriginal.path))
@@ -757,7 +760,7 @@ struct HookInstallerTests {
         try Data("""
         {"version":1,"agents":{
           "codex":{"config":"\(codexHooks)","commands":["old-codex"],"approval":false,"installedAt":"2026-09-20T00:00:00Z"},
-          "claude":{"config":"/stale/settings.json","commands":["bare"],"approval":false,"installedAt":"2026-09-23T00:00:00Z"},
+          "claude":{"config":"\(home.paths.claudeSettings.path)","commands":["bare"],"approval":false,"installedAt":"2026-09-23T00:00:00Z"},
           "claude:\(home.paths.claudeSettings.path)":{"config":"\(home.paths.claudeSettings.path)","commands":["keyed"],"approval":true,"installedAt":"2026-09-21T00:00:00Z"}
         }}
         """.utf8).write(to: home.paths.manifest)
@@ -765,13 +768,30 @@ struct HookInstallerTests {
         let store = HookFileStore(paths: home.paths)
         let manifest = store.loadManifest()
         #expect(manifest.agents[home.paths.entryKey(.codex)]?.commands == ["old-codex"])
-        #expect(manifest.agents[home.paths.entryKey(.claude)]?.commands == ["keyed"])   // keyed beats bare
+        // Same config: commands merge, the path-qualified entry supplies the rest.
+        #expect(manifest.agents[home.paths.entryKey(.claude)]?.commands == ["bare", "keyed"])
+        #expect(manifest.agents[home.paths.entryKey(.claude)]?.approval == true)
         #expect(manifest.agents.keys.allSatisfy { $0.contains(":") })
         #expect(store.loadState().uninstalled == [home.paths.entryKey(.grok)])
         // The remembered Grok uninstall still holds, and old commands are still recognised as ours.
         #expect(home.installer.status().first { $0.agent == .grok }?.explicitlyUninstalled == true)
         #expect(home.installer.install([.codex]).failures == 0)
-        #expect(!store.loadManifest().agents.keys.contains("codex"))
+        let raw = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: home.paths.manifest)) as? [String: Any])
+        #expect((raw["agents"] as? [String: Any])?.keys.allSatisfy { $0.contains(":") } == true)
+    }
+
+    @Test("a config path with no symlink keeps #266's key: nothing to carry over")
+    func unsymlinkedKeyUnchanged() throws {
+        let home = try Home()
+        defer { home.remove() }
+        try home.mkdir(".claude")
+        // The owner's case: a real home directory, already canonical (the test
+        // temp dir itself sits behind /var -> /private/var).
+        let real = URL(fileURLWithPath: HookPaths.canonicalPath(home.root), isDirectory: true)
+        let paths = HookPaths(HookInstallerEnvironment(home: real, claudeVersion: { nil }))
+        #expect(paths.configKey(paths.claudeSettings) == paths.unresolvedConfigKey(paths.claudeSettings))
+        #expect(paths.unresolvedKeyStatusLineOriginals.isEmpty)
+        #expect(paths.entryKey(.claude) == "claude:" + paths.claudeSettings.standardizedFileURL.path)
     }
 
     @Test("a Cursor hooks.json that is not valid JSON is refused, never replaced")
@@ -817,6 +837,12 @@ struct HookInstallerTests {
         #expect(locate(env: ["VIBEBUDDY_HOOKS_DIR": hooks(other)], installed: app) == hooks(other))
         #expect(locate(explicit: hooks(app), installed: nil) == hooks(app))
         #expect(locate(explicit: home.url("nowhere").path, installed: app) == nil)
+        // A checkout whose scripts differ from the installed app's is flagged; the app itself is not.
+        #expect(HookScriptSource.differingInstalledApp(checkout.appendingPathComponent("hooks"), installedApp: app) == nil)
+        try home.write("checkout/hooks/approval-hook.sh", "#!/bin/sh\n# newer\n")
+        #expect(HookScriptSource.differingInstalledApp(checkout.appendingPathComponent("hooks"), installedApp: app) != nil)
+        #expect(HookScriptSource.differingInstalledApp(app.appendingPathComponent("hooks"), installedApp: app) == nil)
+        #expect(HookScriptSource.differingInstalledApp(checkout.appendingPathComponent("hooks"), installedApp: nil) == nil)
     }
 
     // MARK: - Requirement 5: status line recursion guard

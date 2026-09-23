@@ -40,11 +40,6 @@ public enum ClaudeBackgroundSessions {
         ClaudeAgentsSource.shared.current()
     }
 
-    /// The shared list, waiting for a refresh first when it is stale.
-    public static func loadFresh() async -> [ClaudeBackgroundSession] {
-        await ClaudeAgentsSource.shared.currentFresh()
-    }
-
     /// The session for this id, refreshing once if the cache does not know it
     /// (a session started seconds ago, or a jump right after a change). A jump
     /// is waiting on this, so the whole lookup gets `timeLimit`; past it the

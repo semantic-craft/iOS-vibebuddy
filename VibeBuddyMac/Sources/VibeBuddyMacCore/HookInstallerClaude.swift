@@ -114,7 +114,7 @@ struct ClaudeHooks {
 
     func isStatus(_ hook: OrderedJSON) -> Bool {
         let value = command(hook)
-        // The inline-curl form an early installer wrote, at whatever port.
+        // The inline-curl form an early installer wrote, at whatever port it baked in.
         return value.contains("vibebuddy-forward.sh") || EnvironmentDetector.containsInlineCurlHook(value)
     }
     func isApproval(_ hook: OrderedJSON) -> Bool { command(hook).contains("approval-hook.sh") }
@@ -326,9 +326,10 @@ struct ClaudeHooks {
             // unresolved key (a symlinked config path), or, pre-C-1 and in
             // ~/.claude only, in the unkeyed files. Carry it over to this
             // directory's keyed files.
-            for (json, command) in carriedOverStatusLineOriginals {
-                for (from, keyed) in [(json, paths.statusLineOriginal), (command, paths.statusLineOriginalCommand)]
-                where !files.exists(keyed) {
+            // One place supplies both files, so the pair never mixes sources.
+            if !files.exists(paths.statusLineOriginal), !files.exists(paths.statusLineOriginalCommand),
+               let (json, command) = carriedOverStatusLineOriginals.first(where: { files.exists($0.0) || files.exists($0.1) }) {
+                for (from, keyed) in [(json, paths.statusLineOriginal), (command, paths.statusLineOriginalCommand)] {
                     if let bytes = files.read(from) { try HookFileStore.atomicWrite(bytes, to: keyed, permissions: 0o600) }
                 }
             }
@@ -375,8 +376,8 @@ struct ClaudeHooks {
         // This directory's own files first, then the older places its
         // original may still be (`carriedOverStatusLineOriginals`).
         let candidates = [(paths.statusLineOriginal, paths.statusLineOriginalCommand)] + carriedOverStatusLineOriginals
-        let savedJSON = candidates.map(\.0).first(where: files.exists) ?? paths.statusLineOriginal
-        let savedCommand = candidates.map(\.1).first(where: files.exists) ?? paths.statusLineOriginalCommand
+        // The first place holding either file supplies both, so the pair never mixes sources.
+        let (savedJSON, savedCommand) = candidates.first { files.exists($0.0) || files.exists($0.1) } ?? candidates[0]
         if let bytes = files.read(savedJSON),
            let saved = try? OrderedJSON.parse(bytes), let value = saved["statusLine"] {
             if value.isObject { restored = .some(value) }

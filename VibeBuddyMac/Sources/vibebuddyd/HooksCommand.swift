@@ -58,6 +58,9 @@ enum HooksCommand {
         let installer = HookInstaller(environment: .live(), scriptSource: source)
         if action == "install" {
             print("hook scripts from: \(source?.path ?? "(none found; using the existing \(installer.paths.bin.path))")")
+            if let source, let app = HookScriptSource.differingInstalledApp(source) {
+                print("note: these differ from the installed app's scripts (\(app.path)); every agent on this Mac runs them until the app next launches and restores its own")
+            }
         }
         switch action {
         case "status":

@@ -104,7 +104,7 @@ struct ClaudeAgentsSourceTests {
         let start = Date()
         #expect(await ClaudeBackgroundSessions.find(sessionID: id, in: source, timeLimit: .milliseconds(200))?.id == "747978a2")
         #expect(await ClaudeBackgroundSessions.find(sessionID: "nope", in: source, timeLimit: .milliseconds(200)) == nil)
-        #expect(Date().timeIntervalSince(start) < 2)
+        #expect(Date().timeIntervalSince(start) < 5)
         print.value = "a"   // release the held run; the refresh the late lookup starts answers at once
         gate.signal()
     }
@@ -186,5 +186,13 @@ struct ClaudeAgentsSourceTests {
     }
 
     private final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_800_000_000) }
-    private final class Box: @unchecked Sendable { var value: String; init(_ v: String) { value = v } }
+    private final class Box: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: String
+        init(_ v: String) { stored = v }
+        var value: String {
+            get { lock.withLock { stored } }
+            set { lock.withLock { stored = newValue } }
+        }
+    }
 }

@@ -64,12 +64,16 @@ public enum EnvironmentDetector {
         "VibeBuddy OpenCode plugin",  // the OpenCode plugin's header
     ]
 
-    /// The endpoint the early inline-curl hooks posted to,
-    /// `127.0.0.1:<port>/hook` — whatever `VIBEBUDDY_PORT` was when they were
-    /// written, or the `${VIBEBUDDY_PORT:-9876}` form left to the shell — and
-    /// not a longer path such as `/hooks` or `/hook/x`.
+    /// The early inline-curl hooks: the default endpoint `127.0.0.1:9876/hook`
+    /// anywhere, or — at any port, since `VIBEBUDDY_PORT` was baked in when
+    /// they were written — the exact command the first installer wrote
+    /// (`curl … --data-binary @- http://127.0.0.1:<port>/hook 2>/dev/null`).
+    /// A user's own local webhook at another port (`curl -X POST
+    /// http://127.0.0.1:3000/hook -d @-`) is not ours: the installer strips
+    /// whatever this matches.
     public static func containsInlineCurlHook(_ text: String) -> Bool {
-        text.contains(/127\.0\.0\.1:(\d{1,5}|\$\{VIBEBUDDY_PORT:-\d{1,5}\})\/hook(?![\w\/-])/)
+        text.contains("127.0.0.1:9876/hook")
+            || text.contains(/--data-binary @- http:\/\/127\.0\.0\.1:\d{1,5}\/hook 2>\/dev\/null/)
     }
 
     /// The status line wrapper the Claude installer writes. Same boundary the

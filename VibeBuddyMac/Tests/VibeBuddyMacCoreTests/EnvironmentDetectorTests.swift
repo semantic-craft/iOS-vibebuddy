@@ -154,15 +154,14 @@ struct EnvironmentDetectorTests {
         #expect(status.hookInjected)
     }
 
-    @Test("the early inline-curl marker matches any port, not a longer path")
+    @Test("the early inline-curl marker: the installer's exact command at any port, never a user's local webhook")
     func inlineCurlAnyPort() {
-        for text in ["curl -sS --data-binary @- http://127.0.0.1:9877/hook 2>/dev/null || true",
-                     "curl 127.0.0.1:9876/hook",
-                     #"curl "http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/hook?agent=codex""#] {
+        for text in ["curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9877/hook 2>/dev/null || true",
+                     "curl 127.0.0.1:9876/hook"] {
             #expect(EnvironmentDetector.containsInlineCurlHook(text), "\(text)")
         }
-        for text in ["curl 127.0.0.1:9876/hooks", "curl 127.0.0.1:9876/hook/x", "curl 127.0.0.1/hook",
-                     "/Users/me/hooks/thing.sh"] {
+        for text in ["curl -s -X POST http://127.0.0.1:3000/hook -d @-", "curl http://127.0.0.1:8080/hook.php",
+                     "curl 127.0.0.1:5000/hook#a", "curl 127.0.0.1/hook", "/Users/me/hooks/thing.sh"] {
             #expect(!EnvironmentDetector.containsInlineCurlHook(text), "\(text)")
         }
     }

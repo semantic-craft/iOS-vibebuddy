@@ -244,13 +244,16 @@ public struct HookPaths: Sendable {
     /// The status line saved for *this* Claude config directory.
     public var statusLineOriginal: URL { support.appendingPathComponent("statusline-original.\(claudeKey).json") }
     public var statusLineOriginalCommand: URL { support.appendingPathComponent("statusline-original.\(claudeKey).cmd") }
-    /// The same files under #266's unresolved key, when that key differs
-    /// (a symlinked config path); empty otherwise.
+    /// The same files under #266's unresolved keys — this config path's, and
+    /// `~/.claude`'s when that is this directory through a symlink — where
+    /// they differ from today's key; empty for a path with no symlink in it.
     var unresolvedKeyStatusLineOriginals: [(json: URL, command: URL)] {
-        let old = unresolvedConfigKey(claudeSettings)
-        guard old != claudeKey else { return [] }
-        return [(support.appendingPathComponent("statusline-original.\(old).json"),
-                 support.appendingPathComponent("statusline-original.\(old).cmd"))]
+        var settings = [claudeSettings]
+        if isDefaultClaudeDirectory { settings.append(environment.home.appendingPathComponent(".claude/settings.json")) }
+        var keys: [String] = []
+        for key in settings.map(unresolvedConfigKey) where key != claudeKey && !keys.contains(key) { keys.append(key) }
+        return keys.map { (support.appendingPathComponent("statusline-original.\($0).json"),
+                           support.appendingPathComponent("statusline-original.\($0).cmd")) }
     }
     /// The unkeyed files the Python installer (and scripts from older app
     /// builds) used; read for `~/.claude` only.
@@ -430,16 +433,27 @@ extension HookFileStore {
     }()
 
     /// The manifest with every key in today's form (`HookPaths.normalizedEntryKey`).
-    /// When two stored keys name the same config, a path-qualified one wins
-    /// over a bare one, then the newer install.
+    /// When two stored keys name the same config, their commands are merged
+    /// (every one stays recognisably ours) and the other fields come from a
+    /// path-qualified key over a bare one, then the newer install; the order
+    /// is total, so every load gives the same manifest.
     func loadManifest() -> HookManifest {
         var manifest = read(paths.manifest).flatMap { try? Self.decoder.decode(HookManifest.self, from: $0) } ?? HookManifest()
         var agents: [String: HookManifest.Entry] = [:]
         let ordered = manifest.agents.sorted { a, b in
             let (aBare, bBare) = (!a.key.contains(":"), !b.key.contains(":"))
-            return aBare != bBare ? aBare : a.value.installedAt < b.value.installedAt
+            if aBare != bBare { return aBare }
+            if a.value.installedAt != b.value.installedAt { return a.value.installedAt < b.value.installedAt }
+            return a.key < b.key
         }
-        for (key, entry) in ordered { agents[paths.normalizedEntryKey(key, config: entry.config)] = entry }
+        for (key, entry) in ordered {
+            let normalized = paths.normalizedEntryKey(key, config: entry.config)
+            var winner = entry
+            if let earlier = agents[normalized] {
+                winner.commands = Array(Set(earlier.commands + entry.commands)).sorted()
+            }
+            agents[normalized] = winner
+        }
         manifest.agents = agents
         return manifest
     }
@@ -527,5 +541,22 @@ public enum HookScriptSource {
             return own
         }
         return bundled(installedApp) ?? checkout(above: workingDirectory)
+    }
+
+    /// The installed app's hooks directory when `source` is not that app and
+    /// its runtime scripts differ from the app's: an install from a checkout
+    /// then replaces the scripts every agent on this Mac runs, until the app
+    /// next launches and puts its own back. Nil when they match or there is
+    /// no installed app.
+    public static func differingInstalledApp(_ source: URL,
+                                             installedApp: URL? = URL(fileURLWithPath: "/Applications/VibeBuddyMacApp.app/Contents/Resources")) -> URL? {
+        guard let app = installedApp?.appendingPathComponent("hooks", isDirectory: true),
+              app.resolvingSymlinksInPath().path != source.resolvingSymlinksInPath().path else { return nil }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: app.path) else { return nil }
+        let differs = HookInstaller.runtimeScripts.contains {
+            fm.contents(atPath: source.appendingPathComponent($0).path) != fm.contents(atPath: app.appendingPathComponent($0).path)
+        }
+        return differs ? app : nil
     }
 }
