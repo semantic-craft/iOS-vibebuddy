@@ -1228,7 +1228,7 @@ final class MenuBarModel: ObservableObject {
         let support = session.map(SessionActionSupport.resolve(for:))
         let dispatch = AnswerDispatch(
             store: store, questions: questionRegistry,
-            inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
+            inject: { ref, answer in await TerminalInjector.inject(answer, into: ref) },
             steer: { id, text in
                 if await grok.hosts(id) { return await grok.queueFollowup(sessionID: id, text: text) }
                 return await monitor.steer(threadID: id, text: text)
@@ -1461,9 +1461,7 @@ final class MenuBarModel: ObservableObject {
         // screenshotted with content; demo only, never a production session.
         if E2ERunConfiguration.current == nil, ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1",
            session.id == "demo-edit", let path = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_WORKSPACE"] {
-            return await Task.detached(priority: .utility) {
-                WorkspaceChangesReader.read(cwd: path, scope: scope, baseline: baseline, file: file, shared: false)
-            }.value
+            return await WorkspaceChangesReader.readInBackground(cwd: path, scope: scope, baseline: baseline, file: file, shared: false)
         }
         return await store.workspaceChanges(sessionID: session.id, scope: scope, baseline: baseline, file: file)
     }
@@ -1525,7 +1523,7 @@ final class MenuBarModel: ObservableObject {
             let cloud = voiceCursorCloud
             let store = store
             let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
-                inject: { ref, text in TerminalInjector.inject(text, into: ref) },
+                inject: { ref, text in await TerminalInjector.inject(text, into: ref) },
                 steer: { id, text in
                     if await grok.hosts(id) { return await grok.queueFollowup(sessionID: id, text: text) }
                     return await monitor.steer(threadID: id, text: text)

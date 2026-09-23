@@ -135,7 +135,7 @@ public enum SessionActionDelivery: Equatable, Sendable {
 public struct AnswerDispatch: Sendable {
     public let store: SessionStore
     public let questions: QuestionRegistry
-    public let inject: @Sendable (TerminalRef, String) -> Void
+    public let inject: @Sendable (TerminalRef, String) async -> Void
     /// Codex `turn/steer` only. False when the daemon refused or there is no
     /// connection — the caller must not start a turn.
     public let steer: @Sendable (String, String) async -> Bool
@@ -164,7 +164,7 @@ public struct AnswerDispatch: Sendable {
     public let requests: ActionRequestLog
 
     public init(store: SessionStore, questions: QuestionRegistry,
-                inject: @escaping @Sendable (TerminalRef, String) -> Void,
+                inject: @escaping @Sendable (TerminalRef, String) async -> Void,
                 steer: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
                 startTurn: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
                 interrupt: @escaping @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
@@ -331,7 +331,7 @@ public struct AnswerDispatch: Sendable {
             return .failed("Terminal injection is disabled during isolated acceptance")
         }
         guard !Task.isCancelled else { return .failed("Action cancelled before submission") }
-        inject(ref, typed)
+        await inject(ref, typed)
         return .accepted
     }
 
