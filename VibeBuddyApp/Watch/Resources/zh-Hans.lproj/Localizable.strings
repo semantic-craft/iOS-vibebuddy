@@ -220,3 +220,5 @@
 "The banner's button wasn't sent: another action is still on its way." = "通知按钮未送出：上一个操作还在发送中。";
 "The banner's button wasn't sent: waiting for an update from your iPhone." = "通知按钮未送出：正在等待 iPhone 同步最新状态。";
 "The banner's button wasn't sent: your iPhone can't reach your Mac. Use the buttons here when it's back." = "通知按钮未送出：iPhone 连不上你的 Mac。恢复连接后可用这里的按钮。";
+"Not sent: “%@”" = "未发送：“%@”";
+"Use my reply" = "用我的回答";

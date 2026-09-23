@@ -48,6 +48,22 @@ struct WatchAnswerControl: View {
                 // above has already named the broken link.
                 if blocked == nil {
                     VStack(alignment: .leading, spacing: 6) {
+                        // A banner reply refused because the question moved on
+                        // (or the link was down) can be sent to *this*
+                        // question — through the confirmation page, which shows
+                        // what is being asked now, so re-pointing it is the
+                        // wearer's choice and never the wrist's.
+                        if let unsent = store.unsentBannerReply, unsent.sessionID == alert.sessionId {
+                            Button {
+                                draft = WatchAnswerDraft(alert: alert, text: unsent.text)
+                            } label: {
+                                Label("Use my reply", systemImage: "text.bubble")
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
+                        }
                         ForEach(choices.replies) { reply in
                             quickReply(reply)
                         }

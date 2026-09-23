@@ -41,7 +41,7 @@
 | AI-06 | 观测健康诊断补 Cursor 行 | [06](agent-integration-2026-09/issues/06-cursor-observation-health-row.md) | ready-for-agent | `ObservationHealthDetector` 只有 Claude / Codex / Grok | 保留，小票 |
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok -r` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | ready-for-agent | 代码里只有 `--no-leader`，没有恢复逻辑 | 保留 |
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | ready-for-agent | 代码里没有对应实现 | 保留 |
-| WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | needs-triage | Mac 与 iPhone 的推送已带 `questionId`（#248），但手表仍绑定第一份中继状态；ADR-0033 仍把它列为剩余缺口 | 保留，只剩手表侧 |
+| WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | 已合并（#275），待真机验收 | 手表读 `questionId`，持有时即绑定；换题则拒绝并把口述留在卡片（「Use my reply」可改投当前问题）；无 id 的旧通知降级为首份中继状态绑定；ADR-0033 Residual 已改写 | 只剩你在手腕上验收（见下节） |
 | D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | ready-for-agent | 没有重拨代码 | 保留 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
 | G-4 | 无障碍检查（VoiceOver / 动态字体 / Reduce Motion），并入 G-5 的设计检查表 | roadmap JSON `G-4` | 部分完成 | Xcode 27 构建和 zh-Hans 已完成，无障碍检查没做 | 缩成只做无障碍 + 检查表 |
@@ -70,6 +70,7 @@
 - **AI-04 真实会话**（#264 已合并）：本机 `claude` CLI 的 OAuth 已过期。你登录一次后，agent 用隔离 daemon 跑一次真实的 `/loop 1m` 和一个后台 subagent，核对 `background_tasks` 的 `type` / `status` 取值（规则见 CONTEXT.md「Background work at a Claude Stop」）。
 - **H-2**：冻结候选版本后，连续实际使用半小时，不能有新增漏接。不能用提交审核代替。
 - **ADR-0033**：批准已在 2026-09-23 03:08 通过；拒绝和回答还没单独验证。
+- **WR-07 横幅回答绑定**（#275 已合并）：装含 #275 的 iPhone + Watch 构建、用新发出的通知、手机锁屏。① 单段问题横幅口述回答，Mac 收到的是横幅上那一题；② 口述时在 Mac 上答掉并换题，手表不发送（最多等约 8 秒），卡片显示「未发送：“…”」且「用我的回答」打开的确认页显示新题；③ 多段问题不发送、口述仍在卡片上。步骤详见[票 07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) Comments。
 - **手表腕上功能**（喊停、快捷回答、触觉、Double Tap）：[06](watch-wrist-resolve/issues/06-device-acceptance.md)。
 - **roadmap 中的 A-03、B-U、M-01、M-11、D-U、E-2、H-1、H-5**：已被历次发布门部分覆盖。下次整理 roadmap 时，把发布门已覆盖的条目标为完成，其余保留。
 
