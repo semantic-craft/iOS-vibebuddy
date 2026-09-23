@@ -62,7 +62,7 @@ public struct VibeBuddyServer: Sendable {
     /// And the fourth: a Cursor **cloud** agent has no window here at all, so
     /// the jump opens the page Cursor hosts for it.
     public let onJumpToCursorCloud: @Sendable (String) async -> JumpOutcome
-    public let onAnswer: @Sendable (TerminalRef, String) -> Void
+    public let onAnswer: @Sendable (TerminalRef, String) async -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
     /// Claude background sessions on this Mac (cached, never waits).
     public let backgroundSessions: @Sendable () -> [ClaudeBackgroundSession]
@@ -131,7 +131,7 @@ public struct VibeBuddyServer: Sendable {
                 onJumpToDesktopThread: @escaping @Sendable (String) async -> JumpOutcome = { await CodexDesktopJumper.jump(threadID: $0) },
                 onJumpToCursor: @escaping @Sendable (String?) async -> JumpOutcome = { await CursorJumper.jump(project: $0) },
                 onJumpToCursorCloud: @escaping @Sendable (String) async -> JumpOutcome = { await CursorCloudJumper.jump(page: $0) },
-                onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
+                onAnswer: @escaping @Sendable (TerminalRef, String) async -> Void = { ref, answer in await TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
                 backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { [] },
                 findBackgroundSession: @escaping @Sendable (String) async -> ClaudeBackgroundSession? = { _ in nil },

@@ -60,6 +60,7 @@ public enum WorkspaceChangesReader {
 
     struct Output { let code: Int32; let text: String; let truncated: Bool }
     /// Shared with `HandoffFacts`: read-only git with locks disabled, bounded output, an 8 s cap.
+    /// Blocking; every wait is on the termination handler, never `waitUntilExit()`'s run loop.
     static func run(_ cwd: String, _ arguments: [String], cap: Int) -> Output? {
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", cwd] + arguments
@@ -80,7 +81,7 @@ public enum WorkspaceChangesReader {
         }
         if done.wait(timeout: .now() + 8) == .timedOut {
             process.terminate()
-            if done.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL); process.waitUntilExit() }
+            if done.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL); done.wait() }
             _ = drained.wait(timeout: .now() + 1)
             return nil
         }

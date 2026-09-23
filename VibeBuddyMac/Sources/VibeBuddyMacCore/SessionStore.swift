@@ -1159,9 +1159,13 @@ public actor SessionStore {
         let session = reducer.sessions[sessionID]
         let cwd = workingDirectories[sessionID] ?? session?.terminalRef?.cwd ?? session?.worktree
         let shared = cwd.map { path in workingDirectories.values.filter { $0 == path }.count > 1 } ?? false
-        return await Task.detached(priority: .utility) {
-            WorkspaceChangesReader.read(cwd: cwd, scope: scope, baseline: baseline, file: file, shared: shared)
-        }.value
+        // Off the cooperative pool: each git call blocks its thread, for up to
+        // 8 s plus the kill grace when git hangs.
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: WorkspaceChangesReader.read(cwd: cwd, scope: scope, baseline: baseline, file: file, shared: shared))
+            }
+        }
     }
 
     private func resultKey(sessionID: String, completionID: String) -> String? {
