@@ -28,6 +28,14 @@ private func fakeClaude(jobs: URL, supportsBG: Bool = true) throws -> (exe: URL,
     return (exe, log)
 }
 
+extension ClaudeAgentsSource {
+    /// A source that never runs the real CLI: it reads a fixture jobs directory.
+    static func jobsOnly(_ jobs: URL) -> ClaudeAgentsSource {
+        ClaudeAgentsSource(run: { nil }, fingerprint: { UUID().uuidString },
+                           fallback: { ClaudeBackgroundSessions.loadFromJobsDirectory(jobs) })
+    }
+}
+
 @Suite("Claude background launcher")
 struct ClaudeBackgroundLauncherTests {
     @Test("claude --bg --name -- prompt in the requested directory; the full session id comes back")
@@ -36,7 +44,7 @@ struct ClaudeBackgroundLauncherTests {
         let cwd = FileManager.default.temporaryDirectory.appendingPathComponent("vb-cwd-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
         let fake = try fakeClaude(jobs: jobs)
-        let launcher = ClaudeBackgroundLauncher(executable: fake.exe, jobsDirectory: jobs)
+        let launcher = ClaudeBackgroundLauncher(executable: fake.exe, agents: .jobsOnly(jobs))
         #expect(await launcher.isSupported())
         let outcome = await launcher.dispatch(DispatchRequest(agent: .claudeCode, cwd: cwd.path, prompt: "-- list uncommitted changes", name: "listing"))
         #expect(outcome == .started(sessionID: "de59db03-b594-416f-abdd-de54e8a96095"))
@@ -50,12 +58,12 @@ struct ClaudeBackgroundLauncherTests {
     func unsupported() async throws {
         let jobs = FileManager.default.temporaryDirectory.appendingPathComponent("vb-jobs-\(UUID().uuidString)")
         let old = try fakeClaude(jobs: jobs, supportsBG: false)
-        let launcher = ClaudeBackgroundLauncher(executable: old.exe, jobsDirectory: jobs)
+        let launcher = ClaudeBackgroundLauncher(executable: old.exe, agents: .jobsOnly(jobs))
         #expect(await !launcher.isSupported())
         if case .unavailable = await launcher.dispatch(DispatchRequest(agent: .claudeCode, cwd: "/tmp", prompt: "x")) {} else {
             Issue.record("expected unavailable")
         }
-        let none = ClaudeBackgroundLauncher(executable: nil, jobsDirectory: jobs)
+        let none = ClaudeBackgroundLauncher(executable: nil, agents: .jobsOnly(jobs))
         #expect(await !none.isSupported())
     }
 
@@ -75,7 +83,7 @@ struct ClaudeBackgroundLauncherTests {
         let store = SessionStore()
         await store.ingest(HookEvent(kind: .sessionStart, sessionID: "s0", agent: .claudeCode, cwd: cwd.path, timestamp: Date()))
         let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876,
-                                  claudeLauncher: ClaudeBackgroundLauncher(executable: fake.exe, jobsDirectory: jobs),
+                                  claudeLauncher: ClaudeBackgroundLauncher(executable: fake.exe, agents: .jobsOnly(jobs)),
                                   cursorLauncher: CursorLauncher(executable: nil))
         try await srv.buildApplication().test(.router) { client in
             try await client.execute(uri: "/snapshot", method: .get, headers: [.authorization: "Bearer t0k"]) { res in

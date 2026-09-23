@@ -94,7 +94,10 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var tokenConsumption: TokenConsumptionSnapshot?
     private let claudeLauncher: ClaudeBackgroundLauncher = {
         guard let run = E2ERunConfiguration.current else { return ClaudeBackgroundLauncher() }
-        return ClaudeBackgroundLauncher(executable: nil, jobsDirectory: run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true))
+        let jobs = run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true)
+        return ClaudeBackgroundLauncher(executable: nil, agents: ClaudeAgentsSource(
+            run: { nil }, fingerprint: { "" },
+            fallback: { ClaudeBackgroundSessions.loadFromJobsDirectory(jobs) }))
     }()
     /// Cursor's CLI launcher. During isolated acceptance it is given no
     /// executable, so it reports unsupported and starts nothing.
