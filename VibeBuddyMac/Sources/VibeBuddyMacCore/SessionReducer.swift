@@ -20,6 +20,15 @@ public struct SessionReducer: Sendable {
     private var currentTurnID: [String: String] = [:]
     private var currentTurnStartedAt: [String: Date] = [:]
     private var awaitingOriginalPrompt: Set<String> = []
+    /// A Claude main-agent `Stop` that arrived while subagents, workflows or
+    /// teammates were still running (AI-04). The session stays `working` until
+    /// the store releases it: its subagents stop, a newer `Stop` replaces it,
+    /// or the backstop expires. A new turn discards it.
+    public private(set) var heldStops: [String: HookEvent] = [:]
+    /// Claude sessions whose current `done` came from a main-agent `Stop`. A
+    /// `PostToolUse` that lands after it is a late receipt (a background
+    /// shell, or hook delivery racing the stop), not a new turn.
+    private var settledByStop: Set<String> = []
 
     public init() {}
 
@@ -67,6 +76,7 @@ public struct SessionReducer: Sendable {
             // running yet. Mature monitors call this free/idle; in our three
             // buckets that is `done` until UserPromptSubmit arrives.
             upsert(event, status: .done, waitKind: nil)
+            clearBackgroundWork(event.sessionID)
             sessions[event.sessionID]?.failed = false
             sessions[event.sessionID]?.probeRetired = nil
             sessions[event.sessionID]?.userStopped = nil
@@ -77,6 +87,7 @@ public struct SessionReducer: Sendable {
                 currentTurnStartedAt[event.sessionID] = event.turnStartedAt ?? event.timestamp
             }
             upsert(event, status: .working, waitKind: nil)
+            clearBackgroundWork(event.sessionID)
             if awaitingOriginalPrompt.remove(event.sessionID) != nil,
                sessions[event.sessionID]?.firstUserPrompt == nil,
                let prompt = event.message?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty {
@@ -94,7 +105,14 @@ public struct SessionReducer: Sendable {
                 // Nested subagent tools describe the child, not parent progress.
                 applyNestedChildTool(event)
             } else {
+                // Rule 6: a late tool receipt cannot reopen a settled turn.
+                if event.agent == .claudeCode, event.kind == .postToolUse,
+                   settledByStop.contains(event.sessionID),
+                   sessions[event.sessionID]?.status == .done {
+                    break
+                }
                 upsert(event, status: .working, waitKind: nil)
+                if event.kind == .preToolUse { clearBackgroundWork(event.sessionID) }
                 sessions[event.sessionID]?.hasUnreadCompletion = false
                 sessions[event.sessionID]?.completionID = nil
                 sessions[event.sessionID]?.probeRetired = nil
@@ -116,6 +134,7 @@ public struct SessionReducer: Sendable {
                    waitKind: heldKind ?? event.waitKind ?? Self.waitKind(from: event.message),
                    summary: heldKind == nil ? event.message : pending?.summary)
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
+            clearBackgroundWork(event.sessionID)
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
@@ -129,6 +148,23 @@ public struct SessionReducer: Sendable {
                let current = currentTurnID[event.sessionID], current != turnID {
                 break
             }
+            // Rules 2 and 5: a clean Claude ending with subagents, workflows or
+            // teammates still running is a pause, not the end of the turn.
+            // With no usable array, the subagent counter stands in.
+            if event.agent == .claudeCode, event.completionSucceeded == true,
+               !event.userStopped, !event.probeRetirement, !event.releasesHeldStop {
+                let holding = max(event.backgroundWork?.holdingTasks ?? 0, runningSubagentCount(event.sessionID))
+                if holding > 0 {
+                    heldStops[event.sessionID] = event
+                    settledByStop.remove(event.sessionID)
+                    upsert(event, status: .working, waitKind: nil)
+                    sessions[event.sessionID]?.activeTool = nil
+                    sessions[event.sessionID]?.backgroundTaskCount = holding
+                    sessions[event.sessionID]?.loopScheduled = nil
+                    break
+                }
+            }
+            heldStops[event.sessionID] = nil
             let previousCompletion = sessions[event.sessionID]?.completionID
             let wasDone = sessions[event.sessionID]?.status == .done
             let repeatsFailure = wasDone && sessions[event.sessionID]?.isStuck == true
@@ -143,6 +179,11 @@ public struct SessionReducer: Sendable {
                 sessions[event.sessionID]?.summary = event.message
             }
             sessions[event.sessionID]?.activeTool = nil
+            // Rule 3: shells and monitors outlive the turn; the row says so.
+            let outliving = event.backgroundWork?.otherTasks ?? 0
+            sessions[event.sessionID]?.backgroundTaskCount = outliving > 0 ? outliving : nil
+            sessions[event.sessionID]?.loopScheduled = nil
+            if event.agent == .claudeCode { settledByStop.insert(event.sessionID) }
             // Probe retirement is done, not failed, and not a successful
             // completion — no unread-complete badge and no agentDone cue.
             if event.probeRetirement {
@@ -171,6 +212,14 @@ public struct SessionReducer: Sendable {
             // A clean result remains green until an explicit read acknowledgement.
             // Failed endings stay red and do not manufacture a completion unread.
             let cleanCompletion = sessions[event.sessionID]?.isStuck == false
+            // Rule 4: a round of a scheduled loop settles quietly. The loop
+            // runs again; an unread badge and a cue every round would be noise.
+            if cleanCompletion, (event.backgroundWork?.crons ?? 0) > 0 {
+                sessions[event.sessionID]?.loopScheduled = true
+                sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.completionID = nil
+                break
+            }
             if cleanCompletion {
                 if !wasDone || previousCompletion == nil {
                     sessions[event.sessionID]?.completionID = event.sourceCompletionID ?? UUID().uuidString
@@ -189,6 +238,8 @@ public struct SessionReducer: Sendable {
             lastCountedTurn[event.sessionID] = nil
             currentTurnID[event.sessionID] = nil
             currentTurnStartedAt[event.sessionID] = nil
+            heldStops[event.sessionID] = nil
+            settledByStop.remove(event.sessionID)
         case .sessionMetadataChanged:
             // Model and cwd changes describe the same live session. They must
             // not clear its tool/wait state or manufacture a progress transition.
@@ -332,7 +383,43 @@ public struct SessionReducer: Sendable {
             currentTurnStartedAt[id] = nil
             awaitingOriginalPrompt.remove(id)
             lastCountedTurn[id] = nil
+            heldStops[id] = nil
+            settledByStop.remove(id)
         }
+    }
+
+    /// Release a held `Stop` once every subagent its session was waiting on
+    /// has stopped. The store re-ingests the returned event so the ending
+    /// settles through the normal path (result, summary, cue).
+    public mutating func takeReleasableStop(sessionID: String) -> HookEvent? {
+        guard var held = heldStops[sessionID], runningSubagentCount(sessionID) == 0 else { return nil }
+        heldStops[sessionID] = nil
+        held.releasesHeldStop = true
+        return held
+    }
+
+    /// Backstop: held stops older than `after` settle anyway. Background work
+    /// can end without a hook we see (a lost `SubagentStop`, a workflow).
+    public mutating func takeExpiredStops(now: Date, after: TimeInterval) -> [HookEvent] {
+        let expired = heldStops.filter { now.timeIntervalSince($0.value.timestamp) >= after }
+        return expired.keys.sorted().compactMap { id in
+            guard var held = heldStops.removeValue(forKey: id) else { return nil }
+            held.releasesHeldStop = true
+            return held
+        }
+    }
+
+    private func runningSubagentCount(_ sessionID: String) -> Int {
+        sessions[sessionID]?.runningChildAgents.filter { $0.kind == .subagent }.count ?? 0
+    }
+
+    /// A new turn, a wait or a new session supersedes whatever the last
+    /// ending left running.
+    private mutating func clearBackgroundWork(_ sessionID: String) {
+        heldStops[sessionID] = nil
+        settledByStop.remove(sessionID)
+        sessions[sessionID]?.backgroundTaskCount = nil
+        sessions[sessionID]?.loopScheduled = nil
     }
 
     /// Layer transcript-derived metadata onto an existing session. Model and

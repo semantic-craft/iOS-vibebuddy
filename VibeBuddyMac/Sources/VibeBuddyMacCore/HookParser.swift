@@ -100,8 +100,39 @@ public enum HookParser {
             permissionModeRaw: raw.permissionMode
         )
         event.startsNewSession = agent == .claudeCode && raw.hookEventName == "SessionStart" && raw.source == "startup"
+        if agent == .claudeCode, raw.hookEventName == "Stop", Self.nonEmpty(raw.agentId) == nil {
+            event.backgroundWork = backgroundWork(data)
+        }
         return event
     }
+
+    /// `background_tasks` and `session_crons` from a `Stop`, read with
+    /// `JSONSerialization` so an unexpected shape costs this signal, never the
+    /// event. Nil when neither array is present.
+    static func backgroundWork(_ data: Data) -> BackgroundWork? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let tasks = object["background_tasks"] as? [[String: Any]]
+        let crons = object["session_crons"] as? [Any]
+        guard tasks != nil || crons != nil else { return nil }
+        var work = BackgroundWork(crons: crons?.count ?? 0)
+        for task in tasks ?? [] {
+            if let status = (task["status"] as? String)?.lowercased(), finishedTaskStatuses.contains(status) { continue }
+            let type = ((task["type"] as? String) ?? "").lowercased()
+            if ["subagent", "workflow", "teammate"].contains(where: { type.contains($0) }) {
+                work.holdingTasks += 1
+            } else {
+                work.otherTasks += 1
+            }
+        }
+        return work
+    }
+
+    /// Task statuses that mean the work is over. The docs do not enumerate
+    /// `status`, so anything else (including a missing one) counts as running.
+    private static let finishedTaskStatuses: Set<String> = [
+        "completed", "complete", "done", "finished", "succeeded", "success",
+        "failed", "error", "errored", "killed", "stopped", "cancelled", "canceled",
+    ]
 
     /// Did this tool result report a failure? Read defensively with
     /// `JSONSerialization` (not the strict decoder) because `tool_response` can

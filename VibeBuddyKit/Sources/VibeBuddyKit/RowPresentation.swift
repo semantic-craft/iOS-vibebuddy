@@ -15,7 +15,8 @@ public struct RowPresentation: Equatable, Sendable {
         title = session.displayTitle
         unread = session.status == .done && session.hasUnreadCompletion
         updatedAt = session.updatedAt
-        if session.status == .done && session.historyOnly != true && !session.isStuck {
+        if session.status == .done && session.historyOnly != true && !session.isStuck
+            && session.loopScheduled != true {
             activityOrResult = Self.firstSentence(session.completionSummary)
                 ?? Self.firstSentence(session.completionText)
                 ?? String(localized: "This turn ended", bundle: .module)
@@ -23,7 +24,11 @@ public struct RowPresentation: Equatable, Sendable {
             activityOrResult = ToolActivity.label(for: session)
         }
         let latest = Self.firstSentence(session.summary)
-        progress = latest == activityOrResult ? nil : latest
+        if session.status == .done, let count = session.backgroundTaskCount, count > 0 {
+            progress = String(localized: "Background tasks still running: \(count)", bundle: .module)
+        } else {
+            progress = latest == activityOrResult ? nil : latest
+        }
         observationWarning = session.observations?.contains(where: { !$0.health.isHealthy }) == true
             ? session.observationDescription : nil
         lastObservedAt = session.lastObservedAt

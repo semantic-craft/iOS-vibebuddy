@@ -244,6 +244,9 @@ public final class SoundPolicy {
         // A focused terminal is handled by the list cap in `evaluate`.
         guard let prev, prev.status != .done, !input.appActive else { return nil }
         if session.probeRetired == true { return nil }
+        // A `/loop` round: the loop will run again, so this is not the end of
+        // anything the person is waiting for.
+        if session.loopScheduled == true { return nil }
         // You asked for this ending, on this device or another of yours. Codex
         // reports it as an interrupted turn, which the failure heuristic below
         // would ring as `agentStuck` — an error alert for something that went

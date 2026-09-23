@@ -411,6 +411,21 @@ code, and tests — don't drift to synonyms.
   The app's Quiet mode / Quiet hours read every session as `muted`; only a positively
   identified current task view can cap its cue to `list`. Source-app presence alone
   cannot identify the viewed task. `list` and `drop` never push.
+- **Background work at a Claude Stop** (AI-04) — Claude's main-agent `Stop`
+  carries `background_tasks` and `session_crons` when its task registry is
+  reachable. Running subagents, workflows or teammates make the `Stop` a pause:
+  the session stays `working` (row: background tasks running) and the reducer
+  holds the `Stop`. With no usable array, running subagents in the child
+  topology stand in; task-list entries (`TaskCreated`) never do. The held `Stop`
+  settles through the normal path when its last subagent stops, when a newer
+  clean `Stop` replaces it, or after a ten-minute backstop; a new turn, a wait or
+  a new session discards it. Running shells, monitors, MCP tasks and cloud
+  sessions do not hold the turn: it completes and the row says background tasks
+  are still running (`backgroundTaskCount`). A non-empty `session_crons` marks
+  the ending `loopScheduled`: it settles `done` with no completion identity,
+  no unread badge and no `agentDone` cue, because a `/loop` session always has a
+  cron and would otherwise never finish. A main-agent `PostToolUse` that lands
+  after the `Stop` settled cannot reopen the turn.
 - **Completion reminder** — `CompletionReminderSchedule` re-issues the
   `agentDone` cue for a `done`, unread session whose effective attention is
   `followed`, after 5, 10, 20 and then 40 minutes — at most 4 times per
