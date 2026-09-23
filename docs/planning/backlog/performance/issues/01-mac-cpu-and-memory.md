@@ -27,3 +27,13 @@
 - [ ] 空闲 < 2% CPU；约 5 个活跃会话 < 10% CPU（开发版，同一台 Mac）。
 - [ ] 2 小时内存无单调增长。
 - [ ] `swift test`（Kit、Mac）与 Mac App 构建通过。
+
+## Comments
+
+- 2026-09-23（PR #265，已按 owner 授权装到 `/Applications` 并重启，开发版 Developer ID 签名、未公证）：
+  - 主因：History 存档。`SessionHistory/search.sqlite` 29.6 GB（trigram FTS5 覆盖 2.6 GB 文本加一份折叠副本），活跃转录约每 15 s 整体重建索引，每 30 s 全量对账约 4,500 次 SQLite 查询。按 owner 决定删除 History 存档，保留实时会话阅读（只读 `SessionTranscriptReader`）。新版首次启动已删除该目录；空间暂被 13:11 的 Time Machine 本地快照占用，macOS 会自动回收。
+  - 其他：快照里的 handoff 扫描（50 个最近目录）缓存 5 s，写交接或 Stop 时失效；3.7 MB `tool-ledger.json` 写入间隔 2 s → 10 s，调用 `facts` 前和 Stop 时强制写盘；账本修剪不再整体复制与深比较。
+  - 同一台 Mac、同一时段真实负载（1 个会话 working、其余空闲），`ps` 每 2 s 采样 60 s：
+    - 旧版 1.3.32（运行 8.5 h）：CPU 均值 11.2%，峰值 98.9%，RSS 231 MB。更早的一次采样为 22–43%。
+    - 新版（启动后 1–2 min）：CPU 均值 3.1%，峰值 18.4%；`footprint` 179 MB（RSS 启动后从 949 MB 回落到约 660 MB，多为可回收的启动期 malloc）。
+  - 未完成的验收项：三档负载（无会话 / 1 / 约 5 个活跃会话）各 10 分钟的对比；2 小时内存曲线；空闲 < 2% 的正式测量。本票保持打开，下次按上述三档补测。
