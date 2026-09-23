@@ -153,4 +153,17 @@ struct EnvironmentDetectorTests {
         status = try #require(EnvironmentDetector.detect([spec]).first)
         #expect(status.hookInjected)
     }
+
+    @Test("the early inline-curl marker matches any port, not a longer path")
+    func inlineCurlAnyPort() {
+        for text in ["curl -sS --data-binary @- http://127.0.0.1:9877/hook 2>/dev/null || true",
+                     "curl 127.0.0.1:9876/hook",
+                     #"curl "http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/hook?agent=codex""#] {
+            #expect(EnvironmentDetector.containsInlineCurlHook(text), "\(text)")
+        }
+        for text in ["curl 127.0.0.1:9876/hooks", "curl 127.0.0.1:9876/hook/x", "curl 127.0.0.1/hook",
+                     "/Users/me/hooks/thing.sh"] {
+            #expect(!EnvironmentDetector.containsInlineCurlHook(text), "\(text)")
+        }
+    }
 }

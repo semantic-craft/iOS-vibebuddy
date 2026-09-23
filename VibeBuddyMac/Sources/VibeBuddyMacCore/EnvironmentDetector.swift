@@ -51,18 +51,26 @@ public struct CLIHookStatus: Sendable, Equatable {
 /// `NSWorkspace` (not here, to keep this pure and testable).
 public enum EnvironmentDetector {
     /// Substrings vibebuddy's installers (current and past) leave in a CLI config:
-    /// the script names, the early inline-curl endpoint and the OpenCode plugin
-    /// header. Deliberately not a bare `/hook`, which matches any user path
-    /// under a `hooks/` directory, and not the status line wrapper, which is
-    /// reported on its own (`statusLineWired`). A format-agnostic scan.
+    /// the script names and the OpenCode plugin header, plus the early
+    /// inline-curl endpoint (`containsInlineCurlHook`). Deliberately not a bare
+    /// `/hook`, which matches any user path under a `hooks/` directory, and not
+    /// the status line wrapper, which is reported on its own
+    /// (`statusLineWired`). A format-agnostic scan.
     public static let hookMarkers = [
         "vibebuddy-forward.sh",
         "approval-hook.sh",
         "capture-terminal.sh",
         "cursor-followup.sh",
-        "127.0.0.1:9876/hook",        // the early inline-curl hooks
         "VibeBuddy OpenCode plugin",  // the OpenCode plugin's header
     ]
+
+    /// The endpoint the early inline-curl hooks posted to,
+    /// `127.0.0.1:<port>/hook` — whatever `VIBEBUDDY_PORT` was when they were
+    /// written, or the `${VIBEBUDDY_PORT:-9876}` form left to the shell — and
+    /// not a longer path such as `/hooks` or `/hook/x`.
+    public static func containsInlineCurlHook(_ text: String) -> Bool {
+        text.contains(/127\.0\.0\.1:(\d{1,5}|\$\{VIBEBUDDY_PORT:-\d{1,5}\})\/hook(?![\w\/-])/)
+    }
 
     /// The status line wrapper the Claude installer writes. Same boundary the
     /// installer's `is_statusline_wrapper` uses.
@@ -111,6 +119,6 @@ public enum EnvironmentDetector {
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue,
               let content = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
-        return hookMarkers.contains(where: content.contains)
+        return hookMarkers.contains(where: content.contains) || containsInlineCurlHook(content)
     }
 }
