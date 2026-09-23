@@ -4,9 +4,9 @@
 
 ## 下一次从哪里开始
 
-专用入口：[Grok Build HTML 实施手册](GROK-BUILD-PLAN.html)。含全部硬依赖、建议顺序、逐票步骤、技术裁定和 Codex E2E 矩阵。提示词：[Grok 实施](GROK-BUILD-PROMPT.md) / [Codex 独立验收](CODEX-E2E-PROMPT.md)。Grok 的自验交付与 Codex 的独立接受分别记录。
+**2026-09-23：09 的代码已丢失，从零重做**（见文末更正）。本目录随仓库保存在 `docs/planning/backlog/mac-app-store/`；工单改动与代码同一个 PR 提交。下面提到的 HTML 实施手册（`GROK-BUILD-PLAN.html`、`IMPLEMENTATION-PLAN.html`）、Grok / Codex 提示词和探针源码不在仓库里，只在 `~/Projects/_shared-work/archive/iOS-vibebuddy-scratch-2026-09-23.tgz`；需要时从那里解出参考，工单与 spec 才是权威。
 
-先核对实际 HEAD、未提交改动及 owner。路线已定为独立沙盒商店版（守望与放行），综合 spec 见 [SPEC-store-v2.md](SPEC-store-v2.md)（needs-triage，含未决事项）；历史开票依据保留 [SPEC-store-v1.md](SPEC-store-v1.md)，工作票为 09–18；02–08 已作废。下一张可执行票：**09** 收尾（只剩真机 Pairing，需要 Hermes 解锁在手边），随后 10 与 11 可并行。09 完成后 10 与 11 可并行；13 是关卡，通过前不投入 14 及之后。
+路线已定为独立沙盒商店版（守望与放行），综合 spec 见 [SPEC-store-v2.md](SPEC-store-v2.md)；历史开票依据保留 [SPEC-store-v1.md](SPEC-store-v1.md)，工作票为 09–18；02–08 已作废。下一张可执行票：**09**（从零实现），随后 10 与 11 可并行；13 是关卡，通过前不投入 14 及之后。MAS-15 已于 2026-09-23 重裁：维持只观察 Codex Desktop 进度（见票 15 Comments）。
 
 本轮第一阶段已完成（[评估记录](evidence/PLAN-REVIEW.md)）：逐票静态核对并修订 IMPLEMENTATION-PLAN.html 与 09–18 的 Comments；全部票仍 not-started / unassigned。用户现指定由 Grok Build 实施、Codex 后续独立设计复核与 E2E。将 [Grok 主提示词](GROK-BUILD-PROMPT.md) 交给 Grok 后从 09 领取；本任务尚未启动任何执行会话。历史票据中的“本轮仅整理”是开票阶段记录，不覆盖用户后续交付实施提示词的授权。
 
@@ -46,13 +46,13 @@ Grok Build 领取了 09 并在 `~/Projects/iOS-vibebuddy-wt/mac-app-store`（分
 |---|---|---|---|
 | MAS-01 | [独立评审与规则复核](issues/01-independent-review.md) | 无 | **已完成** 2026-09-07 → [CLAUDE-REVIEW.md](CLAUDE-REVIEW.md) |
 | MAS-02…08 | 候选票 | — | **作废** 2026-09-08，由 09–18 取代 |
-| MAS-09 | [商店版启动后可与 iPhone Pairing](issues/09-store-target-pairs.md) | 无 | **进行中（Claude）**：构建/签名/容器/端口/隔离全部 PASS，只差真机 Pairing → [证据](evidence/claude-09/RESULTS-09.md) |
+| MAS-09 | [商店版启动后可与 iPhone Pairing](issues/09-store-target-pairs.md) | 无 | **从零重做**（2026-09-23：原实现未提交且已丢失；[旧实测](evidence/claude-09/RESULTS-09.md)只作参考） |
 | MAS-10 | [商店版重启后保留 Pairing 与应用数据](issues/10-container-storage.md) | 09 | 未开始，ready-for-agent |
 | MAS-11 | [外部目录授权可记住、撤销并恢复](issues/11-authorized-locations.md) | 09 | 未开始，ready-for-agent |
 | MAS-12 | [从 Settings 安装 Claude Hook 并收到真实事件](issues/12-native-installer-claude.md) | 10、11 | 未开始，ready-for-agent |
 | MAS-13 | [关卡：真实 Claude 任务从手机批准、拒绝与回答](issues/13-approval-gate.md) | 12 | 未开始，ready-for-agent |
 | MAS-14 | [Codex CLI 可从手机放行，其它 CLI 可观察](issues/14-native-installer-other-clis.md) | 13 | 未开始，**ready-for-agent**（triage 已裁定）|
-| MAS-15 | [Codex Desktop 任务进度可观察](issues/15-codex-desktop-remind-only.md) | 11、13 | 未开始，**ready-for-agent**（2026-09-08 用户裁定砍掉等待提醒；2026-09-09 新证据待重裁，见上）|
+| MAS-15 | [Codex Desktop 任务进度可观察](issues/15-codex-desktop-remind-only.md) | 11、13 | 未开始，**ready-for-agent**（2026-09-23 重裁：维持只观察进度，见票 15 Comments）|
 | MAS-16 | [商店界面只提供可执行能力，用量与 Jump 如实反馈](issues/16-capability-switches.md) | 13 | 未开始，ready-for-agent |
 | MAS-17 | [两版接管 Hook 不争抢，Keychain 状态如实呈现](issues/17-coexistence-keychain.md) | 09、12、13、14 | 未开始，**ready-for-agent**（triage 已裁定，走重输分支）|
 | MAS-18 | [准备与已验收能力一致的 Archive 和审核材料](issues/18-submission-readiness.md) | 14、15、16、17 | 未开始，needs-triage |
@@ -61,7 +61,7 @@ Grok Build 领取了 09 并在 `~/Projects/iOS-vibebuddy-wt/mac-app-store`（分
 
 每次推进后只在这里更新下一张可执行票，在相应 ticket 写 Owner、Progress、证据和剩余疑点。未运行的检查保持未完成。不要在 agent 规则里复制实时进度。
 
-本目录受 Git 忽略，不能声称已经跨机保存。稳定的项目入口在 `docs/agents/mac-app-store.md`；换机先找实际工作材料，缺失时按该文件恢复计划，不凭空继承验收。需要跨机移交时，按用户授权和项目同步规则另外交付 `.scratch/mac-app-store/`；不要强行 git add -f。
+本目录随仓库保存（2026-09-23 起）；工单与证据的更新跟代码走同一个 PR。稳定的项目入口在 `docs/agents/mac-app-store.md`。未运行的验收不凭空继承。
 
 
 ## 2026-09-09 Codex Desktop 来源补验（Codex）

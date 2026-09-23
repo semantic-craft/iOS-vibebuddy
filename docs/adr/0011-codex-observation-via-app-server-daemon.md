@@ -144,7 +144,9 @@ Scope of the opening, deliberately narrow:
 
   Making that true took one more fact. Codex reports a stop the user asked for
   exactly as it reports any interruption, and `FailureHeuristic.markers`
-  contains "interrupted", so the ending would land as `failed`: red instead of
+  contained "interrupted" (the heuristic was removed on 2026-09-23; the
+  reducer now marks failure only from a terminal outcome or a tool error),
+  so the ending would land as `failed`: red instead of
   done, no completion, and `agentStuck` — the error cue — for something that
   went exactly as asked. Only the Mac that sent `turn/interrupt` knows the
   difference, so it is the Mac that records it. The monitor claims the thread

@@ -259,6 +259,8 @@ The owner confirmed build 33 was running on the Watch, but Crown navigation
 remained severely laggy. The owner then requested deletion rather than a
 hidden feature. Build 34 removes the Watch Recap row, sheet, Crown pager,
 demo launch entry, and Watch-side bulk-read submission and retry handling.
+The remaining relay plumbing (`WatchRecapQueue`, `WatchDashboardState.recap`,
+the phone's recap-read relay) was deleted on 2026-09-23.
 There is no enable switch. Phone and Mac Recap are unaffected. This supersedes
 the Watch Recap presentation and Mark all decisions above; individual task
 actions and their acknowledgement queue remain available. Removing the

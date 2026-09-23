@@ -139,8 +139,7 @@ public enum GrokParser {
             }
             return "Turn failed (\(kind)): \(detail)"
         case "stop_cancelled":
-            // A cancel is not a failure, so carry only the agent's own words —
-            // synthesized prose here would trip the failure heuristic.
+            // A cancel is not a failure, so carry only the agent's own words.
             return nonEmpty(raw.lastAssistantMessage)
         case "stop":
             return nonEmpty(raw.lastAssistantMessage)
