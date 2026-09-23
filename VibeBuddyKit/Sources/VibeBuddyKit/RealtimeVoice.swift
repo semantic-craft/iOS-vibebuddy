@@ -49,6 +49,10 @@ public enum RealtimeVoiceEvent: Sendable {
     case toolCallsCancelled([String])
     case toolCall(name: String, arguments: String, callID: String)  // model wants to run a function tool
     case failed(String)
+    /// The provider ended this connection because a documented per-connection
+    /// limit (session duration) was reached. Only an explicit provider signal
+    /// maps here; an unrelated disconnect stays `.failed`.
+    case providerLimitReached
     case closed
 }
 
@@ -173,6 +177,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private var connectionTimeout: Task<Void, Never>?
     private var instructions = ""
     private var voice = ""
+    private var sessionStartedAt: Date?
 
     /// - Parameters:
     ///   - workspaceID: Bailian workspace ID. When given, connects through the
@@ -218,6 +223,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         self.instructions = instructions
         self.voice = voice
         ready = false
+        sessionStartedAt = nil
 
         guard let endpoint else {
             cont.yield(.failed("Invalid Qwen model ID or workspace ID — check Settings"))
@@ -329,11 +335,24 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
                 }
             } catch {
                 let status = (task.response as? HTTPURLResponse)?.statusCode
-                continuation?.yield(.failed(Self.connectionFailure(status: status, detail: error.localizedDescription)))
+                continuation?.yield(Self.connectionEndEvent(
+                    status: status, detail: error.localizedDescription, serverCloseCode: task.closeCode,
+                    connectedFor: sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0))
                 close()
                 return
             }
         }
+    }
+
+    /// A server close at the documented session limit ends the call as the
+    /// provider limit; every other end of the receive loop is a failure.
+    static func connectionEndEvent(status: Int?, detail: String,
+                                   serverCloseCode: URLSessionWebSocketTask.CloseCode,
+                                   connectedFor: TimeInterval) -> RealtimeVoiceEvent {
+        if ProviderLimitSignal.isQwenLimit(serverCloseCode: serverCloseCode, connectedFor: connectedFor) {
+            return .providerLimitReached
+        }
+        return .failed(connectionFailure(status: status, detail: detail))
     }
 
     static func connectionFailure(status: Int?, detail: String) -> String {
@@ -361,6 +380,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         }
         switch type {
         case "session.created":
+            if sessionStartedAt == nil { sessionStartedAt = Date() }
             configureSession(instructions: instructions, voice: voice)
         case "session.updated":
             guard !ready else { return }

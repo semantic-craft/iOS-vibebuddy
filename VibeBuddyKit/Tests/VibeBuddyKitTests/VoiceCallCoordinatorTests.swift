@@ -92,6 +92,82 @@ struct VoiceCallCoordinatorTests {
         #expect(audio.enqueuedAudio.isEmpty)
     }
 
+    @Test("A provider limit ends the call as ended(providerLimit), closes once and ignores late events")
+    func providerLimitEndsCall() {
+        let audio = FakeVoiceCallAudio()
+        var closes: [VoiceToolResult?] = []
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in
+            Issue.record("A late tool call after the limit must not run")
+            return ""
+        }, closeSession: { closes.append($0) })
+        coordinator.beginConnecting()
+        coordinator.handle(.connected)
+        coordinator.handle(.audioDelta(Data([1, 2])))
+        #expect(coordinator.phase == .speaking)
+
+        coordinator.handle(.providerLimitReached)
+        #expect(coordinator.phase == .ended(.providerLimit))
+        #expect(coordinator.endReason == .providerLimit && coordinator.isFinished)
+        #expect(coordinator.errorText == nil)
+        #expect(audio.stopped && closes.count == 1 && closes[0] == nil)
+
+        // The provider's own teardown and stragglers change nothing.
+        coordinator.handle(.failed("recv: socket closed"))
+        coordinator.handle(.closed)
+        coordinator.handle(.audioDelta(Data([3, 4])))
+        coordinator.handle(.toolCall(name: "get_session_status", arguments: "{}", callID: "late"))
+        coordinator.audioStateChanged(.running)
+        coordinator.stop()
+        #expect(coordinator.phase == .ended(.providerLimit) && coordinator.errorText == nil)
+        #expect(closes.count == 1 && audio.enqueuedAudio == [Data([1, 2])])
+    }
+
+    @Test("Disconnects without a provider-limit signal never read as the limit")
+    func unrelatedEndingsAreNotProviderLimit() {
+        let failed = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "" })
+        failed.handle(.connected)
+        failed.handle(.failed("recv: The network connection was lost."))
+        #expect(failed.phase == .idle && failed.endReason == nil && failed.errorText != nil)
+
+        let closed = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "" })
+        closed.handle(.connected)
+        closed.handle(.closed)
+        #expect(closed.phase == .idle && closed.endReason == nil && closed.errorText == nil)
+
+        let hungUp = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "" })
+        hungUp.handle(.connected)
+        hungUp.stop()
+        hungUp.handle(.providerLimitReached)
+        #expect(hungUp.phase == .idle && hungUp.endReason == nil)
+    }
+
+    @Test("Redial is a fresh call: a new coordinator carries nothing from the ended one")
+    func redialStartsFresh() {
+        let ended = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "" })
+        ended.handle(.connected)
+        ended.handle(.userTranscript(text: "what's running", final: true))
+        ended.handle(.assistantTranscript(text: "Two tasks.", final: true))
+        ended.handle(.providerLimitReached)
+        #expect(ended.endReason == .providerLimit)
+
+        let redial = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "" })
+        #expect(redial.phase == .idle && redial.endReason == nil && !redial.isFinished)
+        #expect(redial.lastUserText.isEmpty && redial.lastReply.isEmpty && redial.errorText == nil)
+        redial.beginConnecting()
+        redial.handle(.connected)
+        #expect(redial.phase == .listening)
+    }
+
+    @Test("The provider-limit notice names the provider and resolves in Chinese")
+    func providerLimitNotice() throws {
+        let english = VoiceCallEndReason.providerLimit.notice(provider: .qwen)
+        #expect(english.contains(VoiceProvider.qwen.display) && english.contains("Redial"))
+        let zh = try #require(KitLocalization.bundle(for: "zh-Hans"))
+        let key = "Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation."
+        let chinese = zh.localizedString(forKey: key, value: nil, table: nil)
+        #expect(chinese != key && chinese.contains("重拨"))
+    }
+
     @Test("Recovered audio accepts new playback; recovery failure closes with an actionable error")
     func audioRecoveryResult() {
         let audio = FakeVoiceCallAudio()

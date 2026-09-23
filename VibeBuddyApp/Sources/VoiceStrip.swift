@@ -26,6 +26,9 @@ struct VoiceStrip: View {
             VStack(alignment: .leading, spacing: 1) {
                 if let err = voice.errorText {
                     Text(err).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.status(.error))
+                } else if let notice = voice.endNotice, voice.phase == .idle {
+                    Text(notice).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else if voice.phase == .recovering {
                     Text("Recovering audio… tap the mic to end").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 } else {
@@ -44,7 +47,9 @@ struct VoiceStrip: View {
                 }
             }
             Spacer(minLength: 0)
-            if let provider = voice.activeProvider {
+            if voice.endNotice != nil, voice.errorText == nil, voice.phase == .idle {
+                RedialButton(voice: voice)
+            } else if let provider = voice.activeProvider {
                 Text(provider.display)
                     .font(CompanionType.font(10, .medium))
                     .foregroundStyle(CompanionPalette.ink2)
@@ -61,11 +66,31 @@ struct VoiceStrip: View {
 
     private var icon: String {
         if voice.errorText != nil { return "exclamationmark.circle" }
+        if voice.endNotice != nil, voice.phase == .idle { return "phone.down" }
         switch voice.phase {
         case .listening: return "mic.fill"
         case .connecting, .recovering, .thinking:  return "ellipsis"
         case .speaking:  return "waveform"
         case .idle:      return "mic"
         }
+    }
+}
+
+/// One-tap redial after a provider's per-call limit ended the call: a fresh
+/// call with the same Settings, without the ended conversation.
+struct RedialButton: View {
+    @ObservedObject var voice: VoiceChat
+
+    var body: some View {
+        Button { voice.redial() } label: {
+            Label("Redial", systemImage: "phone.arrow.up.right")
+                .font(CompanionType.font(12, .medium))
+                .foregroundStyle(Color.onAccent)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(CompanionPalette.accent, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Starts a new voice call without the earlier conversation")
+        .accessibilityIdentifier("phone-voice-redial")
     }
 }
