@@ -98,7 +98,7 @@ See the [Codex integration contract](docs/codex-integration.md) and [agent hook 
 
 ### Voice is optional
 
-Choose **OpenAI, Google Gemini, Alibaba Qwen or Volcengine Doubao**, add your own API credential in the app, review the disclosure and explicitly start a call. Ask “Which task needs me?” or give a clear response to an answerable request. Voice conversation, completion summaries and Mac read-aloud are configured independently. Provider charges apply; task monitoring and button approvals need no AI API key.
+Choose **OpenAI, Google Gemini, Alibaba Qwen or Volcengine Doubao**, add your own API credential in the app, review the disclosure and explicitly start a call. Ask “Which task needs me?” or give a clear response to an answerable request. Voice conversation, completion summaries and Mac read-aloud are configured independently. When a provider's per-call time limit ends a call, the app says so and offers a one-tap redial; the new call does not carry over the earlier conversation. Provider charges apply; task monitoring and button approvals need no AI API key.
 
 ### Notifications follow your setup
 

@@ -181,6 +181,14 @@ struct VoicePageView: View {
             if let error = voice.errorText {
                 Text(error).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.status(.error))
             }
+            if let notice = voice.endNotice, voice.errorText == nil, voice.phase == .idle {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(notice).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    RedialButton(voice: voice)
+                }
+            }
         }
     }
 

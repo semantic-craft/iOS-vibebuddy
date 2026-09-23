@@ -2,10 +2,12 @@
 
 **Status:** Accepted (2026-06-05); amended 2026-09-05 — the Qwen provider now
 targets Qwen-Audio 3.0 Realtime (`qwen-audio-3.0-realtime-plus`) instead of
-Qwen3.5-Omni Realtime, with an optional Bailian workspace-specific endpoint.
+Qwen3.5-Omni Realtime, with an optional Bailian workspace-specific endpoint;
+amended 2026-09-23 — a provider's per-connection limit ends the call as
+`ended(providerLimit)` with a one-tap redial (below).
 
-The voice companion talks to four cloud realtime APIs (Qwen
-Realtime, OpenAI Realtime, Gemini Live, Doubao Realtime). We put them all behind one `RealtimeVoiceProvider`
+The voice companion talks to four cloud realtime vendors (Qwen-Audio
+Realtime, OpenAI GPT-Live or Realtime, Gemini Live, Doubao Realtime). We put them all behind one `RealtimeVoiceProvider`
 actor protocol that emits a shared `RealtimeVoiceEvent` stream, so the audio
 capture/playback and the UI never know which provider is active. Adding a
 provider is one Kit file; swapping is a Settings picker.
@@ -118,3 +120,30 @@ turn-identified terminal event may separately retain bounded text for manual
 reading, even when observed later. It is invalidated by a new turn, failure or
 retirement, and cannot replace an already retained result. This does not revive
 an expired notification. Recap copies use the same verified round evidence.
+
+## Provider-limit ending and redial (2026-09-23)
+
+Realtime providers cap one connection. Reaching the cap used to surface as
+a generic connection failure, or not at all. It is now its own event,
+`RealtimeVoiceEvent.providerLimitReached`, and the coordinator's terminal phase
+`VoiceCallPhase.ended(.providerLimit)`: audio stops, the session closes once,
+late provider events are ignored and no error is shown. iPhone (voice strip,
+voice page) and Mac (menu-bar panel, Glance, Voice and reading panel, dashboard
+sidebar) show "Call ended: <provider> reached its per-call time limit" with a
+**Redial** button. A microphone frame that fails to send as the server closes
+at the cap is left to the receive loop, which classifies the close. Redial is an ordinary new call with the same Settings — no transcript,
+tool state or provider session carries over. Continuing a call across the cap
+(Gemini session resumption, context carry-over) is deliberately not built.
+
+Only an explicit provider signal maps to the limit; a network drop, an auth,
+quota or rate-limit error, or a server fault stays `failed`. The rules
+(`ProviderLimitSignal`, verified 2026-09-23; sources in
+`docs/planning/backlog/realtime-verify/issues/02-provider-limit-redial.md`):
+
+| Provider | Documented cap | Signal mapped to the limit |
+| --- | --- | --- |
+| OpenAI GPT-Live | not stated | `session.closed` with `reason: "expired"` |
+| OpenAI Realtime | 60 minutes | `error.code == "session_expired"` (code seen in field reports; the docs list no code) |
+| Gemini Live | ~10-minute connection, 15-minute audio session | the socket ending after a `goAway` message |
+| Qwen-Audio 3.0 Realtime | 120 minutes on the shared realtime endpoint (Omni docs; the Qwen-Audio page states none) | a server close frame (not 1011) once the connection is ≥ 119 minutes old — Qwen sends no limit event |
+| Doubao Realtime | none documented | not mapped; its idle release (10 minutes silent) stays a failure |

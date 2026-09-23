@@ -226,8 +226,14 @@ code, and tests — don't drift to synonyms.
   a choice this build honors.
 - **RealtimeVoiceProvider / RealtimeVoiceEvent** — the provider-agnostic Kit
   protocol + event stream (connected, userTranscript, assistantTranscript,
-  audioDelta, speechStarted, responseDone, failed, closed) that the audio + UI
-  layers consume.
+  audioDelta, speechStarted, responseDone, failed, providerLimitReached,
+  closed) that the audio + UI layers consume.
+- **Provider limit / redial** — a provider's per-connection cap (session
+  duration) ending a call. Only an explicit provider signal counts
+  (`ProviderLimitSignal`); an unrelated disconnect stays a failure. The call
+  ends as `ended(providerLimit)` — a notice, not an error — and **Redial**
+  starts a fresh call with the same Settings and no carried-over conversation
+  (ADR-0001).
 - **Conversation language** — the language the voice companion speaks (English /
   中文); independent of the **UI language** (English).
 - **Presence** — whether the person is at the Mac for a session:
@@ -463,7 +469,10 @@ code, and tests — don't drift to synonyms.
   are foreground actions, so Apple runs one on the device it was tapped on
   (ADR-0033). On the Watch the tap is mapped by `WatchNotificationResponseRoute`
   and sent through the card's own action path; when it cannot be sent, the card
-  says why (`WatchBannerActionFallback`). On the phone it lands on the session.
+  says why (`WatchBannerActionFallback`). A Reply is bound to the question its
+  notification names (`questionId`, like `approvalId` for Approve); if the
+  agent has moved on it is refused and the words stay on the card. On the phone
+  it lands on the session.
   Distinct from the *default tap* on the notification body, which only opens.
 - **Recap entry** (`RecapEntry`) — a read-only record of one ended round of one
   session: `completed` or `failed`, with agent, project, title, up to three

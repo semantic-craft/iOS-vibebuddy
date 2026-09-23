@@ -69,7 +69,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     }
 
     /// A tap on a mirrored notification — its body, or one of its buttons.
-    /// Only the session id and the approval id are read from it: the
+    /// Only the session, approval and question ids are read from it: the
     /// notification's userInfo is data, not instructions, and the store
     /// re-derives everything about that session from the relayed state before
     /// it draws a single button or sends a single message.
@@ -86,6 +86,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         let userInfo = response.notification.request.content.userInfo
         let sessionID = userInfo[NotificationUserInfoKey.sessionId] as? String
         let approvalID = userInfo[NotificationUserInfoKey.approvalId] as? String
+        let questionID = userInfo[NotificationUserInfoKey.questionId] as? String
         let userText = (response as? UNTextInputNotificationResponse)?.userText
         Task { @MainActor in
             // Save the target before releasing the OS background execution
@@ -93,7 +94,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
             defer { completionHandler() }
             let route = WatchNotificationResponseRoute.resolve(action: action, isDismiss: isDismiss,
                                                                sessionID: sessionID, approvalID: approvalID,
-                                                               userText: userText)
+                                                               questionID: questionID, userText: userText)
             WatchNavigationDiagnostics.shared.record(Self.diagnostic(for: route, action: action))
             guard let sessionID = route.sessionID else { return }
             if let state = WatchComplicationStore.loadState()?.state,
@@ -118,6 +119,9 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         case .open where action == nil: return "notification.default"
         case .open: return "notification.action-opens"
         case .decide: return "notification.action-decide"
+        // Unbound: an older sender named no question, so the reply is bound
+        // at first sight of a relayed state instead of at the hold.
+        case .answer(_, nil, _): return "notification.action-answer-unbound"
         case .answer: return "notification.action-answer"
         case .ignore: return action == nil ? "notification.missing-target" : "notification.action-ignored"
         }

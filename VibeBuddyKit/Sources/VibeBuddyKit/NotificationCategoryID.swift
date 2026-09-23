@@ -19,9 +19,12 @@ public enum NotificationActionID: String, Sendable, CaseIterable {
 public enum NotificationUserInfoKey {
     public static let sessionId = "sessionId"
     public static let approvalId = "approvalId"
-    /// The question a Reply answers, so a reply the Mac cannot be given can
-    /// be held against that exact question (ADR-0032). Absent on pushes from
-    /// an older Mac; a reply without it is not held.
+    /// The question a Reply answers. The iPhone holds a reply the Mac cannot
+    /// be given against that exact question (ADR-0032; without it, the
+    /// iPhone's queue does not hold the reply), and the Watch binds a banner
+    /// reply to it the moment the tap is held (ADR-0033; without it, the
+    /// Watch binds at the first relayed state instead). Absent on pushes from
+    /// an older Mac or iPhone.
     public static let questionId = "questionId"
 
     public static func make(sessionId: String?, approvalId: String? = nil,

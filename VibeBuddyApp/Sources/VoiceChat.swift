@@ -30,6 +30,9 @@ final class VoiceChat: ObservableObject {
     }
     @Published private(set) var activeProvider: VoiceProvider?
     @Published var errorText: String?
+    /// Why the last call ended on its own (a provider's per-call limit), shown
+    /// with a one-tap redial. Not an error; cleared when the next call starts.
+    @Published private(set) var endNotice: String?
     /// Drives the inline consent sheet when a disabled buddy is tapped.
     @Published var showConsent = false
 
@@ -51,6 +54,7 @@ final class VoiceChat: ObservableObject {
     private var audioStarted = false
     private var eventTask: Task<Void, Never>?
     private var coordinator: VoiceCallCoordinator?
+    private var callProvider: VoiceProvider?
 
     init(contextProvider: @escaping () -> [AgentSession],
          actionHandler: @escaping (VoiceAction) async -> String) {
@@ -74,12 +78,13 @@ final class VoiceChat: ObservableObject {
     func enableCompanion() { UserDefaults.standard.set(true, forKey: VoiceSettings.companionEnabledKey) }
 
     /// The master switch was turned off in Settings — end any live call.
-    func companionDisabled() { if isActive { stopRealtime() } }
+    func companionDisabled() { endNotice = nil; if isActive { stopRealtime() } }
 
     // MARK: Realtime speech-to-speech
 
     private func startRealtime() {
         errorText = nil
+        endNotice = nil
         guard isAvailable else {
             errorText = String(localized: "Add your \(VoiceSettings.provider.display) API key in Settings first."); return
         }
@@ -153,6 +158,7 @@ final class VoiceChat: ObservableObject {
         )
         self.coordinator = coordinator
         activeProvider = provider
+        callProvider = provider
         lastUserText = ""; lastReply = ""
         coordinator.beginConnecting()
         syncFromCoordinator(coordinator)
@@ -244,12 +250,14 @@ final class VoiceChat: ObservableObject {
             break
         case .failed(let message):
             voiceLog.error("realtime failed: \(message, privacy: .public)")
+        case .providerLimitReached:
+            voiceLog.info("realtime provider limit reached; call ended, redial offered")
         case .closed:
             break
         }
         coordinator.handle(event)
         syncFromCoordinator(coordinator)
-        if coordinator.phase == .idle { self.coordinator = nil }
+        if coordinator.isFinished { self.coordinator = nil }
     }
 
     private var audioOwnerID = UUID()
@@ -307,6 +315,7 @@ final class VoiceChat: ObservableObject {
         lastUserText = coordinator.lastUserText
         lastReply = coordinator.lastReply
         errorText = coordinator.errorText
+        endNotice = coordinator.endReason.map { $0.notice(provider: callProvider ?? VoiceSettings.provider) }
     }
 
     private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {
@@ -317,13 +326,22 @@ final class VoiceChat: ObservableObject {
         case .listening: .listening
         case .thinking: .thinking
         case .speaking: .speaking
+        case .ended: .idle
         }
+    }
+
+    /// One tap after a provider-limit ending: a fresh call with the same
+    /// Settings. Nothing from the ended call is sent to the new session.
+    func redial() {
+        guard phase == .idle, endNotice != nil else { return }
+        toggle()
     }
 
     /// Called when the provider (or its model/voice) changes in Settings: if a
     /// session is live, restart it so the new provider takes effect immediately —
     /// no manual close-then-reopen. A no-op when idle.
     func reloadProviderIfActive() {
+        endNotice = nil   // it names the provider that ended; Redial would use the new one
         guard isActive else { return }
         stopRealtime()
         startRealtime()
