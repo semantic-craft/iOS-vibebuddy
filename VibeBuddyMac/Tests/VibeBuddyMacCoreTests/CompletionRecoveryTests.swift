@@ -3,7 +3,8 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Completion recovery")
+// Several tests pin resultClock; a regression there loops instead of expiring.
+@Suite("Completion recovery", .timeLimit(.minutes(1)))
 struct CompletionRecoveryTests {
     @Test("idle restored conversations obtain their exact native title without changing completion")
     func idleConversationTitle() async throws {
@@ -366,15 +367,15 @@ struct CompletionRecoveryTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let journal = dir.appendingPathComponent("journal.json")
-        let store = SessionStore(sourceID: "source", journalURL: journal)
         let now = Date()
+        let store = SessionStore(sourceID: "source", journalURL: journal, resultClock: { now })
         let hook = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s",
             "turn_id": "native-a", "last_assistant_message": "Exact native Hook answer"])
         await store.ingest(hook, agent: .codex, receivedAt: now)
         let completion = try #require(await store.snapshot(now: now).sessions.first?.completionID)
         #expect(await store.completionBody(sessionID: "s", completionID: completion).text == nil)
         let pending = Task { await store.completionResult(sessionID: "s", completionID: completion) }
-        try await Task.sleep(for: .milliseconds(60))
+        await untilCompletionWaitParks(store)
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex, observationSource: .rollout,
             timestamp: now, turnID: "native-a", completionText: "Verified native final", completionSucceeded: true))
         guard case .ready(let result) = await pending.value else {
@@ -385,7 +386,7 @@ struct CompletionRecoveryTests {
         #expect(result.finalText == "Verified native final")
         let key = RecapEntry.completedID(sourceID: "source", sessionID: "s", completionID: completion)
         #expect(RecapLedger(url: dir.appendingPathComponent("recap-ledger.json")).results[key]?.startedAt == nil)
-        let restored = SessionStore(sourceID: "source", journalURL: journal)
+        let restored = SessionStore(sourceID: "source", journalURL: journal, resultClock: { now })
         #expect(await restored.completionBody(sessionID: "s", completionID: completion).text == result.finalText)
         #expect(await restored.completionResult(sessionID: "s", completionID: completion) == .resultUnavailable)
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
@@ -396,8 +397,8 @@ struct CompletionRecoveryTests {
     }
 
     @Test func hookBlockedContinuationNeverAnnouncesAnIntermediateCompletion() async throws {
-        let store = SessionStore(sourceID: "source")
         let now = Date()
+        let store = SessionStore(sourceID: "source", resultClock: { now })
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
             observationSource: .rollout, timestamp: now.addingTimeInterval(-10), turnID: "same-turn"))
         let hook = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s",

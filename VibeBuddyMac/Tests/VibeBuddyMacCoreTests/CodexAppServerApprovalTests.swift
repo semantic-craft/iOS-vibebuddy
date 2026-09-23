@@ -182,6 +182,8 @@ struct CodexAppServerApprovalTests {
                                         ["id": "name", "header": "Name", "question": "Project name?", "isOther": true, "isSecret": false, "options": NSNull()],
                                       ]]])
         #expect(await waitFor { await h.session("thr-6")?.pendingQuestion != nil })
+        // The card is published an actor hop before the monitor starts waiting.
+        #expect(await waitFor { await h.questions.isWaiting(sessionID: "thr-6") })
         let question = try #require(await h.session("thr-6")?.pendingQuestion)
         #expect(question.items.map(\.id) == ["db", "name"])
         #expect(question.items[0].options.map(\.label) == ["Postgres", "SQLite"])

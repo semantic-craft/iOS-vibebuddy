@@ -107,6 +107,10 @@ struct CursorFollowupTimeoutTests {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
+        // Not `waitUntilExit()`: it parks a cooperative thread in a run loop
+        // that can miss the exit wake-up, which hung a full `swift test` run.
+        let (exited, exit) = AsyncStream<Void>.makeStream()
+        process.terminationHandler = { _ in exit.finish() }
         let started = Date()
         try process.run()
         input.fileHandleForWriting.write(Data(#"{"hook_event_name":"stop","conversation_id":"timeout-test"}"#.utf8))
@@ -116,7 +120,7 @@ struct CursorFollowupTimeoutTests {
         }
         let elapsed = Date().timeIntervalSince(started)
         if process.isRunning { process.terminate() }
-        process.waitUntilExit()
+        for await _ in exited {}
         #expect(elapsed < deadline, "took \(elapsed)s against a \(deadline)s stop timeout")
         #expect(process.terminationStatus == 0)
         #expect(output.fileHandleForReading.availableData.isEmpty)
