@@ -52,12 +52,11 @@ struct ClaudeHooks {
         ("CwdChanged", .init(2, 1, 83)),
         ("SessionEnd", .init(1, 0, 85)),
     ]
-    /// With no version to go on, assume a CLI as old as the approval
-    /// contract itself: every core event, none of the recent ones.
+    /// With no version to go on, a fresh install gets the events a CLI as old
+    /// as the approval contract knows. An unknown version never removes
+    /// anything: forwarders already on newer events stay (only a known
+    /// version may say an event is unsupported).
     static let unknownVersionFloor = ClaudeCodeVersion(2, 0, 45)
-    /// `args` (exec form, no shell) arrived in 2.1.139; older releases ignore
-    /// it and shell-parse `command`, which breaks on a path with a space.
-    static let execFormMinimum = ClaudeCodeVersion(2, 1, 139)
     /// Claude validates the PermissionRequest `decision` reply from 2.1.257;
     /// an older CLI waits silently on it, so the gate stays on PreToolUse.
     static let permissionRequestMinimum = ClaudeCodeVersion(2, 1, 257)
@@ -74,20 +73,25 @@ struct ClaudeHooks {
 
     // MARK: - Commands
 
-    var forwarderPath: String { paths.script("vibebuddy-forward.sh").path }
+    /// Always the shell form, `"<path>" claude`, never exec form (`args`):
+    /// Claude before 2.1.139 and Grok's `[compat.claude]` bridge (its hook
+    /// handler has no `args` field) both shell-parse `command`, and the stable
+    /// path contains a space ("Application Support"). Quoted, it parses the
+    /// same everywhere.
+    var forwarderCommand: String { ShellWords.quoted(paths.script("vibebuddy-forward.sh").path) + " claude" }
     var approvalCommand: String { ShellWords.quoted(paths.script("approval-hook.sh").path) }
     /// The inert `claude` argument keeps Grok's `[compat.claude]` bridge from
     /// resolving a quoted, argument-less command as a literal path.
     var captureCommand: String { ShellWords.quoted(paths.script("capture-terminal.sh").path) + " claude" }
-    var statusLineCommand: String { ShellWords.quoted(paths.script("vibebuddy-statusline.sh").path) }
-    var usesExecForm: Bool { version.map { $0 >= Self.execFormMinimum } ?? false }
+    /// The key names this config directory's saved original, so the wrapper
+    /// delegates to the right one when several Claude config dirs are wired.
+    var statusLineCommand: String {
+        ShellWords.quoted(paths.script("vibebuddy-statusline.sh").path) + " " + paths.claudeKey
+    }
 
     func statusGroup(_ event: String) -> OrderedJSON {
-        let hook: OrderedJSON = usesExecForm
-            ? .obj(["type": .string("command"), "command": .string(forwarderPath),
-                    "args": .array([.string("claude")]), "timeout": .int(5), "async": .bool(true)])
-            : .obj(["type": .string("command"), "command": .string(ShellWords.quoted(forwarderPath) + " claude"),
-                    "timeout": .int(5), "async": .bool(true)])
+        let hook: OrderedJSON = .obj(["type": .string("command"), "command": .string(forwarderCommand),
+                                      "timeout": .int(5), "async": .bool(true)])
         return Self.toolEvents.contains(event)
             ? .obj(["matcher": .string("*"), "hooks": .array([hook])])
             : .obj(["hooks": .array([hook])])
@@ -164,9 +168,11 @@ struct ClaudeHooks {
                 summary.append(installApproval(&data, lines: &outcome.lines))
             }
             installSummary = summary
-            outcome.lines.append("Claude Code \(version?.description ?? "version unknown"): "
-                + "\(Self.statusEvents(for: version).count) status events"
-                + (version == nil ? " (conservative set; run install again once `claude` is on this Mac)" : ""))
+            let events = (data["hooks"]?.members ?? []).filter { member in
+                (member.value.elements ?? []).contains { groupContains($0, where: isStatus) } }.count
+            outcome.lines.append(version.map { "Claude Code \($0): \(events) status events" }
+                ?? "Claude Code version unknown (no `claude` found): \(events) status events; nothing already "
+                    + "installed was removed. Run install again once `claude` is on this Mac for the full set.")
         }
         outcome.changed = try writeIfChanged(data, original: original, existed: existed,
                                              to: paths.claudeSettings, agent: .claude, files: files,
@@ -208,7 +214,16 @@ struct ClaudeHooks {
     func installHooks(_ data: inout OrderedJSON) -> [String] {
         var hooks = data["hooks"] ?? .object([])
         var added: [String] = []
-        let wanted = Self.statusEvents(for: version)
+        var wanted = Self.statusEvents(for: version)
+        if version == nil {
+            // Unknown (claude off the GUI's PATH, a slow cold start): keep, and
+            // re-point, every forwarder already installed rather than strip
+            // what a known version once chose.
+            for event in hooks.keys where !wanted.contains(event)
+                && (hooks[event]?.elements ?? []).contains(where: { groupContains($0, where: isStatus) }) {
+                wanted.append(event)
+            }
+        }
         for event in wanted {
             var groups = hooks[event]?.elements ?? []
             let expected = statusGroup(event)
@@ -221,7 +236,8 @@ struct ClaudeHooks {
         }
         // A forwarder on an event this CLI does not know (a downgrade, or an
         // install from a newer machine) would make Claude skip the whole file.
-        for event in hooks.keys where !wanted.contains(event) {
+        // Only a known version can say so.
+        for event in hooks.keys where version != nil && !wanted.contains(event) {
             let groups = hooks[event]?.elements ?? []
             guard groups.contains(where: { groupContains($0, where: isStatus) }) else { continue }
             let kept = groups.compactMap { strip($0, where: isStatus) }
@@ -306,11 +322,21 @@ struct ClaudeHooks {
         let existing = data["statusLine"]
         try files.ensureSupportDirectory()
         if Self.isWrapper(existing), var wrapper = existing {
+            // A pre-C-1 wrapper in ~/.claude kept its original in the unkeyed
+            // files: carry them over to this directory's keyed ones.
+            if paths.isDefaultClaudeDirectory {
+                for (legacy, keyed) in [(paths.legacyStatusLineOriginal, paths.statusLineOriginal),
+                                        (paths.legacyStatusLineOriginalCommand, paths.statusLineOriginalCommand)]
+                where !files.exists(keyed) {
+                    if let bytes = files.read(legacy) { try HookFileStore.atomicWrite(bytes, to: keyed, permissions: 0o600) }
+                }
+            }
             // Guard against a saved original that names the wrapper: it would
             // run itself until the machine runs out of processes.
-            if let saved = files.read(paths.statusLineOriginalCommand),
-               String(decoding: saved, as: UTF8.self).contains(Self.statusLineMarker) {
-                try HookFileStore.atomicWrite(Data(), to: paths.statusLineOriginalCommand, permissions: 0o600)
+            for url in [paths.statusLineOriginalCommand, paths.legacyStatusLineOriginalCommand] {
+                if let saved = files.read(url), String(decoding: saved, as: UTF8.self).contains(Self.statusLineMarker) {
+                    try HookFileStore.atomicWrite(Data(), to: url, permissions: 0o600)
+                }
             }
             guard wrapper["command"]?.stringValue != statusLineCommand else { return false }
             wrapper["command"] = .string(statusLineCommand)
@@ -326,6 +352,11 @@ struct ClaudeHooks {
         }
         if command.contains(Self.statusLineMarker) { command = "" }
         try HookFileStore.atomicWrite(Data(command.utf8), to: paths.statusLineOriginalCommand, permissions: 0o600)
+        if paths.isDefaultClaudeDirectory {
+            // A wrapper script from an older app build ignores the key and
+            // reads the unkeyed file; keep it right for ~/.claude.
+            try HookFileStore.atomicWrite(Data(command.utf8), to: paths.legacyStatusLineOriginalCommand, permissions: 0o600)
+        }
         var wrapper = original ?? .object([])
         wrapper["type"] = .string("command")
         wrapper["command"] = .string(statusLineCommand)
@@ -340,12 +371,18 @@ struct ClaudeHooks {
     func uninstallStatusLine(_ data: inout OrderedJSON) throws -> (Bool, String?) {
         guard Self.isWrapper(data["statusLine"]), let wrapper = data["statusLine"] else { return (false, nil) }
         var restored: OrderedJSON?? = nil   // .some(nil) = there was none
-        if let bytes = files.read(paths.statusLineOriginal),
+        // This directory's own files; the unkeyed ones only ever belonged to ~/.claude.
+        let legacy = paths.isDefaultClaudeDirectory
+        let savedJSON = files.exists(paths.statusLineOriginal) || !legacy
+            ? paths.statusLineOriginal : paths.legacyStatusLineOriginal
+        let savedCommand = files.exists(paths.statusLineOriginalCommand) || !legacy
+            ? paths.statusLineOriginalCommand : paths.legacyStatusLineOriginalCommand
+        if let bytes = files.read(savedJSON),
            let saved = try? OrderedJSON.parse(bytes), let value = saved["statusLine"] {
             if value.isObject { restored = .some(value) }
             else if value == .null { restored = .some(nil) }
         }
-        if restored == nil, let bytes = files.read(paths.statusLineOriginalCommand) {
+        if restored == nil, let bytes = files.read(savedCommand) {
             let command = String(decoding: bytes, as: UTF8.self)
             if command.isEmpty {
                 restored = .some(nil)
@@ -360,9 +397,9 @@ struct ClaudeHooks {
                 + "wrapper still runs (it adds nothing to the display). Edit statusLine in settings.json to remove it.")
         }
         data["statusLine"] = outcome
-        for url in [paths.statusLineOriginal, paths.statusLineOriginalCommand] {
-            try? FileManager.default.removeItem(at: url)
-        }
+        var used = [paths.statusLineOriginal, paths.statusLineOriginalCommand]
+        if legacy { used += [paths.legacyStatusLineOriginal, paths.legacyStatusLineOriginalCommand] }
+        for url in used { try? FileManager.default.removeItem(at: url) }
         return (true, nil)
     }
 }

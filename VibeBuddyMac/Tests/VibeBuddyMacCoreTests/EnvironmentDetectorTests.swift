@@ -66,6 +66,17 @@ struct EnvironmentDetectorTests {
         #expect(status.hookInjected == false)
     }
 
+    @Test("a user's own hook under a hooks/ directory is not mistaken for vibebuddy's")
+    func userHooksDirectoryIsNotInjected() throws {
+        let dir = tempDir()
+        let cfg = dir.appendingPathComponent("settings.json")
+        try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/Users/me/.claude/hooks/lint.sh"}]}]}}"#
+            .write(to: cfg, atomically: true, encoding: .utf8)
+        #expect(EnvironmentDetector.detect([CLISpec(name: "claude", configPath: cfg.path)]).first?.hookInjected == false)
+        try "// VibeBuddy OpenCode plugin — reports OpenCode lifecycle events".write(to: cfg, atomically: true, encoding: .utf8)
+        #expect(EnvironmentDetector.detect([CLISpec(name: "opencode", configPath: cfg.path)]).first?.hookInjected == true)
+    }
+
     @Test("a config carrying the forward marker is detected as injected")
     func injected() throws {
         let dir = tempDir()

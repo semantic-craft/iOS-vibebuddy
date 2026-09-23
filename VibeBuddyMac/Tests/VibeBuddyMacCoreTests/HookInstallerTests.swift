@@ -418,26 +418,39 @@ struct HookInstallerTests {
     func backupsAndManifest() throws {
         var home = try Home()
         defer { home.remove() }
+        let original = Data(#"{"model":"opus"}"#.utf8)
         try home.write(".claude/settings.json", #"{"model":"opus"}"#)
         #expect(home.installer.install([.claude]).failures == 0)
-        let backups = home.paths.backups.appendingPathComponent("claude")
-        let first = try FileManager.default.contentsOfDirectory(atPath: backups.path)
+        let backups = home.paths.backups.appendingPathComponent("claude-\(home.paths.configKey(home.paths.claudeSettings))")
+        func rotating() throws -> [String] {
+            try FileManager.default.contentsOfDirectory(atPath: backups.path).filter { !$0.hasSuffix(".first") }.sorted()
+        }
+        let pinned = backups.appendingPathComponent("settings.json.first")
+        #expect(FileManager.default.contents(atPath: pinned.path) == original)
+        let first = try rotating()
         #expect(first.count == 1)
-        #expect(FileManager.default.contents(atPath: backups.appendingPathComponent(first[0]).path) == Data(#"{"model":"opus"}"#.utf8))
+        // UTC timestamp plus a zero-padded counter: lexical order is chronological.
+        #expect(first[0].range(of: #"^settings\.json\.\d{8}T\d{6}Z-\d{3}$"#, options: .regularExpression) != nil)
+        #expect(FileManager.default.contents(atPath: backups.appendingPathComponent(first[0]).path) == original)
         // A no-op install writes no backup.
         _ = home.installer.install([.claude])
-        #expect(try FileManager.default.contentsOfDirectory(atPath: backups.path).count == 1)
-        // Pruned to the newest few.
+        #expect(try rotating().count == 1)
+        // Pruned to the newest few; the pre-vibebuddy copy is never pruned.
         for step in 1...14 {
-            home.now = home.now.addingTimeInterval(1)
+            if step > 4 { home.now = home.now.addingTimeInterval(1) }   // several writes in one second too
             _ = home.installer.install([.claude], approval: step % 2 == 1)
             if step % 2 == 0 { _ = home.installer.uninstall([.claude]) }
         }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: backups.path).count == HookFileStore.maximumBackupsPerFile)
+        let kept = try rotating()
+        #expect(kept.count == HookFileStore.maximumBackupsPerFile)
+        #expect(kept == kept.sorted())
+        #expect(!kept.contains(first[0]), "the oldest rotating copy is pruned")
+        #expect(FileManager.default.contents(atPath: pinned.path) == original)
         _ = home.installer.install([.claude], approval: true)
         let manifest = HookFileStore(paths: home.paths).loadManifest()
-        #expect(manifest.agents["claude"]?.commands.contains { $0.contains("approval-hook.sh") } == true)
-        #expect(manifest.agents["claude"]?.config == home.paths.claudeSettings.path)
+        let entry = manifest.agents[home.paths.entryKey(.claude)]
+        #expect(entry?.commands.contains { $0.contains("approval-hook.sh") } == true)
+        #expect(entry?.config == home.paths.claudeSettings.path)
     }
 
     @Test("a symlinked settings file is written through the link")
@@ -529,32 +542,61 @@ struct HookInstallerTests {
             return Set((doc["hooks"] as? [String: Any] ?? [:]).keys.filter { event in
                 Self.commands(doc, event).contains { $0.contains("vibebuddy-forward.sh") } })
         }
+        let core: Set<String> = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+                                 "PostToolUse", "Notification", "SubagentStart", "SubagentStop",
+                                 "PreCompact", "Stop", "SessionEnd"]
         try home.write(".claude/settings.json",
             #"{"hooks":{"PostModelSwitch":[{"hooks":[{"type":"command","command":"echo user-switch"}]}]}}"#)
+        // A fresh install with no version to go on: the core set.
+        home.version = nil
+        _ = home.installer.install([.claude])
+        #expect(try ourEvents() == core)
+
         home.version = ClaudeCodeVersion(2, 1, 280)
         _ = home.installer.install([.claude])
         #expect(try ourEvents() == Set(ClaudeHooks.eventMinimums.map(\.event)))
+        let full = home.bytes(".claude/settings.json")
 
+        // A Repair that cannot find `claude` (GUI PATH, slow cold start)
+        // leaves a working install exactly as it was.
+        home.version = nil
+        _ = home.installer.install([.claude])
+        #expect(home.bytes(".claude/settings.json") == full)
+
+        // Only a known older version withdraws what it does not know.
         home.version = ClaudeCodeVersion(2, 1, 80)
         let older = home.installer.install([.claude])
         #expect(older.failures == 0)
         let events = try ourEvents()
-        #expect(events.contains("StopFailure") && events.contains("PostCompact") && events.contains("PermissionDenied") == false)
+        #expect(events.contains("StopFailure") && events.contains("PostCompact"))
         for newer in ["PostModelSwitch", "PostToolBatch", "CwdChanged", "TaskCreated", "PermissionDenied", "PostToolUseFailure"] {
             #expect(!events.contains(newer), "\(newer) written for 2.1.80")
         }
         // The user's own hook on an event we withdrew stays.
         #expect(Self.commands(try home.json(".claude/settings.json"), "PostModelSwitch") == ["echo user-switch"])
+    }
 
-        home.version = nil
-        _ = home.installer.install([.claude])
-        #expect(try ourEvents() == ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
-                                    "PostToolUse", "Notification", "SubagentStart", "SubagentStop",
-                                    "PreCompact", "Stop", "SessionEnd"])
-        // No `args` for a CLI that may predate exec form: the path is quoted in `command`.
-        let stop = try #require(Self.handlers(try home.json(".claude/settings.json"), "Stop").first)
-        #expect(stop["args"] == nil)
-        #expect((stop["command"] as? String)?.hasSuffix("vibebuddy-forward.sh\" claude") == true)
+    @Test("Claude commands are shell form with a quoted path (Grok's bridge has no `args`)")
+    func claudeShellForm() throws {
+        let home = try Home()
+        defer { home.remove() }
+        let old = "/Applications/VibeBuddyMacApp.app/Contents/Resources/hooks/vibebuddy-forward.sh"
+        try home.write(".claude/settings.json",
+            #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\#(old)","args":["claude"],"timeout":5,"async":true}]}]}}"#)
+        _ = home.installer.install([.claude], approval: true)
+        let doc = try home.json(".claude/settings.json")
+        for event in (doc["hooks"] as? [String: Any] ?? [:]).keys {
+            for hook in Self.handlers(doc, event) {
+                #expect(hook["args"] == nil, "\(event) kept exec form")
+                let command = try #require(hook["command"] as? String)
+                let argv = try #require(ShellWords.split(command))
+                #expect(argv[0].hasPrefix(home.paths.bin.path), "\(event): \(command)")
+                #expect(FileManager.default.isExecutableFile(atPath: argv[0]))
+            }
+        }
+        let status = try #require(doc["statusLine"] as? [String: Any])
+        #expect(ShellWords.split(try #require(status["command"] as? String))
+                == [home.paths.script("vibebuddy-statusline.sh").path, home.paths.claudeKey])
     }
 
     @Test("version strings parse and compare numerically")
@@ -564,6 +606,131 @@ struct HookInstallerTests {
         #expect(ClaudeCodeVersion(2, 1, 99) < ClaudeCodeVersion(2, 1, 100))
         #expect(ClaudeCodeVersion.probe(environment: ["VIBEBUDDY_CLAUDE_VERSION": "2.0.1"],
                                         home: URL(fileURLWithPath: "/nonexistent")) == ClaudeCodeVersion(2, 0, 1))
+    }
+
+    @Test("the version probe finds a claude whose interpreter lives beside it, off the GUI PATH")
+    func probePath() throws {
+        let home = try Home()
+        defer { home.remove() }
+        // Stands in for an npm `claude` (`#!/usr/bin/env node`) under launchd's bare PATH.
+        try home.write(".local/bin/fake-node", "#!/bin/sh\necho '2.1.99 (Claude Code)'\n")
+        try home.write(".local/bin/claude", "#!/usr/bin/env fake-node\n")
+        for name in ["fake-node", "claude"] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: home.url(".local/bin/\(name)").path)
+        }
+        #expect(ClaudeCodeVersion.probe(environment: ["PATH": "/usr/bin:/bin"], home: home.root)
+                == ClaudeCodeVersion(2, 1, 99))
+    }
+
+    // MARK: - Two Claude config directories
+
+    @Test("two Claude config dirs keep separate status lines, manifest entries and bin/ lifetime")
+    func twoClaudeConfigDirs() throws {
+        var home = try Home()
+        defer { home.remove() }
+        try home.write(".claude/settings.json", #"{"statusLine":{"type":"command","command":"personal-sl"}}"#)
+        try home.write(".claude-work/settings.json", #"{"statusLine":{"type":"command","command":"work-sl"}}"#)
+        #expect(home.installer.install([.claude]).failures == 0)
+        let personalKey = home.paths.claudeKey
+        home.variables["CLAUDE_CONFIG_DIR"] = home.url(".claude-work").path
+        #expect(home.installer.install([.claude]).failures == 0)
+        let workKey = home.paths.claudeKey
+        #expect(personalKey != workKey)
+
+        // Each wrapper runs its own original.
+        for (path, expected) in [(".claude/settings.json", "personal-sl"), (".claude-work/settings.json", "work-sl")] {
+            let command = try #require((try home.json(path)["statusLine"] as? [String: Any])?["command"] as? String)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", command]
+            process.environment = ["PATH": "/usr/bin:/bin", "HOME": home.root.path, "VIBEBUDDY_TOKEN": "",
+                                   "VIBEBUDDY_SUPPORT_DIR": home.paths.support.path]
+            let input = Pipe(), output = Pipe()
+            process.standardInput = input
+            process.standardOutput = output
+            // `personal-sl` / `work-sl` are not real commands: the shell names them in its error.
+            process.standardError = output
+            try process.run()
+            try input.fileHandleForWriting.close()
+            process.waitUntilExit()
+            let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            #expect(text.contains(expected), "\(path) ran: \(text)")
+            #expect(!text.contains(expected == "work-sl" ? "personal-sl" : "work-sl"))
+        }
+
+        // Uninstall with the default environment: only ~/.claude changes.
+        home.variables = [:]
+        #expect(home.installer.uninstall([.claude]).failures == 0)
+        #expect((try home.json(".claude/settings.json")["statusLine"] as? [String: Any])?["command"] as? String == "personal-sl")
+        let work = try home.json(".claude-work/settings.json")
+        #expect(((work["statusLine"] as? [String: Any])?["command"] as? String)?.contains("vibebuddy-statusline.sh") == true)
+        #expect(FileManager.default.isExecutableFile(atPath: home.paths.script("vibebuddy-statusline.sh").path),
+                "bin/ must stay while .claude-work still names it")
+        let manifest = HookFileStore(paths: home.paths).loadManifest()
+        #expect(manifest.agents.keys.sorted() == ["claude:" + home.url(".claude-work/settings.json").standardizedFileURL.path])
+
+        // Then the work directory: its own original comes back and bin/ goes.
+        home.variables["CLAUDE_CONFIG_DIR"] = home.url(".claude-work").path
+        #expect(home.installer.uninstall([.claude]).failures == 0)
+        #expect((try home.json(".claude-work/settings.json")["statusLine"] as? [String: Any])?["command"] as? String == "work-sl")
+        #expect(!FileManager.default.fileExists(atPath: home.paths.bin.path))
+    }
+
+    @Test("a pre-C-1 ~/.claude wrapper and its unkeyed saved original migrate to the keyed files")
+    func legacyStatusLineFilesMigrate() throws {
+        let home = try Home()
+        defer { home.remove() }
+        let old = "\\\"/Applications/VibeBuddyMacApp.app/Contents/Resources/hooks/vibebuddy-statusline.sh\\\""
+        try home.write(".claude/settings.json", #"{"statusLine":{"type":"command","command":"\#(old)","padding":4}}"#)
+        try FileManager.default.createDirectory(at: home.paths.support, withIntermediateDirectories: true)
+        try Data(#"{"statusLine":{"type":"command","command":"~/my-line","padding":4}}"#.utf8).write(to: home.paths.legacyStatusLineOriginal)
+        try Data("~/my-line".utf8).write(to: home.paths.legacyStatusLineOriginalCommand)
+        #expect(home.installer.install([.claude]).failures == 0)
+        #expect(FileManager.default.contents(atPath: home.paths.statusLineOriginalCommand.path) == Data("~/my-line".utf8))
+        #expect(home.installer.uninstall([.claude]).failures == 0)
+        let restored = try #require(try home.json(".claude/settings.json")["statusLine"] as? [String: Any])
+        #expect(restored["command"] as? String == "~/my-line" && restored["padding"] as? Int == 4)
+        for url in [home.paths.statusLineOriginal, home.paths.statusLineOriginalCommand,
+                    home.paths.legacyStatusLineOriginal, home.paths.legacyStatusLineOriginalCommand] {
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    @Test("a Cursor hooks.json that is not valid JSON is refused, never replaced")
+    func cursorUnreadableRefused() throws {
+        let home = try Home()
+        defer { home.remove() }
+        let text = "{\"version\":1,\"hooks\":{\"stop\":[{\"command\":\"./mine.sh\"},]}} // trailing comma\n"
+        try home.write(".cursor/hooks.json", text)
+        let report = home.installer.install([.cursor], approval: true)
+        #expect(report.failures == 1)
+        #expect(home.bytes(".cursor/hooks.json") == Data(text.utf8))
+        #expect(home.installer.uninstall([.cursor]).failures == 1)
+        #expect(home.bytes(".cursor/hooks.json") == Data(text.utf8))
+    }
+
+    @Test("the script source prefers explicit, then the app bundle, then a checkout")
+    func scriptSourceOrder() throws {
+        let home = try Home()
+        defer { home.remove() }
+        func scripts(_ relative: String) throws -> URL {
+            for name in HookInstaller.runtimeScripts { try home.write("\(relative)/hooks/\(name)", "#!/bin/sh\n") }
+            return home.url(relative)
+        }
+        let checkout = try scripts("checkout")
+        let app = try scripts("App.app/Contents/Resources")
+        let exe = checkout.appendingPathComponent("VibeBuddyMac/.build/debug/vibebuddyd")
+        func locate(explicit: String? = nil, env: [String: String] = [:], installed: URL?) -> String? {
+            HookScriptSource.locate(explicit: explicit, environment: env, executable: exe, workingDirectory: checkout,
+                                    bundleResources: nil, installedApp: installed)?.standardizedFileURL.path
+        }
+        #expect(locate(installed: app) == app.appendingPathComponent("hooks").standardizedFileURL.path)
+        #expect(locate(installed: nil) == checkout.appendingPathComponent("hooks").standardizedFileURL.path)
+        #expect(locate(env: ["VIBEBUDDY_HOOKS_DIR": checkout.appendingPathComponent("hooks").path], installed: app)
+                == checkout.appendingPathComponent("hooks").standardizedFileURL.path)
+        #expect(locate(explicit: checkout.appendingPathComponent("hooks").path, installed: app)
+                == checkout.appendingPathComponent("hooks").standardizedFileURL.path)
+        #expect(locate(explicit: home.url("nowhere").path, installed: app) == nil)
     }
 
     // MARK: - Requirement 5: status line recursion guard
@@ -813,6 +980,10 @@ struct OrderedJSONTests {
         let value = try OrderedJSON.parse(Data(#"{"e":"\ud83d\ude00\/x"}"#.utf8))
         #expect(value["e"]?.stringValue == "😀/x")
         #expect(throws: OrderedJSON.ParseError.self) { try OrderedJSON.parse(Data("{\"a\":1,}".utf8)) }
+        // A lone surrogate refuses the file instead of becoming U+FFFD.
+        for lone in [#"{"e":"\ud83d"}"#, #"{"e":"\ud83dx"}"#, #"{"e":"\ude00"}"#, #"{"e":"\ud83d\u0041"}"#] {
+            #expect(throws: OrderedJSON.ParseError.self) { try OrderedJSON.parse(Data(lone.utf8)) }
+        }
         #expect(throws: OrderedJSON.ParseError.self) { try OrderedJSON.parse(Data("[1] 2".utf8)) }
     }
 }

@@ -375,20 +375,10 @@ struct CursorHooks {
         switch operation {
         case .statusLine: return outcome
         case .install(let requested):
-            var (document, raw, existed) = (OrderedJSON.object([]), OrderedJSON.object([]), false)
-            do {
-                (document, raw, existed) = try load()
-            } catch HookInstallerError.invalidConfig(let path, let reason)
-                        where files.read(paths.cursorHooks).map({ (try? OrderedJSON.parse($0)) == nil }) == true {
-                // Not JSON at all: keep a copy and start fresh (a file that parses
-                // but has the wrong shape is reported instead, and left alone).
-                outcome.lines.append("! \(path) is not readable (\(reason)) — backing it up and starting a fresh file.")
-                if let backup = try files.backup(paths.cursorHooks, agent: .cursor) {
-                    outcome.lines.append("backup: \(backup.path)")
-                }
-                document = .obj(["version": .int(1), "hooks": .object([])])
-                existed = false
-            }
+            // An unreadable file (a comment, a trailing comma) is refused like
+            // Claude's and Codex's, never replaced: it holds the user's hooks.
+            let (loaded, raw, existed) = try load()
+            var document = loaded
             let original = document
             let approval = requested || hasApproval(original)
             if !requested && approval { outcome.lines.append("keeping the existing approval gate (uninstall removes it)") }

@@ -24,8 +24,9 @@ Detection is by config directory (no PATH scanning): **Claude, Codex, Grok,
 Antigravity, OpenCode, Cursor**. Every install first copies these scripts to
 `~/Library/Application Support/vibebuddy/bin/` and verifies them; configs name
 only that path, so an app update or a moved checkout never changes a command
-(`vibebuddyd` finds this directory above its executable or the working
-directory; `--hooks-dir DIR` overrides). Idempotent (a re-run changes nothing on
+(`vibebuddyd` takes `--hooks-dir DIR` or `VIBEBUDDY_HOOKS_DIR`, then an app
+bundle — its own, else `/Applications/VibeBuddyMacApp.app` — then this directory
+found above its executable or the working directory, and prints which). Idempotent (a re-run changes nothing on
 disk), reversible (removes exactly our entries — old bundle and checkout paths
 included — and restores the status line), with a timestamped backup of every
 changed config under `…/vibebuddy/backups/`. Codex uses its first-class

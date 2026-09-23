@@ -15,7 +15,8 @@ enum HooksCommand {
                      uninstall from all of them.
       --approval     add the blocking phone-approval gate (Claude, Codex, Grok, Cursor).
       --statusline   Claude's status line only; no hooks are touched.
-      --hooks-dir    where the runtime scripts are (default: the checkout's hooks/).
+      --hooks-dir    where the runtime scripts are (default: VIBEBUDDY_HOOKS_DIR, then
+                     the app bundle, /Applications/VibeBuddyMacApp.app, then a checkout's hooks/).
                      They are copied to ~/Library/Application Support/vibebuddy/bin/,
                      the one path every config names.
 
@@ -47,11 +48,17 @@ enum HooksCommand {
             default: return fail("unknown option: \(argument)")
             }
         }
+        if action != "status", geteuid() == 0 {
+            return fail("refusing to run as root: it would write root's agent configs and leave root-owned files in yours. Run it as your own user.")
+        }
         let source = HookScriptSource.locate(explicit: hooksDirectory)
         if hooksDirectory != nil && source == nil {
             return fail("\(hooksDirectory!) does not contain the hook scripts")
         }
         let installer = HookInstaller(environment: .live(), scriptSource: source)
+        if action == "install" {
+            print("hook scripts from: \(source?.path ?? "(none found; using the existing \(installer.paths.bin.path))")")
+        }
         switch action {
         case "status":
             for status in installer.status() { print(status.summary) }
@@ -75,9 +82,6 @@ enum HooksCommand {
                 print("")
                 print(CodexHookTrustProbe.lines(for: await CodexHookTrustProbe.check(socketPath: installer.paths.codexControlSocket.path, timeout: .seconds(3)))
                     .joined(separator: "\n"))
-            }
-            if source == nil {
-                print("note: no hook script source found; used the existing \(installer.paths.bin.path)")
             }
             return report.failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE
         }

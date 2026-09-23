@@ -38,23 +38,33 @@ Python is involved. What it guarantees:
 
 - **One stable path.** The runtime scripts are copied to
   `~/Library/Application Support/vibebuddy/bin/` (from the app bundle's
-  `Contents/Resources/hooks/`, or a checkout's `hooks/` for `vibebuddyd`) on every
+  `Contents/Resources/hooks/`; `vibebuddyd` takes `--hooks-dir` /
+  `VIBEBUDDY_HOOKS_DIR`, then an app bundle, then a checkout's `hooks/`, and
+  prints which) on every
   install and repair, and on app launch while hooks are installed. Configs name
   only that path, so an app update never changes a command string — and Codex's
   trust, keyed to the command, survives it. Install refuses to write any config
   when a script is missing there.
 - **Traceable writes.** A config that changes is first copied to
-  `…/vibebuddy/backups/<agent>/<file>.<timestamp>` (newest 10 kept), then
-  replaced atomically (written through a symlink). `…/vibebuddy/hooks-manifest.json`
-  records the entries written. A repeated install changes nothing on disk.
+  `…/vibebuddy/backups/<agent>-<path key>/<file>.<UTC timestamp>-<n>` (newest 10
+  kept, plus `<file>.first`, the copy from before vibebuddy's first write, never
+  pruned), then replaced atomically (written through a symlink).
+  `…/vibebuddy/hooks-manifest.json` records the entries written, per agent and
+  config path. A repeated install changes nothing on disk. An unreadable
+  config (Claude, Codex or Cursor) is refused, never rewritten.
 - **Only our entries.** Entries are recognised by command — the stable path, the
   old app-bundle path, a checkout path, or the early inline `curl …:9876/hook` —
   so installs migrate old entries and uninstall removes only ours. Unknown keys,
   key order and number text are preserved; foreign hooks keep their place.
-- **Version-gated Claude events.** `claude --version` (5 s cap;
+- **Version-gated Claude events.** `claude --version` (5 s cap, with
+  Homebrew/`~/.local/bin`/the binary's own directory on PATH;
   `VIBEBUDDY_CLAUDE_VERSION` overrides) selects the events that release knows —
-  Claude skips a whole `settings.json` with an unknown event name. An unknown
-  version gets the conservative core set and shell-form commands.
+  Claude skips a whole `settings.json` with an unknown event name. With no
+  version, a fresh install gets the core set and existing forwarders are kept:
+  only a known version removes an event. Commands are always shell form with a
+  quoted path (`"…/Application Support/…/vibebuddy-forward.sh" claude`), never
+  exec-form `args`: Grok's `[compat.claude]` bridge has no `args` field and
+  older Claude releases ignore it.
 - **Environment.** `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `CURSOR_HOME`,
   `XDG_CONFIG_HOME` (OpenCode) and `HOME` are honoured.
 - **Remembered uninstall.** `…/vibebuddy/hooks-state.json` lists agents you
@@ -162,7 +172,10 @@ JSON on stdin; the wrapper copies that JSON to the daemon's `/statusline`
 command that was configured before, with the same stdin, printing its output —
 the terminal display is unchanged. The original object is saved under
 `~/Library/Application Support/vibebuddy/statusline-original.{json,cmd}` and
-uninstall restores it (or removes the key when there was none). The wrapper is
+uninstall restores it (or removes the key when there was none). Each Claude
+config directory (`CLAUDE_CONFIG_DIR`) has its own saved original,
+`statusline-original.<path key>.{json,cmd}`, and the wrapper is installed as
+`"…/vibebuddy-statusline.sh" <path key>` so it runs the right one. The wrapper is
 never saved as its own original (an older wrapper path is only re-pointed), and
 the script refuses to run a saved command that names itself, so wrapping can
 never recurse. When no saved original exists, uninstall leaves the status line

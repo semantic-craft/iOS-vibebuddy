@@ -158,6 +158,10 @@ swift run vibebuddyd hooks status                     # what is installed where
 swift run vibebuddyd hooks uninstall                  # remove everything
 ```
 
+The scripts are taken from the installed app when there is one, else from this
+checkout's `hooks/` (`--hooks-dir ../hooks` forces the checkout); the output
+names the source.
+
 ### Claude Code
 
 ```bash

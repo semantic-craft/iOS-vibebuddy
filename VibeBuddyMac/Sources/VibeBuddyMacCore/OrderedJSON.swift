@@ -202,14 +202,19 @@ indirect enum OrderedJSON: Equatable, Sendable {
                     case UInt8(ascii: "t"): out.append(0x09)
                     case UInt8(ascii: "u"):
                         var scalar = try hex4()
-                        if (0xD800...0xDBFF).contains(scalar), index + 6 <= bytes.count,
-                           bytes[index] == UInt8(ascii: "\\"), bytes[index + 1] == UInt8(ascii: "u") {
+                        if (0xD800...0xDBFF).contains(scalar) {
+                            // A lone surrogate is not text; refuse the file rather
+                            // than silently rewrite it as U+FFFD.
+                            guard index + 6 <= bytes.count, bytes[index] == UInt8(ascii: "\\"),
+                                  bytes[index + 1] == UInt8(ascii: "u") else { throw fail("lone surrogate") }
                             index += 2
                             let low = try hex4()
                             guard (0xDC00...0xDFFF).contains(low) else { throw fail("invalid surrogate pair") }
                             scalar = 0x10000 + ((scalar - 0xD800) << 10) + (low - 0xDC00)
+                        } else if (0xDC00...0xDFFF).contains(scalar) {
+                            throw fail("lone surrogate")
                         }
-                        let character = Unicode.Scalar(scalar) ?? "\u{FFFD}"
+                        guard let character = Unicode.Scalar(scalar) else { throw fail("invalid \\u escape") }
                         out.append(contentsOf: Array(String(character).utf8))
                     default: throw fail("invalid escape")
                     }

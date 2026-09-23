@@ -51,13 +51,17 @@ public struct CLIHookStatus: Sendable, Equatable {
 /// `NSWorkspace` (not here, to keep this pure and testable).
 public enum EnvironmentDetector {
     /// Substrings vibebuddy's installers (current and past) leave in a CLI config:
-    /// the forwarder endpoint and the script hook names. A format-agnostic scan — works
-    /// across JSON `settings.json`, TOML `config.toml`, and plugin dirs alike.
+    /// the script names, the early inline-curl endpoint and the OpenCode plugin
+    /// header. Deliberately not a bare `/hook`, which matches any user path
+    /// under a `hooks/` directory, and not the status line wrapper, which is
+    /// reported on its own (`statusLineWired`). A format-agnostic scan.
     public static let hookMarkers = [
-        "/hook",                 // the daemon endpoint of the early inline-curl hooks
+        "vibebuddy-forward.sh",
         "approval-hook.sh",
         "capture-terminal.sh",
-        "vibebuddy-forward.sh",
+        "cursor-followup.sh",
+        "127.0.0.1:9876/hook",        // the early inline-curl hooks
+        "VibeBuddy OpenCode plugin",  // the OpenCode plugin's header
     ]
 
     /// The status line wrapper the Claude installer writes. Same boundary the

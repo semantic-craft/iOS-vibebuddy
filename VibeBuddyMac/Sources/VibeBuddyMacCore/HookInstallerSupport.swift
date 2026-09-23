@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import VibeBuddyKit
 
@@ -55,6 +56,17 @@ public struct ClaudeCodeVersion: Comparable, Sendable, CustomStringConvertible {
         let process = Process()
         process.executableURL = binary
         process.arguments = ["--version"]
+        // A GUI app inherits launchd's bare PATH, and an npm-installed
+        // `claude` is a `#!/usr/bin/env node` script: give it the usual homes.
+        var variables = environment
+        let existing = (environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+        let extra = [binary.resolvingSymlinksInPath().deletingLastPathComponent().path,
+                     binary.deletingLastPathComponent().path,
+                     "/opt/homebrew/bin", "/usr/local/bin", home.appendingPathComponent(".local/bin").path]
+        var seen: Set<String> = []
+        variables["PATH"] = (extra + existing).filter { seen.insert($0).inserted }.joined(separator: ":")
+        variables["HOME"] = variables["HOME"] ?? home.path
+        process.environment = variables
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -181,8 +193,33 @@ public struct HookPaths: Sendable {
     public var manifest: URL { support.appendingPathComponent("hooks-manifest.json") }
     public var state: URL { support.appendingPathComponent("hooks-state.json") }
     public var backups: URL { support.appendingPathComponent("backups", isDirectory: true) }
-    public var statusLineOriginal: URL { support.appendingPathComponent("statusline-original.json") }
-    public var statusLineOriginalCommand: URL { support.appendingPathComponent("statusline-original.cmd") }
+
+    /// A short, stable id for one config file (first 12 hex digits of the
+    /// SHA-256 of its standardized path), so two Claude config directories
+    /// never share a saved status line, a backup rotation or a manifest entry.
+    public func configKey(_ url: URL) -> String {
+        let digest = SHA256.hash(data: Data(url.standardizedFileURL.path.utf8))
+        return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Manifest and remembered-uninstall key: the agent plus its config path.
+    public func entryKey(_ agent: HookAgent) -> String {
+        "\(agent.rawValue):\(hookFile(agent).standardizedFileURL.path)"
+    }
+
+    public var claudeKey: String { configKey(claudeSettings) }
+    /// `~/.claude`, the only directory the unkeyed pre-C-1 files belonged to.
+    public var isDefaultClaudeDirectory: Bool {
+        claudeDirectory.standardizedFileURL.path
+            == environment.home.appendingPathComponent(".claude").standardizedFileURL.path
+    }
+    /// The status line saved for *this* Claude config directory.
+    public var statusLineOriginal: URL { support.appendingPathComponent("statusline-original.\(claudeKey).json") }
+    public var statusLineOriginalCommand: URL { support.appendingPathComponent("statusline-original.\(claudeKey).cmd") }
+    /// The unkeyed files the Python installer (and scripts from older app
+    /// builds) used; read for `~/.claude` only.
+    public var legacyStatusLineOriginal: URL { support.appendingPathComponent("statusline-original.json") }
+    public var legacyStatusLineOriginalCommand: URL { support.appendingPathComponent("statusline-original.cmd") }
 
     public func script(_ name: String) -> URL { bin.appendingPathComponent(name) }
 }
@@ -252,29 +289,35 @@ struct HookFileStore {
 
     func exists(_ url: URL) -> Bool { fileManager.fileExists(atPath: url.path) }
 
-    /// Copy the current file to `backups/<agent>/<name>.<timestamp>` and keep
-    /// only the newest few. Returns the backup's path.
+    /// Copy the current file to `backups/<agent>-<config key>/<name>.<UTC
+    /// timestamp>-<counter>` and keep only the newest few; the very first copy
+    /// of each config (`<name>.first`, the file as it was before vibebuddy
+    /// ever wrote it) is kept for good. Returns the timestamped copy.
     @discardableResult
     func backup(_ url: URL, agent: HookAgent) throws -> URL? {
         guard let data = read(url) else { return nil }
-        let directory = paths.backups.appendingPathComponent(agent.rawValue, isDirectory: true)
+        let directory = paths.backups.appendingPathComponent("\(agent.rawValue)-\(paths.configKey(url))", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
                                         attributes: [.posixPermissions: 0o700])
+        let name = url.lastPathComponent
+        let first = directory.appendingPathComponent("\(name).first")
+        if !exists(first) { try Self.atomicWrite(data, to: first, permissions: 0o600) }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         let stamp = formatter.string(from: paths.environment.now())
-        var target = directory.appendingPathComponent("\(url.lastPathComponent).\(stamp)")
         var counter = 1
-        while exists(target) {
+        var target: URL
+        repeat {
+            target = directory.appendingPathComponent("\(name).\(stamp)-\(String(format: "%03d", counter))")
             counter += 1
-            target = directory.appendingPathComponent("\(url.lastPathComponent).\(stamp)-\(counter)")
-        }
+        } while exists(target)
         try Self.atomicWrite(data, to: target, permissions: 0o600)
-        let siblings = ((try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [])
-            .filter { $0.hasPrefix(url.lastPathComponent + ".") }
+        let rotating = ((try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { $0.hasPrefix(name + ".") && $0 != first.lastPathComponent }
             .sorted()
-        for stale in siblings.dropLast(Self.maximumBackupsPerFile) {
+        for stale in rotating.dropLast(Self.maximumBackupsPerFile) {
             try? fileManager.removeItem(at: directory.appendingPathComponent(stale))
         }
         return target
@@ -314,7 +357,8 @@ struct HookFileStore {
     }
 }
 
-/// What the installer wrote, per agent, so it can recognise its own entries
+/// What the installer wrote, per agent *and config path* (`HookPaths.entryKey`,
+/// e.g. `claude:/Users/me/.claude-work/settings.json`), so it can recognise its own entries
 /// even after the command shape changes, and so status can say what is there.
 struct HookManifest: Codable, Equatable {
     struct Entry: Codable, Equatable {
@@ -329,7 +373,7 @@ struct HookManifest: Codable, Equatable {
     var allCommands: Set<String> { Set(agents.values.flatMap(\.commands)) }
 }
 
-/// Agents the user explicitly uninstalled. Launches and updates read it and
+/// Agents (by `HookPaths.entryKey`) the user explicitly uninstalled. Launches and updates read it and
 /// never bring those hooks back; an explicit install clears the agent again.
 struct HookInstallState: Codable, Equatable {
     var uninstalled: [String] = []
@@ -376,18 +420,21 @@ extension HookFileStore {
 // MARK: - Where the runtime scripts come from
 
 /// The directory holding the runtime hook scripts, for callers without an app
-/// bundle (`vibebuddyd hooks` run from a checkout): an explicit directory, then
-/// `VIBEBUDDY_HOOKS_DIR`, then a `hooks/` directory above the executable or the
-/// working directory (a checkout's `VibeBuddyMac/.build/debug/vibebuddyd`
-/// finds the repository's `hooks/`), then an enclosing app bundle's resources.
-/// Nil when none has the scripts; the installer then relies on an existing
-/// stable `bin/` copy.
+/// bundle of their own (`vibebuddyd hooks`): an explicit directory, then
+/// `VIBEBUDDY_HOOKS_DIR`, then an app bundle — the one enclosing this
+/// executable, else the installed `/Applications/VibeBuddyMacApp.app` — and
+/// only then a `hooks/` directory above the executable or the working
+/// directory (a checkout). The bundle wins over a checkout so that running a
+/// feature branch's daemon does not replace the shared `bin/` with that
+/// branch's scripts unless asked to (`--hooks-dir`). Nil when none has the
+/// scripts; the installer then relies on an existing stable `bin/` copy.
 public enum HookScriptSource {
     public static func locate(explicit: String? = nil,
                               environment: [String: String] = ProcessInfo.processInfo.environment,
                               executable: URL? = Bundle.main.executableURL,
                               workingDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-                              bundleResources: URL? = Bundle.main.resourceURL) -> URL? {
+                              bundleResources: URL? = Bundle.main.resourceURL,
+                              installedApp: URL? = URL(fileURLWithPath: "/Applications/VibeBuddyMacApp.app/Contents/Resources")) -> URL? {
         func valid(_ url: URL) -> Bool {
             HookInstaller.runtimeScripts.allSatisfy {
                 FileManager.default.fileExists(atPath: url.appendingPathComponent($0).path)
@@ -401,6 +448,10 @@ public enum HookScriptSource {
             let url = URL(fileURLWithPath: (variable as NSString).expandingTildeInPath, isDirectory: true)
             if valid(url) { return url }
         }
+        for resources in [bundleResources, installedApp].compactMap({ $0 }) {
+            let candidate = resources.appendingPathComponent("hooks", isDirectory: true)
+            if valid(candidate) { return candidate }
+        }
         var starts: [URL] = []
         if let executable { starts.append(executable.resolvingSymlinksInPath().deletingLastPathComponent()) }
         starts.append(workingDirectory)
@@ -413,10 +464,6 @@ public enum HookScriptSource {
                 if parent.path == directory.path { break }
                 directory = parent
             }
-        }
-        if let bundleResources {
-            let candidate = bundleResources.appendingPathComponent("hooks", isDirectory: true)
-            if valid(candidate) { return candidate }
         }
         return nil
     }

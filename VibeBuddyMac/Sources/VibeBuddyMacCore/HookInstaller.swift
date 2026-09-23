@@ -94,7 +94,7 @@ public struct HookInstaller: Sendable {
         let uninstalled = Set(files.loadState().uninstalled)
         let active = manifest.agents.keys.filter { !uninstalled.contains($0) }
         let referenced = HookAgent.allCases.contains { agent in
-            !uninstalled.contains(agent.rawValue) && referencesBin(agent)
+            !uninstalled.contains(paths.entryKey(agent)) && referencesBin(agent)
         }
         guard !active.isEmpty || referenced else { return nil }
         do {
@@ -140,14 +140,14 @@ public struct HookInstaller: Sendable {
                 let outcome = try perform(.install(approval: approval && agent.supportsApproval), agent, context)
                 report.lines += outcome.lines
                 report.touched.append(agent)
-                let previous = manifest.agents[agent.rawValue]
+                let previous = manifest.agents[paths.entryKey(agent)]
                 if previous?.commands != outcome.commands || previous?.approval != outcome.approval
                     || previous?.config != paths.hookFile(agent).path {
-                    manifest.agents[agent.rawValue] = HookManifest.Entry(
+                    manifest.agents[paths.entryKey(agent)] = HookManifest.Entry(
                         config: paths.hookFile(agent).path, commands: outcome.commands,
                         approval: outcome.approval, installedAt: paths.environment.now())
                 }
-                state.uninstalled.removeAll { $0 == agent.rawValue }
+                state.uninstalled.removeAll { $0 == paths.entryKey(agent) }
             } catch {
                 report.failures += 1
                 report.lines.append("! \(agent.rawValue): \(error)")
@@ -166,13 +166,13 @@ public struct HookInstaller: Sendable {
             report.lines += outcome.lines
             report.touched = [.claude]
             var state = files.loadState()
-            state.uninstalled.removeAll { $0 == HookAgent.claude.rawValue }
+            state.uninstalled.removeAll { $0 == paths.entryKey(.claude) }
             var manifest = files.loadManifest()
-            if var entry = manifest.agents[HookAgent.claude.rawValue] {
+            if var entry = manifest.agents[paths.entryKey(.claude)] {
                 entry.commands = Array(Set(entry.commands + outcome.commands)).sorted()
-                manifest.agents[HookAgent.claude.rawValue] = entry
+                manifest.agents[paths.entryKey(.claude)] = entry
             } else {
-                manifest.agents[HookAgent.claude.rawValue] = HookManifest.Entry(
+                manifest.agents[paths.entryKey(.claude)] = HookManifest.Entry(
                     config: paths.claudeSettings.path, commands: outcome.commands,
                     approval: false, installedAt: paths.environment.now())
             }
@@ -195,8 +195,8 @@ public struct HookInstaller: Sendable {
                 let outcome = try perform(.uninstall, agent, context)
                 report.lines.append("\(agent.rawValue): " + outcome.lines.joined(separator: "; "))
                 if outcome.changed { report.touched.append(agent) }
-                manifest.agents[agent.rawValue] = nil
-                if !state.uninstalled.contains(agent.rawValue) { state.uninstalled.append(agent.rawValue) }
+                manifest.agents[paths.entryKey(agent)] = nil
+                if !state.uninstalled.contains(paths.entryKey(agent)) { state.uninstalled.append(paths.entryKey(agent)) }
             } catch {
                 report.failures += 1
                 report.lines.append("! \(agent.rawValue): \(error)")
@@ -204,7 +204,8 @@ public struct HookInstaller: Sendable {
         }
         state.uninstalled.sort()
         persist(manifest: manifest, state: state, into: &report)
-        // Once nothing names the stable scripts, they go too.
+        // Once nothing names the stable scripts — no manifest entry for any
+        // agent or config directory, and no config visible here — they go too.
         if manifest.agents.isEmpty, !HookAgent.allCases.contains(where: referencesBin),
            files.exists(paths.bin) {
             try? FileManager.default.removeItem(at: paths.bin)
@@ -250,7 +251,7 @@ public struct HookInstaller: Sendable {
                 approval: commands.contains { $0.contains("approval-hook.sh") },
                 // OpenCode's plugin is a copy, not a reference to bin/.
                 usesStablePath: !commands.isEmpty && (agent == .opencode || commands.allSatisfy { $0.contains(binPath) }),
-                explicitlyUninstalled: uninstalled.contains(agent.rawValue),
+                explicitlyUninstalled: uninstalled.contains(paths.entryKey(agent)),
                 statusLineWired: statusLine)
         }
     }
