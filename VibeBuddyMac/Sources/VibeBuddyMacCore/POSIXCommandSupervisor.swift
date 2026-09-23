@@ -279,7 +279,9 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         // CLOEXEC_DEFAULT: the child gets only the three descriptors dup2'd
         // below. Pipe() and other code in this process leave descriptors
         // inheritable, and a stray write end held by our child keeps some
-        // other reader from ever seeing EOF.
+        // other reader from ever seeing EOF. The dup2 sources must stay
+        // non-CLOEXEC: Darwin closes an identity dup2 (source == target) whose
+        // source is marked CLOEXEC.
         let attributeResults = [
             posix_spawnattr_setsigdefault(&attributes, &defaultSignals),
             posix_spawnattr_setsigmask(&attributes, &signalMask),

@@ -75,6 +75,8 @@ struct POSIXCommandSupervisorTests {
     /// Pipe() leaves its descriptors inheritable. A child that picks up some
     /// other reader's write end keeps that reader from ever seeing EOF, so the
     /// supervisor's children must get nothing beyond stdin, stdout and stderr.
+    /// The probe is an external command: a builtin's redirection makes the
+    /// shell back up fds 0 and 2 onto 10 and 11 first, a false "open".
     @Test("a child does not inherit the parent's other descriptors",
           .timeLimit(.minutes(1)))
     func descriptorsNotInherited() async throws {
@@ -87,7 +89,7 @@ struct POSIXCommandSupervisorTests {
             try supervisor.run(
                 executableURL: URL(fileURLWithPath: "/bin/sh"),
                 arguments: [
-                    "-c", "for fd in \"$@\"; do if { : <&\"$fd\"; } 2>/dev/null; then echo \"$fd open\"; fi; done; echo checked",
+                    "-c", "for fd in \"$@\"; do if /usr/bin/true <&\"$fd\" 2>/dev/null; then echo \"$fd open\"; fi; done; echo checked",
                     "vibebuddy-test", String(descriptors[0]), String(descriptors[1]),
                 ],
                 environment: [:],
