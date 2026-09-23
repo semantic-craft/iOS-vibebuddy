@@ -136,6 +136,22 @@ struct ClaudeAgentsSourceTests {
         #expect(Date().timeIntervalSince(start) < 1.9)
     }
 
+    @Test("runCLI closes stdout's read end before it returns: no reader outlives it",
+          .timeLimit(.minutes(1)))
+    func runCLIClosesStdoutOnReturn() throws {
+        // The grandchild writes after runCLI has given up. A reader still blocked
+        // in read() would take the line; a closed read end fails the write (EPIPE).
+        let home = try Self.fakeCLI(#"( (trap '' PIPE; sleep 3; echo late || touch "$HOME/closed") & ); echo '[]'; exit 0"#)
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 1) == nil)
+        let closed = home.appendingPathComponent("closed")
+        let limit = Date().addingTimeInterval(10)
+        while !FileManager.default.fileExists(atPath: closed.path), Date() < limit {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        #expect(FileManager.default.fileExists(atPath: closed.path))
+    }
+
     private final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_800_000_000) }
     private final class Box: @unchecked Sendable { var value: String; init(_ v: String) { value = v } }
 }

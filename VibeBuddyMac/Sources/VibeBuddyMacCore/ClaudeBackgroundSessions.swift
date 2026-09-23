@@ -233,7 +233,10 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
     /// `claude agents --json --all`, bounded; nil on any failure. Every wait
     /// is on the termination handler with a limit, never `waitUntilExit()`: a
     /// CLI stuck in uninterruptible I/O outlives SIGKILL and would otherwise
-    /// block the serial queue and every waiter behind it.
+    /// block the serial queue and every waiter behind it. Stdout is read here,
+    /// under the same deadline, and closed before returning: a blocking read on
+    /// another thread would leak that thread and the fd whenever the CLI, or a
+    /// grandchild holding stdout, never closes it.
     static func runCLI(environment: [String: String] = ProcessInfo.processInfo.environment,
                        home: URL = FileManager.default.homeDirectoryForCurrentUser,
                        timeout: TimeInterval = 15) -> Data? {
@@ -250,13 +253,6 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
         do { try process.run() } catch { return nil }
-        let collected = DataBox()
-        let reader = DispatchGroup()
-        reader.enter()
-        DispatchQueue.global(qos: .utility).async {
-            collected.set(out.fileHandleForReading.readDataToEndOfFile())
-            reader.leave()
-        }
         // TERM, a second's grace, then KILL; `isRunning` guards both signals, so
         // an exited child's PID, which may be reused, is never signalled.
         func stop() {
@@ -266,16 +262,37 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
             _ = exited.wait(timeout: .now() + 2)
         }
         let deadline = DispatchTime.now() + timeout
-        if reader.wait(timeout: deadline) == .timedOut { stop(); return nil }
+        let collected = readToEnd(out.fileHandleForReading.fileDescriptor, deadline: deadline)
+        try? out.fileHandleForReading.close()
+        guard let collected else { stop(); return nil }
         // Stdout closed; the exit normally follows at once.
         if exited.wait(timeout: max(deadline, .now() + 1)) == .timedOut { stop(); return nil }
-        return process.terminationStatus == 0 ? collected.get() : nil
+        return process.terminationStatus == 0 ? collected : nil
     }
 
-    private final class DataBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var data = Data()
-        func set(_ value: Data) { lock.lock(); data = value; lock.unlock() }
-        func get() -> Data { lock.lock(); defer { lock.unlock() }; return data }
+    /// Everything on `descriptor` up to end of file, or nil on an error or at
+    /// `deadline`. `poll()` bounds each wait, so `read()` never blocks.
+    private static func readToEnd(_ descriptor: Int32, deadline: DispatchTime) -> Data? {
+        var data = Data()
+        var bytes = [UInt8](repeating: 0, count: 16_384)
+        while true {
+            let now = DispatchTime.now()
+            guard now < deadline else { return nil }
+            let milliseconds = (deadline.uptimeNanoseconds - now.uptimeNanoseconds) / 1_000_000
+            var descriptors = [pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)]
+            let ready = descriptors.withUnsafeMutableBufferPointer {
+                Darwin.poll($0.baseAddress, nfds_t($0.count), Int32(clamping: max(1, milliseconds)))
+            }
+            if ready == 0 { return nil }
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return nil
+            }
+            let count = Darwin.read(descriptor, &bytes, bytes.count)
+            if count < 0, errno == EINTR { continue }
+            guard count >= 0 else { return nil }
+            if count == 0 { return data }
+            data.append(bytes, count: count)
+        }
     }
 }
