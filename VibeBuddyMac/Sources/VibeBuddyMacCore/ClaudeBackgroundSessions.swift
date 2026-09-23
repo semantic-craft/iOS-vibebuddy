@@ -244,6 +244,7 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
         let collected = DataBox()
         let reader = DispatchGroup()
         reader.enter()
@@ -251,7 +252,6 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
             collected.set(out.fileHandleForReading.readDataToEndOfFile())
             reader.leave()
         }
-        do { try process.run() } catch { return nil }
         let deadline = DispatchTime.now() + timeout
         if reader.wait(timeout: deadline) == .timedOut {
             process.terminate()

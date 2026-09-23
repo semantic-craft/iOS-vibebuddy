@@ -629,6 +629,9 @@ final class MenuBarModel: ObservableObject {
                                      backgroundSessions: {
                                          E2ERunConfiguration.current == nil ? ClaudeBackgroundSessions.load() : []
                                      },
+                                     findBackgroundSession: { id in
+                                         E2ERunConfiguration.current == nil ? await ClaudeBackgroundSessions.find(sessionID: id) : nil
+                                     },
                                      onAttach: { id, term in
                                          guard E2ERunConfiguration.current == nil else { return .noTerminal }
                                          return await TerminalLauncher.attach(claudeJobID: id, preferring: term)
@@ -798,7 +801,9 @@ final class MenuBarModel: ObservableObject {
                 generate: { [weak self] session in await self?.generateCompletionNotice(session) })
             while !Task.isCancelled {
                 if E2ERunConfiguration.current == nil {
-                    let background = await ClaudeBackgroundSessions.loadFresh()
+                    // Never wait for the CLI here: this loop also carries
+                    // approvals; the next pass picks up a refresh.
+                    let background = ClaudeBackgroundSessions.load()
                     await self.store.applyBackgroundSessions(background)
                 }
                 let snapshot = await self.store.snapshot(now: Date())
