@@ -26,15 +26,13 @@ struct ClaudeBackgroundSessionsTests {
             ("pins.json", "{}"),
         ])
         defer { try? FileManager.default.removeItem(at: root) }
-        let jobs = ClaudeBackgroundSessions.load(jobsDirectory: root)
+        let jobs = ClaudeBackgroundSessions.loadFromJobsDirectory(root)
         #expect(jobs.count == 1)
         #expect(jobs[0].id == "747978a2")
         #expect(jobs[0].name == "brooks sweep")
         #expect(jobs[0].state == "blocked")
         #expect(jobs[0].needs == "choose the next step")
-        #expect(ClaudeBackgroundSessions.find(sessionID: "747978a2-9efa-4859-8365-9f209d4fe9fe", jobsDirectory: root)?.id == "747978a2")
-        #expect(ClaudeBackgroundSessions.find(sessionID: "nope", jobsDirectory: root) == nil)
-        #expect(ClaudeBackgroundSessions.load(jobsDirectory: root.appendingPathComponent("missing")).isEmpty)
+        #expect(ClaudeBackgroundSessions.loadFromJobsDirectory(root.appendingPathComponent("missing")).isEmpty)
     }
 
     @Test("a job lends its name and needs line to an unnamed Claude row, never to other agents")

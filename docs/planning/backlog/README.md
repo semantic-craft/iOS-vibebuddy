@@ -13,7 +13,6 @@
 | PERF-01 | Mac App 持续高 CPU 与内存体检 | [01](performance/issues/01-mac-cpu-and-memory.md) | ready-for-agent（主因已修，PR #265） | 删除 History 存档（29.6 GB 索引）后 CPU 均值 11.2% → 3.1%；三档负载与 2 h 内存曲线待补测 | **优先** |
 | C-1 | Swift 安装器（Claude / Codex / Grok / Cursor / OpenCode），吸收原 AI-08 | [01](hook-installer/issues/01-swift-hook-installer.md) | ready-for-agent（实现完成，PR 评审中） | `HookSetup.swift` 仍调用 `python3`；运行时 hook 只需 `sh` + `curl` | **优先**，陌生 Mac 没有 python3 |
 | A-12 前置 | CloudKit 私有库提醒推送原型 | [01](public-push/issues/01-cloudkit-alert-push-prototype.md) | ready-for-agent | ADR-0013 已选方向 D，需实测延迟与按钮 | 保留，通过后 A-12 按 D 实现 |
-| AI-05 | Claude 后台会话改读 `claude agents --json` | [05](agent-integration-2026-09/issues/05-claude-agents-json.md) | ready-for-agent | 仍读 `~/.claude/jobs/*/state.json`（官方：不是稳定接口）；该命令一次约 10 s，必须缓存（见票 Comments） | 保留 |
 | C-1b | 观测健康诊断读取 `CLAUDE_CONFIG_DIR` / `CODEX_HOME` | — | ready-for-agent | `ObservationHealthDetector` 仍固定看 `~/.claude`、`~/.codex`；安装器与检测已改用 `HookPaths` | 小票，C-1 之后 |
 | AI-06 | 观测健康诊断补 Cursor 行 | [06](agent-integration-2026-09/issues/06-cursor-observation-health-row.md) | ready-for-agent | `ObservationHealthDetector` 只有 Claude / Codex / Grok | 保留，小票 |
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok -r` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | ready-for-agent | 代码里只有 `--no-leader`，没有恢复逻辑 | 保留 |

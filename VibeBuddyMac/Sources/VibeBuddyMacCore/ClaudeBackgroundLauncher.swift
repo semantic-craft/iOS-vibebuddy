@@ -3,21 +3,21 @@ import VibeBuddyKit
 
 /// Starts a Claude Code background session for a dispatch:
 /// `claude --bg [--name <name>] -- <prompt>` in the requested directory. The
-/// CLI prints `backgrounded · <job id> · <name>` and writes
-/// `~/.claude/jobs/<job id>/state.json` with the full session id, which is the
-/// id the hooks will report — so the phone can match the row that appears.
+/// CLI prints `backgrounded · <job id> · <name>`; `claude agents --json` then
+/// maps that job to the full session id, which is the id the hooks will
+/// report — so the phone can match the row that appears.
 /// Whether the installed CLI supports `--bg` is probed once and cached.
 public actor ClaudeBackgroundLauncher {
     private let executable: URL?
-    private let jobsDirectory: URL
+    private let agents: ClaudeAgentsSource
     private let launchTimeout: TimeInterval
     private var supported: Bool?
 
     public init(executable: URL? = ClaudeExecutable.resolve(),
-                jobsDirectory: URL = ClaudeBackgroundSessions.jobsDirectory(),
+                agents: ClaudeAgentsSource = .shared,
                 launchTimeout: TimeInterval = 30) {
         self.executable = executable
-        self.jobsDirectory = jobsDirectory
+        self.agents = agents
         self.launchTimeout = launchTimeout
     }
 
@@ -48,12 +48,13 @@ public actor ClaudeBackgroundLauncher {
                 ?? "claude --bg exited with status \(result.status)"
             return .unavailable(why)
         }
-        // The state file normally exists before the CLI returns; give it a moment.
-        for _ in 0..<10 {
-            if let session = ClaudeBackgroundSessions.load(jobsDirectory: jobsDirectory).first(where: { $0.id == job }) {
+        // The supervisor normally knows the job before the CLI returns; ask
+        // `claude agents` a few times, then fall back to the short job id.
+        for attempt in 0..<3 {
+            if let session = await agents.refreshNow().first(where: { $0.id == job }) {
                 return .started(sessionID: session.sessionID)
             }
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            if attempt < 2 { try? await Task.sleep(nanoseconds: 700_000_000) }
         }
         return .started(sessionID: job)
     }

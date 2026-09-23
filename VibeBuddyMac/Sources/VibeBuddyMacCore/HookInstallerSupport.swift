@@ -56,17 +56,7 @@ public struct ClaudeCodeVersion: Comparable, Sendable, CustomStringConvertible {
         let process = Process()
         process.executableURL = binary
         process.arguments = ["--version"]
-        // A GUI app inherits launchd's bare PATH, and an npm-installed
-        // `claude` is a `#!/usr/bin/env node` script: give it the usual homes.
-        var variables = environment
-        let existing = (environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
-        let extra = [binary.resolvingSymlinksInPath().deletingLastPathComponent().path,
-                     binary.deletingLastPathComponent().path,
-                     "/opt/homebrew/bin", "/usr/local/bin", home.appendingPathComponent(".local/bin").path]
-        var seen: Set<String> = []
-        variables["PATH"] = (extra + existing).filter { seen.insert($0).inserted }.joined(separator: ":")
-        variables["HOME"] = variables["HOME"] ?? home.path
-        process.environment = variables
+        process.environment = ClaudeExecutable.runEnvironment(for: binary, environment: environment, home: home)
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice

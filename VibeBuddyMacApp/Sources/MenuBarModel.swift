@@ -94,7 +94,10 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var tokenConsumption: TokenConsumptionSnapshot?
     private let claudeLauncher: ClaudeBackgroundLauncher = {
         guard let run = E2ERunConfiguration.current else { return ClaudeBackgroundLauncher() }
-        return ClaudeBackgroundLauncher(executable: nil, jobsDirectory: run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true))
+        let jobs = run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true)
+        return ClaudeBackgroundLauncher(executable: nil, agents: ClaudeAgentsSource(
+            run: { nil }, fingerprint: { "" },
+            fallback: { ClaudeBackgroundSessions.loadFromJobsDirectory(jobs) }))
     }()
     /// Cursor's CLI launcher. During isolated acceptance it is given no
     /// executable, so it reports unsupported and starts nothing.
@@ -626,6 +629,9 @@ final class MenuBarModel: ObservableObject {
                                      backgroundSessions: {
                                          E2ERunConfiguration.current == nil ? ClaudeBackgroundSessions.load() : []
                                      },
+                                     findBackgroundSession: { id in
+                                         E2ERunConfiguration.current == nil ? await ClaudeBackgroundSessions.find(sessionID: id) : nil
+                                     },
                                      onAttach: { id, term in
                                          guard E2ERunConfiguration.current == nil else { return .noTerminal }
                                          return await TerminalLauncher.attach(claudeJobID: id, preferring: term)
@@ -795,7 +801,9 @@ final class MenuBarModel: ObservableObject {
                 generate: { [weak self] session in await self?.generateCompletionNotice(session) })
             while !Task.isCancelled {
                 if E2ERunConfiguration.current == nil {
-                    let background = await Task.detached(priority: .utility) { ClaudeBackgroundSessions.load() }.value
+                    // Never wait for the CLI here: this loop also carries
+                    // approvals; the next pass picks up a refresh.
+                    let background = ClaudeBackgroundSessions.load()
                     await self.store.applyBackgroundSessions(background)
                 }
                 let snapshot = await self.store.snapshot(now: Date())
@@ -1321,10 +1329,13 @@ final class MenuBarModel: ObservableObject {
                 let outcome = await CodexDesktopJumper.jump(threadID: thread)
                 self?.showJumpFeedback(outcome, for: session.id)
             }
-        } else if session.agent == .claudeCode,
-                  let job = ClaudeBackgroundSessions.find(sessionID: session.id) {
+        } else if session.agent == .claudeCode {
             // A background session has no window: open one attached to it.
+            // The lookup may run `claude agents`, so it stays off the main actor.
             Task { [weak self, store] in
+                guard let job = await ClaudeBackgroundSessions.find(sessionID: session.id) else {
+                    self?.showJumpFeedback(.noTerminal, for: session.id); return
+                }
                 let term = await store.preferredTerminalProgram()
                 let outcome = await TerminalLauncher.attach(claudeJobID: job.id, preferring: term)
                 self?.showJumpFeedback(outcome, for: session.id)

@@ -265,17 +265,23 @@ code, and tests — don't drift to synonyms.
   not-sent.
 - **Attach** — the jump for a Claude *background session* (`claude --bg`,
   agent view, Desktop Dispatch): it has no window, so `ClaudeBackgroundSessions`
-  reads the supervisor's `~/.claude/jobs/<id>/state.json` (read-only) and
-  `TerminalLauncher` opens the user's preferred terminal running
-  `claude attach <id>` (`JumpOutcome.attached`). The job's name and "needs"
-  line also fill an unnamed Claude row.
+  reads `claude agents --json --all` (the documented interface; background
+  entries only, fields decoded as they appear) and `TerminalLauncher` opens the
+  user's preferred terminal running `claude attach <id>`
+  (`JumpOutcome.attached`). The job's name and its "needs" line (`waitingFor`,
+  or that job's own `needs` when the CLI omits it, as 2.1.280 does) also fill
+  an unnamed Claude row. `ClaudeAgentsSource` runs the command on its own
+  queue, one refresh at a time, only when a stat fingerprint of
+  `~/.claude/jobs` changes or 60 s have passed; synchronous readers never wait,
+  and a jump or a launch refreshes it off the main actor. Without the command
+  it falls back to the jobs files. Hooks remain the authority for state.
 - **Dispatch** — a new task started from the phone or the Mac's "New task"
   sheet: `POST /dispatch {agent, cwd, prompt, name?}`. `cwd` must be one of the
   snapshot's `recentDirectories` (directories a session already ran in), so a
   phone can never point an agent at an arbitrary path. Claude Code starts as
   a background session (`ClaudeBackgroundLauncher`: `claude --bg [--name] --
-  <prompt>` in that directory; the job's `state.json` gives the full session
-  id the hooks will report). Codex goes through the app-server daemon
+  <prompt>` in that directory; `claude agents --json` maps the printed job id
+  to the full session id the hooks will report). Codex goes through the app-server daemon
   (`thread/start` → `thread/name/set` → `turn/start`, the user's own
   model/approval/sandbox defaults). Cursor is hosted over ACP by
   `CursorACPMonitor` when the CLI is signed in, else opened in a terminal; a

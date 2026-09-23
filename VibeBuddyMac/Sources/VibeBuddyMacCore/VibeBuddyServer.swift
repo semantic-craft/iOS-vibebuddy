@@ -64,8 +64,10 @@ public struct VibeBuddyServer: Sendable {
     public let onJumpToCursorCloud: @Sendable (String) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
-    /// Claude background sessions on this Mac, for jumps into them.
+    /// Claude background sessions on this Mac (cached, never waits).
     public let backgroundSessions: @Sendable () -> [ClaudeBackgroundSession]
+    /// A fresh lookup for a jump, which may refresh the list first.
+    public let findBackgroundSession: @Sendable (String) async -> ClaudeBackgroundSession?
     /// Open a terminal running `claude attach <job id>` in the preferred program.
     public let onAttach: @Sendable (String, String?) async -> JumpOutcome
     /// Start a new task. Nil means: Codex through the app-server monitor, every
@@ -131,7 +133,8 @@ public struct VibeBuddyServer: Sendable {
                 onJumpToCursorCloud: @escaping @Sendable (String) async -> JumpOutcome = { await CursorCloudJumper.jump(page: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
-                backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { ClaudeBackgroundSessions.load() },
+                backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { [] },
+                findBackgroundSession: @escaping @Sendable (String) async -> ClaudeBackgroundSession? = { _ in nil },
                 onAttach: @escaping @Sendable (String, String?) async -> JumpOutcome = { id, term in
                     await TerminalLauncher.attach(claudeJobID: id, preferring: term)
                 },
@@ -175,6 +178,7 @@ public struct VibeBuddyServer: Sendable {
         self.onJumpToCursorCloud = onJumpToCursorCloud
         self.onAnswer = onAnswer
         self.backgroundSessions = backgroundSessions
+        self.findBackgroundSession = findBackgroundSession
         self.onAttach = onAttach
         self.onDispatch = onDispatch
         self.claudeLauncher = claudeLauncher
@@ -1121,7 +1125,7 @@ public struct VibeBuddyServer: Sendable {
                 // honest jump is: Cursor forward, with this session's workspace
                 // window in front when we know the folder.
                 outcome = await onJumpToCursor(session?.project)
-            } else if let job = backgroundSessions().first(where: { $0.sessionID == sid }) {
+            } else if let job = await findBackgroundSession(sid) ?? backgroundSessions().first(where: { $0.sessionID == sid }) {
                 // A Claude background session has no window: open one attached
                 // to it, in the terminal the user's other sessions run in.
                 outcome = await onAttach(job.id, await store.preferredTerminalProgram())
