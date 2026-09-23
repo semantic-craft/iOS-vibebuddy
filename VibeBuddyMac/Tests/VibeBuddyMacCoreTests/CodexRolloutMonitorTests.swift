@@ -1544,8 +1544,10 @@ private func append(_ line: String, to file: URL, newline: Bool = true) throws {
     try handle.write(contentsOf: Data((line + (newline ? "\n" : "")).utf8))
 }
 
+/// Polls until `condition` holds. The default bound is liveness only: a full
+/// parallel `swift test` can take over a second to start a server and scan.
 private func eventually(
-    timeout: Duration = .seconds(1),
+    timeout: Duration = .seconds(10),
     _ condition: @escaping @Sendable () async -> Bool
 ) async -> Bool {
     let clock = ContinuousClock()
