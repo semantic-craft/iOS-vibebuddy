@@ -4,6 +4,16 @@ import VibeBuddyKit
 /// Read-only Git subprocesses; arguments never go through a shell. No textconv
 /// or external diff driver, and no fallback to another comparison scope.
 public enum WorkspaceChangesReader {
+    /// `read` on a GCD utility thread, never the cooperative pool: each git
+    /// call blocks its thread, for up to 8 s plus the kill grace when git hangs.
+    public static func readInBackground(cwd: String?, scope: ChangesScope, baseline: String?, file: String?, shared: Bool) async -> WorkspaceChanges {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: read(cwd: cwd, scope: scope, baseline: baseline, file: file, shared: shared))
+            }
+        }
+    }
+
     public static func read(cwd: String?, scope: ChangesScope, baseline: String?, file: String?, shared: Bool) -> WorkspaceChanges {
         let attribution = shared
             ? "Workspace changes · multiple sessions share this directory. Changes cannot be attributed to this task."
@@ -60,7 +70,8 @@ public enum WorkspaceChangesReader {
 
     struct Output { let code: Int32; let text: String; let truncated: Bool }
     /// Shared with `HandoffFacts`: read-only git with locks disabled, bounded output, an 8 s cap.
-    /// Blocking; every wait is on the termination handler, never `waitUntilExit()`'s run loop.
+    /// Blocking; every wait is on the termination handler, never `waitUntilExit()`'s run loop,
+    /// and bounded: git stuck in uninterruptible I/O outlives SIGKILL, and Foundation reaps it later.
     static func run(_ cwd: String, _ arguments: [String], cap: Int) -> Output? {
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", cwd] + arguments
@@ -81,7 +92,7 @@ public enum WorkspaceChangesReader {
         }
         if done.wait(timeout: .now() + 8) == .timedOut {
             process.terminate()
-            if done.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL); done.wait() }
+            if done.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL); _ = done.wait(timeout: .now() + 2) }
             _ = drained.wait(timeout: .now() + 1)
             return nil
         }
