@@ -937,15 +937,19 @@ struct HookInstallerTests {
         try home.write(".claude/settings.json", #"{"hooks":{"Stop":[{"hooks":[{"command":"echo user-hook"}]}]}}"#)
         try home.mkdir(".codex")
         try home.mkdir(".grok")
+        try home.mkdir(".cursor")
         for (version, approval) in [(ClaudeCodeVersion(2, 1, 261), false), (nil, true)] {
             home.version = version
-            #expect(home.installer.install([.claude, .codex, .grok], approval: approval).failures == 0)
+            #expect(home.installer.install([.claude, .codex, .grok, .cursor], approval: approval).failures == 0)
             let rows = ObservationHealthDetector.detect(home: home.root, signals: [], now: Date(),
                                                         grokHome: home.url(".grok"))
             for agent in rows {
                 let hook = try #require(agent.sources.first { $0.source == .hook })
                 #expect(hook.reasonCode == "awaitingActivity", "\(agent.agent) \(approval)")
-                #expect(hook.configuredCoverage == ObservationEventCoverage.allCases, "\(agent.agent)")
+                // Cursor can only ask for attention through its approval gate.
+                let expected: [ObservationEventCoverage] = agent.agent == .cursor && !approval
+                    ? [.lifecycle, .turn, .tool] : ObservationEventCoverage.allCases
+                #expect(hook.configuredCoverage == expected, "\(agent.agent)")
             }
         }
     }

@@ -364,6 +364,9 @@ code, and tests — don't drift to synonyms.
   session (`appserver`, `hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
   and a health verdict (healthy / degraded / unsupported / eventsMissing). Never
   guessed from process existence; shown in Mac Settings and on session rows.
+  Settings diagnostics cover Claude, Codex, Grok and Cursor (hook, transcript,
+  hosted ACP, cloud), reading config directories where the hook installer
+  writes them (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CURSOR_HOME` honoured).
   One bounded exception: a ChatGPT.app-bundled `codex app-server` probe (and a
   missing `thread-writer-locks/<id>.lock`) may only *retire* an already-working
   Desktop session when that writer is gone. They must not create a session,

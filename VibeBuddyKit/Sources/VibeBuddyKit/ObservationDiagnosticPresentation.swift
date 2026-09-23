@@ -29,6 +29,9 @@ public extension ObservationSourceDiagnostic {
         case "versionUnverified": "Version \(sourceVersion ?? "unknown") not yet verified"
         case "invalidSourceData": "Invalid source data"
         case "configurationIncomplete": "Configuration incomplete"
+        case "acpIdle": String(localized: "No hosted task", bundle: .module)
+        case "optionalSourceNotConfigured" where source == .cloud:
+            String(localized: "Cloud agents not connected", bundle: .module)
         case "optionalSourceNotConfigured": "Status line information not enabled"
         default: health == .temporarilySilent ? "No recent activity" : health.displayName
         }
@@ -54,6 +57,10 @@ public extension ObservationSourceDiagnostic {
             return "No format error was found in the inspected records, but this Rollout version has not completed lifecycle verification. Hook repair does not verify a Rollout version."
         case "invalidSourceData":
             return "Rollout data could not be parsed or a required event structure is invalid. Check the Rollout source data; reinstalling Hooks does not repair it."
+        case "acpIdle":
+            return String(localized: "VibeBuddy runs cursor-agent only while a task started from VibeBuddy is in progress. None has run since this launch.", bundle: .module)
+        case "optionalSourceNotConfigured" where source == .cloud:
+            return String(localized: "Optional: add a Cursor API key in Settings to follow cloud agents. Local Cursor chats are still observed through hooks and transcripts.", bundle: .module)
         case "optionalSourceNotConfigured":
             return "Optional Claude status line information is not enabled. Hook and Transcript monitoring can continue."
         default:

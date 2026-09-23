@@ -62,7 +62,10 @@ struct VibeBuddyDaemon {
         let questionRegistry = QuestionRegistry()
         let store = SessionStore(
             sourceID: DaemonIdentity.load(),
-            diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
+            // The installer's home (`$HOME` first), so diagnostics inspect
+            // what `vibebuddyd hooks install` wrote.
+            diagnosticsHome: HookInstallerEnvironment.live(variables: env).home,
+            diagnosticsEnvironment: env,
             journalURL: journalURL,
             attentionURL: AttentionOverrides.defaultURL(),
             missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }

@@ -414,6 +414,7 @@ final class MenuBarModel: ObservableObject {
             staleAfter: Self.staleInterval(forHours: savedIdleTimeout),
             sourceID: DaemonIdentity.load(),
             diagnosticsHome: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
+            diagnosticsEnvironment: E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment : [:],
             journalURL: (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"] : nil).map {
                 URL(fileURLWithPath: $0)
             } ?? LifecycleJournalLocation.defaultURL(),
