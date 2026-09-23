@@ -72,6 +72,36 @@ struct POSIXCommandSupervisorTests {
         await expectProcessExited(pidFile: pidFile)
     }
 
+    /// Pipe() leaves its descriptors inheritable. A child that picks up some
+    /// other reader's write end keeps that reader from ever seeing EOF, so the
+    /// supervisor's children must get nothing beyond stdin, stdout and stderr.
+    /// The probe is an external command: a builtin's redirection makes the
+    /// shell back up fds 0 and 2 onto 10 and 11 first, a false "open".
+    @Test("a child does not inherit the parent's other descriptors",
+          .timeLimit(.minutes(1)))
+    func descriptorsNotInherited() async throws {
+        var descriptors = [Int32](repeating: -1, count: 2)
+        try #require(Darwin.pipe(&descriptors) == 0)
+        defer { descriptors.forEach { _ = Darwin.close($0) } }
+        let supervisor = try POSIXCommandSupervisor()
+
+        let result = try await Task.detached { [descriptors] in
+            try supervisor.run(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: [
+                    "-c", "for fd in \"$@\"; do if /usr/bin/true <&\"$fd\" 2>/dev/null; then echo \"$fd open\"; fi; done; echo checked",
+                    "vibebuddy-test", String(descriptors[0]), String(descriptors[1]),
+                ],
+                environment: [:],
+                timeout: 5,
+                outputLimit: 1_048_576
+            )
+        }.value
+
+        #expect(result.exitedSuccessfully)
+        #expect(String(decoding: result.standardOutput, as: UTF8.self) == "checked\n")
+    }
+
     private func temporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vibebuddy-supervisor-\(UUID().uuidString)", isDirectory: true)
