@@ -12,20 +12,9 @@ public enum HistoryLiveStatus {
     public static func call(arguments: [String: Any], environment: [String: String] = ProcessInfo.processInfo.environment,
                             fetch: (@Sendable (URLRequest) async throws -> (Data, URLResponse))? = nil, isolation: isolated (any Actor)? = #isolation) async throws -> String {
         let options = try Options(arguments: arguments, callerID: environment["CODEX_THREAD_ID"])
-        guard environment["VIBEBUDDY_PORT"] == nil || environment["VIBEBUDDY_PORT"].flatMap(Int.init) != nil else { return "live status unknown (invalid daemon port)" }
-        let port = environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
-        guard (1...65535).contains(port) else { return "live status unknown (invalid daemon port)" }
-        let token = environment["VIBEBUDDY_TOKEN"] ?? TokenStore.defaultStore().load()
-        guard let token, !token.isEmpty, !token.contains(where: { $0.isNewline }) else {
-            return unknown(port: port)
-        }
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 2
-        config.timeoutIntervalForResource = 2
-        config.httpShouldSetCookies = false
-        config.urlCache = nil
-        config.connectionProxyDictionary = [:]
-        let session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
+        guard let port = LocalDaemonHTTP.port(environment) else { return "live status unknown (invalid daemon port)" }
+        guard let token = LocalDaemonHTTP.token(environment) else { return unknown(port: port) }
+        let session = LocalDaemonHTTP.session(timeout: 2)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/snapshot")!)
         request.httpMethod = "GET"
@@ -96,12 +85,6 @@ public enum HistoryLiveStatus {
             project = arguments["project"] as? String
             let explicit = arguments["exclude_session"] as? String
             excludeSession = (explicit ?? callerID).flatMap { $0.isEmpty ? nil : $0 }
-        }
-    }
-    private final class NoRedirects: NSObject, URLSessionTaskDelegate {
-        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-            completionHandler(nil)
         }
     }
 }
