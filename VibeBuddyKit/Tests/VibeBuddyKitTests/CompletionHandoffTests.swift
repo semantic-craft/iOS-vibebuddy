@@ -19,7 +19,7 @@ struct CompletionHandoffTests {
     @Test func oneResultReachesPhoneVoiceAndWatchWithoutDroppingQualification() {
         let s = session().validatingCompletionNotice(sourceID: "mac")
         #expect(s.displaySummary == "Fixed. Device verification remains pending.")
-        #expect(VoicePrompt.systemPrompt(sessions: [s]).contains("Device verification remains pending."))
+        #expect(VoicePrompt.sessionContext([s]).contains("Device verification remains pending."))
         let watch = WatchDashboardProjection.make(snapshot: Snapshot(sessions: [s], serverTime: now, sourceID: "mac"),
                                                   quotas: [], relay: .live, now: now)
         #expect(watch.followedTasks.first?.summary == s.displaySummary)

@@ -82,30 +82,17 @@ struct RecapTests {
         #expect(RecapEntry.failedID(sourceID: "mac", sessionID: "s", statusSince: now.addingTimeInterval(0.25)) != failed)
     }
 
-    @Test("a snapshot and a watch state without recap decode; with recap they round-trip")
+    @Test("a snapshot without recap decodes; with recap it round-trips")
     func wireCompatibility() throws {
         let legacySnapshot = Data(#"{"sessions":[],"serverTime":0}"#.utf8)
         let snapshot = try JSONDecoder().decode(Snapshot.self, from: legacySnapshot)
         #expect(snapshot.recap == nil)
-
-        let legacyState = WatchDashboardState(relay: .live, observedAt: now)
-        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(legacyState)) as! [String: Any]
-        encoded.removeValue(forKey: "recap")
-        let decoded = try JSONDecoder().decode(WatchDashboardState.self,
-                                               from: JSONSerialization.data(withJSONObject: encoded))
-        #expect(decoded.recap == nil)
 
         let recap = Recap(horizon: now, entries: [entry("a", minutesAgo: 1, kind: .failed)])
         var full = Snapshot(sessions: [], serverTime: now)
         full.recap = recap
         let back = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(full))
         #expect(back.recap == recap)
-
-        var state = legacyState
-        state.recap = recap
-        #expect(!state.isEquivalent(to: legacyState))
-        let stateBack = try JSONDecoder().decode(WatchDashboardState.self, from: JSONEncoder().encode(state))
-        #expect(stateBack.recap == recap)
     }
 
     @Test("the edit-volume line reads the same evidence the ledger shows")

@@ -248,10 +248,6 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// The phone's Quiet settings, relayed as settings rather than as a verdict
     /// so the Watch can decide against its own clock.
     public var quiet: WatchQuietSettings?
-    /// What ended since the user last read, relayed from the Mac as is
-    /// (`Snapshot.recap`); the wrist filters nothing and adds nothing. Optional
-    /// so a relay or cache from before this field decodes as "none known".
-    public var recap: Recap?
     public var relay: WatchRelayState
     /// When the backing state was observed (the live phone relay passes the Mac snapshot time).
     public var observedAt: Date
@@ -277,7 +273,6 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         quotas: [ProviderQuota] = [],
         categories: NotificationCategoryPrefs? = nil,
         quiet: WatchQuietSettings? = nil,
-        recap: Recap? = nil,
         relay: WatchRelayState,
         observedAt: Date,
         isDemo: Bool = false,
@@ -297,7 +292,6 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         self.quotas = quotas
         self.categories = categories
         self.quiet = quiet
-        self.recap = recap
         self.relay = relay
         self.observedAt = observedAt
         self.isDemo = isDemo
@@ -500,9 +494,6 @@ public enum WatchDashboardProjection {
             presentation: TaskPresentationSummary(sessions: current),
             alerts: pending.filter { $0.status == .needsResponse }.map(alert(for:)),
             quotas: quotas,
-            // The Mac composed the recap (window, order, read marks); the
-            // wrist filters nothing and adds nothing.
-            recap: snapshot.recap,
             relay: relay,
             observedAt: now,
             isDemo: isDemo

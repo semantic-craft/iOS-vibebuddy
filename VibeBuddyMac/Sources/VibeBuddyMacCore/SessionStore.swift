@@ -1634,14 +1634,6 @@ public actor SessionStore {
             .terminalRef?.termProgram
     }
 
-    /// The session's recent output (user prompts + assistant prose / tool activity)
-    /// for the detail pane. Empty when the session has no known transcript, so
-    /// the UI can show a graceful "no transcript" state.
-    public func recentTranscript(sessionID: String, limit: Int = 12) -> [TranscriptEntry] {
-        let output = recentOutput(sessionID: sessionID, limit: limit)
-        return output.entries.map { TranscriptEntry(role: $0.role, text: $0.text) }
-    }
-
     /// Authenticated recent-output payload for the phone. Read-only: does not
     /// acknowledge completions or otherwise move Session state.
     public func recentOutput(

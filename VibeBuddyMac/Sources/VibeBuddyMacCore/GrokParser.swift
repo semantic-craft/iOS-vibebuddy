@@ -132,8 +132,7 @@ public enum GrokParser {
             guard let text else { return "Permission required" }
             return text.lowercased().contains("permission") ? text : "Permission required: \(text)"
         case "stop_failure":
-            // Mirrors Claude's `StopFailure` prose so `FailureHeuristic` marks the
-            // session stuck through the same path.
+            // Mirrors Claude's `StopFailure` prose.
             let kind = nonEmpty(raw.error) ?? "unknown"
             guard let detail = nonEmpty(raw.errorDetails) ?? nonEmpty(raw.lastAssistantMessage) else {
                 return "Turn failed: \(kind)"

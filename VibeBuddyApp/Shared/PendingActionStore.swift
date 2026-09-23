@@ -81,9 +81,6 @@ final class PendingActionStore: ObservableObject {
 
     var isEmpty: Bool { queue.isEmpty }
 
-    /// Whether this item's POST is out right now.
-    func isInFlight(_ id: String) -> Bool { inFlight.contains(id) }
-
     /// Take a decision the Mac could not be given. Returns whether it is now
     /// in the queue; only then is a hold reported. A queue that is full, or a
     /// target whose earlier decision is being delivered this instant, refuses.

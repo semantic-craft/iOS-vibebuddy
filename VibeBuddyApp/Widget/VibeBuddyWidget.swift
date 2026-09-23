@@ -3,10 +3,6 @@ import SwiftUI
 import ActivityKit
 import VibeBuddyKit
 
-private let assignedStates: [TaskPresentationState] = [
-    .error, .requiresInput, .thinking, .completeUnread, .idle,
-]
-
 @main
 struct VibeBuddyWidgetBundle: WidgetBundle {
     var body: some Widget {

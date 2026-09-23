@@ -110,29 +110,4 @@ shoot permission home 12-permission-large-text "${big[@]}"
 shoot normal home 13-overview-large-text "${big[@]}"
 shoot staleQuota quota 14-quota-large-text "${big[@]}"
 
-# Recap (ADR-0021 amendment): the home row, then the sheet opened straight
-# onto a page. Page 0 is the overview, 1…N one ended round each (the demo's
-# second round is the failed one), N+1 the end page.
-shoot_recap() { # scenario index filename [extra launch args…]
-  local scenario="$1" index="$2" name="$3"; shift 3
-  xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
-  SIMCTL_CHILD_VIBEBUDDY_DEMO=1 \
-  SIMCTL_CHILD_VIBEBUDDY_WATCH_SCENARIO="$scenario" \
-  SIMCTL_CHILD_VIBEBUDDY_WATCH_PAGE=home \
-  SIMCTL_CHILD_VIBEBUDDY_WATCH_RECAP=1 \
-  SIMCTL_CHILD_VIBEBUDDY_WATCH_RECAP_INDEX="$index" \
-    xcrun simctl launch "$udid" "$bundle_id" "$@" >/dev/null
-  sleep 3
-  xcrun simctl io "$udid" screenshot "$out/$name.png" >/dev/null 2>&1
-  echo "  ✓ $name.png"
-}
-
-shoot normal home 18-recap-home
-shoot_recap normal 0 19-recap-overview
-shoot_recap normal 1 20-recap-completed
-shoot_recap normal 2 21-recap-failed
-shoot_recap normal 8 22-recap-end
-shoot_recap normal 0 23-recap-overview-zh-Hans -AppleLanguages "(zh-Hans)"
-shoot_recap normal 1 24-recap-completed-large-text "${big[@]}"
-
 echo "→ shots in $out"

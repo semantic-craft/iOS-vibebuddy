@@ -47,7 +47,6 @@ struct CopilotHistoryTests {
         #expect(!session.canJump)
         #expect(ToolActivity.label(for: session) == "History · read only")
         #expect(VoicePrompt.sessionContext([session]).contains("\"status\":\"unknown\""))
-        #expect(VoicePrompt.systemPrompt(sessions: [session]).contains("live status unknown"))
         let decoded = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(snapshot))
         #expect(decoded.sessions.first?.historyOnly == true)
         let output = await store.recentOutput(sessionID: session.id)

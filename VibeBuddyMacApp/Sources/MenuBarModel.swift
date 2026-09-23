@@ -1207,9 +1207,6 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    /// Back-compat for voice + existing callers.
-    func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
-
     /// Answer or advance a session from the Mac card, the same contract as
     /// `/answer`: waiting questions go to the agent; Codex steer / continue
     /// are explicit and never rewrite each other.

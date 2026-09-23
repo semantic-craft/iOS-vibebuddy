@@ -21,9 +21,6 @@ protocol WatchStateTransport: AnyObject {
     var onRefresh: ((WatchRefreshRequest) async -> WatchRefreshReply)? { get set }
     var onActivityOpen: ((WatchActivityOpenRequest) async -> WatchActivityOpenReply)? { get set }
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)? { get set }
-    /// Mark all from the recap: move the Mac's horizon, then read each round
-    /// it named. Answered only after the Mac has been asked.
-    var onRecapReadRequest: ((WatchRecapReadRequest) async -> WatchRecapReadResult)? { get set }
     /// Hand over the newest state, replacing any earlier one the Watch has not
     /// picked up yet. Throws when the session cannot take it right now.
     func send(_ payload: Data) throws
@@ -71,11 +68,6 @@ final class WatchRelay {
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)? {
         get { transport.onWaitReadRequest }
         set { transport.onWaitReadRequest = newValue }
-    }
-
-    var onRecapReadRequest: ((WatchRecapReadRequest) async -> WatchRecapReadResult)? {
-        get { transport.onRecapReadRequest }
-        set { transport.onRecapReadRequest = newValue }
     }
 
     init(transport: WatchStateTransport) {
@@ -172,7 +164,6 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     var onActivityOpen: ((WatchActivityOpenRequest) async -> WatchActivityOpenReply)?
 
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
-    var onRecapReadRequest: ((WatchRecapReadRequest) async -> WatchRecapReadResult)?
 
     private let session: WCSession?
 
@@ -255,20 +246,6 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
                 let result = await self?.onCompletionRequest?(request)
                     ?? WatchCompletionResult(attemptID: request.attemptID, outcome: .failed)
                 reply([WatchCompletionResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
-            }
-        }
-    }
-
-    fileprivate nonisolated func handle(recapRead payload: Data,
-                                        reply: @escaping @Sendable ([String: Any]) -> Void) {
-        guard let request = try? JSONDecoder().decode(WatchRecapReadRequest.self, from: payload) else {
-            reply([WatchRecapReadResult.messageKey: Data()]); return
-        }
-        Task { @MainActor [weak self] in
-            await BackgroundGrant.run("watch-recap-read") {
-                let result = await self?.onRecapReadRequest?(request)
-                    ?? WatchRecapReadResult(attemptID: request.attemptID, outcome: .failed)
-                reply([WatchRecapReadResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
             }
         }
     }
@@ -373,8 +350,6 @@ extension WatchConnectivityTransport: WCSessionDelegate {
             handle(waitRead: wait) { reply.value($0) }
         } else if let completion = message[WatchCompletionRequest.messageKey] as? Data {
             handle(completion: completion) { reply.value($0) }
-        } else if let recap = message[WatchRecapReadRequest.messageKey] as? Data {
-            handle(recapRead: recap) { reply.value($0) }
         } else if let action {
             handle(action: action, legacy: false) { reply.value($0) }
         } else {

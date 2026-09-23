@@ -176,12 +176,6 @@ struct GrokParserTests {
         """#)
         #expect(e?.kind == .stop)
         #expect(e?.message == "Turn failed (rate_limit): 429 from upstream")
-        // The session is marked failed *only* because the heuristic matches this
-        // synthesized prose — grok's envelope carries no failure flag — so both
-        // spellings of the message are pinned against the shared marker list.
-        #expect(FailureHeuristic.looksFailed("Turn failed (rate_limit): 429 from upstream"))
-        #expect(FailureHeuristic.looksFailed("Turn failed: unknown"))
-
         var reducer = SessionReducer()
         reducer.apply(parse(#"{"hookEventName":"user_prompt_submit","sessionId":"g","promptId":"p1"}"#)!)
         reducer.apply(e!)

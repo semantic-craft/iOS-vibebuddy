@@ -84,7 +84,6 @@ struct CodexAppServerReducerTests {
         #expect(reducer.seed(thread: thread(status: "idle"), receivedAt: now).map(\.kind) == [.sessionStart])
         let failed = reducer.seed(thread: thread(id: "thr-e", status: "systemError"), receivedAt: now)
         #expect(failed.map(\.kind) == [.stop])
-        #expect(FailureHeuristic.looksFailed(failed[0].message))
         #expect(reducer.seed(thread: thread(id: "thr-n", status: "notLoaded"), receivedAt: now).isEmpty)
         #expect(reducer.threads["thr-n"]?.loaded == false)
         let sub = thread(id: "thr-s", status: "active", source: #"{"subAgent":{"parent":"thr-1"}}"#)
@@ -142,7 +141,6 @@ struct CodexAppServerReducerTests {
         _ = reducer.seed(thread: thread(status: "active"), receivedAt: now)
         let failed = reducer.handle(json(#"{"method":"turn/completed","params":{"threadId":"thr-1","turn":{"id":"t","status":"failed","items":[],"error":{"message":"rate limited"}}}}"#), receivedAt: now)
         #expect(failed[0].message == "Turn failed: rate limited")
-        #expect(FailureHeuristic.looksFailed(failed[0].message))
         let interrupted = reducer.handle(json(#"{"method":"turn/completed","params":{"threadId":"thr-1","turn":{"id":"t2","status":"interrupted","items":[]}}}"#), receivedAt: now)
         #expect(interrupted[0].message == "Turn interrupted")
     }

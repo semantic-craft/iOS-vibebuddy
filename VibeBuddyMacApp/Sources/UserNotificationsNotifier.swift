@@ -96,16 +96,6 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
                 sound: .pairSuccess, id: "pair-success")
     }
 
-    /// A session crossed the spend budget — a gentle heads-up (estimate).
-    /// Returns the actual scheduling result; the caller records delivery.
-    @discardableResult
-    func notifyBudget(project: String, cost: String) async -> LocalNotificationAttempt {
-        await notifyQuota(
-            title: String(localized: "\(project) over budget"),
-            body: String(localized: "≈ \(cost) spent this session (estimate)"),
-            id: "budget-\(project)")
-    }
-
     /// Account quota alert. This is separate from session-state sounds and is
     /// only called for a fresh, non-stale threshold crossing.
     @discardableResult

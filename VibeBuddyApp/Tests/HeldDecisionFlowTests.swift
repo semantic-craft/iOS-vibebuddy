@@ -61,7 +61,6 @@ private final class HeldTransport: WatchStateTransport {
     var onRefresh: ((WatchRefreshRequest) async -> WatchRefreshReply)?
     var onActivityOpen: ((WatchActivityOpenRequest) async -> WatchActivityOpenReply)?
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
-    var onRecapReadRequest: ((WatchRecapReadRequest) async -> WatchRecapReadResult)?
     private(set) var sent: [Data] = []
     func send(_ payload: Data) throws { sent.append(payload) }
     var states: [WatchDashboardState] { sent.compactMap { try? JSONDecoder().decode(WatchDashboardState.self, from: $0) } }

@@ -534,17 +534,6 @@ struct DashboardView: View {
         model.continueRequest = nil
     }
 
-    /// "continues Codex · title" for a session the Mac started from another
-    /// one; the source's title when it is still listed, its key otherwise.
-    private func continuesLabel(for session: AgentSession) -> String? {
-        guard let key = session.continuesSessionKey else { return nil }
-        let nativeID = key.split(separator: ":", maxSplits: 1).last.map(String.init) ?? key
-        if let source = model.sessions.first(where: { $0.id == nativeID }) {
-            return String(localized: "continues \(source.agent.displayName) · \(source.displayTitle)")
-        }
-        return String(localized: "continues \(key)")
-    }
-
     /// The chips use the menu panel's group words (Needs you / Working / Done),
     /// not the long state labels, so all five fit on one line. Errors are part
     /// of Needs you here as everywhere else.
@@ -615,27 +604,6 @@ extension View {
             .opacity(labels.opacity)
             .allowsHitTesting(!labels.iconOnly)
             .accessibilityHidden(labels.iconOnly)
-    }
-}
-
-/// The row's leading mark: the agent's product tile so the eye can tell a
-/// Claude row from a Codex row without reading, with the task state as a
-/// small dot on the tile's bottom-right corner. The dot's ring is the row's
-/// own ground so it reads as sitting on the card, not stuck onto the tile.
-private struct AgentTile: View {
-    let agent: AgentKind
-    let state: TaskPresentationState
-    let ground: Color
-
-    var body: some View {
-        AgentAvatar(agent: agent, size: 28)
-            .overlay(alignment: .bottomTrailing) {
-                StateGlyph(state: state, size: 12)
-                    .padding(1.5)
-                    .background(ground, in: Circle())
-                    .offset(x: 4, y: 4)
-            }
-            .accessibilityElement(children: .combine)
     }
 }
 

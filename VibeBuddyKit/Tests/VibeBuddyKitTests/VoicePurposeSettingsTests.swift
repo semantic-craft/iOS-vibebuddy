@@ -72,7 +72,7 @@ struct ReadAloudPurposeSettingsTests {
         defaults.set("qwen", forKey: VoiceSettings.summaryProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
         // An explicit "follow summaries" and a value this build cannot parse both follow.
-        VoiceSettings.selectReadAloudProvider(nil, defaults: defaults)
+        defaults.set("", forKey: VoiceSettings.readAloudProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
         defaults.set("unknown", forKey: VoiceSettings.readAloudProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
@@ -82,10 +82,10 @@ struct ReadAloudPurposeSettingsTests {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
         defaults.set("qwen", forKey: VoiceSettings.summaryProviderKey)
-        VoiceSettings.selectReadAloudProvider(.qwen, defaults: defaults)
+        defaults.set(VoiceProvider.qwen.rawValue, forKey: VoiceSettings.readAloudProviderKey)
         defaults.set("openai", forKey: VoiceSettings.summaryProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
-        VoiceSettings.selectReadAloudProvider(nil, defaults: defaults)
+        defaults.set("", forKey: VoiceSettings.readAloudProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.openai))
     }
 
@@ -135,14 +135,12 @@ struct ReadAloudPurposeSettingsTests {
         #expect(VoiceSettings.summaryProvider(defaults: defaults) == .deepseek)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .summaryProviderCannotSpeak(.deepseek))
         #expect(VoiceSettings.readAloudStatus(defaults: defaults).provider == nil)
-        // It cannot be pinned either, by picker or by a hand-edited default.
-        VoiceSettings.selectReadAloudProvider(.deepseek, defaults: defaults)
-        #expect(VoiceSettings.pinnedReadAloudProvider(defaults: defaults) == nil)
+        // It cannot be pinned either: a stored text-only provider reads as no pin.
         defaults.set(VoiceProvider.deepseek.rawValue, forKey: VoiceSettings.readAloudProviderKey)
         #expect(VoiceSettings.pinnedReadAloudProvider(defaults: defaults) == nil)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .summaryProviderCannotSpeak(.deepseek))
         // Pinning a vendor that speaks still works while summaries stay text-only.
-        VoiceSettings.selectReadAloudProvider(.qwen, defaults: defaults)
+        defaults.set(VoiceProvider.qwen.rawValue, forKey: VoiceSettings.readAloudProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
     }
 }

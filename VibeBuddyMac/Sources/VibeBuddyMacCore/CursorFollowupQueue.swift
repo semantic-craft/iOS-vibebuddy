@@ -65,8 +65,4 @@ public actor CursorFollowupQueue {
     public func cancel(conversationID: String) {
         entries.removeValue(forKey: conversationID)
     }
-
-    public func purgeExpired(now: Date = Date()) {
-        entries = entries.filter { $0.value.expiresAt > now }
-    }
 }

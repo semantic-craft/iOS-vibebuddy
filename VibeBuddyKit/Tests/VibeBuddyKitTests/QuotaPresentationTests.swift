@@ -40,7 +40,6 @@ struct QuotaPresentationTests {
     func extraTitles() {
         #expect(QuotaPresentation.extraWindowTitle(fromStatusLineKey: "seven_day_sonnet") == "Sonnet only")
         #expect(QuotaPresentation.scopedOnlyTitle("Fable") == "Fable only")
-        #expect(QuotaPresentation.isAllModelsScope("all models"))
         #expect(QuotaPresentation.slug("Example Model Plus") == "example-model-plus")
     }
 }
