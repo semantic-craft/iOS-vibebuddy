@@ -518,6 +518,37 @@ struct AccountUsageTests {
         #expect(ignoredSignals.sentSignals() == [SIGTERM, SIGKILL])
     }
 
+    /// Pipe() leaves its descriptors inheritable, so an app-server child spawned
+    /// while another thread holds a pipe would keep that pipe's end open and hide
+    /// its EOF or EPIPE (it made the `claude agents` stdout test flaky in the full
+    /// suite). The probe is an external command: a builtin's redirection makes
+    /// the shell back up fds 0 and 2 onto 10 and 11 first, a false "open".
+    @Test("the app-server child does not inherit the parent's other descriptors",
+          .timeLimit(.minutes(1)))
+    func appServerDescriptorsNotInherited() async throws {
+        var descriptors = [Int32](repeating: -1, count: 2)
+        try #require(Darwin.pipe(&descriptors) == 0)
+        defer { descriptors.forEach { _ = Darwin.close($0) } }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibebuddy-codex-fds-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let report = directory.appendingPathComponent("fds")
+        let provider = CodexAppServerUsageProvider(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                // Only `echo` is redirected: redirecting the whole loop makes the
+                // shell back up stdout onto fd 10, a false "open" for a pipe there.
+                // Stdout stays on the RPC pipe, so fetch sees EOF only after `mv`.
+                "-c", ": > \"$1.tmp\"; for fd in \"$@\"; do if /usr/bin/true <&\"$fd\" 2>/dev/null; then echo \"$fd open\" >> \"$1.tmp\"; fi; done; mv \"$1.tmp\" \"$1\"",
+                "vibebuddy-test", report.path, String(descriptors[0]), String(descriptors[1]),
+            ],
+            timeout: 10
+        )
+        _ = try? await provider.fetch()
+        #expect(try String(contentsOf: report, encoding: .utf8) == "")
+    }
+
     @Test("alerts persist per window and quiet mode consumes a crossing")
     func thresholdAlerts() {
         var monitor = AccountUsageAlertMonitor()
