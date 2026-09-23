@@ -39,6 +39,7 @@
 
 ## 只能由你在真机上做的验收
 
+- **AI-04 真实会话**（#264 已合并）：本机 `claude` CLI 的 OAuth 已过期。你登录一次后，agent 用隔离 daemon 跑一次真实的 `/loop 1m` 和一个后台 subagent，核对 `background_tasks` 的 `type` / `status` 取值（规则见 CONTEXT.md「Background work at a Claude Stop」）。
 - **H-2**：冻结候选版本后，连续实际使用半小时，不能有新增漏接。不能用提交审核代替。
 - **ADR-0033**：批准已在 2026-09-23 03:08 通过；拒绝和回答还没单独验证。
 - **手表腕上功能**（喊停、快捷回答、触觉、Double Tap）：[06](watch-wrist-resolve/issues/06-device-acceptance.md)。
