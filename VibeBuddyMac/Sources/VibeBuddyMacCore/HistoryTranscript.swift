@@ -53,7 +53,7 @@ public struct HistoryTranscript: Sendable {
 }
 
 extension HistoryTools {
-    public static func getSession(arguments: [String: Any], repository: SessionHistoryRepository, isolation: isolated (any Actor)? = #isolation) async throws -> String {
+    public static func getSession(arguments: [String: Any], reader: SessionTranscriptReader, isolation: isolated (any Actor)? = #isolation) async throws -> String {
         guard Set(arguments.keys).isSubset(of: ["key", "from_seq", "max_messages", "tools", "thinking"]), let key = arguments["key"] as? String else {
             throw HistoryToolError.invalidArguments("get_session requires key and only its documented arguments.")
         }
@@ -76,17 +76,12 @@ extension HistoryTools {
         let from = try integer("from_seq", fallback: reference.seq ?? 1, maximum: Int.max)
         let limit = try integer("max_messages", fallback: 30, maximum: 200)
         let tools = try flag("tools"), thinking = try flag("thinking")
-        let transcript = try await repository.readTranscript(key: reference.key)
+        let transcript = try await reader.readTranscript(key: reference.key)
         let session = transcript.session
-        if !session.agent.supportsTranscript {
-            return ["# " + session.title, "Key: " + reference.key, "", GrokHistorySource.noTranscript,
-                    GrokHistorySource.coverage, "Source revision: " + (session.sourceRevision ?? "unknown") + " (official list row only)"].joined(separator: "\n")
-        }
         let rows = transcript.rows
         let page = rows.enumerated().filter { $0.offset >= from - 1 && (thinking || !$0.element.text.isEmpty || !$0.element.tools.isEmpty) }.prefix(limit)
         var lines = ["Source revision: \(session.sourceRevision ?? "unknown") (\(transcript.provenance))", "", "# \(session.title)", "Key: \(reference.key)"]
         lines += session.warnings.map { "> " + $0 }
-        if !session.isAvailable { lines.append("> Source unavailable; reading retained cached history.") }
         for (index, row) in page {
             lines += ["", "## [seq \(index + 1)] \(row.kind == .compactSummary ? "Context compaction" : row.role.rawValue.capitalized)"]
             if !row.text.isEmpty { lines.append(row.text) }

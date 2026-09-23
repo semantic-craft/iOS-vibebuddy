@@ -329,13 +329,13 @@ struct CompletionSummaryTests {
     @Test func instructionsShapeOutputForAnActionFirstReader() {
         for style in ContentStyle.allCases {
             let config = ContentStyleConfiguration(style: style, customPrompt: "只讲客户收益。")
-            for purpose in [SummaryPurpose.notice, .speech, .history, .recap] {
+            for purpose in [SummaryPurpose.notice, .speech, .recap] {
                 let text = CompletionSummaryHTTP.instructions(style: config, purpose: purpose, language: .chinese)
                 // Reader-shaped rules apply to every style and purpose: no preamble, visible state, numbered user steps, capped lists.
                 #expect(text.contains("不写开场白"))
                 #expect(text.contains("全文纯文本"))
                 #expect(text.contains("说清当前状态"))
-                #expect(text.contains("仅历史摘要可以用数字编号"))
+                #expect(text.contains("一律用顺序短句"))
                 #expect(text.contains("最多五条"))
                 #expect(text.contains("记录没有就不估计"))
                 // The evidence rules stay in force with the new shape.
@@ -344,7 +344,7 @@ struct CompletionSummaryTests {
                 #expect(text.contains("读者只读第一句和最后一句"))
             }
         }
-        let concise = CompletionSummaryHTTP.instructions(style: .default, purpose: .history, language: .chinese)
+        let concise = CompletionSummaryHTTP.instructions(style: .default, purpose: .speech, language: .chinese)
         #expect(concise.contains("第一句写那件具体的事"))
         #expect(concise.contains("下一步最多一个，且只能是记录里已有的那件事"))
         #expect(!concise.contains("两分钟"))
@@ -355,9 +355,6 @@ struct CompletionSummaryTests {
         let speech = CompletionSummaryHTTP.instructions(style: .default, purpose: .speech, language: .chinese)
         #expect(speech.contains("spoken order"))
         #expect(!speech.contains("1. 2. 3."))
-        let history = CompletionSummaryHTTP.instructions(style: .default, purpose: .history, language: .chinese)
-        #expect(history.contains("numbered list (1. 2. 3.) is allowed only for steps the user must take"))
-        #expect(history.contains("Fixed order: the project title, then the first content sentence, then immediately one sentence"))
         let recap = CompletionSummaryHTTP.instructions(style: .default, purpose: .recap, language: .chinese)
         #expect(recap.contains("without a closing next-step line or numbered list"))
         let decision = CompletionSummaryHTTP.instructions(style: .init(style: .decision), purpose: .speech, language: .chinese)

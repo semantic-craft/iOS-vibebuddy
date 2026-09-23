@@ -720,8 +720,6 @@
 /* MARK: Dashboard — library, rows and detail (ADR-0017) */
 "Library" = "资料库";
 "Current tasks" = "当前任务";
-"History" = "历史";
-"Favorites" = "收藏";
 "%lld need a response" = "%lld 个需要回应";
 "State" = "状态";
 "Start a new task in a directory a session has run in" = "在某个会话运行过的目录里新建任务";
@@ -769,43 +767,14 @@
 "Registered: %@" = "已注册：%@";
 "Jump to this session" = "跳到这个会话";
 
-/* MARK: History workbench */
-"Local library" = "本地资料库";
-"Claude Code · Codex\nIncludes archived Codex sessions" = "Claude Code · Codex\n含已归档的 Codex 会话";
+/* MARK: Session reader */
 "All agents" = "全部代理";
-"Archive" = "归档";
-"All history" = "全部历史";
-"Unarchived" = "未归档";
-"Archived" = "已归档";
-"Updating library…" = "正在更新资料库…";
-"Rebuild index" = "重建索引";
-"Source notices (%lld)" = "来源通知（%lld）";
-"Search could not complete: %@" = "搜索未能完成：%@";
-"No matching messages" = "没有匹配的消息";
-"No sessions in this view" = "此视图下没有会话";
-"Check the project filter and source notices, or refresh the library." = "检查项目筛选和来源通知，或刷新资料库。";
-"Showing the first 200 matches. Narrow your query or project." = "只显示前 200 条匹配。请缩小查询范围或项目。";
-"Archived in Codex" = "已在 Codex 归档";
-"Archived in library" = "已在资料库归档";
-"Source unavailable" = "来源不可用";
-"Partial or limited record" = "记录不完整或有限";
-"The source is unavailable. Showing the last indexed copy." = "来源不可用，显示最后一次索引的副本。";
 "Reading conversation…" = "正在读取对话…";
 "Retry" = "重试";
-"Select a conversation" = "选择一段对话";
-"Read local history without changing a task's live state." = "阅读本地历史，不会改变任务的实时状态。";
-"Favorite" = "收藏";
-"Unfavorite" = "取消收藏";
-"Pin" = "置顶";
-"Unpin" = "取消置顶";
-"Archive in library" = "在资料库归档";
-"Unarchive in library" = "在资料库取消归档";
-"Organizes this library only; the original agent and current tasks are unchanged." = "只整理这个资料库；原始代理和当前任务不受影响。";
 "Export Markdown…" = "导出 Markdown…";
 "Show source" = "显示来源文件";
 "Could not export" = "无法导出";
 "OK" = "好";
-"Copy resume command" = "复制恢复命令";
 "Jump to current session" = "跳到当前会话";
 "Earlier messages" = "更早的消息";
 "Later messages" = "更晚的消息";
@@ -820,11 +789,6 @@
 "Copy %@" = "复制%@";
 "Preview · %lld characters. Copy to read all indexed text." = "预览 · %lld 个字符。复制以阅读全部已索引文本。";
 "Copy code" = "复制代码";
-"Conversation summary" = "对话摘要";
-"Generate summary" = "生成摘要";
-"Regenerate" = "重新生成";
-"Out of date — the conversation has changed. Regenerate to update." = "已过时——对话已变化。重新生成以更新。";
-"On request, sends readable dialogue to %@. Injected context and thinking are excluded." = "按需把可读的对话发送给 %@。不包含注入的上下文和思考过程。";
 
 /* MARK: Notifications — quota alerts and actions */
 "Reply" = "回复";
@@ -859,26 +823,9 @@
 
 "The provider returned more audio than a summary should need." = "服务商返回的音频超出一段摘要应有的长度。";
 
-/* Conversation summary styles (History window) */
-
-"Summary style" = "摘要风格";
-
-"Action briefing" = "行动简报";
-
-"Session review" = "会话复盘";
-
-"Archive record" = "归档记录";
-
-"Next action first, then state, numbered next steps with reasons, and a short read on the session." = "先给下一步行动，再列现状、带理由的编号步骤，以及对这次会话的简短看法。";
-
-"An honest assessment: verdict, what went well, problems and risks, and advice for next time." = "坦率评估：结论、做对了什么、问题与风险，以及下次的建议。";
-
-"Neutral notes: goal, key decisions, results and verification, open work." = "中性记录：目标、关键决策、结果与验证、未完成工作。";
-
 /* MARK: Dashboard sidebar and New task (Cursor layout) */
 "All" = "全部";
 "Reset" = "重置";
-"Message matches" = "消息匹配";
 "Open Settings" = "打开设置";
 "Close" = "关闭";
 "Thinking…" = "思考中…";
@@ -892,7 +839,6 @@
 "needs the app-server connection from Settings › Agent CLIs." = "需要在设置 › 代理命令行中连接 app-server。";
 "needs the Cursor CLI, or ACP, on this Mac." = "需要这台 Mac 上有 Cursor 命令行或 ACP。";
 "Pick a task on the left to see its details." = "从左侧选择任务查看详情。";
-"Pick a conversation on the left to read it." = "从左侧选择会话阅读。";
 "Expanded" = "已展开";
 "Collapsed" = "已收起";
 "That folder is no longer available." = "该文件夹已不可用。";
@@ -908,19 +854,10 @@
 "Approvals show silently; nothing else interrupts." = "审批静默显示；其余的不会打扰你。";
 "Automatic: %@ — followed while you're driving it, normal otherwise." = "自动：%@——你正在操作它时为关注，其余时间为普通。";
 
-/* History reading pane action row */
+/* Session reader action row */
 "More actions" = "更多操作";
-"Pin, archive in this library, export or show the source file. Archiving organizes this library only; the original agent and current tasks are unchanged." = "置顶、在资料库归档、导出或显示来源文件。归档只整理这个资料库；原始代理与当前任务不受影响。";
 "The live session is no longer available." = "该实时会话已不可用。";
-"Resume command copied. Run it in your terminal to continue." = "已复制恢复命令。在终端运行它即可继续。";
-"The resume command is no longer available." = "恢复命令已不可用。";
 "The task changed. Review its current state before sending." = "任务已变化。发送前请先查看它的当前状态。";
-"Source unavailable. Cached history does not establish a recoverable session." = "来源不可用。缓存的历史无法确认可恢复的会话。";
-"Archived in Codex. Unarchive the original task in Codex before continuing." = "已在 Codex 归档。继续前请先在 Codex 中取消归档原任务。";
-"This archive does not establish a Codex CLI or Desktop target. Open the original task in Codex to continue." = "这份归档无法确定 Codex CLI 或桌面端目标。请在 Codex 中打开原任务继续。";
-"The original project directory is unavailable." = "原项目目录不可用。";
-"This record has no valid session identity for resuming." = "这条记录没有可用于恢复的会话标识。";
-"Copy the resume command and run it in your terminal. Copying does not start or continue a task." = "复制恢复命令并在终端运行。复制本身不会开始或继续任务。";
 
 /* Diagnostics — product words for the delivery enums */
 "Allowed" = "已允许";
@@ -1091,10 +1028,8 @@
 /* MARK: Session reader (ADR-0024) */
 "Conversation" = "对话";
 "Reader view" = "阅读视图";
-"No live status" = "无实时状态";
 "Notifications for this session" = "此会话的通知策略";
 "More actions for this session" = "此会话的更多操作";
-"Regenerate summary" = "重新生成摘要";
 "Refresh transcript" = "刷新转录";
 "Result · this completion" = "结果 · 本次完成";
 "Replay this result" = "重播此结果";
@@ -1103,10 +1038,6 @@
 "Start of the readable transcript" = "可读转录的开头";
 "1 new message" = "1 条新消息";
 "%lld new messages" = "%lld 条新消息";
-"Full transcript unavailable" = "完整转录不可用";
-"This source provides a session list and titles only." = "此来源只提供会话列表和标题。";
-"No live activity" = "无实时活动";
-"This record has no observed tool calls." = "此记录没有观测到的工具调用。";
 "No live activity for this record" = "此记录没有实时活动";
 "Project directory unavailable" = "项目目录不可用";
 "The project directory is unavailable" = "项目目录不可用";
@@ -1121,7 +1052,6 @@
 "Reveal the transcript file in Finder" = "在访达中显示转录文件";
 "Record notices" = "记录提示";
 "Filter sessions by agent" = "按 agent 筛选会话";
-"Install the Cursor CLI to copy a resume command for this local conversation." = "安装 Cursor CLI 后才能为这条本地对话复制恢复命令。";
 
 /* Session reader head: the jump glyph's tooltip, named per host (JumpDestination). */
 "Jump to %@" = "跳到 %@";
@@ -1155,11 +1085,9 @@
 "Concise" = "简洁";
 "Decision briefing" = "决策";
 "Custom prompt" = "自定义提示词";
-"Leads with what the record asks you to do, otherwise the key result; steps are numbered in history summaries only; at most one next step." = "记录要你做的事放第一句，否则先说关键结果；只有历史摘要会给多步编号；下一步最多一个。";
+"Leads with what the record asks you to do, otherwise the key result; at most one next step." = "记录要你做的事放第一句，否则先说关键结果；下一步最多一个。";
 "A CEO briefing on progress, benefits, important tradeoffs, and decisions." = "像向总裁汇报，讲清进展、实际好处、关键取舍和需要决定的方向。";
 "Use your own instructions to shape every summary." = "用自己的提示词调整所有摘要的内容和表达方式。";
-"Changes apply to all summary entries. Saved summaries keep their original style." = "修改会同步到所有摘要入口，已有摘要保留原来的风格。";
-"This summary uses a different content style. Regenerate to apply the current settings." = "这份摘要使用了不同的内容风格，重新生成后会采用当前设置。";
 "Changes apply to all summary entries. Edit custom instructions in Settings." = "修改会同步到所有摘要入口，自定义提示词请在设置中编辑。";
 "All summaries share these content rules. Length follows the purpose: notifications stay short, while complex decisions get more room." = "所有摘要共用这套内容规则，篇幅按用途调整：通知保持简短，复杂决策可以多讲一些。";
 "Custom instructions" = "自定义提示词";

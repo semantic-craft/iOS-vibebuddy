@@ -162,6 +162,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openRequestObserver = AppRuntime.observeOpenRequests()
         GlobalHotkey.install()
         Self.log.notice("didFinishLaunching")
+        // The retired History archive left a derived cache (up to tens of GB).
+        Task.detached(priority: .utility) {
+            let result = LegacyHistoryCleanup.run(LegacyHistoryCleanup.targets())
+            if !result.removed.isEmpty {
+                Logger(subsystem: "com.vibebuddy.app", category: "lifecycle").notice("removed retired history cache: \(result.bytesFreed, privacy: .public) bytes freed from \(result.removed.count, privacy: .public) location(s)")
+            }
+        }
         // Explicit launches show a usable window even when the menu icon is hidden.
         // Login-item launches remain quiet.
         let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?

@@ -44,24 +44,21 @@ public struct HistoryConnectionSetup: Sendable {
     public var agentRule: String {
         """
         Before resuming work, read the ticket and its newest handoff under .scratch/<feature>/handoffs/.
-        Use vibebuddy_list_sessions for this checkout, then vibebuddy_get_summary or vibebuddy_get_session for missing context.
-        Use vibebuddy_search to locate readable history and follow its exact session references.
-        These tools only read; summaries may be stale or absent, and source coverage differs (Grok Build has list/title only).
-        vibebuddy_live_status is an optional collaboration hint; unknown status does not block history access.
+        Use vibebuddy_handoff_facts with the handoff's source session key to check what that session observably did since.
+        Use vibebuddy_get_session to read one session's transcript by its exact key when the handoff leaves a gap.
+        These tools only read; there is no archive or search of past conversations.
+        vibebuddy_live_status is an optional collaboration hint; unknown status blocks nothing.
         A handoff's Source session must be the writer's own native session key, or unknown; never guess the newest session.
         """
     }
 
-    public func instructions(indexAvailable: Bool) -> String {
+    public func instructions() -> String {
         var sections = ["VibeBuddy MCP / CLI", "Executable: " + executablePath]
-        if !indexAvailable {
-            sections.append("Note: No usable History index. Open History in the Mac App, or explicitly run \(Self.shellQuote(executablePath)) index. Setup does not create an index.")
-        }
         for client in Client.allCases {
             sections.append(client.title + "\n" + client.instruction + "\n\n" + configuration(for: client))
         }
         sections.append("Optional AGENTS.md rule\n\n" + agentRule)
-        sections.append("Queries: sessions, projects, search, show, summary, status. No arguments starts stdio MCP. Only index [--rebuild] maintains the local index; setup only prints these instructions.")
+        sections.append("Queries: facts, show, status. No arguments starts stdio MCP; setup only prints these instructions.")
         return sections.joined(separator: "\n\n")
     }
 

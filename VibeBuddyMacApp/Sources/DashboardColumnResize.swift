@@ -27,21 +27,11 @@ private struct SidebarLabelStyleKey: EnvironmentKey {
     static let defaultValue = ColumnLabelStyle()
 }
 
-private struct ListLabelStyleKey: EnvironmentKey {
-    static let defaultValue = ColumnLabelStyle()
-}
-
 extension EnvironmentValues {
     /// The sidebar's lettering at its current width.
     var sidebarLabels: ColumnLabelStyle {
         get { self[SidebarLabelStyleKey.self] }
         set { self[SidebarLabelStyleKey.self] = newValue }
-    }
-
-    /// The session list's lettering at its current width (live and history).
-    var listLabels: ColumnLabelStyle {
-        get { self[ListLabelStyleKey.self] }
-        set { self[ListLabelStyleKey.self] = newValue }
     }
 }
 
@@ -262,151 +252,8 @@ private struct ColumnEdgeTracker: NSViewRepresentable {
     }
 }
 
-/// The session list beside its reader, split by a `ColumnResizeHandle`
-/// instead of the system divider. The list is the column that resizes —
-/// full (`DashboardColumnWidth.list`, 300 pt by default, free between 240
-/// and 380) or the 72 pt compact strip — and the reader takes what is left,
-/// never less than `readerMinWidth`: a window too narrow for both lowers
-/// the list's cap first. Live and history each build one of these over the
-/// same two remembered values, so both libraries share one list width.
-/// The list closure receives the lettering for the current width (the
-/// owning view cannot read `\.listLabels` from its own environment; only
-/// the rows it builds can), and the rows read the same value from it.
-struct ResizableListSplit<List: View, Reader: View>: View {
-    /// Whether the list is folded to the compact strip — the owner's
-    /// `@AppStorage(DashboardListColumn.compactKey)`, passed in so that an
-    /// unfold from outside the split (⌘F, the strip's search glyph) lands
-    /// in the same transaction as the width it animates.
-    @Binding var compact: Bool
-    @ViewBuilder var list: (ColumnLabelStyle) -> List
-    @ViewBuilder var reader: () -> Reader
-
-    private static var policy: DashboardColumnWidth { .list }
-
-    /// The list's last full width, remembered like the sidebar's.
-    @AppStorage(DashboardListColumn.fullWidthKey) private var fullWidth = Double(DashboardColumnWidth.list.fullDefault)
-    /// The pointer's width while a drag on the list's edge is live; nil at rest.
-    @State private var dragWidth: CGFloat?
-    @State private var dragOrigin: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        GeometryReader { geometry in
-            let available = geometry.size.width - DashboardListColumn.readerMinWidth - CompanionType.hairline
-            let width = dragWidth ?? settledWidth(available: available)
-            let labels = ColumnLabelStyle.at(width: width, policy: Self.policy)
-            HStack(spacing: 0) {
-                list(labels)
-                    .environment(\.listLabels, labels)
-                    // Leading, so a head row that cannot compress overflows
-                    // past the clipped edge instead of centring off-screen.
-                    .frame(width: width, alignment: .leading).frame(maxHeight: .infinity)
-                    .clipped()
-                Rectangle().fill(MacTheme.line).frame(width: CompanionType.hairline)
-                    // The drag handle straddles the hairline; it draws above
-                    // the reader so its pill and tip are never covered.
-                    .overlay {
-                        ColumnResizeHandle(dragging: dragWidth != nil,
-                                           accessibilityLabel: String(localized: "Session list width"),
-                                           accessibilityValue: accessibilityValue(available: available),
-                                           accessibilityHelp: String(localized: "Drag to resize; double-click to collapse or expand the session list"),
-                                           onDragBegan: { dragBegan(available: available) },
-                                           onDragChanged: { dragChanged(by: $0, available: available) },
-                                           onDragEnded: { dragEnded(available: available) },
-                                           onDoubleClick: toggleCompact,
-                                           onStep: { step($0, available: available) })
-                    }
-                    .zIndex(1)
-                reader()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    private func settledWidth(available: CGFloat) -> CGFloat {
-        compact ? Self.policy.compact : Self.policy.clampedFull(CGFloat(fullWidth), available: available)
-    }
-
-    /// Release and the double-click settle with a short snappy spring; with
-    /// Reduce Motion on, the width just changes.
-    private var settle: Animation? { reduceMotion ? nil : .snappy }
-
-    private func dragBegan(available: CGFloat) {
-        dragOrigin = settledWidth(available: available)
-        var live = Transaction()
-        live.disablesAnimations = true
-        withTransaction(live) { dragWidth = dragOrigin }
-    }
-
-    /// Follow the pointer inside the hard bounds; no snap, no rubber-band.
-    private func dragChanged(by delta: CGFloat, available: CGFloat) {
-        var live = Transaction()
-        live.disablesAnimations = true
-        withTransaction(live) { dragWidth = Self.policy.clampedDuringDrag(dragOrigin + delta, available: available) }
-    }
-
-    private func dragEnded(available: CGFloat) {
-        guard let released = dragWidth else { return }
-        let target = Self.policy.settled(released: released, available: available)
-        withAnimation(settle) {
-            compact = target == Self.policy.compact
-            if !compact { fullWidth = Double(target) }
-            dragWidth = nil
-        }
-    }
-
-    private func toggleCompact() {
-        withAnimation(settle) { compact.toggle() }
-    }
-
-    /// One accessibility increment or decrement, by the policy's rule,
-    /// inside the window's cap so the stored width never outruns the screen.
-    private func step(_ direction: Int, available: CGFloat) {
-        let next = Self.policy.stepped(full: CGFloat(fullWidth), compact: compact, direction: direction, available: available)
-        withAnimation(settle) {
-            compact = next.compact
-            if !next.compact { fullWidth = Double(next.full) }
-        }
-    }
-
-    private func accessibilityValue(available: CGFloat) -> String {
-        compact ? String(localized: "Compact")
-            : String(localized: "Full, \(Int(settledWidth(available: available).rounded())) points")
-    }
-}
-
-/// What `ResizableListSplit` shares with the views on either side of it:
-/// the defaults keys (the owner holds the compact flag and passes it in)
-/// and the reader's floor.
+/// The reader's floor beside the sidebar.
 enum DashboardListColumn {
-    static let fullWidthKey = "dashboard.listFullWidth"
-    static let compactKey = "dashboard.listCompact"
-    /// The reader never goes narrower than this; the list yields first.
+    /// The reader never goes narrower than this.
     static let readerMinWidth: CGFloat = 340
-    /// The head's padding on either side (live and history share it).
-    static let headPadding: CGFloat = 12
-    /// What a head row is laid out at while it is a ghost on the strip: the
-    /// width it has at the narrowest full width, so folding the list never
-    /// changes its height and nothing under it shifts.
-    static var headGhostWidth: CGFloat { DashboardColumnWidth.list.minFull - headPadding * 2 }
-}
-
-/// The compact strip's head: the search pill folded to one glyph. A click
-/// unfolds the list and focuses the field, so search is one click away in
-/// both shapes; ⌘F does the same from the keyboard.
-struct CompactSearchGlyph: View {
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .bold)).foregroundStyle(MacTheme.ink3)
-                .frame(width: 48, height: 28)
-                .companionCard(radius: 14)
-                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .help("Search sessions  ⌘F")
-        .accessibilityLabel("Search sessions")
-        .accessibilityIdentifier("mac-dashboard-compact-search")
-    }
 }

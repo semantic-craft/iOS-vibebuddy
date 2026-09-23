@@ -74,13 +74,12 @@ sandbox and should report the text rather than force a write. This skill still
 does not start anything itself.
 
 The receiver first reads this note, then follows
-`docs/agents/skills/vibebuddy-history/SKILL.md`: read the source's saved summary,
-inspect coverage and stale status, and use show only for unresolved questions.
-No saved summary means stale is not applicable. An unknown or ambiguous key is a
-lookup limitation, not an absent saved summary. A summary must not override a
-newer handoff. Confirm current files before resuming changes.
+`docs/agents/skills/vibebuddy-history/SKILL.md`: run `facts` for the source key
+to check drift, and use `show` only for unresolved questions. An unknown or
+ambiguous key is a lookup limitation, not evidence. Nothing read from a
+transcript overrides a newer handoff. Confirm current files before resuming changes.
 
-Optional live status excludes the receiver's own verified raw native ID (without the history agent prefix). Report another
+Optional live status excludes the receiver's own verified raw native ID (without the agent prefix). Report another
 busy session in the same checkout and let the user decide concurrency; do not
 switch worktrees or start/steer/stop/dispatch another agent. Deliver the handoff
 path through the user's existing workflow; this skill does not launch a receiver.

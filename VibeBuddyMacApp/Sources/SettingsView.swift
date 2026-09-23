@@ -143,7 +143,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .providerKeys: "One key per provider, shared by every feature"
         case .phone: "Connect at home or away"
         case .agentCLIs: "Hooks, daemons and who answers first"
-        case .connect: "Read local history from your agents"
+        case .connect: "Handoff facts and live transcripts for your agents"
         case .quota: "When an allowance should warn you"
         case .tokenSpend: "Local token usage at list prices, not your actual bill"
         case .usageSources: "Where the numbers are read from"

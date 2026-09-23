@@ -48,3 +48,29 @@ struct ContentStylePreferences: View {
         }
     }
 }
+
+struct ContentStylePicker: View {
+    @AppStorage(ContentStyleConfiguration.defaultsKey) private var choice = ContentStyleConfiguration.default.style.rawValue
+    private var style: ContentStyle { ContentStyle(rawValue: choice) ?? ContentStyleConfiguration.default.style }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Content style").font(MacTheme.font(12, .medium))
+            MenuPill(title: String(localized: String.LocalizationValue(style.title))) {
+                ForEach(ContentStyle.allCases, id: \.rawValue) { item in
+                    Button { choice = item.rawValue } label: {
+                        if item == style {
+                            Label(LocalizedStringKey(item.title), systemImage: "checkmark")
+                        } else {
+                            Text(LocalizedStringKey(item.title))
+                        }
+                    }
+                }
+            }
+            .help(LocalizedStringKey(style.detail))
+            .accessibilityLabel("Content style")
+            .accessibilityValue(LocalizedStringKey(style.title))
+            .accessibilityIdentifier("contentStyle")
+        }
+    }
+}

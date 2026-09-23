@@ -8,27 +8,11 @@ struct VibeBuddyMCP {
     static func main() async {
         signal(SIGPIPE, SIG_IGN)
         let argv = Array(CommandLine.arguments.dropFirst())
-        let directory = ProcessInfo.processInfo.environment["VIBEBUDDY_HISTORY_DIRECTORY"].map { URL(fileURLWithPath: $0) }
-        if argv.first == "index" {
-            guard argv == ["index"] || argv == ["index", "--rebuild"] else {
-                fail(HistoryToolError.invalidArguments("Usage: vibebuddy-mcp index [--rebuild]"), code: 2)
-            }
-            do {
-                let repository = SessionHistoryRepository(grokHome: GrokHome.url, cacheDirectory: directory)
-                let snapshot = try await repository.index(rebuild: argv.contains("--rebuild"))
-                let text = snapshot.map { "Indexed \($0.sessions.count) sessions.\n" + $0.issues.joined(separator: "\n") }
-                    ?? "Index already exists. Use --rebuild to refresh all sources."
-                FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
-                return
-            } catch { fail(error, code: 2) }
-        }
-        let repository = SessionHistoryRepository(grokHome: GrokHome.url, cacheDirectory: directory, readOnly: true)
-        let executor = HistoryToolExecutor(repository: repository)
+        let executor = HistoryToolExecutor(reader: .forCurrentRun())
         if argv.first == "setup" {
             guard argv == ["setup"] else { fail(HistoryToolError.invalidArguments("Usage: vibebuddy-mcp setup"), code: 2) }
             let setup = HistoryConnectionSetup(executablePath: runningExecutablePath())
-            let text = setup.instructions(indexAvailable: await repository.hasUsableIndex())
-            FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
+            FileHandle.standardOutput.write(Data(HistoryCLI.output(setup.instructions()).utf8))
             return
         }
         if argv.isEmpty {
@@ -43,8 +27,7 @@ struct VibeBuddyMCP {
             let arguments = argv.first == "call" ? request.arguments : try HistoryTools.normalizeCLIArguments(request.tool, arguments: request.arguments)
             let text = try await executor.execute(request.tool, arguments: arguments)
             try FileHandle.standardOutput.write(contentsOf: Data(HistoryCLI.output(text).utf8))
-        } catch HistoryToolError.noIndex { fail(HistoryToolError.noIndex, code: 2) }
-        catch HistoryToolError.invalidValue(let message) {
+        } catch HistoryToolError.invalidValue(let message) {
             fail(HistoryToolError.invalidValue(message), code: argv.first == "call" ? 1 : 2)
         } catch HistoryToolError.invalidArguments(let message) {
             fail(HistoryToolError.invalidArguments(message), code: argv.first == "call" ? 1 : 2)

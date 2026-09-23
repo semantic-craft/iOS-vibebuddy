@@ -134,7 +134,7 @@ final class HandoffFactsTests: XCTestCase {
         XCTAssertFalse(source.contains("- Continues:"), "the source did not continue anything")
         ledger.record(receiverKey: "cursor:cur", sourceKey: "codex:solo", handoffPath: nil, now: now)
         let observed = try HandoffFacts.call(arguments: ["key": "cursor:cur"], directory: dir, git: fakeGit, now: now)
-        XCTAssertTrue(observed.contains("- Continues: codex:solo (started by the Mac from the history tools (no handoff document), 2027-01-15T08:00:00Z)"), observed)
+        XCTAssertTrue(observed.contains("- Continues: codex:solo (started by the Mac from the session transcript (no handoff document), 2027-01-15T08:00:00Z)"), observed)
     }
 
     func testOtherAgentAndUnqualifiedToolsCannotBeAttributedByTheRequestedPrefix() throws {

@@ -7,11 +7,14 @@ struct ToolLedger: Sendable {
     private(set) var sessions: [String: [ToolCallRecord]] = [:]
     private let url: URL?
     private var persistencePending = false
-    /// The whole sidecar is re-encoded on every write, and an agent mid-task
-    /// observes several tool calls a second; one write per window is enough
-    /// for a recovery aid. A change inside the window is written by the next
-    /// `prune(now:)` (every snapshot) or the next observation after it.
-    static let writeInterval: TimeInterval = 2
+    /// The whole sidecar is re-encoded on every write (a heavy user's is
+    /// several MB), and an agent mid-task observes several tool calls a
+    /// second; one write per window is enough for a recovery aid. A change
+    /// inside the window is written by the next `prune(now:)` (every
+    /// snapshot), the owner's trailing flush, or `flush(now:)` before the file
+    /// is handed to another process.
+    static let defaultWriteInterval: TimeInterval = 10
+    let writeInterval: TimeInterval
     /// Monotonic: the caller's `now` is an event timestamp (hook receipt, a
     /// rollout line's own clock) and may run backwards during catch-up; it
     /// bounds the retention window, never the write anchor.
@@ -22,11 +25,12 @@ struct ToolLedger: Sendable {
     var needsTrailingWrite: Bool { persistencePending && url != nil }
     /// Files actually written. Exposed for tests.
     private(set) var writeCount = 0
-    init(url: URL?, now: Date) {
+    init(url: URL?, now: Date, writeInterval: TimeInterval = ToolLedger.defaultWriteInterval) {
         self.url = url
+        self.writeInterval = writeInterval
         if let url, let data = try? Data(contentsOf: url), data.count <= 8_000_000,
            let stored = try? JSONDecoder().decode([String: [ToolCallRecord]].self, from: data) { sessions = stored }
-        prune(now: now)
+        if pruneRetained(now: now, full: true) { persist(now: now, force: true) }
     }
     mutating func observe(_ input: ToolCallRecord, sessionID: String, now: Date, agent: AgentKind? = nil) {
         var record = input
@@ -65,13 +69,26 @@ struct ToolLedger: Sendable {
         _ = pruneRetained(now: now)
         if persistencePending { persist(now: now, force: true) }
     }
-    private mutating func pruneRetained(now: Date) -> Bool {
-        let previous = sessions
+    /// Retention: 7 days, 50 records per session, 250 sessions. Runs on every
+    /// snapshot and observation, so the common "nothing expired" pass only
+    /// reads: no copies of the (up to 12,500-record) map and no deep compare.
+    /// `observe` already keeps each session to 50; `full` re-applies that to
+    /// a file read from disk.
+    private mutating func pruneRetained(now: Date, full: Bool = false) -> Bool {
         let cutoff = now.addingTimeInterval(-7 * 86400)
-        sessions = sessions.mapValues { Array($0.filter { $0.observedAt >= cutoff }.suffix(50)) }.filter { !$0.value.isEmpty }
-        let retained = Set(sessions.sorted { ($0.value.last?.observedAt ?? .distantPast) > ($1.value.last?.observedAt ?? .distantPast) }.prefix(250).map(\.key))
-        sessions = sessions.filter { retained.contains($0.key) }
-        return sessions != previous
+        var changed = false
+        for (key, records) in sessions where full || records.contains(where: { $0.observedAt < cutoff }) {
+            let kept = Array(records.filter { $0.observedAt >= cutoff }.suffix(50))
+            guard kept != records else { continue }
+            sessions[key] = kept.isEmpty ? nil : kept
+            changed = true
+        }
+        if sessions.count > 250 {
+            let retained = Set(sessions.sorted { ($0.value.last?.observedAt ?? .distantPast) > ($1.value.last?.observedAt ?? .distantPast) }.prefix(250).map(\.key))
+            sessions = sessions.filter { retained.contains($0.key) }
+            changed = true
+        }
+        return changed
     }
     mutating func clear() -> Bool {
         if let url, FileManager.default.fileExists(atPath: url.path) {
@@ -84,7 +101,7 @@ struct ToolLedger: Sendable {
     }
     private mutating func persist(now: Date, force: Bool = false) {
         persistencePending = url != nil
-        if !force, let last = lastWriteAt, ContinuousClock.now - last < .seconds(Self.writeInterval) { return }
+        if !force, let last = lastWriteAt, ContinuousClock.now - last < .seconds(writeInterval) { return }
         // Bound the entire sidecar as well as each session. Drop oldest sessions
         // before serializing beyond the read cap; retained scope is shown in UI.
         guard var data = try? JSONEncoder().encode(sessions) else { return }

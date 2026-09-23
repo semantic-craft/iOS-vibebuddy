@@ -110,7 +110,7 @@ struct NewTaskSheet: View {
 
             if let continuing = prefill?.continuing {
                 Label(continuing.handoffPath.map { "Starts from the handoff at \(URL(fileURLWithPath: $0).lastPathComponent); the prompt points at its path." }
-                        ?? "No handoff document names this session; the prompt points the agent at the history tools instead.",
+                        ?? "No handoff document names this session; the prompt points the agent at its transcript instead.",
                       systemImage: "arrow.turn.down.right")
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                     .fixedSize(horizontal: false, vertical: true)

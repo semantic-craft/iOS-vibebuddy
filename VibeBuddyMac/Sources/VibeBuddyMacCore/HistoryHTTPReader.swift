@@ -3,21 +3,19 @@ import CryptoKit
 import VibeBuddyKit
 
 /// Auth is applied by VibeBuddyServer before this read-only adapter is entered.
-/// A new repository per request avoids the mtime/size transcript cache.
+/// The transcript reader re-parses whenever the file's revision changes.
 public actor HistoryHTTPReader {
     public struct Result: Sendable { public let status: Int; public let data: Data }
     private struct Cursor { let sourceID: String; let key: String; let revision: String; let before: Int; let issued: Date }
     private var cursors: [String: Cursor] = [:]
     private var busy = false
-    private let repository: @Sendable () -> SessionHistoryRepository
+    private let reader: SessionTranscriptReader
     private let now: @Sendable () -> Date
     private let ttl: TimeInterval
     private let maximumBytes = 1_048_576
-    public init(repository: @escaping @Sendable () -> SessionHistoryRepository = {
-        SessionHistoryRepository(cacheDirectory: FileManager.default.temporaryDirectory
-            .appendingPathComponent("vibebuddy-history-" + UUID().uuidString), readOnly: true)
-    }, now: @escaping @Sendable () -> Date = { Date() }, ttl: TimeInterval = 300) {
-        self.repository = repository; self.now = now; self.ttl = ttl
+    public init(reader: SessionTranscriptReader = .forCurrentRun(),
+                now: @escaping @Sendable () -> Date = { Date() }, ttl: TimeInterval = 300) {
+        self.reader = reader; self.now = now; self.ttl = ttl
     }
 
     private func failure(_ status: Int, _ reason: String) -> Result {
@@ -52,9 +50,9 @@ public actor HistoryHTTPReader {
         busy = true
         defer { busy = false }
         do {
-            // Repository actor runs synchronous parsing on its own executor. Await permits
+            // The reader actor runs synchronous parsing on its own executor. Await permits
             // this actor to reject concurrent requests instead of accumulating parse work.
-            let transcript = try await repository().readTranscript(key: key)
+            let transcript = try await reader.readTranscript(key: key)
             let session = transcript.session
             guard session.isAvailable else { return failure(503, "source_unavailable") }
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
@@ -89,7 +87,7 @@ public actor HistoryHTTPReader {
                 start += 1
             }
         } catch {
-            // Do not expose repository errors, which can include local filesystem paths.
+            // Do not expose reader errors, which can include local filesystem paths.
             let text = String(describing: error)
             if text.contains("Unknown session key") { return failure(404, "session_not_found") }
             if text.contains("Ambiguous session key") { return failure(409, "ambiguous_source") }

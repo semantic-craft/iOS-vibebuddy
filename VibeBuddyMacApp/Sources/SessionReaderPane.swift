@@ -5,41 +5,34 @@ import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// The dashboard's right column (ADR-0024): a two-line head with the session's
-/// controls in its top-right corner (the jump, the view switch, the bell, the
-/// star and ···, all glyphs with tooltips), the conversation body, and a dock
-/// at the bottom for the one decision or reply the session is waiting on. The same pane reads a live session and a history record; what
-/// differs is which controls the subject actually supports.
+/// controls in its top-right corner (the jump, the view switch, the bell and
+/// ···, all glyphs with tooltips), the conversation body, and a dock
+/// at the bottom for the one decision or reply the session is waiting on.
 struct SessionReaderPane: View {
     enum Tab: String, CaseIterable { case conversation, activity, changes }
 
     let subject: ReaderSubject
     let targetMessage: String?
     @ObservedObject var model: MenuBarModel
-    @ObservedObject var history: HistoryLibraryModel
     @ObservedObject var reader: SessionReaderModel
     var draft: Binding<String>? = nil
     @State private var localDrafts: [String: String] = [:]
     @State private var acknowledgedBodyID: String?
     @State private var tab: Tab = .conversation
-    @State private var feedback: String?
     @State private var exportError: String?
 
-    private var live: AgentSession? { subject.live }
-    private var record: SessionHistorySession? { subject.record }
-    private var viewedSessionID: String? { tab == .conversation ? live?.id : nil }
+    private var live: AgentSession { subject.live }
+    private var viewedSessionID: String? { tab == .conversation ? live.id : nil }
     private var composerDraft: Binding<String> {
         let key = (model.completionSourceID ?? "unknown") + "/" + subject.id
         return draft ?? Binding(get: { localDrafts[key] ?? "" }, set: { localDrafts[key] = $0.isEmpty ? nil : $0 })
     }
 
-    /// Reloads on selection, on a search target, when the record's source
-    /// moved, and on the live session's own turn boundaries. The file watcher
-    /// covers appended text in between.
+    /// Reloads on selection, on a target message, and on the live session's
+    /// own turn boundaries. The file watcher covers appended text in between.
     private var loadKey: String {
-        [subject.id, targetMessage ?? "", record?.sourcePath ?? "", record?.sourceRevision ?? "",
-         record.map { "\($0.updatedAt.timeIntervalSince1970)|\($0.isAvailable)" } ?? "",
-         live?.status.rawValue ?? "", live.map { "\($0.statusSince.timeIntervalSince1970)" } ?? "",
-         live?.activeTool ?? "", live?.completionID ?? ""].joined(separator: "\u{1f}")
+        [subject.id, targetMessage ?? "", live.status.rawValue, "\(live.statusSince.timeIntervalSince1970)",
+         live.activeTool ?? "", live.completionID ?? ""].joined(separator: "\u{1f}")
     }
 
     private var projectDirectoryExists: Bool {
@@ -62,9 +55,9 @@ struct SessionReaderPane: View {
         .task(id: loadKey) { await reader.load(subject, target: targetMessage) }
         .onChange(of: viewedSessionID, initial: true) { _, id in model.dashboardViewedSessionID = id }
         .onDisappear {
-            if model.dashboardViewedSessionID == live?.id { model.dashboardViewedSessionID = nil }
+            if model.dashboardViewedSessionID == live.id { model.dashboardViewedSessionID = nil }
         }
-        .onChange(of: subject.id) { _, _ in feedback = nil; if tab != .conversation && !tabEnabled(tab) { tab = .conversation } }
+        .onChange(of: subject.id) { _, _ in if tab != .conversation && !tabEnabled(tab) { tab = .conversation } }
         .alert("Could not export", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("OK") { exportError = nil }
         } message: { Text(exportError ?? "") }
@@ -83,7 +76,7 @@ struct SessionReaderPane: View {
                 Text(line).font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink2)
                     .fixedSize(horizontal: false, vertical: true).contentTransition(.opacity)
             }
-            if let live, live.status == .working, let progress = live.detailProgress, !progress.isEmpty {
+            if live.status == .working, let progress = live.detailProgress, !progress.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(progress).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink).lineLimit(2).help(progress)
                     Text(live.detailProgressSource).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3).lineLimit(1)
@@ -131,7 +124,7 @@ struct SessionReaderPane: View {
     private func tabEnabled(_ tab: Tab) -> Bool {
         switch tab {
         case .conversation: return true
-        case .activity: return live != nil
+        case .activity: return true
         case .changes: return projectDirectoryExists
         }
     }
@@ -154,7 +147,7 @@ struct SessionReaderPane: View {
     /// The jump as one accent glyph: terminal, desktop thread or host app.
     /// ⏎ on the dashboard does the same; the tooltip names where it lands.
     @ViewBuilder private var jumpControl: some View {
-        if let live, live.canJump {
+        if live.canJump {
             let destination = JumpDestination.resolve(live)
             Button { model.jump(live) } label: {
                 HeaderIcon(systemName: destination.symbol, tint: MacTheme.accentText)
@@ -166,29 +159,18 @@ struct SessionReaderPane: View {
     }
 
     @ViewBuilder private var iconControls: some View {
-        if let live {
-            Menu {
-                AttentionPicker(session: live, model: model, style: .menu)
-                Divider()
-                Text(live.attentionOverride == nil
-                     ? String(localized: "Automatic: \(live.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise.")
-                     : live.effectiveAttention.explanation)
-            } label: {
-                HeaderIcon(systemName: live.effectiveAttention.symbol, tint: live.attentionOverride == nil ? MacTheme.ink2 : MacTheme.accentText)
-            }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            .help("Notifications for this session")
-            .accessibilityLabel("Notifications")
+        Menu {
+            AttentionPicker(session: live, model: model, style: .menu)
+            Divider()
+            Text(live.attentionOverride == nil
+                 ? String(localized: "Automatic: \(live.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise.")
+                 : live.effectiveAttention.explanation)
+        } label: {
+            HeaderIcon(systemName: live.effectiveAttention.symbol, tint: live.attentionOverride == nil ? MacTheme.ink2 : MacTheme.accentText)
         }
-        if let record {
-            Button { Task { await history.toggleFavorite(record) } } label: {
-                HeaderIcon(systemName: record.isFavorite ? "star.fill" : "star",
-                           tint: record.isFavorite ? MacTheme.status(.requiresInput) : MacTheme.ink2)
-            }
-            .buttonStyle(.plain)
-            .help(record.isFavorite ? "Unfavorite" : "Favorite")
-            .accessibilityLabel(record.isFavorite ? "Unfavorite" : "Favorite")
-        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help("Notifications for this session")
+        .accessibilityLabel("Notifications")
         Menu { moreItems } label: { HeaderIcon(systemName: "ellipsis", tint: MacTheme.ink2) }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             .help("More actions for this session")
@@ -196,35 +178,21 @@ struct SessionReaderPane: View {
     }
 
     @ViewBuilder private var moreItems: some View {
-        if let live {
-            if SessionActionSupport.resolveStop(for: live).isAvailable {
-                Button("Stop task") { model.stop(live) }
-            }
-            if live.status == .done, live.completionID != nil {
-                Button(live.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                    acknowledgedBodyID = (model.completionSourceID ?? "unknown") + "/" + live.id + "/" + (live.completionID ?? "working")
-                    if live.hasUnreadCompletion { model.acknowledge(live.id, displayedCompletionID: live.completionID) }
-                    else { model.markUnread(live) }
-                }
-                Button("Replay this previous result") { model.replayResult(live) }
-            }
+        if SessionActionSupport.resolveStop(for: live).isAvailable {
+            Button("Stop task") { model.stop(live) }
         }
-        if let record {
-            if subject.origin == .history, record.agent.supportsTranscript, !history.isDemo {
-                Button(history.summary == nil ? "Generate summary" : "Regenerate summary") { history.generateSummary() }
-                    .disabled(history.reading || history.summarizing)
+        if live.status == .done, live.completionID != nil {
+            Button(live.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                acknowledgedBodyID = (model.completionSourceID ?? "unknown") + "/" + live.id + "/" + (live.completionID ?? "working")
+                if live.hasUnreadCompletion { model.acknowledge(live.id, displayedCompletionID: live.completionID) }
+                else { model.markUnread(live) }
             }
+            Button("Replay this previous result") { model.replayResult(live) }
+        }
+        if let transcript = reader.transcript {
             Divider()
-            Button(record.isPinned == true ? "Unpin" : "Pin") { Task { await history.togglePinned(record) } }
-            Button(record.archivedLocally == true ? "Unarchive in library" : "Archive in library") {
-                Task { await history.toggleArchive(record) }
-            }
-            Divider()
-            Button("Export Markdown…") { export(record) }.disabled(!canExport)
-            Button("Show source") { showSource(record) }.disabled(!record.isAvailable)
-            if live == nil, HistorySessionSupport.resumeCommand(for: record) != nil {
-                Button("Copy resume command") { copyResumeCommand(record) }
-            }
+            Button("Export Markdown…") { export(transcript) }.disabled(reader.loading || reader.error != nil)
+            Button("Show source") { showSource(transcript) }
         }
         Divider()
         Button("Refresh transcript") { reader.refresh() }
@@ -240,24 +208,16 @@ struct SessionReaderPane: View {
                 Text(subject.projectName).lineLimit(1).truncationMode(.middle)
                     .help(subject.projectPath ?? subject.projectName)
                 dot
-                if let live {
-                    HStack(spacing: 5) {
-                        Circle().fill(MacTheme.status(live.presentationState)).frame(width: 7, height: 7)
-                        Text(ToolActivity.label(for: live)).fontWeight(.semibold)
-                            .foregroundStyle(MacTheme.status(live.presentationState))
-                    }.lineLimit(1)
-                    if let m = live.model { dot; Text(m).lineLimit(1) }
-                } else {
-                    HStack(spacing: 5) {
-                        Circle().strokeBorder(MacTheme.status(.idle), lineWidth: 1.5).frame(width: 7, height: 7)
-                        Text("No live status").fontWeight(.semibold).foregroundStyle(MacTheme.ink3)
-                    }.lineLimit(1)
-                    if let record { dot; Text(record.updatedAt.formatted(date: .abbreviated, time: .shortened)).lineLimit(1) }
-                }
+                HStack(spacing: 5) {
+                    Circle().fill(MacTheme.status(live.presentationState)).frame(width: 7, height: 7)
+                    Text(ToolActivity.label(for: live)).fontWeight(.semibold)
+                        .foregroundStyle(MacTheme.status(live.presentationState))
+                }.lineLimit(1)
+                if let m = live.model { dot; Text(m).lineLimit(1) }
                 Spacer(minLength: 0)
             }
             HStack(spacing: 6) {
-                if let live, let observation = live.observationDescription {
+                if let observation = live.observationDescription {
                     HStack(spacing: 4) {
                         Text(observation)
                         if let last = live.lastObservedAt { Text(last, style: .relative) }
@@ -265,9 +225,9 @@ struct SessionReaderPane: View {
                     if sourceLabel != nil { dot }
                 }
                 if let source = sourceLabel { source.lineLimit(1) }
-                if let record, !record.warnings.isEmpty {
+                if let warnings = reader.transcript?.warnings, !warnings.isEmpty {
                     Image(systemName: "info.circle").foregroundStyle(MacTheme.ink3)
-                        .help(record.warnings.joined(separator: "\n"))
+                        .help(warnings.joined(separator: "\n"))
                         .accessibilityLabel("Record notices")
                 }
                 Spacer(minLength: 0)
@@ -282,11 +242,11 @@ struct SessionReaderPane: View {
     /// the transcript and an archived transcript never for live evidence.
     private var sourceLabel: Text? {
         switch reader.body {
-        case .transcript(_, let updatedAt, _, _):
+        case .transcript(_, let updatedAt, _):
             return Text("Transcript · updated ") + Text(updatedAt, style: .relative)
         case .recentOutput(let label, _, _):
             return Text("Recent output · \(label) · limited excerpt")
-        case .empty, .unsupported:
+        case .empty:
             return nil
         }
     }
@@ -299,14 +259,9 @@ struct SessionReaderPane: View {
         }
     }
 
-    /// What the last jump or copy achieved, or why neither is available.
+    /// What the last jump achieved.
     private var jumpLine: String? {
-        if let live, let outcome = model.jumpFeedback[live.id] { return outcome.macMessage(for: live) }
-        if let feedback { return feedback }
-        if live == nil, let record, HistorySessionSupport.resumeCommand(for: record) == nil {
-            return HistorySessionSupport.unavailableReason(for: record)
-        }
-        return nil
+        model.jumpFeedback[live.id]?.macMessage(for: live)
     }
 
     // MARK: Body
@@ -327,22 +282,12 @@ struct SessionReaderPane: View {
                 Text(error).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                 Button("Retry") { reader.refresh() }.buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if case .unsupported(let reason) = reader.body, reader.rows.isEmpty {
-            QuietEmptyState(title: "Full transcript unavailable", message: LocalizedStringKey(reason), systemName: "text.book.closed")
         } else {
-            VStack(spacing: 0) {
-                if subject.origin == .history, let record, record.agent.supportsTranscript, !history.isDemo {
-                    HistorySummaryView(history: history, session: record)
-                        .companionCard(MacTheme.bg3)
-                        .padding(12)
-                    Divider()
-                }
-                SessionReaderView(rows: reader.rows, targetMessage: targetMessage, note: bodyNote) {
-                    EmptyView()
-                } tail: {
-                    if let live, live.status == .done, live.completionID != nil {
-                        ReaderResultCard(session: live, model: model, acknowledgedBodyID: $acknowledgedBodyID)
-                    }
+            SessionReaderView(rows: reader.rows, targetMessage: targetMessage, note: bodyNote) {
+                EmptyView()
+            } tail: {
+                if live.status == .done, live.completionID != nil {
+                    ReaderResultCard(session: live, model: model, acknowledgedBodyID: $acknowledgedBodyID)
                 }
             }
             .id(subject.id)
@@ -354,50 +299,39 @@ struct SessionReaderPane: View {
         case .recentOutput(let label, let status, _):
             let excerpt = String(localized: "A limited recent excerpt from \(label); this source keeps no readable transcript.")
             return status.isEmpty ? excerpt : excerpt + " " + status
-        case .transcript(_, _, _, let isAvailable):
-            return isAvailable ? nil : String(localized: "The source is unavailable. Showing the last indexed copy.")
-        case .empty, .unsupported:
+        case .transcript, .empty:
             return nil
         }
     }
 
     @ViewBuilder private var activity: some View {
-        if let live {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 6) {
-                        if let m = live.model { Label(m, systemImage: "cpu") }
-                        if let observation = live.observationDescription {
-                            Text("·"); Text(observation)
-                            if let last = live.lastObservedAt { Text(last, style: .relative) }
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 6) {
+                    if let m = live.model { Label(m, systemImage: "cpu") }
+                    if let observation = live.observationDescription {
+                        Text("·"); Text(observation)
+                        if let last = live.lastObservedAt { Text(last, style: .relative) }
                     }
-                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
-                    if let warning = RowPresentation(session: live).observationWarning {
-                        Text(warning).font(MacTheme.font(11)).foregroundStyle(MacTheme.status(.requiresInput))
-                    }
-                    if let child = ToolActivity.childSummary(for: live) {
-                        Text(child).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                    }
-                    ToolLedgerView(session: live)
                 }
-                .frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
+                .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
+                if let warning = RowPresentation(session: live).observationWarning {
+                    Text(warning).font(MacTheme.font(11)).foregroundStyle(MacTheme.status(.requiresInput))
+                }
+                if let child = ToolActivity.childSummary(for: live) {
+                    Text(child).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                }
+                ToolLedgerView(session: live)
             }
-        } else {
-            QuietEmptyState(title: "No live activity", message: "This record has no observed tool calls.", systemName: "wrench.and.screwdriver")
+            .frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
         }
     }
 
     @ViewBuilder private var changes: some View {
-        if let path = subject.projectPath, projectDirectoryExists {
-            WorkspaceChangesView(embedded: true) { scope, baseline, file in
-                if let live {
-                    return await model.workspaceChanges(for: live, scope: scope, baseline: baseline, file: file)
-                }
-                return await Task.detached(priority: .utility) {
-                    WorkspaceChangesReader.read(cwd: path, scope: scope, baseline: baseline, file: file, shared: false)
-                }.value
+        if projectDirectoryExists {
+            WorkspaceChangesView(embedded: true) { [live] scope, baseline, file in
+                await model.workspaceChanges(for: live, scope: scope, baseline: baseline, file: file)
             }
             .id(subject.id)
         } else {
@@ -408,8 +342,7 @@ struct SessionReaderPane: View {
     // MARK: Dock
 
     private var hasDock: Bool {
-        guard let live else { return false }
-        return live.status == .needsResponse || SessionActionSupport.resolve(for: live).isAvailable
+        live.status == .needsResponse || SessionActionSupport.resolve(for: live).isAvailable
             || model.answerFeedback[live.id] != nil
     }
 
@@ -430,56 +363,40 @@ struct SessionReaderPane: View {
     }
 
     @ViewBuilder private var dockContent: some View {
-        if let live {
-            VStack(alignment: .leading, spacing: 10) {
-                if live.status == .needsResponse {
-                    Text("Your decision").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
-                    if let approval = live.pendingApproval {
-                        RequestCard(session: live, approval: approval, model: model)
-                    } else if let question = live.pendingQuestion {
-                        if WaitHandling.resolve(for: live) == .remoteAvailable {
-                            QuestionCardView(question: question) { answers in model.answer(live.id, answers: answers) }
-                        } else {
-                            Text(question.prompt).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
-                            Text(WaitHandling.resolve(for: live).message).font(MacTheme.font(11))
-                        }
+        VStack(alignment: .leading, spacing: 10) {
+            if live.status == .needsResponse {
+                Text("Your decision").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
+                if let approval = live.pendingApproval {
+                    RequestCard(session: live, approval: approval, model: model)
+                } else if let question = live.pendingQuestion {
+                    if WaitHandling.resolve(for: live) == .remoteAvailable {
+                        QuestionCardView(question: question) { answers in model.answer(live.id, answers: answers) }
                     } else {
+                        Text(question.prompt).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
                         Text(WaitHandling.resolve(for: live).message).font(MacTheme.font(11))
                     }
-                } else if SessionActionSupport.resolve(for: live).isAvailable {
-                    InstructionComposer(placeholder: live.status == .done ? "Start a new turn…" : "Add to the current turn…", externalDraft: composerDraft) { text in
-                        model.answer(live.id, answers: [:], text: text)
-                    }
-                    .id(live.id + String(live.statusSince.timeIntervalSince1970))
+                } else {
+                    Text(WaitHandling.resolve(for: live).message).font(MacTheme.font(11))
                 }
-                if let feedback = model.answerFeedback[live.id] {
-                    Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+            } else if SessionActionSupport.resolve(for: live).isAvailable {
+                InstructionComposer(placeholder: live.status == .done ? "Start a new turn…" : "Add to the current turn…", externalDraft: composerDraft) { text in
+                    model.answer(live.id, answers: [:], text: text)
                 }
+                .id(live.id + String(live.statusSince.timeIntervalSince1970))
+            }
+            if let feedback = model.answerFeedback[live.id] {
+                Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
             }
         }
     }
 
     // MARK: Actions
 
-    private var canExport: Bool {
-        guard let record, record.agent.supportsTranscript else { return false }
-        return !reader.loading && reader.error == nil && reader.transcript?.id == record.id
-            && reader.transcript?.sourcePath == record.sourcePath
+    private func showSource(_ session: SessionHistorySession) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: session.sourcePath)])
     }
 
-    private func showSource(_ record: SessionHistorySession) {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: record.sourcePath)])
-    }
-
-    private func copyResumeCommand(_ record: SessionHistorySession) {
-        feedback = HistorySessionSupport.copyResumeCommand(for: record)
-            ? String(localized: "Resume command copied. Run it in your terminal to continue.")
-            : String(localized: "The resume command is no longer available.")
-    }
-
-    private func export(_ record: SessionHistorySession) {
-        guard let session = reader.transcript, session.id == record.id,
-              session.sourcePath == record.sourcePath else { return }
+    private func export(_ session: SessionHistorySession) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.nameFieldStringValue = "\(session.agent.rawValue)-\(session.nativeSessionID).md"

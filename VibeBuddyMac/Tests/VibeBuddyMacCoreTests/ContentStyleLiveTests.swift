@@ -12,16 +12,15 @@ struct ContentStyleLiveTests {
         let output = try #require(env["VIBEBUDDY_CONTENT_STYLE_OUTPUT"])
         let history = try SessionHistoryParser.read(url: URL(fileURLWithPath: path), agent: .codex, updatedAt: Date())
         let final = try #require(history.messages.last(where: { $0.role == .assistant })?.text)
-        let material = SessionHistorySummaryService.material(history)
         let http = CompletionSummaryHTTP(session: CompletionSummaryHTTP.session(timeout: 45))
         var rows: [[String: String]] = []
         for style in ContentStyle.allCases {
             var config = CompletionSummaryConfiguration(enabled: true, provider: .qwen, modelID: "qwen3.8-flash", language: .chinese)
             config.contentStyle = .init(style: style, customPrompt: "用两句自然中文汇报。第一句讲实际改善，第二句讲尚未确认的事项。")
-            for purpose in [SummaryPurpose.speech, .history, .notice, .recap] {
+            for purpose in [SummaryPurpose.speech, .notice, .recap] {
                 let now = Date()
                 let input = CompletionSummaryInput(sourceID: "content-style-live", sessionID: history.id,
-                    completionID: UUID().uuidString, title: "VibeBuddy", finalText: purpose == .history ? material.text : final,
+                    completionID: UUID().uuidString, title: "VibeBuddy", finalText: final,
                     completedAt: now, observedAt: now)
                 let request = try CompletionSummaryHTTP.request(input: input, configuration: config, key: secret, timeout: 45, purpose: purpose)
                 let (data, _) = try await http.session.data(for: request)

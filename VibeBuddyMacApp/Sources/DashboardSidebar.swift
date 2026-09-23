@@ -59,15 +59,10 @@ struct DashboardSidebar: View {
                            count: waiting, countTint: MacTheme.status(.requiresInput),
                            selected: library == "inbox") { library = "inbox" }
                 SidebarRow(systemName: "clock.arrow.circlepath", title: "Recap", selected: library == "recap") { library = "recap" }
-                SidebarRow(systemName: "clock", title: "History", selected: library == "history") { library = "history" }
-                SidebarRow(systemName: "star", title: "Favorites", selected: library == "favorites") { library = "favorites" }
                 SidebarRow(systemName: "chart.bar", title: "Usage", selected: library == "usage") { library = "usage" }
 
                 sessionsHeading
-                // History and Favorites carry their own search field over
-                // their own index; two fields bound to one query would fight
-                // for the focus, so the column's own field leaves while they are open.
-                if !labels.iconOnly, library != "history", library != "favorites" {
+                if !labels.iconOnly {
                     SearchPill(query: $query, focused: searchFocused)
                         .padding(.horizontal, 8).padding(.bottom, 6)
                         .opacity(labels.opacity)

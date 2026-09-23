@@ -2,43 +2,29 @@ import Foundation
 import CoreFoundation
 
 /// Both CLI and MCP route through this entry; new tools add business routing here,
-/// never in the protocol adapter. The caller supplies a read-only repository.
+/// never in the protocol adapter. Every tool only reads.
 public struct HistoryToolExecutor: Sendable {
-    public let repository: SessionHistoryRepository
+    public let reader: SessionTranscriptReader
     private let environment: [String: String]
-    public init(repository: SessionHistoryRepository, environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.repository = repository
+    public init(reader: SessionTranscriptReader, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.reader = reader
         self.environment = environment
-    }
-
-    public static func requiresIndex(_ name: String) -> Bool {
-        ["vibebuddy_list_sessions", "vibebuddy_list_projects", "vibebuddy_search"].contains(name)
     }
 
     public func execute(_ name: String, arguments: [String: Any], isolation: isolated (any Actor)? = #isolation) async throws -> String {
         try HistoryTools.validateArguments(name, arguments: arguments)
         do {
-            // Live observation does not load History metadata or require an index.
-            if name == "vibebuddy_live_status" {
-                return try await HistoryLiveStatus.call(arguments: arguments, environment: environment)
-            }
-            // Handoff facts read the daemon's ledger files and probe git; no History metadata.
-            if name == HandoffFacts.toolName {
-                return try HandoffFacts.call(arguments: arguments, directory: HandoffFacts.directory(environment: environment))
-            }
-            try await repository.reloadReadOnlyMetadata()
-            if Self.requiresIndex(name), !(await repository.hasUsableIndex()) {
-                throw HistoryToolError.noIndex
-            }
             switch name {
+            case "vibebuddy_live_status":
+                return try await HistoryLiveStatus.call(arguments: arguments, environment: environment)
+            case HandoffFacts.toolName:
+                // Handoff facts read the daemon's ledger files and probe git.
+                await LedgerFlushRequest.send(environment: environment)
+                return try HandoffFacts.call(arguments: arguments, directory: HandoffFacts.directory(environment: environment))
             case "vibebuddy_get_session":
-                return try await HistoryTools.getSession(arguments: arguments, repository: repository)
-            case "vibebuddy_get_summary":
-                return try await HistoryTools.getSummary(arguments: arguments, repository: repository)
-            case "vibebuddy_search":
-                return try await HistoryTools.search(arguments: arguments, repository: repository)
+                return try await HistoryTools.getSession(arguments: arguments, reader: reader)
             default:
-                return try HistoryTools.call(name, arguments: arguments, snapshot: await repository.snapshot())
+                throw HistoryToolError.invalidArguments("Unknown tool: \(name)")
             }
         } catch HistoryToolError.invalidArguments(let message) {
             // Shape already passed the schema; domain errors are tool results.

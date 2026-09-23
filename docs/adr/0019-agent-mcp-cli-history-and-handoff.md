@@ -215,3 +215,33 @@ Acceptance is same-machine relay.
 - Tests: tool definitions stable; CLI and MCP print identical bytes; exit
   codes; store unchanged by any read; concurrent refresh and read do not
   corrupt or crash; key parsing accepts a full reference.
+
+## Amendment (2026-09-23): History archive removed
+
+The owner decided VibeBuddy's job is live reminders and live progress, not an
+archive of past conversations. The index had grown to a 29.6 GB
+`search.sqlite` (trigram FTS5 plus a folded copy) and re-indexed active
+transcripts every ~15 s plus a 30 s full reconcile.
+
+Removed: `SessionHistoryRepository` and its cache directory
+(`index.json`, per-source content caches, `search.sqlite`, favorites, pins,
+archives, saved summaries), the cross-process refresh lock, the Grok Build
+list inventory, and the tools `vibebuddy_list_sessions`,
+`vibebuddy_list_projects`, `vibebuddy_search` and `vibebuddy_get_summary`
+with their CLI commands `sessions`, `projects`, `search`, `summary` and
+`index`. No tool needs an index any more. The Mac app deletes the old
+`SessionHistory/` directory, and any stale `$TMPDIR/vibebuddy-history-*`
+reader directories, at launch (a no-op once they are gone; an E2E run cleans
+only its own `history` directory). `docs/session-history.md` is gone.
+
+What remains of this decision: the one read-only `vibebuddy-mcp` binary
+(MCP with no arguments, CLI otherwise, `call` and `setup`), session keys and
+`vibebuddy://session/<key>#<seq>` references, and three tools —
+`vibebuddy_handoff_facts` (`facts`, ADR-0023), `vibebuddy_live_status`
+(`status`) and `vibebuddy_get_session` (`show`). `show` now reads one
+transcript straight from the agent's own file through `SessionTranscriptReader`,
+located by native id under the agent roots, with the same root, ambiguity and
+in-file identity checks; it writes nothing. Grok Build keys still parse (for
+facts) but have no readable transcript. Relay stays a handoff note that names
+its source session; the reader checks it with `facts` and reads `show` only
+for what the note leaves open.

@@ -3,28 +3,15 @@ import VibeBuddyKit
 
 /// Where the reading pane's conversation body comes from for one session
 /// (ADR-0024). Identity is exact: a live session's id *is* the agent's native
-/// session id, and the history key is that id under the agent's key name.
+/// session id, and the transcript key is that id under the agent's key name.
 /// Neither a matching title nor "the latest record" ever stands in for it.
 public enum SessionReaderSource: Equatable, Sendable {
-    /// The agent's own local transcript, read through the history repository
-    /// by key (`claude-code:<id>`), fresh from the source file when the index
-    /// is stale and located by native id when the index has no row yet.
+    /// The agent's own local transcript, read by `SessionTranscriptReader`
+    /// by key (`claude-code:<id>`), straight from the source file.
     case transcript(key: String)
     /// The daemon's bounded recent-output excerpt — the only body for agents
-    /// the history repository cannot parse. Never described as full history.
+    /// with no readable transcript. Never described as full history.
     case recentOutput
-
-    /// The history reader that covers a live agent, if any. Grok Build has a
-    /// reader for the official list only, so its key resolves to metadata.
-    public static func historyAgent(for agent: AgentKind) -> SessionHistoryAgent? {
-        switch agent {
-        case .claudeCode: return .claude
-        case .codex: return .codex
-        case .cursor: return .cursor
-        case .grok: return .grokBuild
-        case .qwen, .kimi, .antigravity, .grokBot, .opencode, .copilot: return nil
-        }
-    }
 
     /// The `readTranscript(key:)` key for a live session, or nil when no
     /// transcript reader covers the agent or the id is not a native session id.
@@ -32,21 +19,8 @@ public enum SessionReaderSource: Equatable, Sendable {
         HistoryIdentity.transcriptKey(for: session)
     }
 
-    /// The history library's row id (`claude:<id>`) for the same session, the
-    /// form `SessionHistorySnapshot.sessions` carries.
-    public static func recordID(for session: AgentSession) -> String? {
-        guard let agent = historyAgent(for: session.agent), isNativeID(session.id) else { return nil }
-        return agent.rawValue + ":" + session.id
-    }
-
     public static func resolve(for session: AgentSession) -> SessionReaderSource {
         transcriptKey(for: session).map { .transcript(key: $0) } ?? .recentOutput
-    }
-
-    /// The same character rule `HistorySessionReference` applies, so a key
-    /// built here always parses there.
-    static func isNativeID(_ id: String) -> Bool {
-        !id.isEmpty && id.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "-_".unicodeScalars.contains($0) }
     }
 }
 

@@ -600,31 +600,23 @@ code, and tests — don't drift to synonyms.
 
 ## Completion summaries and Mac reading
 
-- **Conversation summary** — a user-requested reading aid for one historical
-  conversation, separate from a Completion notice. It summarizes bounded readable
-  history through the configured BYO text provider, excludes injected Meta and
-  Thinking, and records coverage, source revision and the **content style** that
-  wrote it. A changed source marks the persisted result stale; a changed style
-  preference is flagged separately. Generating or reading it establishes no live completion
-  identity, notification or task control capability.
 - **Content style** — the source Mac's global content preference (`contentStyle`
   and `contentStyleCustomPrompt`): *concise* leads with the one thing the reader
   can do now (only when the record asks for it) or the most important perceptible
   result, and ends with at most one next step; *decision* gives a nontechnical CEO
   briefing on outcomes, benefits and supported tradeoffs; *custom* applies up to
   2000 characters of expression instructions. All styles share the reader-shaped
-  writing rules (no preamble or closer, current state stated, user steps numbered
-  in history only and spoken in order elsewhere, at most five visible items per
-  group, matter-of-fact failures, time only when the record gives it, history
-  keeps its coverage sentence right after the first content sentence) and the evidence and
-  authorization rules; the prompt fingerprint is `content-prompt-v2`. Settings,
-  the history reader and the reading panel use this same choice. Paired phones
+  writing rules (no preamble or closer, current state stated, user steps spoken
+  in order rather than numbered, at most five visible items per group,
+  matter-of-fact failures, time only when the record gives it) and the evidence
+  and authorization rules; the prompt fingerprint is `content-prompt-v2`.
+  Settings and the Voice and reading panel use this same choice. Paired phones
   read and update it through authenticated `/content-style`; optimistic revision
   checks prevent a stale phone edit overwriting a newer choice. Voice/persona
   preferences remain independent and local to their provider.
 - **Content presentation** — derived wording generated directly from the original
-  evidence, through the summary provider. Notice, speech, history and recap share
-  content rules but have distinct length limits: 180, 900, 2000 and 360 characters.
+  evidence, through the summary provider. Notice, speech and recap share
+  content rules but have distinct length limits: 180, 900 and 360 characters.
   Speech and recap use an independent bounded cache, keyed by source, exact round,
   evidence, purpose and effective provider/language/style configuration. These
   requests never claim or redeliver notifications, acknowledge results or act on
@@ -646,11 +638,6 @@ code, and tests — don't drift to synonyms.
   silent. There is no additional completion-reminder throttle.
   Automatic reading still requires its opt-in; manual reading
   can request content even when automatic completion summaries are off.
-- **Saved summary style** — older history files retain action briefing, session
-  review or archive record as their original labels. Newly generated history
-  records store the full content preference. Source staleness and a changed
-  content preference are shown separately; switching preferences does not rewrite
-  an archive. The selection and Generate control stay above the transcript scroll.
 - **Recap presentation** — selected rounds can be summarized on demand from their
   own retained, verified result text (at most 12,000 characters, same seven-day
   ledger retention). A prior round never borrows a newer round's result. Legacy
@@ -715,22 +702,25 @@ Notification suppression requires a positively identified task view (currently t
 - **Session key** — an agent-prefixed native session identity, such as
   `claude-code:<id>`, `codex:<id>`, `cursor:<id>` or `grok-build:<id>`.
   Different agents may use the same native ID without sharing an identity.
-- **History reference** — `vibebuddy://session/<key>#<seq>`, pointing to a one-based
-  transcript record in the reported source revision. It is not a permanent
-  reference across source changes; hidden Thinking records retain their sequence.
+- **Session reference** — `vibebuddy://session/<key>#<seq>`, pointing to a one-based
+  transcript record in the reported source revision (`vibebuddy-mcp show`). It is
+  not a permanent reference across source changes; hidden Thinking records retain
+  their sequence. There is no archive or search behind it: the History archive was
+  removed on 2026-09-23 (ADR-0019 amendment).
 - **Session reader** — the dashboard's right column (`SessionReaderPane`,
   ADR-0024): a two-line head with the session's controls top-right, one row of
   jumps, the conversation body (`SessionReaderView`, newest page first, tools
   and thinking folded), and a dock for the pending decision or the composer.
-  One pane serves a live session and a history record; what differs is which
-  controls the subject supports. Reading confirms nothing: only the result card
+  It shows live sessions only. Reading confirms nothing: only the result card
   at the end of the body (the daemon's `completionBody`) can mark a round read.
 - **Reader source** — where the reader's body comes from
   (`SessionReaderSource`): the agent's own local transcript by exact key
-  (`<key name>:<native id>`, through `readTranscript(key:)`), else the daemon's
-  bounded *recent output* labelled as an excerpt. A record is never matched by
-  title. The open transcript's file is watched; live state comes only from the
-  snapshot and is shown as *No live status* when absent.
+  (`<key name>:<native id>`), read by `SessionTranscriptReader` straight from
+  the file under the agent's roots — no cache, index or writes — else the
+  daemon's bounded *recent output* labelled as an excerpt. A transcript is never
+  matched by title. The open transcript's file is watched; live state comes only
+  from the snapshot. The same reader serves the phone's `/history` pages and
+  `vibebuddy-mcp show`.
 - **Live status (tool)** — a read-only observation of current sessions grouped
   by checkout, excluding the caller's known identity. It is a collaboration hint,
   not a lock; an unreachable daemon means unknown, not idle.
@@ -738,7 +728,7 @@ Notification suppression requires a positively identified task view (currently t
   `.scratch/<feature>/handoffs/<yyyy-mm-dd>-<from-agent>-<to-agent>.md`.
   Its first line, `Source session: <key>`, names the writer's own verified Session
   key, or `unknown` when unavailable; the newest project session is not evidence
-  of authorship. Saved summaries cannot override a newer Handoff note. Since
+  of authorship. A transcript read cannot override a newer Handoff note. Since
   ADR-0023 the note opens with the **Handoff facts** block and its Verification
   evidence has two parts: what the facts show ran, and what the writer concludes;
   anything the facts do not support is `[unverified]`.

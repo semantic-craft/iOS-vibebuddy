@@ -68,7 +68,7 @@ final class CursorHistoryTests: XCTestCase {
         }
     }
 
-    func testRepositoryIndexesCursorWithAgentKeysAndReadOnlyToolParity() async throws {
+    func testReaderSeparatesAgentKeysAndShowReadsCursor() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         try fixture.write([
@@ -80,32 +80,28 @@ final class CursorHistoryTests: XCTestCase {
         try FileManager.default.copyItem(at: fixture.source, to: cloud)
         let stray = fixture.cursor.appendingPathComponent("projects/stray.jsonl")
         try FileManager.default.copyItem(at: fixture.source, to: stray)
-        let claude = fixture.root.appendingPathComponent("claude/projects/p/same.jsonl")
+        let claude = fixture.root.appendingPathComponent("claude/projects/p/" + fixture.id + ".jsonl")
         try fixture.write([["type": "user", "sessionId": fixture.id, "cwd": fixture.project.path,
                             "message": ["role": "user", "content": "Claude text"]]], to: claude)
-        let codex = fixture.root.appendingPathComponent("codex/sessions/same.jsonl")
+        let codex = fixture.root.appendingPathComponent("codex/sessions/rollout-2026-09-09T03-14-00-" + fixture.id + ".jsonl")
         try fixture.write([
             ["type": "session_meta", "payload": ["id": fixture.id, "cwd": fixture.project.path]],
             ["type": "event_msg", "payload": ["type": "user_message", "message": "Codex text"]]
         ], to: codex)
         let original = try Data(contentsOf: fixture.source)
-        let writer = fixture.repository()
-        let snapshot = try await writer.refresh()
-        XCTAssertEqual(Set(snapshot.sessions.map(\.id)), Set(["claude:", "codex:", "cursor:"].map { $0 + fixture.id }))
-        let storeBefore = try fixture.storeBytes()
-        let reader = fixture.repository(readOnly: true)
-        let list = try HistoryTools.call("vibebuddy_list_sessions", arguments: ["agents": ["cursor"]], snapshot: await reader.snapshot())
-        XCTAssertTrue(list.contains("cursor:" + fixture.id))
-        XCTAssertFalse(list.contains("claude-code:"))
-        XCTAssertTrue(list.contains("no tool results or thinking"))
-        let search = try await HistoryTools.search(arguments: ["query": "unique search", "agents": ["cursor"]], repository: reader)
+        let reader = fixture.reader()
+        // One native id under three agents: each key reads its own agent's file only.
+        for (key, text) in [("claude-code:", "Claude text"), ("codex:", "Codex text"), ("cursor:", "Cursor unique search phrase")] {
+            let transcript = try await reader.readTranscript(key: key + fixture.id)
+            XCTAssertTrue(transcript.session.messages.contains { $0.text == text }, key)
+        }
         let reference = "vibebuddy://session/cursor:" + fixture.id + "#1"
-        XCTAssertTrue(search.contains(reference))
-        let show = try await HistoryTools.getSession(arguments: ["key": reference], repository: reader)
+        let show = try await HistoryTools.getSession(arguments: ["key": reference], reader: reader)
         XCTAssertTrue(show.contains("Cursor unique search phrase"))
         XCTAssertTrue(show.contains("no tool results or thinking"))
         XCTAssertEqual(try HistorySessionReference(reference).key, "cursor:" + fixture.id)
-        XCTAssertEqual(try fixture.storeBytes(), storeBefore)
+        // Cloud agents (`bc-`) are outside the local transcript's coverage.
+        do { _ = try await reader.readTranscript(key: "cursor:bc-" + fixture.id); XCTFail("read a cloud agent") } catch {}
         XCTAssertEqual(try Data(contentsOf: fixture.source), original)
     }
 
@@ -130,13 +126,8 @@ final class CursorHistoryTests: XCTestCase {
             for record in records { data.append(try JSONSerialization.data(withJSONObject: record)); data.append(10) }
             try data.write(to: file)
         }
-        func repository(readOnly: Bool = false) -> SessionHistoryRepository {
-            SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"),
-                                     cursorHome: cursor, cacheDirectory: root.appendingPathComponent("history"), readOnly: readOnly)
-        }
-        func storeBytes() throws -> [String: Data] {
-            let directory = root.appendingPathComponent("history")
-            return try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
+        func reader() -> SessionTranscriptReader {
+            SessionTranscriptReader(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cursorHome: cursor)
         }
     }
 }

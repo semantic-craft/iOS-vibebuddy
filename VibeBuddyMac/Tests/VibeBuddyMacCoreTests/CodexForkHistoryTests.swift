@@ -3,14 +3,12 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Codex fork history ownership")
+@Suite("Codex fork transcript ownership")
 struct CodexForkHistoryTests {
     private struct Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        var cache: URL { root.appendingPathComponent("cache") }
-        func repository(budget: Int = 1, readOnly: Bool = false) -> SessionHistoryRepository {
-            SessionHistoryRepository(claudeHome: root, codexHome: root, cursorHome: root,
-                cacheDirectory: cache, refreshByteBudget: budget, readOnly: readOnly)
+        func reader() -> SessionTranscriptReader {
+            SessionTranscriptReader(claudeHome: root, codexHome: root, cursorHome: root)
         }
         func write(_ id: String, fork: Bool = false) throws -> URL {
             let file = root.appendingPathComponent("sessions/\(id).jsonl")
@@ -25,30 +23,6 @@ struct CodexForkHistoryTests {
             return file
         }
         func remove() { try? FileManager.default.removeItem(at: root) }
-        /// Recreate v7's last-metadata-wins metadata and content cache, leaving
-        /// original source bytes/revisions and the path-keyed FTS rows intact.
-        func legacyIndex() throws {
-            for file in try FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
-                guard var value = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any] else { continue }
-                func legacy(_ session: inout [String: Any]) {
-                    if (session["sourcePath"] as? String)?.hasSuffix("child.jsonl") == true {
-                        session["id"] = "codex:parent"; session["nativeSessionID"] = "parent"
-                        session["projectPath"] = "/ancestor"; session["source"] = "subagent"
-                    }
-                }
-                if file.lastPathComponent == "index.json", var entries = value["entries"] as? [String: [String: Any]] {
-                    value["version"] = 7
-                    for path in entries.keys {
-                        var entry = entries[path]!
-                        entry.removeValue(forKey: "codexIdentityVersion")
-                        var session = entry["session"] as! [String: Any]
-                        legacy(&session); entry["session"] = session; entries[path] = entry
-                    }
-                    value["entries"] = entries
-                } else if value["messages"] != nil { legacy(&value) }
-                try JSONSerialization.data(withJSONObject: value).write(to: file, options: .atomic)
-            }
-        }
     }
 
     @Test func firstEnvelopeOwnsIdentityAndProvenance() throws {
@@ -61,88 +35,29 @@ struct CodexForkHistoryTests {
         #expect(session.warnings.contains { $0.contains("parent") })
     }
 
-    @Test(arguments: [false, true])
-    func boundedLegacyMigrationPreservesMarksAndSearch(changedPaths: Bool) async throws {
+    @Test func readerKeepsParentAndChildApartAndRefusesDuplicateOwners() async throws {
         let f = Fixture(); defer { f.remove() }
         let parent = try f.write("parent")
-        let child = try f.write("child", fork: true)
-        let originals = try [Data(contentsOf: parent), Data(contentsOf: child)]
-        let seed = f.repository(budget: 1_000_000)
-        _ = try await seed.refresh()
-        try await seed.setFavorite(sessionID: "codex:parent", isFavorite: true)
-        try await seed.setPinned(sessionID: "codex:parent", isPinned: true)
-        try await seed.setArchived(sessionID: "codex:parent", isArchived: true)
-        let summary = SessionHistorySummary(sessionID: "codex:parent", sourcePath: parent.path,
-            sourceRevision: nil, text: "saved user summary", provider: "test", model: "test", generatedAt: Date(), coverage: "all")
-        try await seed.saveSummary(summary)
-        try f.legacyIndex()
-        let markFiles = try FileManager.default.contentsOfDirectory(at: f.cache, includingPropertiesForKeys: nil)
-            .filter { ["favorites.json", "pins.json", "archives.json"].contains($0.lastPathComponent) || $0.lastPathComponent.hasPrefix("summary-") }
-        let markBytes = try markFiles.map { try Data(contentsOf: $0) }
-        let reader = f.repository(readOnly: true)
-        #expect(await reader.snapshot().sessions.isEmpty) // Never expose known wrong identities.
-        #expect(try await reader.readTranscript(key: "codex:child").session.id == "codex:child")
-        #expect(try await reader.search("childneedle").isEmpty)
-        let writer = f.repository()
-        let partial = try await (changedPaths ? writer.refresh(changedPaths: []) : writer.refresh())
-        #expect(partial.pendingSourceCount == 1)
-        #expect(partial.sessions.count == 1)
-        // Restart between batches proves migration state survives v8 publication.
-        let next = f.repository()
-        let done = try await (changedPaths ? next.refresh(changedPaths: []) : next.refresh())
-        #expect(done.pendingSourceCount == 0)
-        #expect(Set(done.sessions.map(\.id)) == ["codex:parent", "codex:child"])
-        let owner = try #require(done.sessions.first { $0.id == "codex:parent" })
-        #expect(owner.isFavorite && owner.isPinned == true && owner.archivedLocally == true)
-        #expect(done.sessions.first { $0.id == "codex:child" }?.isFavorite == false)
+        _ = try f.write("child", fork: true)
+        let reader = f.reader()
         for id in ["parent", "child"] {
-            #expect(try await next.readTranscript(key: "codex:" + id).session.nativeSessionID == id)
-            let hits = try await next.search(id + "needle", sessionIDs: ["codex:parent", "codex:child"])
-            #expect(hits.hits.map(\.session.id) == ["codex:" + id])
-            #expect(hits.notIndexed.isEmpty && hits.unavailable.isEmpty)
+            #expect(try await reader.readTranscript(key: "codex:" + id).session.nativeSessionID == id)
         }
-        #expect(try markFiles.map { try Data(contentsOf: $0) } == markBytes)
-        #expect(try [Data(contentsOf: parent), Data(contentsOf: child)] == originals)
-        try await reader.reloadReadOnlyMetadata()
-        #expect(await reader.snapshot().sessions.count == 2)
-        // Genuine duplicate owner sources must remain ambiguous after repair.
-        let duplicate = parent.deletingLastPathComponent().appendingPathComponent("duplicate.jsonl")
-        try Data(contentsOf: parent).write(to: duplicate)
-        _ = try await next.refresh(changedPaths: [duplicate.path])
+        // Genuine duplicate owner sources stay ambiguous; the reader never picks one.
+        try Data(contentsOf: parent).write(to: parent.deletingLastPathComponent().appendingPathComponent("rollout-x-parent.jsonl"))
         do {
-            _ = try await next.readTranscript(key: "codex:parent")
+            _ = try await f.reader().readTranscript(key: "codex:parent")
             Issue.record("Duplicate owner was silently selected")
         } catch { #expect(String(describing: error).contains("Ambiguous session key")) }
-    }
-
-    @Test func unavailableLegacySourceRemainsRetainedAndRecovers() async throws {
-        let f = Fixture(); defer { f.remove() }
-        let child = try f.write("child", fork: true)
-        let seed = f.repository()
-        _ = try await seed.refresh()
-        try await seed.setFavorite(sessionID: "codex:parent", isFavorite: true)
-        try f.legacyIndex()
-        let original = try Data(contentsOf: child)
-        let favorite = try Data(contentsOf: f.cache.appendingPathComponent("favorites.json"))
-        try FileManager.default.removeItem(at: child)
-        let missing = try await f.repository().refresh(changedPaths: [])
-        #expect(missing.sessions.isEmpty && missing.pendingSourceCount == 0)
-        #expect(missing.issues.contains { $0.contains("identity migration") })
-        let index = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: f.cache.appendingPathComponent("index.json"))) as? [String: Any])
-        #expect((index["entries"] as? [String: Any])?.count == 1)
-        try original.write(to: child)
-        let restored = try await f.repository().refresh(changedPaths: [child.path])
-        #expect(restored.sessions.map(\.id) == ["codex:child"])
-        #expect(try Data(contentsOf: f.cache.appendingPathComponent("favorites.json")) == favorite)
     }
 
     @Test func phoneAndMacReadParentAndChildSeparately() async throws {
         let f = Fixture(); defer { f.remove() }
         _ = try f.write("parent"); _ = try f.write("child", fork: true)
-        let http = HistoryHTTPReader(repository: { f.repository(readOnly: true) })
+        let http = HistoryHTTPReader(reader: f.reader())
         for id in ["parent", "child"] {
             let key = "codex:" + id
-            let mac = try await f.repository(readOnly: true).readTranscript(key: key)
+            let mac = try await f.reader().readTranscript(key: key)
             let response = await http.read(uri: "/history?sourceID=mac&key=" + key, sourceID: "mac")
             #expect(response.status == 200)
             let page = try JSONDecoder().decode(HistoryPage.self, from: response.data)
@@ -151,7 +66,7 @@ struct CodexForkHistoryTests {
         }
     }
     @Test(.enabled(if: ProcessInfo.processInfo.environment["VIBEBUDDY_FORK_FIXTURES"] != nil))
-    func realCopiesUseMacRepositoryAndSearch() async throws {
+    func realCopiesUseTheTranscriptReader() async throws {
         let source = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["VIBEBUDDY_FORK_FIXTURES"]))
         let f = Fixture(); defer { f.remove() }
         let sessions = f.root.appendingPathComponent("sessions")
@@ -195,19 +110,13 @@ struct CodexForkHistoryTests {
             }
         }
         #expect(owners.count == 2)
-        let repository = f.repository(budget: 64 * 1024 * 1024)
-        let snapshot = try await repository.refresh()
-        #expect(Set(snapshot.sessions.map(\.nativeSessionID)) == Set(owners))
+        let reader = f.reader()
         for id in owners {
             // This is SessionReaderModel's exact readTranscript(key:) entry point.
-            let transcript = try await repository.readTranscript(key: "codex:" + id)
+            let transcript = try await reader.readTranscript(key: "codex:" + id)
             #expect(transcript.session.nativeSessionID == id)
             #expect(!transcript.session.messages.isEmpty)
-            let text = try #require(transcript.session.messages.last { $0.kind == .text && $0.text.count > 16 }?.text)
-            let page = try await repository.search(String(text.prefix(16)), sessionIDs: ["codex:" + id])
-            #expect(!page.hits.isEmpty)
-            #expect(page.hits.allSatisfy { $0.session.nativeSessionID == id })
-            print("Real fork copy owner=\(id) records=\(transcript.session.messages.count) searchHits=\(page.hits.count)")
+            print("Real fork copy owner=\(id) records=\(transcript.session.messages.count)")
         }
     }
 

@@ -20,7 +20,7 @@ Keep a small number of fast tests for critical pure logic or a reproduced regres
 
 `.agents/skills/` links to originals in `xw-skills`; `.claude/skills/` points at those links. Both are untracked. Edit originals and keep valid links.
 
-Repository-owned skills live in `docs/agents/skills/` and are tracked here: `verify-vibebuddy` (isolated runtime acceptance), `vibebuddy-history` (prior-work context), `vibebuddy-handoff` (source-identified handoff notes). Link them into the local face when needed:
+Repository-owned skills live in `docs/agents/skills/` and are tracked here: `verify-vibebuddy` (isolated runtime acceptance), `vibebuddy-history` (resuming from handoff notes and `vibebuddy-mcp facts`), `vibebuddy-handoff` (source-identified handoff notes). Link them into the local face when needed:
 
     ln -s ../../docs/agents/skills/vibebuddy-history .agents/skills/vibebuddy-history
 
@@ -31,7 +31,7 @@ Repository-owned skills live in `docs/agents/skills/` and are tracked here: `ver
 | Creating, reading, or updating tickets and PRDs — tracked Markdown under `docs/planning/backlog/<feature>/` with an index row, not GitHub Issues and not `.scratch/`; a skill's "publish to the issue tracker" means writing and committing that file | `docs/agents/issue-tracker.md` |
 | Assigning or changing triage state (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` as a `Status:` line) | `docs/agents/triage-labels.md` |
 | Changing domain behavior, terminology, or architecture (single-context layout: `CONTEXT.md` + `docs/adr/`) | `docs/agents/domain.md`, `CONTEXT.md`, and the relevant ADRs; flag a conflict with an existing ADR before implementing against it |
-| Resuming earlier work ("上次", "昨天", "继续") | `docs/agents/skills/vibebuddy-history/SKILL.md`: newest handoff first, then source `facts` for drift, then the saved summary; a summary never overrides a newer handoff. Optional `status --exclude-session` reports other sessions in this checkout; report them and let the user decide. History tools are read-only |
+| Resuming earlier work ("上次", "昨天", "继续") | `docs/agents/skills/vibebuddy-history/SKILL.md`: newest handoff note first, then `vibebuddy-mcp facts` for its source session to check drift, then `show` for that session's transcript only where the note leaves gaps. There is no archive or search of past conversations. Optional `status --exclude-session` reports other sessions in this checkout; report them and let the user decide. The tools are read-only |
 | Writing a source-identified handoff | `docs/agents/skills/vibebuddy-handoff/SKILL.md`: run `vibebuddy-mcp facts` for the writer's own session key first and place its block at the top |
 | Opening or merging a pull request to `main` — review with an independent Opus subagent first, post the verdict on the PR; no bot review, no required checks | `docs/agents/pr-review.md` |
 | Planning the next cycle or changing macOS distribution, sandboxing, or agent integration | `docs/agents/mac-app-store.md`: the owner's designated next direction, not authorization to start it |
