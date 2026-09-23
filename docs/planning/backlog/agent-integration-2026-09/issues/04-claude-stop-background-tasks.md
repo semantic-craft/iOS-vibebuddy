@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Executor:** Claude · branch `claude/ai-04-stop-background-tasks` · 2026-09-23
+
 - [ ] `HookParser` 解析并挂到 `HookEvent`（`backgroundTasks`、`sessionCrons`）。
 - [ ] Reducer 规则 + 测试（夹具用官方文档形状）。
 - [ ] 手机/Mac 行文案。
