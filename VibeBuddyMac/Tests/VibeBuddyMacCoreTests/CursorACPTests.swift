@@ -352,6 +352,8 @@ struct CursorACPTests {
                            "options": [["id": "a", "label": "a.swift"], ["id": "b", "label": "b.swift"]]]],
         ])
         await eventually("question") { await rig.session()?.pendingQuestion != nil }
+        // The card is published an actor hop before the monitor starts waiting.
+        await eventually("waiting") { await rig.questions.isWaiting(sessionID: "acp-1") }
         let question = await rig.session()!.pendingQuestion!
         #expect(question.items.count == 2)
         #expect(question.items[1].multiSelect)
@@ -373,9 +375,10 @@ struct CursorACPTests {
         let rpc = rig.agent.ask("cursor/create_plan", ["toolCallId": "p1", "name": "Refactor tabs",
                                                         "overview": "Tighten layout.", "plan": "1. …", "todos": []])
         await eventually("question") { await rig.session()?.pendingQuestion != nil }
+        await eventually("waiting") { await rig.questions.isWaiting(sessionID: "acp-1") }
         let question = await rig.session()!.pendingQuestion!
         #expect(question.options.map(\.id) == ["accept", "reject"])
-        _ = await rig.questions.resolveExact(sessionID: "acp-1", questionID: question.id, answers: ["plan": ["Accept"]])
+        #expect(await rig.questions.resolveExact(sessionID: "acp-1", questionID: question.id, answers: ["plan": ["Accept"]]))
         await eventually("answer") { rig.agent.response(to: rpc) != nil }
         let outcome = (rig.agent.response(to: rpc)?["result"] as? [String: Any])?["outcome"] as? [String: Any]
         #expect(outcome?["outcome"] as? String == "accepted")
@@ -390,6 +393,7 @@ struct CursorACPTests {
             "overview": "Short overview must not replace the body", "plan": body,
             "todos": [["id": "schema", "content": "Specify the local schema", "status": "pending"]]], id: 0)
         await eventually("plan card") { await rig.session()?.pendingQuestion != nil }
+        await eventually("waiting") { await rig.questions.isWaiting(sessionID: "acp-1") }
         let question = try #require(await rig.session()?.pendingQuestion)
         #expect(question.prompt.hasPrefix("Offline Grocery List\n\n"))
         #expect(question.prompt.contains(body))
@@ -397,7 +401,7 @@ struct CursorACPTests {
         #expect(question.prompt.contains("[pending] Specify the local schema"))
         #expect(!question.prompt.contains("Short overview"))
         let reason = "Do not accept: ACP_REJECT_03"
-        _ = await rig.questions.resolveExact(sessionID: "acp-1", questionID: question.id, answers: ["plan": [reason]])
+        #expect(await rig.questions.resolveExact(sessionID: "acp-1", questionID: question.id, answers: ["plan": [reason]]))
         await eventually("exact plan response") { rig.agent.response(to: rpc) != nil }
         let response = try #require(rig.agent.response(to: 0))
         let outcome = (response["result"] as? [String: Any])?["outcome"] as? [String: Any]

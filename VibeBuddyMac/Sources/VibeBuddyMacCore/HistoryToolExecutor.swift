@@ -6,9 +6,13 @@ import CoreFoundation
 public struct HistoryToolExecutor: Sendable {
     public let reader: SessionTranscriptReader
     private let environment: [String: String]
-    public init(reader: SessionTranscriptReader, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// Stamps `facts` output ("as of …"); tests pin it so two calls agree.
+    private let now: @Sendable () -> Date
+    public init(reader: SessionTranscriptReader, environment: [String: String] = ProcessInfo.processInfo.environment,
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.reader = reader
         self.environment = environment
+        self.now = now
     }
 
     public func execute(_ name: String, arguments: [String: Any], isolation: isolated (any Actor)? = #isolation) async throws -> String {
@@ -20,7 +24,8 @@ public struct HistoryToolExecutor: Sendable {
             case HandoffFacts.toolName:
                 // Handoff facts read the daemon's ledger files and probe git.
                 await LedgerFlushRequest.send(environment: environment)
-                return try HandoffFacts.call(arguments: arguments, directory: HandoffFacts.directory(environment: environment))
+                return try HandoffFacts.call(arguments: arguments, directory: HandoffFacts.directory(environment: environment),
+                                           now: now())
             case "vibebuddy_get_session":
                 return try await HistoryTools.getSession(arguments: arguments, reader: reader)
             default:

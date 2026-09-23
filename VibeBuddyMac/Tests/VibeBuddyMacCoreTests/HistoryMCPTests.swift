@@ -66,7 +66,10 @@ final class HistoryMCPTests: XCTestCase {
         }
         let before = try bytes()
         XCTAssertEqual(before.keys.filter { $0.hasPrefix("facts/") }.count, 4)
-        let executor = HistoryToolExecutor(reader: reader, environment: ["VIBEBUDDY_PORT": "0", "VIBEBUDDY_FACTS_DIRECTORY": facts.path])
+        // Pinned: `facts` stamps "as of <second>", and the CLI and MCP calls may straddle a second.
+        let stamp = Date()
+        let executor = HistoryToolExecutor(reader: reader, environment: ["VIBEBUDDY_PORT": "0", "VIBEBUDDY_FACTS_DIRECTORY": facts.path],
+                                           now: { stamp })
         let server = HistoryMCPServer(executor: executor)
         _ = try await initialize(server)
         let requests: [(String, [String])] = [

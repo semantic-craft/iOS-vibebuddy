@@ -6,9 +6,10 @@ import VibeBuddyKit
 @Suite("Completion results")
 struct CompletionResultTests {
     @Test func codexRealMappingAndStore() async throws {
-        let store = SessionStore(sourceID: "source")
         var parser = CodexAppServerReducer()
         let start = Date()
+        // Pinned so a loaded run cannot age the result past its two-second window.
+        let store = SessionStore(sourceID: "source", resultClock: { start })
         for event in parser.handle(["method": "turn/started", "params": ["threadId": "s", "turn": ["id": "t"]]], receivedAt: start) {
             await store.ingest(event)
         }
@@ -62,6 +63,7 @@ struct CompletionResultTests {
     @Test func claudeTerminalProof() async throws {
         let start = Date().addingTimeInterval(-0.3)
         let ended = Date().addingTimeInterval(-0.1)
+        let observed = ended.addingTimeInterval(0.1)
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let row: [String: Any] = ["sessionId": "s", "type": "assistant", "timestamp": formatter.string(from: start.addingTimeInterval(0.1)), "message": ["role": "assistant", "stop_reason": "end_turn", "content": [["type": "text", "text": "Done, not deployed."]]]]
@@ -70,7 +72,7 @@ struct CompletionResultTests {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try bytes.write(to: path)
         defer { try? FileManager.default.removeItem(at: path) }
-        let store = SessionStore(sourceID: "source")
+        let store = SessionStore(sourceID: "source", resultClock: { observed })
         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "s", timestamp: start))
         let stop = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s", "transcript_path": path.path, "last_assistant_message": "Done, not deployed."])
         await store.ingest(stop, receivedAt: ended)
@@ -128,8 +130,8 @@ struct CompletionResultTests {
 
     @Test func lateItemUsesOriginalDeadline() async throws {
         var parser = CodexAppServerReducer()
-        let store = SessionStore(sourceID: "source")
         let now = Date()
+        let store = SessionStore(sourceID: "source", resultClock: { now })
         for event in parser.handle(["method": "turn/started", "params": ["threadId": "s", "turn": ["id": "t"]]], receivedAt: now) { await store.ingest(event) }
         for event in parser.handle(["method": "turn/completed", "params": ["threadId": "s", "turn": ["id": "t", "status": "completed"]]], receivedAt: now) { await store.ingest(event) }
         let id = try #require(await store.snapshot(now: now).sessions.first?.completionID)
@@ -176,13 +178,13 @@ struct CompletionResultTests {
     }
 
     @Test func progressEndingWaitsForTerminalProof() async throws {
-        let store = SessionStore(sourceID: "source")
         let now = Date()
+        let store = SessionStore(sourceID: "source", resultClock: { now })
         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now, turnID: "t"))
         await store.ingest(HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: now))
         let id = try #require(await store.snapshot(now: now).sessions.first?.completionID)
         let pending = Task { await store.completionResult(sessionID: "s", completionID: id) }
-        try await Task.sleep(for: .milliseconds(60))
+        await untilCompletionWaitParks(store)
         await store.ingest(HookEvent(kind: .stop, sessionID: "s", agent: .codex,
             timestamp: now.addingTimeInterval(0.06), turnID: "t", completionText: "Complete final",
             completionSucceeded: true))
@@ -191,4 +193,15 @@ struct CompletionResultTests {
         #expect(value.finalText == "Complete final")
     }
 
+}
+
+/// Returns once `store` has a `completionResult` call parked waiting for
+/// terminal proof, so a test delivers that proof strictly afterwards. The
+/// attempt bound is liveness only; the ordering never depends on elapsed time.
+func untilCompletionWaitParks(_ store: SessionStore) async {
+    for _ in 0..<5_000 {
+        if await store.parkedCompletionWaits > 0 { return }
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+    Issue.record("completionResult never parked waiting for terminal proof")
 }

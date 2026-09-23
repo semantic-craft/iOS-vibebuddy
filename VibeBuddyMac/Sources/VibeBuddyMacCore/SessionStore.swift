@@ -555,6 +555,13 @@ public actor SessionStore {
 
     private var completionResults = CompletionResults()
     private var completionReads: Set<String> = []
+    /// The clock every completion-result decision reads, including the
+    /// two-second notification window. Wall time in production; tests pin it
+    /// so a loaded machine cannot age a result past that window.
+    private let resultClock: @Sendable () -> Date
+    /// `completionResult` calls currently parked waiting for terminal proof.
+    /// Tests wait for this before ingesting that proof.
+    private(set) var parkedCompletionWaits = 0
     public let sourceID: String?
     /// Account allowance, kept beside the reducer rather than inside it.
     private var providerQuota: [ProviderQuota] = []
@@ -673,8 +680,10 @@ public actor SessionStore {
         grokHome: URL? = nil,
         copilotDatabase: URL? = nil,
         cursorDatabase: URL? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        resultClock: @escaping @Sendable () -> Date = { Date() }
     ) {
+        self.resultClock = resultClock
         self.copilotReader = copilotDatabase.map { CopilotSessionReader(database: $0) } ?? CopilotSessionReader()
         self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
         self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
@@ -991,7 +1000,7 @@ public actor SessionStore {
             // another prompt ID and must not replace that completion mapping.
             if !completedTurnProgress, !acpOutranks(event, from: observationSource) {
                 completionResults.observe(event, session: reducer.sessions[event.sessionID],
-                    sourceID: sourceID, now: Date(), authoritative: false)
+                    sourceID: sourceID, now: resultClock(), authoritative: false)
                 persistCompletionResults()
             }
             if let enrichment = event.enrichment {
@@ -1024,7 +1033,7 @@ public actor SessionStore {
            reducer.sessions[event.sessionID].map(wait.matches) != true {
             explicitWaits[event.sessionID] = nil
         }
-        completionResults.observe(event, session: reducer.sessions[event.sessionID], sourceID: sourceID, now: Date(),
+        completionResults.observe(event, session: reducer.sessions[event.sessionID], sourceID: sourceID, now: resultClock(),
             createdCompletion: reducer.sessions[event.sessionID]?.completionID != previousCompletionID)
         persistCompletionResults()
         // A prompt is the user driving the session in person.
@@ -1169,7 +1178,7 @@ public actor SessionStore {
     }
 
     private func persistCompletionResults() {
-        for id in completionResults.retain(in: &recapLedger, now: Date()) {
+        for id in completionResults.retain(in: &recapLedger, now: resultClock()) {
             recapPresentations[id] = nil
             if var notice = noticeLedger?.notices[id], notice.state == .pending || notice.state == .summary {
                 notice.state = .cancelled; notice.text = nil
@@ -1191,16 +1200,16 @@ public actor SessionStore {
     /// restore a notification candidate, emit progress, or acknowledge reading.
     private func readCompletionRecord(key: String) async -> FrozenCompletionResult? {
         let request: CompletionResults.ReadRequest
-        switch completionResults.readPlan(key: key, sourceID: sourceID, now: Date()) {
+        switch completionResults.readPlan(key: key, sourceID: sourceID, now: resultClock()) {
         case .ready(let result): return result
         case .unavailable: return nil
         case .read(let pending): request = pending
         }
         let evidence = await Task.detached { request.readEvidence() }.value
         guard !Task.isCancelled,
-              completionResults.merge(evidence, for: request, sourceID: sourceID, now: Date()) else { return nil }
+              completionResults.merge(evidence, for: request, sourceID: sourceID, now: resultClock()) else { return nil }
         persistCompletionResults()
-        return completionResults.retainedResult(key: key, now: Date())
+        return completionResults.retainedResult(key: key, now: resultClock())
     }
 
     public func completionBody(sessionID: String, completionID: String) async -> CompletionBody {
@@ -1210,7 +1219,7 @@ public actor SessionStore {
         case .read(let key):
             let result = await readCompletionRecord(key: key)
             return completionResults.body(sessionID: sessionID, completionID: completionID,
-                session: reducer.sessions[sessionID], sourceID: sourceID, result: result, now: Date())
+                session: reducer.sessions[sessionID], sourceID: sourceID, result: result, now: resultClock())
         }
     }
 
@@ -1228,11 +1237,12 @@ public actor SessionStore {
                   reducer.sessions[sessionID]?.hasUnreadCompletion == true, !Task.isCancelled else { return .cancelled }
             let deadline: Date
             let needsRead: Bool
-            switch completionResults.notificationState(sessionID: sessionID, completionID: completionID, sourceID: sourceID) {
+            switch completionResults.notificationState(sessionID: sessionID, completionID: completionID,
+                                                       sourceID: sourceID, now: resultClock()) {
             case .finished(let outcome): return outcome
             case .waiting(let until, let pendingRead): deadline = until; needsRead = pendingRead
             }
-            let remaining = deadline.timeIntervalSinceNow
+            let remaining = deadline.timeIntervalSince(resultClock())
             guard remaining > 0 else { return waited ? .resultUnavailable : .expired }
             if needsRead, completionReads.insert(completionID).inserted {
                 Task {
@@ -1240,6 +1250,8 @@ public actor SessionStore {
                     self.completionReads.remove(completionID)
                 }
             }
+            parkedCompletionWaits += 1
+            defer { parkedCompletionWaits -= 1 }
             do { try await Task.sleep(for: .seconds(min(0.05, remaining))); waited = true }
             catch { return .cancelled }
         }
