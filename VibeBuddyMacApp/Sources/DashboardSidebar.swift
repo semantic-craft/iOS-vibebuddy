@@ -344,6 +344,7 @@ struct DashboardSidebar: View {
 
     private var secondLine: (text: String, isError: Bool)? {
         if let err = voice.errorText { return (err, true) }
+        if let notice = voice.endNotice, voice.phase == .idle { return (notice, false) }
         if !voice.lastReply.isEmpty { return (voice.lastReply, false) }
         if !voice.lastUserText.isEmpty { return (voice.lastUserText, false) }
         if !companionEnabled {

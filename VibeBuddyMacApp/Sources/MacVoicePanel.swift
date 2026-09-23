@@ -47,6 +47,15 @@ struct MacVoicePanel: View {
                         if let error = voice.errorText {
                             Text(error).foregroundStyle(MacTheme.status(.error)).textSelection(.enabled)
                         }
+                        if let notice = voice.endNotice, voice.errorText == nil, !voice.isActive {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(notice).foregroundStyle(MacTheme.ink2).textSelection(.enabled)
+                                Spacer()
+                                Button("Redial") { voice.redial() }
+                                    .help("Start a new voice call without the earlier conversation")
+                                    .accessibilityIdentifier("mac-voice-redial")
+                            }
+                        }
                     }
                     .font(MacTheme.font(13)).padding(16)
                 }.padding(.horizontal, 20).padding(.bottom, 20)

@@ -49,6 +49,10 @@ public enum RealtimeVoiceEvent: Sendable {
     case toolCallsCancelled([String])
     case toolCall(name: String, arguments: String, callID: String)  // model wants to run a function tool
     case failed(String)
+    /// The provider ended this connection because a documented per-connection
+    /// limit (session duration) was reached. Only an explicit provider signal
+    /// maps here; an unrelated disconnect stays `.failed`.
+    case providerLimitReached
     case closed
 }
 
@@ -173,6 +177,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private var connectionTimeout: Task<Void, Never>?
     private var instructions = ""
     private var voice = ""
+    private var sessionStartedAt: Date?
 
     /// - Parameters:
     ///   - workspaceID: Bailian workspace ID. When given, connects through the
@@ -218,6 +223,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         self.instructions = instructions
         self.voice = voice
         ready = false
+        sessionStartedAt = nil
 
         guard let endpoint else {
             cont.yield(.failed("Invalid Qwen model ID or workspace ID — check Settings"))
@@ -311,8 +317,21 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { [weak self] error in
             guard let error else { return }
-            Task { await self?.yield(.failed("send: \(error.localizedDescription)")) }
+            Task { await self?.sendFailed(error.localizedDescription) }
         }
+    }
+
+    private func sendFailed(_ detail: String) {
+        let age = sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if let event = Self.sendFailureEvent(connectedFor: age, detail: detail) { yield(event) }
+    }
+
+    /// At the session cap a microphone frame in flight fails as the server
+    /// closes; the receive loop sees the close frame and classifies that end.
+    /// A send failure without a failing receive is not expected from
+    /// URLSessionWebSocketTask, so nothing else reports it in this window.
+    static func sendFailureEvent(connectedFor: TimeInterval, detail: String) -> RealtimeVoiceEvent? {
+        ProviderLimitSignal.isQwenLimitWindow(connectedFor: connectedFor) ? nil : .failed("send: \(detail)")
     }
 
     private func yield(_ event: RealtimeVoiceEvent) { continuation?.yield(event) }
@@ -329,11 +348,24 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
                 }
             } catch {
                 let status = (task.response as? HTTPURLResponse)?.statusCode
-                continuation?.yield(.failed(Self.connectionFailure(status: status, detail: error.localizedDescription)))
+                continuation?.yield(Self.connectionEndEvent(
+                    status: status, detail: error.localizedDescription, serverCloseCode: task.closeCode,
+                    connectedFor: sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0))
                 close()
                 return
             }
         }
+    }
+
+    /// A server close at the documented session limit ends the call as the
+    /// provider limit; every other end of the receive loop is a failure.
+    static func connectionEndEvent(status: Int?, detail: String,
+                                   serverCloseCode: URLSessionWebSocketTask.CloseCode,
+                                   connectedFor: TimeInterval) -> RealtimeVoiceEvent {
+        if ProviderLimitSignal.isQwenLimit(serverCloseCode: serverCloseCode, connectedFor: connectedFor) {
+            return .providerLimitReached
+        }
+        return .failed(connectionFailure(status: status, detail: detail))
     }
 
     static func connectionFailure(status: Int?, detail: String) -> String {
@@ -361,6 +393,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         }
         switch type {
         case "session.created":
+            if sessionStartedAt == nil { sessionStartedAt = Date() }
             configureSession(instructions: instructions, voice: voice)
         case "session.updated":
             guard !ready else { return }
