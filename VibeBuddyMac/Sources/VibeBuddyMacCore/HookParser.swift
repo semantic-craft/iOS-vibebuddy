@@ -114,12 +114,16 @@ public enum HookParser {
         let tasks = object["background_tasks"] as? [[String: Any]]
         let crons = object["session_crons"] as? [Any]
         guard tasks != nil || crons != nil else { return nil }
-        var work = BackgroundWork(crons: crons?.count ?? 0)
+        // A cron without `recurring` is read as a loop: the older shape.
+        let loops = (crons ?? []).filter { (($0 as? [String: Any])?["recurring"] as? Bool) ?? true }
+        var work = BackgroundWork(crons: loops.count)
         for task in tasks ?? [] {
             if let status = (task["status"] as? String)?.lowercased(), finishedTaskStatuses.contains(status) { continue }
             let type = ((task["type"] as? String) ?? "").lowercased()
-            if ["subagent", "workflow", "teammate"].contains(where: { type.contains($0) }) {
-                work.holdingTasks += 1
+            if type.contains("subagent") {
+                work.subagents += 1
+            } else if type.contains("workflow") || type.contains("teammate") {
+                work.workflowsOrTeammates += 1
             } else {
                 work.otherTasks += 1
             }

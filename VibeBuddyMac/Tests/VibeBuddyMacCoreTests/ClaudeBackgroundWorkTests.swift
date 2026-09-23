@@ -41,7 +41,18 @@ struct ClaudeBackgroundWorkTests {
                 + #"{"id":"c","type":"workflow","description":"no status"},"#
                 + #"{"id":"d","type":"monitor","status":"completed"}]"#,
             crons: #"[{"id":"loop","schedule":"*/1 * * * *","recurring":true,"prompt":"check"}]"#)))
-        #expect(event.backgroundWork == BackgroundWork(holdingTasks: 2, otherTasks: 1, crons: 1))
+        #expect(event.backgroundWork == BackgroundWork(subagents: 1, workflowsOrTeammates: 1, otherTasks: 1, crons: 1))
+    }
+
+    @Test("a one-shot reminder is not a loop")
+    func oneShotCronIsNotALoop() throws {
+        let event = try #require(parse(stop(tasks: "[]",
+            crons: #"[{"id":"r","schedule":"0 15 * * *","recurring":false,"prompt":"remind me"}]"#)))
+        #expect(event.backgroundWork?.crons == 0)
+        var reducer = reduce([(start, 0)])
+        reducer.apply(event)
+        #expect(reducer.sessions["s"]?.loopScheduled == nil)
+        #expect(reducer.sessions["s"]?.hasUnreadCompletion == true)
     }
 
     @Test("no arrays means an older CLI, and a bad shape never costs the event")
@@ -93,25 +104,90 @@ struct ClaudeBackgroundWorkTests {
         #expect(next.sessions["s"]?.loopScheduled == nil)
     }
 
-    @Test("rule 5: with empty arrays the subagent counter stands in, and its stop releases the turn")
+    @Test("rule 5: with no arrays the subagent counter stands in; its stop settles the turn after a grace")
     func counterFallbackAndRelease() throws {
         var reducer = reduce([
             (start, 0),
             (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"bg","agent_type":"Explore"}"#, 5),
-            (stop(tasks: "[]", crons: "[]"), 30),
+            (stop(), 30),
         ])
         #expect(reducer.sessions["s"]?.status == .working)
-        let early = reducer.takeReleasableStop(sessionID: "s")
-        #expect(early == nil)   // still running
+        let early = reducer.takeDueStops(now: t0.addingTimeInterval(200))
+        #expect(early.isEmpty)   // still running
         reducer.apply(parse(#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"bg","agent_type":"Explore"}"#, at: 200)!)
-        let releasable = reducer.takeReleasableStop(sessionID: "s")
-        let released = try #require(releasable)
-        #expect(released.releasesHeldStop)
-        reducer.apply(released)
+        let inGrace = reducer.takeDueStops(now: t0.addingTimeInterval(200 + 44))
+        #expect(inGrace.isEmpty)
+        let released = reducer.takeDueStops(now: t0.addingTimeInterval(200 + 45))
+        let event = try #require(released.first)
+        #expect(event.releasesHeldStop)
+        #expect(event.timestamp == t0.addingTimeInterval(245))   // settles now, not at the pause
+        reducer.apply(event)
         #expect(reducer.sessions["s"]?.status == .done)
+        #expect(reducer.sessions["s"]?.statusSince == t0.addingTimeInterval(245))
         #expect(reducer.sessions["s"]?.hasUnreadCompletion == true)
         #expect(reducer.sessions["s"]?.backgroundTaskCount == nil)
         #expect(reducer.heldStops["s"] == nil)
+    }
+
+    @Test("B1: an array present but empty wins over a stale child row, and an interrupt clears foreground subagents")
+    func staleChildDoesNotHold() {
+        // SubagentStop lost: arrays say nothing runs, so the turn completes.
+        let lost = reduce([
+            (start, 0),
+            (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"fg","agent_type":"Explore"}"#, 5),
+            (stop(tasks: "[]", crons: "[]"), 30),
+        ])
+        #expect(lost.sessions["s"]?.status == .done)
+        #expect(lost.sessions["s"]?.completionID != nil)
+        // Esc mid-subagent, then a new round on an older CLI (no arrays).
+        let escaped = reduce([
+            (start, 0),
+            (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"fg","agent_type":"Explore"}"#, 5),
+            (#"{"hook_event_name":"Interrupt","session_id":"s"}"#, 10),
+            (start, 20),
+            (stop(), 40),
+        ])
+        #expect(escaped.sessions["s"]?.status == .done)
+        #expect(escaped.sessions["s"]?.runningChildAgentCount == 0)
+    }
+
+    @Test("B2: a subagent stopping does not release a turn held by a workflow, nor a turn awaiting more subagents")
+    func onlyTheAwaitedWorkReleases() {
+        var workflow = reduce([
+            (start, 0),
+            (stop(tasks: #"[{"id":"w","type":"workflow","status":"running"}]"#), 30),
+            (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"inner","agent_type":"Explore"}"#, 40),
+            (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"inner","agent_type":"Explore"}"#, 60),
+        ])
+        #expect(workflow.sessions["s"]?.status == .working)
+        let early = workflow.takeDueStops(now: t0.addingTimeInterval(300))
+        #expect(early.isEmpty)
+
+        var two = reduce([
+            (start, 0),
+            (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 5),
+            (stop(tasks: #"[{"id":"a","type":"subagent","status":"running"},{"id":"b","type":"subagent","status":"running"}]"#), 30),
+            (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 60),
+        ])
+        let stillWaiting = two.takeDueStops(now: t0.addingTimeInterval(60 + 45))
+        #expect(stillWaiting.isEmpty)
+    }
+
+    @Test("S1: the main agent continuing within the grace replaces the held Stop; one completion, new words")
+    func continuationReplacesHeldStop() {
+        var reducer = reduce([
+            (start, 0),
+            (stop(tasks: #"[{"id":"a","type":"subagent","status":"running"}]"#), 30),
+            (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 200),
+            (#"{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Read"}"#, 205),
+            (#"{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Read","tool_response":{}}"#, 206),
+            (#"{"hook_event_name":"Stop","session_id":"s","last_assistant_message":"Both agents reported back.","background_tasks":[],"session_crons":[]}"#, 220),
+        ])
+        #expect(reducer.heldStops["s"] == nil)
+        let nothingLeft = reducer.takeDueStops(now: t0.addingTimeInterval(1_000))
+        #expect(nothingLeft.isEmpty)
+        #expect(reducer.sessions["s"]?.status == .done)
+        #expect(reducer.sessions["s"]?.summary == "Both agents reported back.")
     }
 
     @Test("task-list entries are not running work")
@@ -141,9 +217,9 @@ struct ClaudeBackgroundWorkTests {
     @Test("backstop: a held Stop settles after ten minutes")
     func backstop() {
         var reducer = reduce([(start, 0), (stop(tasks: #"[{"id":"a","type":"workflow","status":"running"}]"#), 30)])
-        let tooEarly = reducer.takeExpiredStops(now: t0.addingTimeInterval(30 + 599), after: 600)
+        let tooEarly = reducer.takeDueStops(now: t0.addingTimeInterval(30 + 599))
         #expect(tooEarly.isEmpty)
-        let expired = reducer.takeExpiredStops(now: t0.addingTimeInterval(30 + 600), after: 600)
+        let expired = reducer.takeDueStops(now: t0.addingTimeInterval(30 + 600))
         #expect(expired.count == 1)
         for event in expired { reducer.apply(event) }
         #expect(reducer.sessions["s"]?.status == .done)
@@ -166,7 +242,7 @@ struct ClaudeBackgroundWorkTests {
 
     // MARK: Through the store
 
-    @Test("the store settles a held Stop when its last subagent stops, and via the sweep backstop")
+    @Test("the store settles a held Stop from its sweep: after the grace, or at the backstop")
     func storeReleases() async {
         let store = SessionStore()
         _ = await store.ingest(Data(start.utf8), receivedAt: t0)
@@ -177,7 +253,9 @@ struct ClaudeBackgroundWorkTests {
         #expect(await store.snapshot(now: t0.addingTimeInterval(31)).sessions.first?.status == .working)
         _ = await store.ingest(Data(#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"bg","agent_type":"Explore"}"#.utf8),
                                receivedAt: t0.addingTimeInterval(200))
-        let settled = await store.snapshot(now: t0.addingTimeInterval(201)).sessions.first
+        #expect(await store.snapshot(now: t0.addingTimeInterval(201)).sessions.first?.status == .working)
+        await store.sweep(now: t0.addingTimeInterval(200 + SessionReducer.heldStopReleaseGrace))
+        let settled = await store.snapshot(now: t0.addingTimeInterval(250)).sessions.first
         #expect(settled?.status == .done)
         #expect(settled?.hasUnreadCompletion == true)
 
@@ -187,5 +265,27 @@ struct ClaudeBackgroundWorkTests {
                                receivedAt: t0.addingTimeInterval(30))
         await other.sweep(now: t0.addingTimeInterval(30 + SessionStore.heldStopBackstop))
         #expect(await other.snapshot(now: t0.addingTimeInterval(700)).sessions.first?.status == .done)
+    }
+
+    @Test("S3: a Claude session restored as working with no event for the backstop retires quietly")
+    func restoredWorkingRetires() {
+        var reducer = SessionReducer()
+        var session = AgentSession(id: "r", agent: .claudeCode, project: "p", status: .working,
+                                   statusSince: t0, updatedAt: t0)
+        session.activeTool = "Bash"
+        reducer.restore([session])
+        let tooEarly = reducer.retireStaleRestored(now: t0.addingTimeInterval(599))
+        #expect(!tooEarly)
+        let retired = reducer.retireStaleRestored(now: t0.addingTimeInterval(600))
+        #expect(retired)
+        #expect(reducer.sessions["r"]?.status == .done)
+        #expect(reducer.sessions["r"]?.probeRetired == true)
+        #expect(reducer.sessions["r"]?.completionID == nil)
+
+        var live = SessionReducer()
+        live.restore([session])
+        live.apply(parse(#"{"hook_event_name":"PreToolUse","session_id":"r","tool_name":"Read"}"#, at: 100)!)
+        let liveRetired = live.retireStaleRestored(now: t0.addingTimeInterval(10_000))
+        #expect(!liveRetired)
     }
 }

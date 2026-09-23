@@ -21,10 +21,29 @@ public struct SessionReducer: Sendable {
     private var currentTurnStartedAt: [String: Date] = [:]
     private var awaitingOriginalPrompt: Set<String> = []
     /// A Claude main-agent `Stop` that arrived while subagents, workflows or
-    /// teammates were still running (AI-04). The session stays `working` until
-    /// the store releases it: its subagents stop, a newer `Stop` replaces it,
-    /// or the backstop expires. A new turn discards it.
-    public private(set) var heldStops: [String: HookEvent] = [:]
+    /// teammates were still running (AI-04). The session stays `working`;
+    /// the store settles the held `Stop` from its sweep once `deadline` passes.
+    /// A new turn, a wait or a newer `Stop` discards or replaces it first.
+    public struct HeldStop: Sendable {
+        public var event: HookEvent
+        /// Backstop at first; moved to a short grace once the awaited
+        /// subagents have all stopped, because Claude usually hands their
+        /// results back to the main agent, whose own `Stop` then replaces this.
+        public var deadline: Date
+        /// `SubagentStop`s still expected. Nil when workflows or teammates
+        /// hold the turn: no hook reports their end.
+        public var awaitedSubagentStops: Int?
+    }
+    public private(set) var heldStops: [String: HeldStop] = [:]
+    /// How long a held `Stop` waits with no releasing evidence.
+    public static let heldStopBackstop: TimeInterval = 10 * 60
+    /// How long a held `Stop` waits after its last subagent stopped for the
+    /// main agent to continue (and replace it) before it settles as is.
+    public static let heldStopReleaseGrace: TimeInterval = 45
+    /// Claude sessions restored as `working` after a daemon restart. Nothing
+    /// in memory can settle them (a held `Stop` is not journaled), so they are
+    /// retired quietly if no event arrives within the backstop.
+    private var restoredWorking: Set<String> = []
     /// Claude sessions whose current `done` came from a main-agent `Stop`. A
     /// `PostToolUse` that lands after it is a late receipt (a background
     /// shell, or hook delivery racing the stop), not a new turn.
@@ -40,6 +59,7 @@ public struct SessionReducer: Sendable {
         for var session in recovered {
             session.childAgents = nil
             session.childTopologyDegraded = nil
+            if session.agent == .claudeCode, session.status == .working { restoredWorking.insert(session.id) }
             sessions[session.id] = session
         }
     }
@@ -55,6 +75,7 @@ public struct SessionReducer: Sendable {
         observationSource: ObservationSource? = nil,
         recordsEvidence: Bool = true
     ) {
+        restoredWorking.remove(event.sessionID)
         // Bootstrap carries a verified active boundary on the existing tool
         // or waiting observation, without replaying an old prompt event.
         if event.agent == .codex, let start = event.turnStartedAt,
@@ -106,6 +127,8 @@ public struct SessionReducer: Sendable {
                 applyNestedChildTool(event)
             } else {
                 // Rule 6: a late tool receipt cannot reopen a settled turn.
+                // With async hooks a continuation's PostToolUse can also
+                // overtake its PreToolUse; that PreToolUse still reopens it.
                 if event.agent == .claudeCode, event.kind == .postToolUse,
                    settledByStop.contains(event.sessionID),
                    sessions[event.sessionID]?.status == .done {
@@ -151,18 +174,33 @@ public struct SessionReducer: Sendable {
             // Rules 2 and 5: a clean Claude ending with subagents, workflows or
             // teammates still running is a pause, not the end of the turn.
             // With no usable array, the subagent counter stands in.
+            // When Claude sent the arrays, they are the truth even if empty;
+            // a stale child row (a SubagentStop lost to async delivery or an
+            // Esc) must not hold every later round.
             if event.agent == .claudeCode, event.completionSucceeded == true,
                !event.userStopped, !event.probeRetirement, !event.releasesHeldStop {
-                let holding = max(event.backgroundWork?.holdingTasks ?? 0, runningSubagentCount(event.sessionID))
-                if holding > 0 {
-                    heldStops[event.sessionID] = event
+                let subagents = event.backgroundWork?.subagents ?? runningSubagentCount(event.sessionID)
+                let others = event.backgroundWork?.workflowsOrTeammates ?? 0
+                if subagents + others > 0 {
+                    heldStops[event.sessionID] = HeldStop(
+                        event: event,
+                        deadline: event.timestamp.addingTimeInterval(Self.heldStopBackstop),
+                        awaitedSubagentStops: others > 0 ? nil : subagents)
                     settledByStop.remove(event.sessionID)
                     upsert(event, status: .working, waitKind: nil)
                     sessions[event.sessionID]?.activeTool = nil
-                    sessions[event.sessionID]?.backgroundTaskCount = holding
+                    sessions[event.sessionID]?.backgroundTaskCount = subagents + others
                     sessions[event.sessionID]?.loopScheduled = nil
+                    // A paused turn is not a result yet.
+                    sessions[event.sessionID]?.hasUnreadCompletion = false
+                    sessions[event.sessionID]?.completionID = nil
                     break
                 }
+            }
+            // An interrupted or failed main turn takes its foreground
+            // subagents with it; they will send no SubagentStop.
+            if event.agent == .claudeCode, event.completionSucceeded != true || event.userStopped {
+                markRunningChildrenUnknown(sessionID: event.sessionID, at: event.timestamp)
             }
             heldStops[event.sessionID] = nil
             let previousCompletion = sessions[event.sessionID]?.completionID
@@ -246,6 +284,14 @@ public struct SessionReducer: Sendable {
             updateMetadata(event)
         case .childLifecycle:
             applyChildLifecycle(event)
+            if event.childKind == .subagent, event.childAction == .stopped,
+               var held = heldStops[event.sessionID], let awaited = held.awaitedSubagentStops {
+                held.awaitedSubagentStops = awaited - 1
+                if awaited - 1 <= 0, runningSubagentCount(event.sessionID) == 0 {
+                    held.deadline = min(held.deadline, event.timestamp.addingTimeInterval(Self.heldStopReleaseGrace))
+                }
+                heldStops[event.sessionID] = held
+            }
         }
         if event.kind != .sessionEnd {
             if let cwd = event.cwd, cwd.hasPrefix("/") { sessions[event.sessionID]?.checkoutPath = cwd }
@@ -388,25 +434,34 @@ public struct SessionReducer: Sendable {
         }
     }
 
-    /// Release a held `Stop` once every subagent its session was waiting on
-    /// has stopped. The store re-ingests the returned event so the ending
-    /// settles through the normal path (result, summary, cue).
-    public mutating func takeReleasableStop(sessionID: String) -> HookEvent? {
-        guard var held = heldStops[sessionID], runningSubagentCount(sessionID) == 0 else { return nil }
-        heldStops[sessionID] = nil
-        held.releasesHeldStop = true
-        return held
+    /// Held stops whose deadline has passed, released to settle at `now`.
+    /// The store re-ingests them so each ending settles through the normal
+    /// path (result, summary, cue).
+    public mutating func takeDueStops(now: Date) -> [HookEvent] {
+        let due = heldStops.filter { $0.value.deadline <= now }.keys.sorted()
+        return due.compactMap { heldStops.removeValue(forKey: $0)?.event.releasing(at: now) }
     }
 
-    /// Backstop: held stops older than `after` settle anyway. Background work
-    /// can end without a hook we see (a lost `SubagentStop`, a workflow).
-    public mutating func takeExpiredStops(now: Date, after: TimeInterval) -> [HookEvent] {
-        let expired = heldStops.filter { now.timeIntervalSince($0.value.timestamp) >= after }
-        return expired.keys.sorted().compactMap { id in
-            guard var held = heldStops.removeValue(forKey: id) else { return nil }
-            held.releasesHeldStop = true
-            return held
+    /// Restored Claude sessions still `working` with no event for the
+    /// backstop settle quietly: no result, no cue. Returns whether any did.
+    public mutating func retireStaleRestored(now: Date) -> Bool {
+        var changed = false
+        for id in restoredWorking.sorted() {
+            guard let session = sessions[id], session.status == .working else {
+                restoredWorking.remove(id); continue
+            }
+            guard now.timeIntervalSince(session.updatedAt) >= Self.heldStopBackstop else { continue }
+            restoredWorking.remove(id)
+            sessions[id]?.status = .done
+            sessions[id]?.statusSince = now
+            sessions[id]?.activeTool = nil
+            sessions[id]?.probeRetired = true
+            sessions[id]?.hasUnreadCompletion = false
+            sessions[id]?.completionID = nil
+            sessions[id]?.backgroundTaskCount = nil
+            changed = true
         }
+        return changed
     }
 
     private func runningSubagentCount(_ sessionID: String) -> Int {

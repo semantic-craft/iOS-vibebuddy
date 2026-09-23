@@ -697,9 +697,12 @@ public actor SessionStore {
     /// advanced past `statusSince`) or abandoned (idle past `staleAfter`), even
     /// when their terminal hook was never received. Broadcasts if anything changed.
     public func sweep(now: Date) {
-        for released in reducer.takeExpiredStops(now: now, after: Self.heldStopBackstop) {
+        // AI-04: held Claude stops whose subagents finished (after a short
+        // grace for the main agent to continue) or whose backstop expired.
+        for released in reducer.takeDueStops(now: now) {
             ingest(released, observationSource: .hook, recordsEvidence: false)
         }
+        if reducer.retireStaleRestored(now: now) { broadcast() }
         explicitWaits = explicitWaits.filter { id, wait in
             reducer.sessions[id].map(wait.matches) == true
         }
@@ -1035,17 +1038,11 @@ public actor SessionStore {
            session.status == .needsResponse, let handler = needsResponseHandler {
             Task { await handler(session) }
         }
-        // AI-04: the last subagent a held Claude `Stop` waited on has stopped,
-        // so that ending settles now, through this same path.
-        if event.kind == .childLifecycle, event.childKind == .subagent, event.childAction == .stopped,
-           let released = reducer.takeReleasableStop(sessionID: event.sessionID) {
-            ingest(released, observationSource: observationSource, recordsEvidence: false)
-        }
     }
 
     /// How long a Claude `Stop` may stay held for background work before it
     /// settles anyway (AI-04 rule 5).
-    public static let heldStopBackstop: TimeInterval = 10 * 60
+    public static let heldStopBackstop = SessionReducer.heldStopBackstop
 
     /// An Ask or Edit chat in Cursor (`composer_mode` on `sessionStart`,
     /// cursor.com/docs/hooks) never becomes a row: its `sessionStart` enrols the

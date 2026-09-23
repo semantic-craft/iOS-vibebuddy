@@ -196,6 +196,26 @@ public struct HookEvent: Sendable, Equatable {
         return event
     }
 
+    /// A held `Stop` released to settle now. It carries the release moment so
+    /// the ending's `statusSince` and reminder clock start when it settles,
+    /// not when Claude first paused.
+    public func releasing(at date: Date) -> HookEvent {
+        var event = HookEvent(
+            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName,
+            toolName: toolName, message: message, waitKind: waitKind,
+            transcriptPath: transcriptPath, model: model, observationSource: observationSource,
+            toolError: toolError, timestamp: date, childID: childID,
+            childKind: childKind, childName: childName, childType: childType,
+            childAction: childAction, turnID: turnID, turnStartedAt: turnStartedAt, enrichment: enrichment,
+            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: userStopped,
+            completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID,
+            observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,
+            approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
+        event.backgroundWork = backgroundWork
+        event.releasesHeldStop = true
+        return event
+    }
+
     /// Stamp the rollout file this event was tailed from, so a later read-only
     /// recent-output fetch can find the same source without guessing.
     public func withTranscriptPath(_ path: String, sessionName: String? = nil) -> HookEvent {
@@ -222,15 +242,20 @@ public struct HookEvent: Sendable, Equatable {
 /// outlive it. Scheduled loops are counted apart: a `/loop` session always has
 /// one, so they may silence the completion cue but never hold the turn open.
 public struct BackgroundWork: Equatable, Sendable {
-    /// Running subagents, workflows and teammates.
-    public var holdingTasks: Int
+    /// Running subagents. Their `SubagentStop` hooks can release the turn.
+    public var subagents: Int
+    /// Running workflows and teammates. No hook we receive reports their end,
+    /// so only a newer `Stop` or the backstop releases a turn they hold.
+    public var workflowsOrTeammates: Int
     /// Running shells, monitors, MCP tasks, cloud sessions and unknown types.
     public var otherTasks: Int
-    /// Entries in `session_crons`.
+    /// Recurring entries in `session_crons` (`/loop`). A one-shot reminder
+    /// does not make every later round quiet.
     public var crons: Int
 
-    public init(holdingTasks: Int = 0, otherTasks: Int = 0, crons: Int = 0) {
-        self.holdingTasks = holdingTasks
+    public init(subagents: Int = 0, workflowsOrTeammates: Int = 0, otherTasks: Int = 0, crons: Int = 0) {
+        self.subagents = subagents
+        self.workflowsOrTeammates = workflowsOrTeammates
         self.otherTasks = otherTasks
         self.crons = crons
     }
