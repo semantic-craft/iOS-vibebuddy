@@ -10,8 +10,7 @@
 
 | ID | 内容 | 票据 | 状态 | 依据 | 建议 |
 |---|---|---|---|---|---|
-| PERF-01 | Mac App 持续高 CPU 与内存体检 | [01](performance/issues/01-mac-cpu-and-memory.md) | ready-for-agent | 已安装的 1.3.32 实测持续 22–43% CPU、RSS ≈ 230 MB | **优先** |
-| AI-04 | Claude `Stop` 带后台任务时不误报完成 | [04](agent-integration-2026-09/issues/04-claude-stop-background-tasks.md) | ready-for-agent（Claude 执行中，PR 待合并） | `HookParser` 不读 `background_tasks` / `session_crons`；2026-09-23 按同类项目修订了规则（见票 Comments） | **优先**，直接影响提醒准确性 |
+| PERF-01 | Mac App 持续高 CPU 与内存体检 | [01](performance/issues/01-mac-cpu-and-memory.md) | ready-for-agent（主因已修，PR #265） | 删除 History 存档（29.6 GB 索引）后 CPU 均值 11.2% → 3.1%；三档负载与 2 h 内存曲线待补测 | **优先** |
 | C-1 | Swift 安装器（Claude / Codex / Grok / Cursor / OpenCode），吸收原 AI-08 | [01](hook-installer/issues/01-swift-hook-installer.md) | ready-for-agent | `HookSetup.swift` 仍调用 `python3`；运行时 hook 只需 `sh` + `curl` | **优先**，陌生 Mac 没有 python3 |
 | A-12 前置 | CloudKit 私有库提醒推送原型 | [01](public-push/issues/01-cloudkit-alert-push-prototype.md) | ready-for-agent | ADR-0013 已选方向 D，需实测延迟与按钮 | 保留，通过后 A-12 按 D 实现 |
 | AI-05 | Claude 后台会话改读 `claude agents --json` | [05](agent-integration-2026-09/issues/05-claude-agents-json.md) | ready-for-agent | 仍读 `~/.claude/jobs/*/state.json`（官方：不是稳定接口）；该命令一次约 10 s，必须缓存（见票 Comments） | 保留 |
