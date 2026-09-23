@@ -47,10 +47,13 @@ struct CursorRoutesTests {
         Issue.record("no Cursor approval ever became pending")
     }
 
-    private func waitForQuestion(_ store: SessionStore) async throws {
+    /// The card is published an actor hop before the hook route starts
+    /// waiting; an answer is only deliverable once both hold.
+    private func waitForQuestion(_ store: SessionStore, _ questions: QuestionRegistry) async throws {
         for _ in 0..<1000 {
             let sessions = await store.snapshot(now: Date()).sessions
-            if sessions.first(where: { $0.id == "c1" })?.pendingQuestion != nil { return }
+            if sessions.first(where: { $0.id == "c1" })?.pendingQuestion != nil,
+               await questions.isWaiting(sessionID: "c1") { return }
             try await Task.sleep(for: .milliseconds(5))
         }
         Issue.record("no Cursor question ever became pending")
@@ -137,7 +140,7 @@ struct CursorRoutesTests {
                     #expect((json?["user_message"] as? String)?.contains("vibebuddy") == true)
                 }
             }
-            try await waitForQuestion(store)
+            try await waitForQuestion(store, questions)
             let session = await store.snapshot(now: Date()).sessions.first { $0.id == "c1" }
             #expect(session?.status == .needsResponse)
             #expect(session?.waitKind == .question)

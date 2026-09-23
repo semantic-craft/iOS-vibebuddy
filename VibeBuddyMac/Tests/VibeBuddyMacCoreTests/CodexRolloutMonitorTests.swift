@@ -309,7 +309,7 @@ struct CodexRolloutMonitorTests {
         )
         let task = Task { await monitor.run { await recorder.append($0) } }
         defer { task.cancel() }
-        #expect(await eventually { await monitor.diagnostics().discoveryPassCount == 1 })
+        #expect(await eventually { await monitor.diagnostics().discoveryPassCount >= 1 })
 
         _ = try fixture.write(
             named: "rollout-discovered.jsonl",

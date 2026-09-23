@@ -36,9 +36,12 @@ struct QuestionRoutesTests {
                         onAnswer: { _, text in recorder?.record(text) })
     }
 
-    private func waitForQuestion(_ store: SessionStore) async throws {
+    /// The card is published an actor hop before the hook route starts
+    /// waiting; an answer is only deliverable once both hold.
+    private func waitForQuestion(_ store: SessionStore, _ questions: QuestionRegistry) async throws {
         for _ in 0..<1000 {
-            if await store.snapshot(now: Date()).sessions.first(where: { $0.id == "qs" })?.pendingQuestion != nil { return }
+            if await store.snapshot(now: Date()).sessions.first(where: { $0.id == "qs" })?.pendingQuestion != nil,
+               await questions.isWaiting(sessionID: "qs") { return }
             try await Task.sleep(for: .milliseconds(5))
         }
         Issue.record("no question ever became pending")
@@ -139,12 +142,13 @@ struct QuestionRoutesTests {
     @Test("the hook holds with a structured card; single, multi and typed answers come back keyed by question text")
     func answersFlowBack() async throws {
         let store = SessionStore()
-        try await server(store: store).buildApplication().test(.router) { client in
+        let srv = server(store: store)
+        try await srv.buildApplication().test(.router) { client in
             async let held = client.execute(uri: "/approval", method: .post,
                 headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: askPayload)) { res -> String in
                 String(buffer: res.body)
             }
-            try await waitForQuestion(store)
+            try await waitForQuestion(store, srv.questionRegistry)
             let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" })
             #expect(session.status == .needsResponse)
             #expect(session.waitKind == .question)
@@ -186,12 +190,13 @@ struct QuestionRoutesTests {
     @Test("plain text from an older client answers the first question")
     func plainTextAnswersFirst() async throws {
         let store = SessionStore()
-        try await server(store: store).buildApplication().test(.router) { client in
+        let srv = server(store: store)
+        try await srv.buildApplication().test(.router) { client in
             async let held = client.execute(uri: "/approval", method: .post,
                 headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: askPayload)) { res -> String in
                 String(buffer: res.body)
             }
-            try await waitForQuestion(store)
+            try await waitForQuestion(store, srv.questionRegistry)
             try await client.execute(uri: "/answer", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"sessionId":"qs","answer":"Detailed"}"#)) { res in

@@ -3,7 +3,8 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Completion results")
+// Several tests pin resultClock; a regression there loops instead of expiring.
+@Suite("Completion results", .timeLimit(.minutes(1)))
 struct CompletionResultTests {
     @Test func codexRealMappingAndStore() async throws {
         var parser = CodexAppServerReducer()

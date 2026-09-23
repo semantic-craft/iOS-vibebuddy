@@ -3,7 +3,8 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Completion recovery")
+// Several tests pin resultClock; a regression there loops instead of expiring.
+@Suite("Completion recovery", .timeLimit(.minutes(1)))
 struct CompletionRecoveryTests {
     @Test("idle restored conversations obtain their exact native title without changing completion")
     func idleConversationTitle() async throws {

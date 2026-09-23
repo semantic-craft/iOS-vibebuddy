@@ -555,12 +555,12 @@ public actor SessionStore {
 
     private var completionResults = CompletionResults()
     private var completionReads: Set<String> = []
-    /// The clock every completion-result decision reads, including the
+    /// The clock the store passes to `CompletionResults`, including for the
     /// two-second notification window. Wall time in production; tests pin it
     /// so a loaded machine cannot age a result past that window.
     private let resultClock: @Sendable () -> Date
-    /// `completionResult` calls currently parked waiting for terminal proof.
-    /// Tests wait for this before ingesting that proof.
+    /// Test-only: `completionResult` calls currently parked waiting for
+    /// terminal proof, so a test can ingest that proof strictly afterwards.
     private(set) var parkedCompletionWaits = 0
     public let sourceID: String?
     /// Account allowance, kept beside the reducer rather than inside it.
@@ -1189,7 +1189,7 @@ public actor SessionStore {
     }
 
     private func resultRejected(sessionID: String, completionID: String) -> Bool {
-        completionResults.isRejected(sessionID: sessionID, completionID: completionID, sourceID: sourceID)
+        completionResults.isRejected(sessionID: sessionID, completionID: completionID, sourceID: sourceID, now: resultClock())
     }
 
     private func completionIsCurrent(sessionID: String, completionID: String) -> Bool {
