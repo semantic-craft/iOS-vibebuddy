@@ -115,12 +115,25 @@ struct ClaudeAgentsSourceTests {
     func runCLIKillsAStuckChild() throws {
         let home = try Self.fakeCLI(#"trap '' TERM; echo $$ > "$HOME/pid"; exec sleep 60"#)
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 0.3) == nil)
+        // The timeout leaves the shell time to reach `trap` even on a loaded host;
+        // a TERM before it would kill the shell and never write the pid file.
+        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 2) == nil)
         let pid = try #require(Int32(try String(contentsOf: home.appendingPathComponent("pid"), encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)))
         errno = 0
         #expect(kill(pid, 0) == -1)
         #expect(errno == ESRCH)
+    }
+
+    @Test("runCLI whose CLI exited while a grandchild holds stdout returns without a TERM grace",
+          .timeLimit(.minutes(1)))
+    func runCLIGrandchildHoldsStdout() throws {
+        let home = try Self.fakeCLI(#"(sleep 3 &); echo '[]'; exit 0"#)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let start = Date()
+        #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 1) == nil)
+        // The one-second TERM grace would put this at two seconds or more.
+        #expect(Date().timeIntervalSince(start) < 1.9)
     }
 
     private final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_800_000_000) }
