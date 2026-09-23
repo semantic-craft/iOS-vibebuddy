@@ -604,6 +604,9 @@ public actor SessionStore {
     /// home: the session store is rooted at `<grok home>/sessions`.
     private let grokHome: URL
     private let diagnosticsHome: URL?
+    /// `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CURSOR_HOME` as the hook installer
+    /// sees them; empty in tests and isolated runs.
+    private let diagnosticsEnvironment: [String: String]
     private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
     private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
     private var lifecycleJournal: LifecycleJournal?
@@ -674,6 +677,7 @@ public actor SessionStore {
         staleAfter: TimeInterval = 2 * 60 * 60,
         sourceID: String? = UUID().uuidString,
         diagnosticsHome: URL? = nil,
+        diagnosticsEnvironment: [String: String] = [:],
         journalURL: URL? = nil,
         attentionURL: URL? = nil,
         missedURL: URL? = nil,
@@ -696,6 +700,7 @@ public actor SessionStore {
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
+        self.diagnosticsEnvironment = diagnosticsEnvironment
         self.grokHome = grokHome ?? GrokHome.url
         if let journalURL {
             let journal = LifecycleJournal(url: journalURL, now: now)
@@ -1944,7 +1949,8 @@ public actor SessionStore {
         }
         let value = ObservationHealthDetector.detect(
             home: diagnosticsHome, signals: signals, now: now,
-            staleAfter: Self.diagnosticStaleAfter, grokHome: grokHome)
+            staleAfter: Self.diagnosticStaleAfter, grokHome: grokHome,
+            environment: diagnosticsEnvironment)
         diagnosticCache = (now, value)
         return value
     }

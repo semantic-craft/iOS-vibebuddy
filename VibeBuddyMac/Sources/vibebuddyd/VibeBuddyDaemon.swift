@@ -63,6 +63,7 @@ struct VibeBuddyDaemon {
         let store = SessionStore(
             sourceID: DaemonIdentity.load(),
             diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
+            diagnosticsEnvironment: env,
             journalURL: journalURL,
             attentionURL: AttentionOverrides.defaultURL(),
             missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }

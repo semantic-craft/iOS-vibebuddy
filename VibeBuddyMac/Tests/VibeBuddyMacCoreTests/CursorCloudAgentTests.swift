@@ -324,6 +324,22 @@ struct CursorCloudAgentTests {
         #expect(events.isEmpty)
     }
 
+    @Test("Settings diagnostics see an unreachable API as unreadable, a reachable one as healthy")
+    func pollReportsSourceHealth() async throws {
+        let broken = Self.monitor(ScriptedCursorCloudTransport { request in
+            ScriptedCursorCloudTransport.json("{}", status: 500, for: request)
+        })
+        let store = SessionStore(sourceID: "test")
+        func cloudHealth() async -> ObservationHealth? {
+            await store.snapshot(now: Date()).observationDiagnostics?
+                .first(where: { $0.agent == .cursor })?.sources.first(where: { $0.source == .cloud })?.health
+        }
+        await broken.poll(store: store, now: Date())
+        #expect(await cloudHealth() == .sourceUnreadable)
+        await Self.monitor(Self.monitorTransport([[:]])).poll(store: store, now: Date())
+        #expect(await cloudHealth() == .healthy)
+    }
+
     @Test("an agent that leaves the list ends, once")
     func vanishedAgentEnds() async throws {
         let transport = Self.monitorTransport([[Self.agentID: "ACTIVE"], [:]])
