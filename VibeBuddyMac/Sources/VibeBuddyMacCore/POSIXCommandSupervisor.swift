@@ -276,24 +276,24 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         sigaddset(&defaultSignals, SIGPIPE)
         sigaddset(&defaultSignals, SIGQUIT)
         sigemptyset(&signalMask)
+        // CLOEXEC_DEFAULT: the child gets only the three descriptors dup2'd
+        // below. Pipe() and other code in this process leave descriptors
+        // inheritable, and a stray write end held by our child keeps some
+        // other reader from ever seeing EOF.
         let attributeResults = [
             posix_spawnattr_setsigdefault(&attributes, &defaultSignals),
             posix_spawnattr_setsigmask(&attributes, &signalMask),
             posix_spawnattr_setpgroup(&attributes, 0),
             posix_spawnattr_setflags(
                 &attributes,
-                Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP)
+                Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP
+                    | POSIX_SPAWN_CLOEXEC_DEFAULT)
             ),
         ]
         let actionResults = [
             posix_spawn_file_actions_adddup2(&actions, nullDescriptor, STDIN_FILENO),
             posix_spawn_file_actions_adddup2(&actions, stdoutDescriptors[1], STDOUT_FILENO),
             posix_spawn_file_actions_adddup2(&actions, stderrDescriptors[1], STDERR_FILENO),
-            posix_spawn_file_actions_addclose(&actions, stdoutDescriptors[0]),
-            posix_spawn_file_actions_addclose(&actions, stdoutDescriptors[1]),
-            posix_spawn_file_actions_addclose(&actions, stderrDescriptors[0]),
-            posix_spawn_file_actions_addclose(&actions, stderrDescriptors[1]),
-            posix_spawn_file_actions_addclose(&actions, nullDescriptor),
         ]
         guard attributeResults.allSatisfy({ $0 == 0 }),
               actionResults.allSatisfy({ $0 == 0 }) else {
