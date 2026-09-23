@@ -74,20 +74,31 @@
 | MAS-15 Codex Desktop 等待提醒 | 维持只观察进度，不承诺等待提醒 | open-vibe-island#506 与我们实测一致；openai/codex#28833 该 hook 会误报 | [15](mac-app-store/issues/15-codex-desktop-remind-only.md) Comments |
 | G-5 截图矩阵 | 关闭；检查表并入 G-4 | demo 模式截图（`VIBEBUDDY_DEMO=1`、`tools/watch-qa-shots.sh`、`docs/app-store-screenshots/1.3.17/`）已在用；fastlane snapshot 不支持 macOS | 本表 |
 
-仍需你本人决定的只剩真机验收（下一节）。
+仍需你本人做的只剩下一节末尾的三件事。
 
-## 只能由你在真机上做的验收
+## 验收：agent 自己确认的与只剩你做的
 
-- **Codex hook 迁移**（C-1）：在 Mac App 设置里对 Codex 点「修复」，然后在 Codex 的 `/hooks` 里重新信任 VibeBuddy 的 hook。之后 App 更新不再需要重新信任。
-- **C-1 干净账户验收**：没有 python3 的账户里一键安装四家、各收到一次真实事件；App 更新后不会重装已卸载的 hook。
-- **AI-04 真实会话**（#264 已合并）：`claude` 登录正常，不需要重新登录。「VibeBuddy AI-04 真机验收准备」会话已在隔离 daemon 上干跑通过（`/loop` 落定为 `loopScheduled`、后台 subagent 保持进行中），只等你在那个会话里回复「开始」并看手机：`/loop` 阶段不响，后台 subagent 结束后只响一次。记录表在 `~/Projects/_shared-work/iOS-vibebuddy/ai04-acceptance-2026-09-23/`。另记一条发现：子代理起的后台 shell 与 monitor 在 `Stop` 里都报 `type:"shell"`。
-- **H-2**：冻结候选版本后，连续实际使用半小时，不能有新增漏接。不能用提交审核代替。
-- **ADR-0033**：批准已在 2026-09-23 03:08 通过；拒绝和回答还没单独验证。
-- **WR-07 横幅回答绑定**（#275 已合并）：装含 #275 的 iPhone + Watch 构建、用新发出的通知、手机锁屏。① 单段问题横幅口述回答，Mac 收到的是横幅上那一题；② 口述时在 Mac 上答掉并换题，手表不发送（最多等约 8 秒），卡片显示「未发送：“…”」且「用我的回答」打开的确认页显示新题；③ 多段问题不发送、口述仍在卡片上。步骤详见[票 07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) Comments。
-- **D-1 语音上限**（#280 已合并）：Gemini 通话超过约 10 分钟，看到结束提示后点重拨，新通话应正常接通；iPhone 与 Mac 各看一次。若以普通断线结束，可能是 Gemini 没发 goAway（预览模型偶发 1006），不一定是回归。
-- **AI-06 设置页**（#278 已合并）：统一重新部署后，在设置的观测诊断里看一眼 Cursor 行。
-- **手表腕上功能**（喊停、快捷回答、触觉、Double Tap）：[06](watch-wrist-resolve/issues/06-device-acceptance.md)。
-- **roadmap 中的 A-03、B-U、M-01、M-11、D-U、E-2、H-1、H-5**：已被历次发布门部分覆盖。下次整理 roadmap 时，把发布门已覆盖的条目标为完成，其余保留。
+规则（2026-09-24 起）：凡是 agent 能用测试、日志、隔离 daemon、模拟器或 computer use 确认的，都不交给你；要你动手的只留下面三件，每件一两步。
+
+**agent 在做（各自一个会话，完成后同步本表和可交互施工图）**
+
+| 项 | 怎么确认 | 会话 |
+|---|---|---|
+| 装机 + 端到端 | 从 `main` 重建替换 App 一次；隔离 daemon 全流程；设置页 Cursor 行截图（AI-06）；Codex 在设置里点「修复」 | 「Install the latest Mac App and run acceptance」 |
+| D-1 真实通话 | Mac 上用 computer use 打一通 Gemini，等约 10 分钟到上限，截图结束提示并点重拨；iPhone 路径在模拟器上同样走一遍 | 同上 + 「Install the new phone build, then prep the watch check」 |
+| PERF-01 收尾 | 三档负载各 10 分钟 + 2 小时内存曲线（装机后的最终版） | 「Install the latest Mac App and run acceptance」 |
+| H-2 零漏接 | 装机后 2 小时里用本机真实会话的活动看漏接台账，≥ 30 分钟无新增即算 Mac 端通过 | 同上 |
+| AI-04 真实会话 | 隔离 daemon 跑真实 `/loop` 与后台 subagent，用 APNs 发送记录确认「响没响」，不需要你看手机 | 「VibeBuddy AI-04 真机验收准备」 |
+| C-1 干净账户 | 临时 HOME + 没有 python3 的 PATH 模拟四家安装、各收一次事件、卸载后更新不重装（不新建系统账户） | 「Check old roadmap items and run the C-1 install check without you」 |
+| 路线图旧项 A-03、B-U、M-01、M-11、D-U、E-2、H-1、H-5 | 对照历次发布门记录逐项定结论；能验证的当场验证 | 同上 |
+| iOS 1.3.28 (58) 审核状态 | 只读查看 App Store Connect | 同上 |
+| Hermes / 手表装新版 | AI-04 跑完后装含 #275 的开发版；能在模拟器上验的（WR-07 绑定与降级文案、ADR-0033 拒绝 / 回答、D-1 iPhone）先验完 | 「Install the new phone build, then prep the watch check」 |
+
+**只剩你（共三件）**
+
+1. **手表一轮**（约 10 分钟）：准备好后那个会话会发给你一张不超过 6 步的清单（WR-07 口述回答、ADR-0033 拒绝和回答、WR-06 喊停 / 快捷回答 / 触觉 / Double Tap），你只在手表上点，结果由 agent 在 Mac 上看。
+2. **Codex 重新信任**（1 分钟）：agent 在设置里点完「修复」后，你在 Codex 里输入 `/hooks`，信任 VibeBuddy 那几条。
+3. **要不要发布**：Mac 1.3.33（带上 #262–#281）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。
 
 ## 观察项（暂不动手）
 
