@@ -11,16 +11,9 @@ GitHub Issues on `semantic-craft/iOS-vibebuddy` is **not** used for work trackin
 - Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
-## Existing features (as of setup)
+## Tracked backlog
 
-The convention is already in use:
-
-- `.scratch/ios-voice-parity/issues/` (01–04)
-- `.scratch/bg-sound-parity/issues/` (01)
-- `.scratch/design-polish/issues/` (01)
-- `.scratch/dynamic-island/issues/` (01)
-- `.scratch/failure-signal/issues/` (01)
-- `.scratch/realtime-verify/issues/` (01)
+`.scratch/` is invisible to worktrees and other machines, and uncommitted work there has been lost before. Open tickets that must outlive a session live in `docs/planning/backlog/<feature>/` with the same layout; `docs/planning/backlog/README.md` is the index. Pick a ticket up in place and change its `Status:` line in the same PR as the work. When a ticket is done, delete it and remove its row from the index.
 
 ## When a skill says "publish to the issue tracker"
 
