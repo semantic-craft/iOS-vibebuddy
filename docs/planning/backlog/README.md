@@ -8,7 +8,7 @@
 
 ## 2026-09-23 已完成
 
-#264–#267 经独立 Opus 子代理评审（`docs/agents/pr-review.md`；#263 为 Grok 评审，#262 未单独评审），合并后从 `main` 重建并替换 `/Applications`（开发版，Developer ID 签名、未公证，版本号仍是 1.3.32；下次正式发布 Mac 1.3.33 带上这些改动）。
+#264–#273 经独立 Opus 子代理评审（`docs/agents/pr-review.md`；#263 为 Grok 评审，#262 未单独评审），合并后从 `main` 重建并替换 `/Applications`（开发版，Developer ID 签名、未公证，版本号仍是 1.3.32；下次正式发布 Mac 1.3.33 带上这些改动）。
 
 | PR | 改动 | 效果 |
 |---|---|---|
@@ -18,10 +18,16 @@
 | #265 | **PERF-01 主因**：按你的决定删除 History 存档（29.6 GB 三元组全文索引，活跃会话约每 15 s 整体重建）；保留实时会话阅读（只读 `SessionTranscriptReader`）；快照里交接扫描加缓存；工具账本写入 2 s → 10 s，`facts` 读取前主动写盘；新版首次启动自动删除旧索引 | CPU 均值 11.2% → 2.7%，峰值 98.9% → 14.8%（合并后从 main 重装复测；PR 评论里的首测为 3.1% / 18.4%） |
 | #266 | **C-1**：Swift 安装器替换全部 python 安装脚本（Claude、Codex、Grok、Cursor、OpenCode、Antigravity）；脚本复制到固定目录 `~/Library/Application Support/vibebuddy/bin/`；`vibebuddyd hooks install|uninstall|status` | 陌生 Mac 不再需要 python3；Codex 信任不再随 App 更新失效 |
 | #267 | **AI-05**：Claude 后台会话改读官方 `claude agents --json`；`~/.claude/jobs` 有变化或距上次满 60 s 才调用，同一时刻只跑一次、从不阻塞界面与审批提醒；CLI 不可用时回退旧文件 | 不再依赖官方声明不稳定的内部文件 |
+| #268 | 全量 `swift test` 的时序偶发失败改为等显式信号（生产行为不变） | 测试稳定 |
+| #269 | 生产代码里的 `waitUntilExit()`（`TerminalInjector`、`WorkspaceChangesReader`）移出 Swift 并发线程池 | 卡住的子进程不再拖住 App 的并发线程 |
+| #271 | `claude agents` 与 Grok ACP 退出等待加时限（TERM → 1 s → KILL） | 卡死的 CLI 最多占用约 timeout + 3 s |
+| #272 | `claude agents` 的 stdout 读取受同一时限约束，返回前关闭读端 | 不再遗留阻塞的读线程与 fd |
+| #273 | 命令监管器（`POSIXCommandSupervisor`）生成子进程时只继承 stdin/stdout/stderr | 子进程不再意外持有别的管道 |
+| 本轮收尾 PR | Codex 用量子进程（`CodexAppServerUsageProvider`）同样只继承三个 fd；补回归测试 | 修掉 #272 新测试在全量并发下的偶发失败（Codex 子进程持有了它的管道读端） |
 
 本机环境变化：Claude 与 Grok 的 hook 已迁到固定目录（迁移前的配置备份在 `~/Projects/_shared-work/iOS-vibebuddy/hook-migration-2026-09-23/`）；Codex 仍用旧路径，等你重新信任。旧 History 索引已删，空间被 13:11 的 Time Machine 本地快照暂时占用，macOS 会自动回收。
 
-进行中（另一个会话）：#268 修全量 `swift test` 的时序偶发失败；#269 把生产代码里的 `waitUntilExit()`（`TerminalInjector`、`WorkspaceChangesReader`）移出 cooperative pool。
+仓库状态（2026-09-23 收尾）：没有开放 PR；远端只剩 `main` 与 `gh-pages`；只剩一个 worktree（本会话）。相关会话已归档。已删除测试残留：`$TMPDIR` 下约 6500 个 `vb-*` / `recap-*` 等测试临时目录、约 40 个 QA / E2E 用的 `com.vibebuddy.*` 偏好域（保留正式的 `com.vibebuddy.mac`）。
 
 ## 开发项
 
@@ -30,6 +36,7 @@
 | PERF-01 | Mac App 性能收尾 | [01](performance/issues/01-mac-cpu-and-memory.md) | ready-for-agent（主因已修，#265） | 稳定后 CPU 均值 2.7%；待补：三档负载 × 10 min、2 h 内存曲线；启动后第一分钟约 50% CPU（加载几 MB 账本） | **优先** |
 | A-12 前置 | CloudKit 私有库提醒推送原型 | [01](public-push/issues/01-cloudkit-alert-push-prototype.md) | ready-for-agent | ADR-0013 已选方向 D，需实测延迟与按钮 | 保留，通过后 A-12 按 D 实现 |
 | C-1b | 评审留下的小尾巴 | — | ready-for-agent | ① `ObservationHealthDetector` 尊重 `CLAUDE_CONFIG_DIR` / `CODEX_HOME`，后台会话的 jobs 目录尊重 `CLAUDE_CONFIG_DIR`；② `configKey` 解析软链（C-1 W2）；③ 旧 manifest 裸 key 迁移（C-1 N1）；④ 检测标记不写死 9876（C-1 N2）；⑤ 从 checkout 运行 `vibebuddyd hooks install` 且装着旧版 App 时会复制旧脚本（C-1 W1，目前靠先装新 App 或 `--hooks-dir` 规避）；⑥ 跳转查找加约 3 s 总时限、`/jump` 新分支补测试（AI-05）；⑦ `/ledger/flush` 路由测试、`VIBEBUDDY_PORT` 非法值处理、`LedgerFlushRequest` 复用 NoRedirects / 无 cookie 配置（PERF-01） | 一张小票做完 |
+| T-1 | 测试不清理临时目录 | — | ready-for-agent | 约 10 个测试文件（`DeviceRegistryTests`、`EnvironmentDetectorTests`、`TokenConsumptionScanTests`、`ApprovalRoutesTests`、`DevicePushFailureTests`、`ClaudeBackgroundLauncherTests`、`AttentionTests`、`BackgroundAttachTests`、`CodexAppServerApprovalTests` 等）在 `$TMPDIR` 建 `vb-*` 目录不删；每跑一次全量约留下几十个，2026-09-23 已手动清掉约 6500 个 | 小票：补 `defer` 清理 |
 | AI-06 | 观测健康诊断补 Cursor 行 | [06](agent-integration-2026-09/issues/06-cursor-observation-health-row.md) | ready-for-agent | `ObservationHealthDetector` 只有 Claude / Codex / Grok | 保留，小票 |
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok -r` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | ready-for-agent | 代码里只有 `--no-leader`，没有恢复逻辑 | 保留 |
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | ready-for-agent | 代码里没有对应实现 | 保留 |
@@ -85,7 +92,7 @@
 
 ## 已核实完成、不再列出
 
-通知分类 01–14、观测健康 01–03、手表配额和表盘复杂功能、远程访问 01–03、跨端审计 01–05、手表腕上功能 01/02/03/05（1.3.8）、语音设置重构（#139–#142）、iPhone 第 6–8 轮设计（已由 ADR-0014 取代）、Grok ACP 托管（#233）、Mac App Store 旧票 02–08（已作废）、全部 6 月批次。PR #37、#42、#45、#228、#248 都已合并。未合并就关闭的 #50、#69、#143、#160、#171–#182，其工作都已通过其他 PR 落地。 2026-09-23 当天完成的 #262–#267（AI-04、PERF-01 主因、C-1、AI-05 等）见本文开头「2026-09-23 已完成」。
+通知分类 01–14、观测健康 01–03、手表配额和表盘复杂功能、远程访问 01–03、跨端审计 01–05、手表腕上功能 01/02/03/05（1.3.8）、语音设置重构（#139–#142）、iPhone 第 6–8 轮设计（已由 ADR-0014 取代）、Grok ACP 托管（#233）、Mac App Store 旧票 02–08（已作废）、全部 6 月批次。PR #37、#42、#45、#228、#248 都已合并。未合并就关闭的 #50、#69、#143、#160、#171–#182，其工作都已通过其他 PR 落地。 2026-09-23 当天完成的 #262–#273（AI-04、PERF-01 主因、C-1、AI-05、子进程时限与 fd 继承等）见本文开头「2026-09-23 已完成」。
 
 ## 归档位置
 

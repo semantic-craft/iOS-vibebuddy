@@ -246,12 +246,16 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
         sigaddset(&defaultSignals, SIGPIPE)
         sigaddset(&defaultSignals, SIGQUIT)
         sigemptyset(&signalMask)
+        // CLOEXEC_DEFAULT: the child gets only the three descriptors dup2'd
+        // below, never a Pipe() another thread just opened (a stray end held
+        // here hides that pipe's EOF or EPIPE). The dup2 sources must stay
+        // non-CLOEXEC: Darwin closes an identity dup2 whose source is CLOEXEC.
         let attributeResults = [
             posix_spawnattr_setsigdefault(&attributes, &defaultSignals),
             posix_spawnattr_setsigmask(&attributes, &signalMask),
             posix_spawnattr_setflags(
                 &attributes,
-                Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK)
+                Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_CLOEXEC_DEFAULT)
             ),
         ]
         guard attributeResults.allSatisfy({ $0 == 0 }) else {
@@ -267,11 +271,6 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
             posix_spawn_file_actions_adddup2(&actions, stdinDescriptors[0], STDIN_FILENO),
             posix_spawn_file_actions_adddup2(&actions, stdoutDescriptors[1], STDOUT_FILENO),
             posix_spawn_file_actions_adddup2(&actions, nullDescriptor, STDERR_FILENO),
-            posix_spawn_file_actions_addclose(&actions, stdinDescriptors[0]),
-            posix_spawn_file_actions_addclose(&actions, stdinDescriptors[1]),
-            posix_spawn_file_actions_addclose(&actions, stdoutDescriptors[0]),
-            posix_spawn_file_actions_addclose(&actions, stdoutDescriptors[1]),
-            posix_spawn_file_actions_addclose(&actions, nullDescriptor),
         ]
         guard actionResults.allSatisfy({ $0 == 0 }) else {
             closeIfOpen(stdinDescriptors[0])
