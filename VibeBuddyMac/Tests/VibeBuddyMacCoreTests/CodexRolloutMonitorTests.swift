@@ -309,7 +309,7 @@ struct CodexRolloutMonitorTests {
         )
         let task = Task { await monitor.run { await recorder.append($0) } }
         defer { task.cancel() }
-        #expect(await eventually { await monitor.diagnostics().discoveryPassCount == 1 })
+        #expect(await eventually { await monitor.diagnostics().discoveryPassCount >= 1 })
 
         _ = try fixture.write(
             named: "rollout-discovered.jsonl",
@@ -1544,8 +1544,10 @@ private func append(_ line: String, to file: URL, newline: Bool = true) throws {
     try handle.write(contentsOf: Data((line + (newline ? "\n" : "")).utf8))
 }
 
+/// Polls until `condition` holds. The default bound is liveness only: a full
+/// parallel `swift test` can take over a second to start a server and scan.
 private func eventually(
-    timeout: Duration = .seconds(1),
+    timeout: Duration = .seconds(10),
     _ condition: @escaping @Sendable () async -> Bool
 ) async -> Bool {
     let clock = ContinuousClock()

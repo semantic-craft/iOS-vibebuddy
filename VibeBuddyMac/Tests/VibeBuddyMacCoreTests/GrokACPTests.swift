@@ -384,6 +384,8 @@ struct GrokACPTests {
                            "options": [["label": "Red", "description": "Red"], ["label": "Blue", "description": "Blue"]]]],
         ])
         await eventually("question") { await rig.session()?.pendingQuestion != nil }
+        // The card is published an actor hop before the monitor starts waiting.
+        await eventually("waiting") { await rig.questions.isWaiting(sessionID: rig.agent.sessionID) }
         let question = await rig.session()!.pendingQuestion!
         #expect(question.items.first?.text == "Which color?")
         #expect(question.items.first?.options.map(\.label) == ["Red", "Blue"])
