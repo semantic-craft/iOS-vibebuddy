@@ -15,6 +15,7 @@ struct CodexAppServerApprovalTests {
         let questions = QuestionRegistry()
         let sessionAllow = SessionAllowList()
         let allowStore: VibeBuddyAllowStore
+        let allowURL: URL
         let context = ApprovalContextStore()
         let monitor: CodexAppServerMonitor
         let socket: URL
@@ -26,8 +27,8 @@ struct CodexAppServerApprovalTests {
             socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-sock-\(UUID().uuidString)")
             FileManager.default.createFile(atPath: socket.path, contents: Data())
             connection = FakeConnection(results: fakeDaemonResults())
-            allowStore = VibeBuddyAllowStore(url: FileManager.default.temporaryDirectory
-                .appendingPathComponent("vb-allow-\(UUID().uuidString).json"))
+            allowURL = FileManager.default.temporaryDirectory.appendingPathComponent("vb-allow-\(UUID().uuidString).json")
+            allowStore = VibeBuddyAllowStore(url: allowURL)
             for rule in rules { _ = await allowStore.add(rule) }
             monitor = CodexAppServerMonitor(
                 enabled: true, socketPath: socket.path,
@@ -40,7 +41,10 @@ struct CodexAppServerApprovalTests {
             run = Task { await monitor.run(store: store) }
         }
 
-        func stop() { try? FileManager.default.removeItem(at: journal); run.cancel(); connection.close(); try? FileManager.default.removeItem(at: socket) }
+        func stop() {
+            try? FileManager.default.removeItem(at: journal); run.cancel(); connection.close(); try? FileManager.default.removeItem(at: socket)
+            try? FileManager.default.removeItem(at: allowURL)
+        }
 
         func session(_ id: String) async -> AgentSession? {
             await store.snapshot(now: Date()).sessions.first { $0.id == id }

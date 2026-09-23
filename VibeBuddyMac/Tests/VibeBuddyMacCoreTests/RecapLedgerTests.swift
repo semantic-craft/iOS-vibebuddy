@@ -203,6 +203,7 @@ struct RecapLedgerTests {
     @Test("an earlier round's read mark survives a restart")
     func readMarkPersists() async throws {
         let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let journal = dir.appendingPathComponent("lifecycle-journal.json")
         do {
             let store = SessionStore(sourceID: "mac", journalURL: journal, now: t0)
@@ -257,6 +258,7 @@ struct RecapLedgerTests {
     @Test("the ledger survives a restart and forgets rounds older than seven days")
     func persistence() async throws {
         let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let journal = dir.appendingPathComponent("lifecycle-journal.json")
         do {
             let store = SessionStore(sourceID: "mac", journalURL: journal, now: t0)
@@ -282,6 +284,7 @@ struct RecapLedgerTests {
     @Test("a settled notice summary replaces the fallback sentence")
     func noticeSummaryWins() async throws {
         let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let store = SessionStore(sourceID: "mac")
         await store.configureCompletionNotices(url: dir.appendingPathComponent("decisions.json"),
                                                enabled: { true }) { _ in "Docs shipped; three links fixed." }
@@ -340,6 +343,7 @@ struct RecapLedgerTests {
     @Test("the horizon survives a restart without touching the journal")
     func horizonPersists() async throws {
         let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let journal = dir.appendingPathComponent("lifecycle-journal.json")
         let horizon = t0.addingTimeInterval(30)
         var journalBytes: Data?

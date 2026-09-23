@@ -40,6 +40,7 @@ struct AttentionTests {
     @Test("a level dies with its session")
     func prunedWithSession() async {
         let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = SessionStore(attentionURL: url)
         await store.ingest(hook("SessionStart", session: "a"), receivedAt: Date())
         await store.setAttention(sessionID: "a", .followed)
@@ -51,7 +52,9 @@ struct AttentionTests {
     @Test("a level survives a restart when the journal restores the session")
     func persistsAcrossRestart() async throws {
         let attentionURL = tempURL()
+        defer { try? FileManager.default.removeItem(at: attentionURL.deletingLastPathComponent()) }
         let journalURL = tempURL()
+        defer { try? FileManager.default.removeItem(at: journalURL.deletingLastPathComponent()) }
         let t0 = Date()
         let first = SessionStore(journalURL: journalURL, attentionURL: attentionURL, now: t0)
         await first.ingest(hook("SessionStart", session: "a"), receivedAt: t0)
