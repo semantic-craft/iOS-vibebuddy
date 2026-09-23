@@ -22,17 +22,20 @@ public enum WatchNotificationResponseRoute: Equatable, Sendable {
     /// with the notification, and the store re-checks it against the relayed
     /// state before anything is sent.
     case decide(sessionID: String, approvalID: String, choice: WatchApprovalChoice)
-    /// Answer the session's question with the dictated text. Bound to the
-    /// question the relayed state holds *now*; a stale one is refused on the
-    /// card rather than re-pointed.
-    case answer(sessionID: String, text: String)
+    /// Answer the question the notification was about with the dictated
+    /// text. `questionID` came with the notification the way `approvalId`
+    /// does, and binds the reply the moment it is held; nil for a cue posted
+    /// without one (an older phone or Mac), which falls back to the first
+    /// question a relayed state shows. A question that moved on is refused on
+    /// the card rather than re-pointed.
+    case answer(sessionID: String, questionID: String?, text: String)
     /// Nothing to do: the notification was dismissed, or named no session.
     case ignore
 
     /// The session every route except `ignore` is about.
     public var sessionID: String? {
         switch self {
-        case .open(let id), .decide(let id, _, _), .answer(let id, _): return id
+        case .open(let id), .decide(let id, _, _), .answer(let id, _, _): return id
         case .ignore: return nil
         }
     }
@@ -50,14 +53,15 @@ public enum WatchNotificationResponseRoute: Equatable, Sendable {
     /// - `action`: the tapped button, or `nil` for the default tap (the body of
     ///   the notification) and for the system dismiss action.
     /// - `isDismiss`: the system's dismiss action, which is not a request.
-    /// - `sessionID` / `approvalID`: the notification's `userInfo`, which is
-    ///   data — only these two keys are read, and the store re-derives
-    ///   everything else from the relayed state.
+    /// - `sessionID` / `approvalID` / `questionID`: the notification's
+    ///   `userInfo`, which is data — only these keys are read, and the store
+    ///   re-derives everything else from the relayed state.
     /// - `userText`: the dictated reply, when the button collected one.
     public static func resolve(action: NotificationActionID?,
                                isDismiss: Bool,
                                sessionID: String?,
                                approvalID: String?,
+                               questionID: String? = nil,
                                userText: String?) -> WatchNotificationResponseRoute {
         guard !isDismiss else { return .ignore }
         guard let sessionID = trimmed(sessionID) else { return .ignore }
@@ -72,7 +76,7 @@ public enum WatchNotificationResponseRoute: Equatable, Sendable {
                            choice: action == .approve ? .allow : .deny)
         case .answer:
             guard let text = trimmed(userText) else { return .open(sessionID: sessionID) }
-            return .answer(sessionID: sessionID, text: text)
+            return .answer(sessionID: sessionID, questionID: trimmed(questionID), text: text)
         }
     }
 
@@ -108,9 +112,11 @@ public struct WatchBannerAction: Equatable, Sendable {
     /// screen at the tap put yesterday's cached number here, and the first live
     /// snapshot then read as proof the request had ended.
     public private(set) var baselineRevision: UInt64?
-    /// The question a held reply is bound to, fixed the first time a relayed
-    /// state showed the wrist an answerable question for this session. Nil for
-    /// a decision, which carries its own binding in the tap.
+    /// The question a held reply is bound to. Fixed at the hold when the
+    /// notification named its question (`questionId`, since #248); otherwise
+    /// the first time a relayed state showed the wrist an answerable question
+    /// for this session. Nil for a decision, which carries its own binding in
+    /// the tap.
     public private(set) var boundPendingID: String?
 
     public init(route: WatchNotificationResponseRoute, heldAt: Date = Date(),
@@ -118,14 +124,15 @@ public struct WatchBannerAction: Equatable, Sendable {
         self.route = route
         self.heldAt = heldAt
         self.baselineRevision = baselineRevision
+        if case .answer(_, let questionID?, _) = route { boundPendingID = questionID }
     }
 
     /// Whether the question in front of the wrist is still the one these words
     /// were dictated for.
     ///
-    /// A banner names the permission it is about (`approvalId` rides in its
-    /// `userInfo`) but never the question, so a reply cannot be bound at the
-    /// tap. It is bound at the first sight of one instead — the first
+    /// A notification that names its question (`questionId`) is bound at the
+    /// hold, and this only compares. One that does not — a cue from an older
+    /// phone or Mac — is bound at the first sight of one instead: the first
     /// answerable question a *relayed* state holds for this session — and from
     /// then on the binding does not move. Without that, a hold waiting for the
     /// link would follow the session: the agent answers "Delete the database?"
@@ -146,6 +153,43 @@ public struct WatchBannerAction: Equatable, Sendable {
             return true
         }
         return boundPendingID == pendingID
+    }
+
+    /// Where a reply's question stands among the alerts a state holds.
+    public enum ReplyStanding: Equatable, Sendable {
+        /// The session is asking the bound question (or, with nothing bound
+        /// yet, a question with an id this reply may bind). The caller still
+        /// checks it can be answered in one string.
+        case asking(WatchAlert)
+        /// The session is asking something that carries no id — a prompt part
+        /// of which must be typed. The wrist cannot tell whether it is the
+        /// bound question, and "decide it on your iPhone or Mac" is true of it
+        /// either way.
+        case unbindable(WatchAlert)
+        /// The session is asking a *different* question. The agent moved on
+        /// between the dictation and the send: refuse, never re-point.
+        case replaced
+        /// The session is asking nothing. Gone only if a newer revision says so.
+        case absent
+    }
+
+    /// The pure decision behind a held reply and behind the sentence a refused
+    /// one leaves: which alert, if any, these words may go to.
+    public static func replyStanding(boundPendingID: String?, sessionID: String,
+                                     alerts: [WatchAlert]) -> ReplyStanding {
+        let bound = boundPendingID.flatMap(nonBlank)
+        if let bound, let exact = alerts.first(where: {
+            $0.sessionId == sessionID && $0.pendingId == bound
+        }) { return .asking(exact) }
+        guard let asking = alerts.first(where: {
+            $0.sessionId == sessionID && $0.waitKind == .question
+        }) else { return .absent }
+        guard asking.pendingId.flatMap(nonBlank) != nil else { return .unbindable(asking) }
+        return bound == nil ? .asking(asking) : .replaced
+    }
+
+    private static func nonBlank(_ value: String) -> String? {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
     }
 
     /// Note a state the wrist has just installed. The first one of a hold sets
@@ -174,6 +218,53 @@ public struct WatchBannerAction: Equatable, Sendable {
     public func provesRequestGone(currentRevision: UInt64?) -> Bool {
         guard let baselineRevision, let currentRevision else { return false }
         return currentRevision > baselineRevision
+    }
+}
+
+/// The words of a banner reply the wrist did not deliver, kept on the card so a
+/// refusal never costs the wearer what they dictated (ADR-0033 decision 5).
+public struct WatchUnsentReply: Equatable, Sendable {
+    public let sessionID: String
+    public let text: String
+    /// The attempt that was in flight when the words were refused, or the
+    /// attempt that carried them and was refused. It can never supersede them:
+    /// an answer that was already on its way before these words were set aside
+    /// says nothing about them.
+    public let attemptID: String?
+
+    public init(sessionID: String, text: String, attemptID: String?) {
+        self.sessionID = sessionID
+        self.text = text
+        self.attemptID = attemptID
+    }
+
+    /// Whether an answer for this session has since reached the iPhone or the
+    /// Mac, so the words have been superseded by ones that travelled.
+    ///
+    /// Only a *change* counts — a new attempt, or one moving into that phase.
+    /// The action state is re-published on every install, and an earlier
+    /// answer still sitting at `awaitingResolution` while the iPhone re-sends
+    /// the same context would otherwise wipe the words a moment after they
+    /// were kept.
+    public func isSuperseded(from old: WatchSessionActionAttempt?,
+                             to new: WatchSessionActionAttempt?) -> Bool {
+        guard let new, new.sessionId == sessionID, new.attemptId != attemptID,
+              new.answerText != nil || new.answers != nil,
+              new.phase == .awaitingResolution || new.phase == .queued else { return false }
+        return old?.attemptId != new.attemptId || old?.phase != new.phase
+    }
+
+    /// The words to put back on the card when the attempt that carried them —
+    /// a banner reply the wrist did send — ends without reaching the agent.
+    /// `refused` (the question moved on before the iPhone's gate) and `failed`
+    /// both mean nothing was said; `unknown` may have been, so it is not
+    /// offered for sending again.
+    public func restored(by attempt: WatchSessionActionAttempt?) -> WatchUnsentReply? {
+        guard let attempt, attempt.attemptId == attemptID else { return nil }
+        switch attempt.phase {
+        case .refused, .failed: return self
+        case .sending, .awaitingResolution, .queued, .unknown: return nil
+        }
     }
 }
 
