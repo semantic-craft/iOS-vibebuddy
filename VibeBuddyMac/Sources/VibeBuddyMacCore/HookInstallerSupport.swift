@@ -554,7 +554,7 @@ public enum HookScriptSource {
               app.resolvingSymlinksInPath().path != source.resolvingSymlinksInPath().path else { return nil }
         let fm = FileManager.default
         guard fm.fileExists(atPath: app.path) else { return nil }
-        let differs = HookInstaller.runtimeScripts.contains {
+        let differs = (HookInstaller.runtimeScripts + [HookInstaller.opencodePlugin]).contains {
             fm.contents(atPath: source.appendingPathComponent($0).path) != fm.contents(atPath: app.appendingPathComponent($0).path)
         }
         return differs ? app : nil
