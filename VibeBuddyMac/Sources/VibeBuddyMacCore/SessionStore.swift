@@ -243,8 +243,9 @@ public actor SessionStore {
 
     private func armToolLedgerFlush() {
         guard toolLedger.needsTrailingWrite, toolLedgerFlush == nil else { return }
+        let interval = toolLedger.writeInterval
         toolLedgerFlush = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(ToolLedger.writeInterval))
+            try? await Task.sleep(for: .seconds(interval))
             await self?.flushToolLedger()
         }
     }
@@ -604,6 +605,22 @@ public actor SessionStore {
     /// Ended rounds and the recap horizon, beside the journal (`RecapLedger`).
     private var recapLedger: RecapLedger
     private var handoffScanner: HandoffScanner
+    /// Snapshot assembly runs on every event and status-line sample; the
+    /// handoff scan walks `.scratch` under every recent directory (up to 50).
+    /// Handoff notes change rarely, so the snapshot reuses a scan for a few
+    /// seconds. Continuation validation always scans fresh.
+    private var handoffCache: (at: ContinuousClock.Instant, directories: [String], records: [HandoffRecord])?
+    static let handoffCacheWindow: Duration = .seconds(5)
+
+    private func cachedHandoffs(directories: [String]) -> [HandoffRecord] {
+        if let cache = handoffCache, cache.directories == directories,
+           ContinuousClock.now - cache.at < Self.handoffCacheWindow {
+            return cache.records
+        }
+        let records = handoffScanner.scan(directories: directories)
+        handoffCache = (.now, directories, records)
+        return records
+    }
     /// Who continued whom, beside the journal (`ContinuationLedger`); a
     /// session's `continuesSessionKey` and a handoff's `takenBy` derive from it.
     private var continuationLedger: ContinuationLedger
@@ -1528,7 +1545,7 @@ public actor SessionStore {
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
         // Handoff documents under those checkouts (ADR-0023). The file is the
         // record; `takenBy` is what this process started from each one.
-        let handoffs = handoffScanner.scan(directories: directories).map { record in
+        let handoffs = cachedHandoffs(directories: directories).map { record in
             var record = record
             record.takenBy = continuationLedger.takenBy(handoffPath: record.path)
             return record

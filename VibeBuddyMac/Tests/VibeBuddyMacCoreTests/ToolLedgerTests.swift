@@ -11,7 +11,7 @@ final class ToolLedgerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("ledger.json")
         let t0 = Date(timeIntervalSince1970: 1_700_000_000)
-        var ledger = ToolLedger(url: url, now: t0)
+        var ledger = ToolLedger(url: url, now: t0, writeInterval: 0.2)
         for i in 0..<5 {
             let record = ToolCallRecord(id: "t\(i)", tool: "Bash", result: .succeeded,
                                         observedAt: t0.addingTimeInterval(Double(i) * 0.1), source: "hook")
@@ -27,7 +27,7 @@ final class ToolLedgerTests: XCTestCase {
         XCTAssertEqual(ledger.writeCount, 1)
 
         // Once the window has passed, the next prune writes the rest.
-        Thread.sleep(forTimeInterval: ToolLedger.writeInterval)
+        Thread.sleep(forTimeInterval: ledger.writeInterval)
         ledger.prune(now: t0.addingTimeInterval(1))
         XCTAssertEqual(ledger.writeCount, 2)
         XCTAssertFalse(ledger.needsTrailingWrite)
@@ -43,7 +43,7 @@ final class ToolLedgerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("ledger.json")
         let t0 = Date(timeIntervalSince1970: 1_700_000_000)
-        var ledger = ToolLedger(url: url, now: t0)
+        var ledger = ToolLedger(url: url, now: t0, writeInterval: 0.2)
         for i in 0..<3 {
             ledger.observe(ToolCallRecord(id: "t\(i)", tool: "Bash", result: .succeeded,
                                           observedAt: t0.addingTimeInterval(Double(i) * 0.1), source: "hook"),
@@ -68,7 +68,7 @@ final class ToolLedgerTests: XCTestCase {
         let url = parent.appendingPathComponent("ledger.json")
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let record = ToolCallRecord(id: "t", tool: "Bash", result: .succeeded, observedAt: now, source: "hook")
-        var ledger = ToolLedger(url: url, now: now)
+        var ledger = ToolLedger(url: url, now: now, writeInterval: 0.2)
         ledger.observe(record, sessionID: "s", now: now)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
         try FileManager.default.removeItem(at: parent)
@@ -82,7 +82,7 @@ final class ToolLedgerTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let current = ToolCallRecord(id: "current", tool: "Bash", command: "true", result: .succeeded,
                                     observedAt: now, source: "hook")
-        var ledger = ToolLedger(url: url, now: now)
+        var ledger = ToolLedger(url: url, now: now, writeInterval: 0.2)
         ledger.observe(current, sessionID: "s", now: now)
         let marker = now.addingTimeInterval(-1000)
         try FileManager.default.setAttributes([.modificationDate: marker], ofItemAtPath: url.path)
@@ -110,11 +110,11 @@ final class ToolLedgerTests: XCTestCase {
         let initial = try JSONEncoder().encode(fixture)
         XCTAssertLessThan(initial.count, 8_000_000)
         try initial.write(to: url)
-        var ledger = ToolLedger(url: url, now: now)
+        var ledger = ToolLedger(url: url, now: now, writeInterval: 0.2)
         for index in 35..<50 { ledger.observe(record(index, session: 3), sessionID: "s3", now: now) }
         // Writes are one per window; the next snapshot pass after it flushes
         // the rest, and the cap is applied on that write.
-        Thread.sleep(forTimeInterval: ToolLedger.writeInterval)
+        Thread.sleep(forTimeInterval: ledger.writeInterval)
         ledger.prune(now: now)
         XCTAssertNil(ledger.sessions["s0"])
         XCTAssertEqual(ledger.sessions["s3"]?.count, 50)
@@ -156,7 +156,7 @@ final class ToolLedgerTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1000)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("tool-ledger-test-" + UUID().uuidString + ".json")
         defer { try? FileManager.default.removeItem(at: url) }
-        var ledger = ToolLedger(url: url, now: now)
+        var ledger = ToolLedger(url: url, now: now, writeInterval: 0.2)
         for index in 0..<55 {
             ledger.observe(.init(id: "\(index)", tool: "Bash", command: "true", observedAt: now,
                                  source: "transcript"), sessionID: "s", now: now)
