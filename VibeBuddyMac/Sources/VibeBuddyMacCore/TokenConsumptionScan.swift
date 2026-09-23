@@ -607,12 +607,18 @@ enum CodexTokenConsumptionParser {
     /// line that announces itself as one of those is dropped without searching
     /// the rest of it. A line whose layout this does not recognise gets the
     /// full search, so a format change costs time, never counts.
+    /// The `event_msg` payload types `parseFile` reads. `mayCount` drops every
+    /// other event by its head, so a new branch there must be listed here.
+    static let actedEventTypes: Set<String> = ["token_count", "task_started", "thread_settings_applied"]
+
     static func mayCount(_ line: UnsafeRawBufferPointer) -> Bool {
         let head = UnsafeRawBufferPointer(rebasing: line.prefix(160))
         if TokenLogJSON.contains(head, "\"type\":\"response_item\"") { return false }
+        if TokenLogJSON.contains(head, "\"type\":\"session_meta\"")
+            || TokenLogJSON.contains(head, "\"type\":\"turn_context\"") { return true }
         if TokenLogJSON.contains(head, "\"type\":\"event_msg\""),
            let payloadType = TokenLogJSON.stringValue(after: "\"payload\":{\"type\":\"", in: head) {
-            return ["token_count", "task_started", "thread_settings_applied"].contains(payloadType)
+            return actedEventTypes.contains(payloadType)
         }
         return TokenLogJSON.contains(line, "\"token_count\"")
             || TokenLogJSON.contains(line, "\"session_meta\"")
@@ -652,7 +658,8 @@ enum CodexTokenConsumptionParser {
                 return
             }
             guard type == "event_msg", let payload = obj["payload"] as? [String: Any],
-                  let eventType = payload["type"] as? String else { return }
+                  let eventType = payload["type"] as? String,
+                  actedEventTypes.contains(eventType) else { return }
             if eventType == "thread_settings_applied",
                let settings = payload["thread_settings"] as? [String: Any],
                let name = settings["model"] as? String, !name.isEmpty {

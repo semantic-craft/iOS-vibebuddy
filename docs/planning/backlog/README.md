@@ -34,7 +34,7 @@
 
 | ID | 内容 | 票据 | 状态 | 依据 | 建议 |
 |---|---|---|---|---|---|
-| PERF-01 | Mac App 性能收尾 | [01](performance/issues/01-mac-cpu-and-memory.md) | ready-for-agent（主因已修，#265；启动突发已修，#281） | 稳定后 CPU 均值 2.7%。启动突发的根因不是账本，而是首次 token 用量扫描逐行解析近 8 天约 2 GB 转录；#281 只解析会计数的行，同输入实测 0–60 s 均值 76% → 8.8%，满载约 52 s → 10 s，45.9 → 5.6 CPU 秒，快照内容不变。待补：三档负载 × 10 min、2 h 内存曲线（全部并行会话合并后在最终版上测） | **优先** |
+| PERF-01 | Mac App 性能收尾 | [01](performance/issues/01-mac-cpu-and-memory.md) | ready-for-agent（主因已修，#265；启动突发已修，#281） | 稳定后 CPU 均值 2.7%。启动突发的根因不是账本，而是首次 token 用量扫描逐行解析近 8 天约 2 GB 转录；#281 只解析可能计数的行，同输入实测 0–60 s 均值 76% → 8.8%，满载约 52 s → 10 s，45.9 → 5.6 CPU 秒，快照内容不变。待补：三档负载 × 10 min、2 h 内存曲线（全部并行会话合并后在最终版上测） | **优先** |
 | A-12 前置 | CloudKit 私有库提醒推送原型 | [01](public-push/issues/01-cloudkit-alert-push-prototype.md) | ready-for-agent | ADR-0013 已选方向 D，需实测延迟与按钮 | 保留，通过后 A-12 按 D 实现 |
 | C-1b | 评审留下的小尾巴 | — | ready-for-agent | ① `ObservationHealthDetector` 尊重 `CLAUDE_CONFIG_DIR` / `CODEX_HOME`，后台会话的 jobs 目录尊重 `CLAUDE_CONFIG_DIR`；② `configKey` 解析软链（C-1 W2）；③ 旧 manifest 裸 key 迁移（C-1 N1）；④ 检测标记不写死 9876（C-1 N2）；⑤ 从 checkout 运行 `vibebuddyd hooks install` 且装着旧版 App 时会复制旧脚本（C-1 W1，目前靠先装新 App 或 `--hooks-dir` 规避）；⑥ 跳转查找加约 3 s 总时限、`/jump` 新分支补测试（AI-05）；⑦ `/ledger/flush` 路由测试、`VIBEBUDDY_PORT` 非法值处理、`LedgerFlushRequest` 复用 NoRedirects / 无 cookie 配置（PERF-01） | 一张小票做完 |
 | T-1 | 测试不清理临时目录 | — | ready-for-agent | 约 10 个测试文件（`DeviceRegistryTests`、`EnvironmentDetectorTests`、`TokenConsumptionScanTests`、`ApprovalRoutesTests`、`DevicePushFailureTests`、`ClaudeBackgroundLauncherTests`、`AttentionTests`、`BackgroundAttachTests`、`CodexAppServerApprovalTests` 等）在 `$TMPDIR` 建 `vb-*` 目录不删；每跑一次全量约留下几十个，2026-09-23 已手动清掉约 6500 个 | 小票：补 `defer` 清理 |
