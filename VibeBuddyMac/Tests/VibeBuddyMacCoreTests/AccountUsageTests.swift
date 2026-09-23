@@ -537,7 +537,10 @@ struct AccountUsageTests {
         let provider = CodexAppServerUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "r=\"$1\"; shift; for fd in \"$@\"; do if /usr/bin/true <&\"$fd\" 2>/dev/null; then echo \"$fd open\"; fi; done > \"$r.tmp\"; mv \"$r.tmp\" \"$r\"",
+                // Only `echo` is redirected: redirecting the whole loop makes the
+                // shell back up stdout onto fd 10, a false "open" for a pipe there.
+                // Stdout stays on the RPC pipe, so fetch sees EOF only after `mv`.
+                "-c", ": > \"$1.tmp\"; for fd in \"$@\"; do if /usr/bin/true <&\"$fd\" 2>/dev/null; then echo \"$fd open\" >> \"$1.tmp\"; fi; done; mv \"$1.tmp\" \"$1\"",
                 "vibebuddy-test", report.path, String(descriptors[0]), String(descriptors[1]),
             ],
             timeout: 10
