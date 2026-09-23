@@ -328,6 +328,8 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
 
     /// At the session cap a microphone frame in flight fails as the server
     /// closes; the receive loop sees the close frame and classifies that end.
+    /// A send failure without a failing receive is not expected from
+    /// URLSessionWebSocketTask, so nothing else reports it in this window.
     static func sendFailureEvent(connectedFor: TimeInterval, detail: String) -> RealtimeVoiceEvent? {
         ProviderLimitSignal.isQwenLimitWindow(connectedFor: connectedFor) ? nil : .failed("send: \(detail)")
     }
