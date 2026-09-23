@@ -201,6 +201,11 @@ public struct SessionReducer: Sendable {
             // subagents with it; they will send no SubagentStop.
             if event.agent == .claudeCode, event.completionSucceeded != true || event.userStopped {
                 markRunningChildrenUnknown(sessionID: event.sessionID, at: event.timestamp)
+            } else if event.agent == .claudeCode, event.backgroundWork?.subagents == 0 {
+                // Claude says no subagent runs: a row still marked running lost
+                // its SubagentStop (async delivery, or Esc, which sends no
+                // hook). Left in place it would block a later release grace.
+                markRunningSubagentsUnknown(sessionID: event.sessionID, at: event.timestamp)
             }
             heldStops[event.sessionID] = nil
             let previousCompletion = sessions[event.sessionID]?.completionID
@@ -450,7 +455,9 @@ public struct SessionReducer: Sendable {
             guard let session = sessions[id], session.status == .working else {
                 restoredWorking.remove(id); continue
             }
-            guard now.timeIntervalSince(session.updatedAt) >= Self.heldStopBackstop else { continue }
+            // The status line keeps observing a live session between hooks.
+            let lastSeen = max(session.updatedAt, session.observations?.map(\.lastObservedAt).max() ?? .distantPast)
+            guard now.timeIntervalSince(lastSeen) >= Self.heldStopBackstop else { continue }
             restoredWorking.remove(id)
             sessions[id]?.status = .done
             sessions[id]?.statusSince = now
@@ -861,6 +868,18 @@ public struct SessionReducer: Sendable {
         mutate(&children[index])
         children[index].updatedAt = timestamp
         sessions[sessionID]?.childAgents = children
+    }
+
+    private mutating func markRunningSubagentsUnknown(sessionID: String, at timestamp: Date) {
+        guard var children = sessions[sessionID]?.childAgents else { return }
+        var changed = false
+        for index in children.indices where children[index].status == .running && children[index].kind == .subagent {
+            if timestamp < children[index].updatedAt { continue }
+            children[index].status = .unknown
+            children[index].updatedAt = timestamp
+            changed = true
+        }
+        if changed { sessions[sessionID]?.childAgents = children }
     }
 
     private mutating func markRunningChildrenUnknown(sessionID: String, at timestamp: Date) {

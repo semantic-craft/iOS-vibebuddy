@@ -429,12 +429,15 @@ struct CompletionResults {
         guard records[key] != nil || createdCompletion else { return }
         // An existing mapping cannot be reassigned by another ending.
         if let existing = records[key], existing.turnID != run.turnID { return }
+        // A released Claude Stop settles later than it happened; its
+        // transcript proof is stamped at the original stop.
+        let completedAt = event.pausedAt ?? event.timestamp
         var candidate = candidates[id] ?? Candidate(completionID: completionID, turnID: run.turnID,
-            title: session.displayTitle, completedAt: event.timestamp,
+            title: session.displayTitle, completedAt: completedAt,
             transcriptPath: event.transcriptPath ?? run.transcriptPath)
         if candidate.completionID != completionID {
             candidate = Candidate(completionID: completionID, turnID: run.turnID, title: session.displayTitle,
-                completedAt: event.timestamp, transcriptPath: event.transcriptPath ?? run.transcriptPath)
+                completedAt: completedAt, transcriptPath: event.transcriptPath ?? run.transcriptPath)
         }
         candidates[id] = candidate
         if records[key] == nil {

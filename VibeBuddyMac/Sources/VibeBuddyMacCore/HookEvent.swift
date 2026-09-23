@@ -39,6 +39,9 @@ public struct HookEvent: Sendable, Equatable {
     public var backgroundWork: BackgroundWork? = nil
     /// A `Stop` the reducer held for background work, now released to settle.
     public var releasesHeldStop = false
+    /// For a released `Stop`, when Claude originally stopped. Its transcript
+    /// evidence (`stop_hook_summary`) carries this moment, not the release.
+    public var pausedAt: Date? = nil
     public let kind: Kind
     public let sessionID: String
     public let agent: AgentKind
@@ -213,6 +216,7 @@ public struct HookEvent: Sendable, Equatable {
             approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
         event.backgroundWork = backgroundWork
         event.releasesHeldStop = true
+        event.pausedAt = pausedAt ?? timestamp
         return event
     }
 

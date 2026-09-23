@@ -121,6 +121,7 @@ struct ClaudeBackgroundWorkTests {
         let event = try #require(released.first)
         #expect(event.releasesHeldStop)
         #expect(event.timestamp == t0.addingTimeInterval(245))   // settles now, not at the pause
+        #expect(event.pausedAt == t0.addingTimeInterval(30))     // transcript proof keeps the pause
         reducer.apply(event)
         #expect(reducer.sessions["s"]?.status == .done)
         #expect(reducer.sessions["s"]?.statusSince == t0.addingTimeInterval(245))
@@ -139,6 +140,7 @@ struct ClaudeBackgroundWorkTests {
         ])
         #expect(lost.sessions["s"]?.status == .done)
         #expect(lost.sessions["s"]?.completionID != nil)
+        #expect(lost.sessions["s"]?.runningChildAgentCount == 0)   // the stale row no longer blocks a grace
         // Esc mid-subagent, then a new round on an older CLI (no arrays).
         let escaped = reduce([
             (start, 0),
@@ -281,6 +283,15 @@ struct ClaudeBackgroundWorkTests {
         #expect(reducer.sessions["r"]?.status == .done)
         #expect(reducer.sessions["r"]?.probeRetired == true)
         #expect(reducer.sessions["r"]?.completionID == nil)
+
+        // Status-line observations count as life between hooks.
+        var observed = SessionReducer()
+        observed.restore([session])
+        observed.recordObservation(sessionID: "r", source: .statusline, at: t0.addingTimeInterval(500), health: .healthy)
+        let stillAlive = observed.retireStaleRestored(now: t0.addingTimeInterval(600))
+        #expect(!stillAlive)
+        let quietLater = observed.retireStaleRestored(now: t0.addingTimeInterval(1_100))
+        #expect(quietLater)
 
         var live = SessionReducer()
         live.restore([session])
