@@ -31,23 +31,30 @@ public enum ClaudeBackgroundSessions {
         home.appendingPathComponent(".claude/jobs", isDirectory: true)
     }
 
-    /// Background sessions from the shared cached source (see
-    /// `ClaudeAgentsSource`). Cheap to call from a poll loop.
+    /// The shared cached list, never blocking (see `ClaudeAgentsSource`).
     public static func load() -> [ClaudeBackgroundSession] {
         ClaudeAgentsSource.shared.current()
     }
 
+    /// The shared list, waiting for a refresh first when it is stale.
+    public static func loadFresh() async -> [ClaudeBackgroundSession] {
+        await ClaudeAgentsSource.shared.currentFresh()
+    }
+
     /// The session for this id, refreshing once if the cache does not know it
     /// (a session started seconds ago, or a jump right after a change).
-    public static func find(sessionID: String) -> ClaudeBackgroundSession? {
-        if let hit = load().first(where: { $0.sessionID == sessionID }) { return hit }
-        return ClaudeAgentsSource.shared.refreshNow().first { $0.sessionID == sessionID }
+    public static func find(sessionID: String) async -> ClaudeBackgroundSession? {
+        if let hit = await loadFresh().first(where: { $0.sessionID == sessionID }) { return hit }
+        return await ClaudeAgentsSource.shared.refreshNow().first { $0.sessionID == sessionID }
     }
 
     /// `claude agents --json` output: background entries only. Fields are
     /// decoded as they appear; `state` and `waitingFor` may be absent on some
     /// CLI versions. Interactive sessions are the hooks' business.
-    public static func parseAgentsJSON(_ data: Data) -> [ClaudeBackgroundSession]? {
+    /// `needs` is the CLI's `waitingFor`; Claude Code 2.1.280 omits it, so the
+    /// job's own `needs` line (`jobNeeds`) fills in for that id only.
+    public static func parseAgentsJSON(_ data: Data,
+                                       jobNeeds: (String) -> String? = { _ in nil }) -> [ClaudeBackgroundSession]? {
         guard let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return nil }
         return rows.compactMap { row in
             guard (row["kind"] as? String) == "background",
@@ -57,8 +64,17 @@ public enum ClaudeBackgroundSessions {
                 id: id, sessionID: sessionID,
                 name: nonEmpty(row["name"] as? String),
                 state: nonEmpty(row["state"] as? String),
-                needs: nonEmpty(row["waitingFor"] as? String))
+                needs: nonEmpty(row["waitingFor"] as? String) ?? jobNeeds(id))
         }.sorted { $0.id < $1.id }
+    }
+
+    /// The `needs` line from one job's state file, read only to supplement a
+    /// CLI entry that lacks `waitingFor`.
+    public static func jobNeeds(_ id: String, jobsDirectory: URL = jobsDirectory()) -> String? {
+        guard isJobID(id),
+              let data = try? Data(contentsOf: jobsDirectory.appendingPathComponent(id).appendingPathComponent("state.json")),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return nonEmpty(object["needs"] as? String)
     }
 
     /// Fallback for CLIs without `claude agents --json`: the supervisor's
@@ -97,7 +113,9 @@ public enum ClaudeBackgroundSessions {
 /// half a second of CPU (1–2 s cold), and the Mac polls background sessions
 /// every few seconds, so it runs only when something may have changed: a
 /// cheap stat fingerprint of `~/.claude/jobs` differs from the last run, or
-/// `maxAge` has passed. Jumps and launches ask for `refreshNow()`. When the
+/// `maxAge` has passed. It runs on its own serial queue, one refresh at a
+/// time: `current()` never blocks (it returns the cache and starts a refresh
+/// when stale), async callers join the refresh already in flight. When the
 /// CLI is missing, fails or times out, the jobs files are read instead and a
 /// warning is logged once.
 public final class ClaudeAgentsSource: @unchecked Sendable {
@@ -107,64 +125,95 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
     public typealias Fingerprint = @Sendable () -> String
 
     private let lock = NSLock()
+    private let queue = DispatchQueue(label: "vibebuddy.claude-agents", qos: .utility)
     private let run: Runner
     private let fingerprint: Fingerprint
     private let fallback: @Sendable () -> [ClaudeBackgroundSession]
+    private let needs: @Sendable (String) -> String?
     private let maxAge: TimeInterval
     private let now: @Sendable () -> Date
     private var cached: [ClaudeBackgroundSession] = []
     private var lastRun: Date?
     private var lastFingerprint: String?
+    private var inFlight = false
+    private var waiters: [CheckedContinuation<[ClaudeBackgroundSession], Never>] = []
     private var warnedFallback = false
+    private var runs = 0
     /// Commands actually run. Exposed for tests.
-    public private(set) var runCount = 0
+    public var runCount: Int { lock.lock(); defer { lock.unlock() }; return runs }
 
     public init(run: Runner? = nil,
                 fingerprint: Fingerprint? = nil,
                 fallback: (@Sendable () -> [ClaudeBackgroundSession])? = nil,
+                needs: (@Sendable (String) -> String?)? = nil,
                 maxAge: TimeInterval = 60,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.run = run ?? { ClaudeAgentsSource.runCLI() }
         self.fingerprint = fingerprint ?? { ClaudeAgentsSource.jobsFingerprint() }
         self.fallback = fallback ?? { ClaudeBackgroundSessions.loadFromJobsDirectory() }
+        self.needs = needs ?? { ClaudeBackgroundSessions.jobNeeds($0) }
         self.maxAge = maxAge
         self.now = now
     }
 
-    /// The cached list, refreshed first when the jobs fingerprint changed or
-    /// the cache is older than `maxAge`.
+    /// The cached list, immediately. A stale cache starts a refresh in the
+    /// background; the next call sees its result.
     public func current() -> [ClaudeBackgroundSession] {
         let print = fingerprint()
         lock.lock()
-        let fresh = lastRun.map { now().timeIntervalSince($0) < maxAge } ?? false
-        let stale = !fresh || print != lastFingerprint
         let value = cached
+        let stale = isStale(print)
         lock.unlock()
-        return stale ? refresh(fingerprint: print) : value
+        if stale { startRefresh(print, waiter: nil) }
+        return value
     }
 
-    /// Run the command now, whatever the cache says.
+    /// The list, after a refresh when the cache is stale. Joins a refresh
+    /// already in flight rather than starting another.
+    public func currentFresh() async -> [ClaudeBackgroundSession] {
+        let print = fingerprint()
+        let (stale, value) = lock.withLock { (isStale(print) || inFlight, cached) }
+        guard stale else { return value }
+        return await withCheckedContinuation { startRefresh(print, waiter: $0) }
+    }
+
+    /// A refresh now, whatever the cache says (or the one in flight).
     @discardableResult
-    public func refreshNow() -> [ClaudeBackgroundSession] {
-        refresh(fingerprint: fingerprint())
+    public func refreshNow() async -> [ClaudeBackgroundSession] {
+        let print = fingerprint()
+        return await withCheckedContinuation { startRefresh(print, waiter: $0) }
     }
 
-    private func refresh(fingerprint print: String) -> [ClaudeBackgroundSession] {
-        let parsed = run().flatMap(ClaudeBackgroundSessions.parseAgentsJSON)
-        lock.lock(); defer { lock.unlock() }
-        runCount += 1
-        lastRun = now()
-        lastFingerprint = print
-        if let parsed {
-            cached = parsed
-        } else {
-            if !warnedFallback {
-                warnedFallback = true
+    private func isStale(_ print: String) -> Bool {
+        let fresh = lastRun.map { now().timeIntervalSince($0) < maxAge } ?? false
+        return !fresh || print != lastFingerprint
+    }
+
+    private func startRefresh(_ print: String, waiter: CheckedContinuation<[ClaudeBackgroundSession], Never>?) {
+        lock.lock()
+        if let waiter { waiters.append(waiter) }
+        guard !inFlight else { lock.unlock(); return }
+        inFlight = true
+        lock.unlock()
+        queue.async { [self] in
+            let parsed = run().flatMap { ClaudeBackgroundSessions.parseAgentsJSON($0, jobNeeds: needs) }
+            let result = parsed ?? fallback()
+            lock.lock()
+            runs += 1
+            lastRun = now()
+            lastFingerprint = print
+            cached = result
+            inFlight = false
+            let ready = waiters
+            waiters = []
+            let warn = parsed == nil && !warnedFallback
+            if warn { warnedFallback = true }
+            lock.unlock()
+            if warn {
                 FileHandle.standardError.write(Data("vibebuddy: `claude agents --json` unavailable; reading ~/.claude/jobs (not a stable interface)\n".utf8))
             }
-            cached = fallback()
+            ready.forEach { $0.resume(returning: result) }
         }
-        return cached
     }
 
     /// Names plus modification times of `~/.claude/jobs` and each job's
@@ -206,6 +255,8 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
         let deadline = DispatchTime.now() + timeout
         if reader.wait(timeout: deadline) == .timedOut {
             process.terminate()
+            if reader.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
             return nil
         }
         process.waitUntilExit()

@@ -33,29 +33,60 @@ struct ClaudeAgentsSourceTests {
         #expect(ClaudeBackgroundSessions.parseAgentsJSON(Data("not json".utf8)) == nil)
     }
 
+    @Test("a missing waitingFor is filled from that job's own needs line")
+    func needsFromJobFile() throws {
+        let sessions = try #require(ClaudeBackgroundSessions.parseAgentsJSON(Self.sample,
+            jobNeeds: { $0 == "747978a2" ? "choose which of 3 next steps" : nil }))
+        #expect(sessions.first { $0.id == "747978a2" }?.needs == "choose which of 3 next steps")
+        #expect(sessions.first { $0.id == "abc12345" }?.needs == "permission prompt")   // CLI wins
+    }
+
     @Test("runs only when the jobs fingerprint changes or the cache is older than maxAge")
-    func caches() {
+    func caches() async {
         let clock = Clock(), print = Box("a")
         let source = ClaudeAgentsSource(run: { Self.sample }, fingerprint: { print.value },
-                                        fallback: { [] }, maxAge: 60, now: { clock.now })
-        #expect(source.current().count == 3)
-        _ = source.current(); _ = source.current()
+                                        fallback: { [] }, needs: { _ in nil }, maxAge: 60, now: { clock.now })
+        #expect(await source.currentFresh().count == 3)
+        _ = await source.currentFresh(); _ = await source.currentFresh()
         #expect(source.runCount == 1)
         print.value = "b"
-        _ = source.current()
+        _ = await source.currentFresh()
         #expect(source.runCount == 2)
         clock.now = clock.now.addingTimeInterval(61)
-        _ = source.current()
+        _ = await source.currentFresh()
         #expect(source.runCount == 3)
-        source.refreshNow()
+        await source.refreshNow()
         #expect(source.runCount == 4)
     }
 
+    @Test("current() never blocks: a stale cache returns at once and refreshes behind it")
+    func currentDoesNotBlock() async {
+        let gate = DispatchSemaphore(value: 0)
+        let source = ClaudeAgentsSource(run: { gate.wait(); return Self.sample },
+                                        fingerprint: { "x" }, fallback: { [] }, needs: { _ in nil })
+        #expect(source.current().isEmpty)       // returned while the run is held
+        gate.signal()
+        #expect(await source.currentFresh().count == 3)
+        #expect(source.runCount == 1)
+    }
+
+    @Test("concurrent callers share one run")
+    func singleFlight() async {
+        let source = ClaudeAgentsSource(run: { Thread.sleep(forTimeInterval: 0.2); return Self.sample },
+                                        fingerprint: { "x" }, fallback: { [] }, needs: { _ in nil })
+        async let a = source.currentFresh()
+        async let b = source.currentFresh()
+        async let c = source.refreshNow()
+        let results = await [a, b, c]
+        #expect(results.allSatisfy { $0.count == 3 })
+        #expect(source.runCount == 1)
+    }
+
     @Test("a missing or failing CLI falls back to the jobs files")
-    func fallsBack() {
+    func fallsBack() async {
         let fallback = ClaudeBackgroundSession(id: "deadbeef", sessionID: "s", name: "from jobs")
-        let source = ClaudeAgentsSource(run: { nil }, fingerprint: { "x" }, fallback: { [fallback] })
-        #expect(source.current() == [fallback])
+        let source = ClaudeAgentsSource(run: { nil }, fingerprint: { "x" }, fallback: { [fallback] }, needs: { _ in nil })
+        #expect(await source.currentFresh() == [fallback])
     }
 
     private final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_800_000_000) }

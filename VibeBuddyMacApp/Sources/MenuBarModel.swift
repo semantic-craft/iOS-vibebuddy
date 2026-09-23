@@ -798,7 +798,7 @@ final class MenuBarModel: ObservableObject {
                 generate: { [weak self] session in await self?.generateCompletionNotice(session) })
             while !Task.isCancelled {
                 if E2ERunConfiguration.current == nil {
-                    let background = await Task.detached(priority: .utility) { ClaudeBackgroundSessions.load() }.value
+                    let background = await ClaudeBackgroundSessions.loadFresh()
                     await self.store.applyBackgroundSessions(background)
                 }
                 let snapshot = await self.store.snapshot(now: Date())
@@ -1324,10 +1324,13 @@ final class MenuBarModel: ObservableObject {
                 let outcome = await CodexDesktopJumper.jump(threadID: thread)
                 self?.showJumpFeedback(outcome, for: session.id)
             }
-        } else if session.agent == .claudeCode,
-                  let job = ClaudeBackgroundSessions.find(sessionID: session.id) {
+        } else if session.agent == .claudeCode {
             // A background session has no window: open one attached to it.
+            // The lookup may run `claude agents`, so it stays off the main actor.
             Task { [weak self, store] in
+                guard let job = await ClaudeBackgroundSessions.find(sessionID: session.id) else {
+                    self?.showJumpFeedback(.noTerminal, for: session.id); return
+                }
                 let term = await store.preferredTerminalProgram()
                 let outcome = await TerminalLauncher.attach(claudeJobID: job.id, preferring: term)
                 self?.showJumpFeedback(outcome, for: session.id)

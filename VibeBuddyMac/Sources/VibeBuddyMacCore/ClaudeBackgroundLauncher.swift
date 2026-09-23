@@ -51,7 +51,7 @@ public actor ClaudeBackgroundLauncher {
         // The supervisor normally knows the job before the CLI returns; ask
         // `claude agents` a few times, then fall back to the short job id.
         for attempt in 0..<3 {
-            if let session = agents.refreshNow().first(where: { $0.id == job }) {
+            if let session = await agents.refreshNow().first(where: { $0.id == job }) {
                 return .started(sessionID: session.sessionID)
             }
             if attempt < 2 { try? await Task.sleep(nanoseconds: 700_000_000) }

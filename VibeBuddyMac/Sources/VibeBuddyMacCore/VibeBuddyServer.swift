@@ -131,7 +131,7 @@ public struct VibeBuddyServer: Sendable {
                 onJumpToCursorCloud: @escaping @Sendable (String) async -> JumpOutcome = { await CursorCloudJumper.jump(page: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
-                backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { ClaudeBackgroundSessions.load() },
+                backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { [] },
                 onAttach: @escaping @Sendable (String, String?) async -> JumpOutcome = { id, term in
                     await TerminalLauncher.attach(claudeJobID: id, preferring: term)
                 },
