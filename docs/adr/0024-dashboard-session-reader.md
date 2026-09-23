@@ -38,9 +38,9 @@ demand and re-read when its file changes.
 2. **Body source by exact identity.** A live session's id is the agent's
    native session id; its transcript key is that id under the agent's key name
    (`SessionReaderSource`). The body is read through
-   `SessionHistoryRepository.readTranscript(key:)` — fresh from the source
-   file when the index is stale, located by native id when the index has no
-   row yet. Agents without a transcript reader fall back to the daemon's
+   `SessionTranscriptReader.readTranscript(key:)`, straight from the source
+   file located by native id (amended 2026-09-23; it was the history
+   repository). Agents without a transcript reader fall back to the daemon's
    bounded recent output, labelled as an excerpt. Titles never match records.
 3. **The open transcript is watched.** One `DispatchSource` on the selected
    transcript file, settled over 800 ms, re-reads the body; the live session's
@@ -54,9 +54,9 @@ demand and re-read when its file changes.
    under the body, never in a menu. History-only records have no dock.
 6. **Controls in the head's top-right, as glyphs.** The jump (accent), a
    Conversation / Activity / Changes switch, the notification bell (the
-   attention picker in a menu), the star (when a record exists) and a ··· menu
-   (read state, replay, summary, pin, archive, export, source, resume command,
-   refresh). Every glyph carries a tooltip and an accessibility label; no
+   attention picker in a menu) and a ··· menu (stop, read state, replay,
+   export, source, refresh; the star, summary, pin, archive and resume command
+   went with the History archive on 2026-09-23). Every glyph carries a tooltip and an accessibility label; no
    control in the head is a text button, so the head stays two lines wide at
    340pt. Activity is disabled for
    a record with no live session; Changes follows the project directory, live
@@ -105,3 +105,16 @@ composer drafts remain. Project identity follows the full checkout path; a
 basename is used only for legacy rows with one unambiguous history match.
 Only the conversation tab counts as viewing the task for notification suppression.
 Manual read toggles in the head and result card share the same completion guard.
+
+## Amendment (2026-09-23): History archive removed
+
+The History and Favorites libraries, their index, saved summaries, favorites,
+pins, library archiving and the resume-command copy are removed (ADR-0019's
+amendment of the same date). The reader now shows live sessions only:
+`ReaderSubject` carries one live session, the transcript comes from
+`SessionTranscriptReader` by exact native key with no cache or index, and the
+recent-output excerpt stays the fallback for agents with no readable
+transcript. Decisions 1, 5, 6 and 9 no longer have a history side; the
+open-transcript watcher (3), newest-page opening (4), the dock, the jump (7)
+and ADR-0020's read semantics (8) are unchanged. Export Markdown and Show
+source now act on the transcript the pane has open.

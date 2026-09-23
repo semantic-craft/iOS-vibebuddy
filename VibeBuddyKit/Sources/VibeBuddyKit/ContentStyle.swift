@@ -14,7 +14,7 @@ public enum ContentStyle: String, Codable, CaseIterable, Sendable, Hashable {
 
     public var detail: String {
         switch self {
-        case .concise: "Leads with what the record asks you to do, otherwise the key result; steps are numbered in history summaries only; at most one next step."
+        case .concise: "Leads with what the record asks you to do, otherwise the key result; at most one next step."
         case .decision: "A CEO briefing on progress, benefits, important tradeoffs, and decisions."
         case .custom: "Use your own instructions to shape every summary."
         }
@@ -53,5 +53,5 @@ public struct ContentStyleConfiguration: Codable, Hashable, Sendable {
 }
 
 public enum SummaryPurpose: String, Codable, Sendable, Hashable {
-    case notice, speech, history, recap
+    case notice, speech, recap
 }

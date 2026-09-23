@@ -73,8 +73,8 @@ The Mac reads sessions with turns, their project/branch/title, and the latest
 every five seconds, using a private temporary copy and never changing Copilot files.
 Rows are marked **History · read only**; no live task state, completion alert,
 remote approval, reply, resume, or quota is inferred. A CLI installation with no
-stored turns contributes no rows. Full-history indexing is not part of this
-bounded dashboard integration.
+stored turns contributes no rows. VibeBuddy keeps no history index or archive;
+this is a bounded dashboard integration.
 
 #### Remote approval (`--approval`)
 

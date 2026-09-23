@@ -1,10 +1,10 @@
 import Foundation
 import CryptoKit
 
-/// Reads only the transcript selected by the repository. Never invokes an agent.
+/// Reads only the transcript selected by the reader. Never invokes an agent.
 enum SessionHistoryParser {
     /// Exclude known agent-injected setup blocks from titles, while retaining
-    /// their full indexed messages for provenance and literal searches.
+    /// their full messages for provenance.
     private static func isInjectedContext(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return ["<recommended_plugins", "<environment_context", "<user_instructions", "<permissions",
@@ -13,7 +13,7 @@ enum SessionHistoryParser {
     }
     static let byteLimit = 32 * 1024 * 1024
     static func read(url: URL, agent: SessionHistoryAgent, updatedAt: Date) throws -> SessionHistorySession {
-        guard agent.supportsTranscript else { throw HistoryToolError.executionFailed(GrokHistorySource.noTranscript) }
+        guard agent.supportsTranscript else { throw HistoryToolError.executionFailed(SessionHistoryAgent.grokNoTranscript) }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: byteLimit + 1) ?? Data()

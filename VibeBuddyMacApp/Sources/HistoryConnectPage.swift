@@ -11,7 +11,7 @@ struct HistoryConnectPage: View {
     }
 
     var body: some View {
-        SettingsPageScaffold("Connect", subtitle: "Read local session history from your agents") {
+        SettingsPageScaffold("Connect", subtitle: "Handoff facts and live transcripts for your agents") {
             SettingsSection("Bundled executable", boxed: false) {
                 Text(verbatim: setup.executablePath)
                     .font(.system(size: 11, design: .monospaced))
@@ -41,8 +41,8 @@ struct HistoryConnectPage: View {
                 }
             }
             SettingsSection("What agents can read", boxed: false) {
-                Text("Sessions, projects, search, transcripts, saved summaries and optional live status. Grok Build provides a list and titles only.")
-                Text("Open History to build the index. The setup command prints these configurations and an optional AGENTS.md rule. Copying does not change client settings.")
+                Text("Handoff facts for a session, one session's transcript by its exact key, and optional live status. Nothing is archived or indexed.")
+                Text("The setup command prints these configurations and an optional AGENTS.md rule. Copying does not change client settings.")
                     .foregroundStyle(MacTheme.ink2)
             }
             .font(SettingsChrome.font(12))

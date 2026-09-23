@@ -81,25 +81,6 @@ enum MacDemoData {
         ]
     }
 
-    /// In-memory History samples; the Demo never opens an agent source or index.
-    static func historySessions(now: Date = Date()) -> [SessionHistorySession] {
-        [SessionHistorySession(
-            id: "cursor:demo-search-focus", nativeSessionID: "demo-search-focus", agent: .cursor,
-            projectPath: "/Demo/component-library", title: "Preserve search field focus",
-            sourcePath: "Demo sample — no source file", updatedAt: now.addingTimeInterval(-90),
-            messages: [
-                SessionHistoryMessage(id: "demo-cursor-user", role: .user, text: "Keep the search field focused after filtering."),
-                SessionHistoryMessage(id: "demo-cursor-assistant", role: .assistant, text: "The search field now keeps its focus while the result list changes.", groupID: "demo-cursor-turn"),
-                SessionHistoryMessage(id: "demo-cursor-tool", role: .tool, text: #"{"command":"swift test --filter SearchFocus"}"#, toolName: "Shell", groupID: "demo-cursor-turn")
-            ], warnings: ["Demo sample. No source files were read.", SessionHistoryAgent.cursorCoverage],
-            isAvailable: false, source: "local-transcript"),
-        SessionHistorySession(id: "grokBuild:00000000-0000-4000-8000-000000000007",
-            nativeSessionID: "00000000-0000-4000-8000-000000000007", agent: .grokBuild,
-            projectPath: "/demo/glaux-book", title: "Demo: plan the reading workflow",
-            sourcePath: "/demo/grok-history/00000000-0000-4000-8000-000000000007", updatedAt: now,
-            messages: [], warnings: [GrokHistorySource.coverage], isAvailable: false, source: "official-list")]
-    }
-
     static func sessions(now: Date = Date()) -> [AgentSession] {
         [
             // ── Needs response ──────────────────────────────────────────────

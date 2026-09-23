@@ -10,7 +10,7 @@ import VibeBuddyMacCore
 /// dashboard window has ever been built still reaches the view once it is.
 @MainActor
 final class DashboardRoute: ObservableObject {
-    enum Library: String { case inbox, recap, live, history, favorites, usage }
+    enum Library: String { case inbox, recap, live, usage }
 
     static let shared = DashboardRoute()
     enum Destination { case library(Library), session(String), firstPending, nextPending }
@@ -51,13 +51,9 @@ struct DashboardView: View {
     @State private var showSpeechPanel = false
     @State private var libraryScope = "inbox"
     @State private var showOlder = false
-    /// History and Favorites filter by project path, chosen in their own pane:
-    /// the agent column's project pill narrows live sessions, not the index.
-    @State private var historyProject: String?
     @State private var agentFilter: AgentKind?
-    @StateObject private var history: HistoryLibraryModel
-    /// One reader for both libraries, so the transcript file watcher and the
-    /// in-flight read follow the selection rather than the library tab.
+    /// One reader, so the transcript file watcher and the in-flight read
+    /// follow the selection.
     @StateObject private var reader: SessionReaderModel
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
@@ -82,10 +78,6 @@ struct DashboardView: View {
     @State private var sidebarDragWidth: CGFloat?
     @State private var sidebarDragOrigin: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The list's compact flag, owned here and driven by `ResizableListSplit`
-    /// (the drag, the double-click); ⌘F and the strip's search glyph unfold
-    /// the list so the field can take focus.
-    @AppStorage(DashboardListColumn.compactKey) private var listCompact = false
 
     private static let sidebarPolicy = DashboardColumnWidth.sidebar
     private var sidebarSettledWidth: CGFloat {
@@ -148,9 +140,7 @@ struct DashboardView: View {
 
     init(model: MenuBarModel) {
         self.model = model
-        let history = HistoryLibraryModel()
-        _history = StateObject(wrappedValue: history)
-        _reader = StateObject(wrappedValue: SessionReaderModel(history: history, model: model))
+        _reader = StateObject(wrappedValue: SessionReaderModel(model: model))
     }
 
     /// One body evaluation reads the projection many times, and only the
@@ -195,11 +185,6 @@ struct DashboardView: View {
             return computed
         }
     }
-    private func subject(for session: AgentSession) -> ReaderSubject {
-        let record = SessionReaderSource.recordID(for: session).flatMap { id in history.snapshot.sessions.first { $0.id == id } }
-        return ReaderSubject(origin: .live, live: session, record: record)
-    }
-
     private var filtered: [AgentSession] { projection.visible }
     private var selectedSession: AgentSession? { projection.selected }
 
@@ -225,24 +210,8 @@ struct DashboardView: View {
         DashboardSidebar.title(scope)
     }
 
-    /// The search field is in the agent column, over its sessions, in every
-    /// library but History and Favorites — those carry their own, over their
-    /// own index, so ⌘F lands on whichever one is showing.
-    private func focusSearch() {
-        if libraryScope == "history" || libraryScope == "favorites" { unfoldListThenFocusSearch() }
-        else { searchFocused = true }
-    }
-
-    /// The search field is off screen while the list is the compact strip;
-    /// unfold first (with the settle spring), then focus once it is in the tree.
-    private func unfoldListThenFocusSearch() {
-        if listCompact {
-            withAnimation(reduceMotion ? nil : .snappy) { listCompact = false }
-            DispatchQueue.main.async { searchFocused = true }
-        } else {
-            searchFocused = true
-        }
-    }
+    /// The search field is in the agent column, over its sessions.
+    private func focusSearch() { searchFocused = true }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -299,13 +268,8 @@ struct DashboardView: View {
                     // The sessions moved into the agent column, so the reading
                     // takes the whole pane (ADR-0024: no right column).
                     detailColumn
-                } else if libraryScope == "usage" {
-                    UsageWorkbenchView(model: model)
                 } else {
-                    HistoryWorkbenchView(history: history, model: model, reader: reader, query: $query,
-                                         favoritesOnly: libraryScope == "favorites",
-                                         project: $historyProject, searchFocused: $searchFocused,
-                                         listCompact: $listCompact)
+                    UsageWorkbenchView(model: model)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -335,7 +299,7 @@ struct DashboardView: View {
         .onChange(of: model.continueRequest) { _, request in presentContinue(request) }
         .sheet(isPresented: $showSpeechPanel) { MacVoicePanel(model: model) }
         .onAppear {
-            // `VIBEBUDDY_DEMO_PAGE=dashboard/<live|history|favorites|usage|newtask>`
+            // `VIBEBUDDY_DEMO_PAGE=dashboard/<inbox|recap|live|usage|newtask>`
             // lands on that library, or opens New task, for screenshots and QA.
             guard let page = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"],
                   page.hasPrefix("dashboard/") else { return }
@@ -393,9 +357,6 @@ struct DashboardView: View {
             openGlobalNext()
         }
         .onDisappear { model.dashboardViewedSessionID = nil }
-        .task { await history.observeHistory() }
-        // The two libraries keep their own project choice now: the column's
-        // pill narrows the live sessions, History's narrows its index.
         .onChange(of: projectScope) { _, _ in resetTour() }
         .onChange(of: agentFilter) { _, _ in resetTour() }
         .onChange(of: filtered.map(\.id)) { _, ids in
@@ -553,7 +514,7 @@ struct DashboardView: View {
     @ViewBuilder private var detailColumn: some View {
         if let s = selectedSession {
             VStack(spacing: 0) {
-                SessionReaderPane(subject: subject(for: s), targetMessage: nil, model: model, history: history, reader: reader, draft: draftBinding(for: s.id))
+                SessionReaderPane(subject: ReaderSubject(live: s), targetMessage: nil, model: model, reader: reader, draft: draftBinding(for: s.id))
                 pendingFooter
             }
                 .frame(minWidth: DashboardListColumn.readerMinWidth, idealWidth: 520, maxWidth: .infinity)
@@ -588,22 +549,6 @@ struct SearchPill: View {
         }
         .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 28)
         .companionCard(radius: 14)
-    }
-}
-
-extension View {
-    /// A list-head row on the compact strip: kept in the tree at the words'
-    /// opacity so nothing under it shifts, but neither clickable nor read —
-    /// and laid out at the width it has at the narrowest full width before
-    /// it is given no width of its own. Without that last frame the head's
-    /// ideal width, not the strip's, is what the column lays every card
-    /// below it out at, and the cards are clipped at the strip's edge.
-    func listHeadWords(_ labels: ColumnLabelStyle) -> some View {
-        frame(width: labels.iconOnly ? DashboardListColumn.headGhostWidth : nil, alignment: .leading)
-            .frame(width: labels.iconOnly ? 0 : nil, alignment: .leading)
-            .opacity(labels.opacity)
-            .allowsHitTesting(!labels.iconOnly)
-            .accessibilityHidden(labels.iconOnly)
     }
 }
 

@@ -43,3 +43,16 @@ The preceding contract spike measured Release on fixed real sources within
 6 seconds/request, 512 MiB RSS and 1 MiB payload. These are regression budgets,
 not a production SLA. This implementation requires its own route, client and
 native checks; earlier spike results do not count as its tests.
+
+## Amendment (2026-09-23): History archive removed
+
+The Mac's History archive and index are gone (ADR-0019's amendment of the
+same date); this route never depended on them and stays. `/history` now reads
+through one shared `SessionTranscriptReader` instead of a fresh repository
+with an empty cache per request: it still locates the transcript by exact
+native key under the agent roots with the same root, ambiguity and in-file
+identity checks, and writes nothing. It keeps an in-memory key → file map and
+the last parse for an unchanged filesystem revision (device, inode, size,
+mtime, ctime), so paging one transcript no longer re-enumerates or re-parses
+it, and any rewrite still yields a new revision. The page contract, cursor
+rules and one-in-flight limit are unchanged.

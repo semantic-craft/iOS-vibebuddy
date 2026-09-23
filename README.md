@@ -54,7 +54,7 @@ Optional OpenAI voice conversation and read-aloud use your own API key. The repo
 
 </details>
 
-- **On Mac:** use Inbox for requests and unread results, browse by project, search and read session history, check usage, or hand off with Continue with…. The menu bar and notch keep compact status visible.
+- **On Mac:** use Inbox for requests and unread results, browse by project, read a live session's conversation, check usage, or hand off with Continue with…. The menu bar and notch keep compact status visible.
 - **On iPhone:** Inbox, task details, recent dialogue and supported approvals and replies, plus Usage and home/lock-screen quota widgets. Pair from computer connection settings or the Home connection indicator.
 - **On Apple Watch:** browse working tasks and unread results, open the matching task from a completion notification, refresh its summary and explicitly mark it read. Usage and complications remain available. A paired iPhone is required; system settings govern notifications and background refresh.
 

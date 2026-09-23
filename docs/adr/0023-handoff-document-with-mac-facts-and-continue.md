@@ -135,9 +135,10 @@ first.** A finished session's context menu and its detail title bar gain
 sheet prefilled: the chosen agent; `cwd` = the session's checkout; the prompt
 in Matt's delivery form, `Read <absolute handoff path>, then continue.`,
 followed by `Continues: vibebuddy://session/<key>`. With no handoff record for
-that session the prompt instead points the receiver at the history tools
-(`Continues: <key>`; "read it with `vibebuddy-mcp show`"), which is ADR-0019's
-reader flow. The person reviews and presses Start; nothing is sent without
+that session the prompt instead points the receiver at `vibebuddy-mcp facts`
+and `vibebuddy-mcp show` for that key (`Continues: <key>`), which is ADR-0019's
+reader flow. (Since 2026-09-23 there is no history index behind either; see
+ADR-0019's amendment.) The person reviews and presses Start; nothing is sent without
 that press, so the "human action through the existing entry point" sentence
 of ADR-0019 holds. The writer's session is untouched: this is Matt's fork
 case as much as his swap-harness case.

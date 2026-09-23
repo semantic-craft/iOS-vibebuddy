@@ -6,8 +6,9 @@ final class HistoryConnectionSetupTests: XCTestCase {
     func testClientSnippetsPreserveExecutablePathAndAreSharedWithSetup() throws {
         let path = "/A folder/owner's \"app\"\\copy\n/vibebuddy-mcp"
         let setup = HistoryConnectionSetup(executablePath: path)
-        let printed = setup.instructions(indexAvailable: false)
-        XCTAssertTrue(printed.contains("Note:"))
+        let printed = setup.instructions()
+        XCTAssertTrue(printed.contains("Queries: facts, show, status."))
+        XCTAssertFalse(printed.contains("index"))
         for client in HistoryConnectionSetup.Client.allCases {
             XCTAssertTrue(printed.contains(setup.configuration(for: client)))
         }
@@ -18,7 +19,9 @@ final class HistoryConnectionSetupTests: XCTestCase {
         XCTAssertTrue(setup.configuration(for: .claude).contains("--scope project --transport stdio"))
         XCTAssertTrue(setup.configuration(for: .claude).contains("'\"'\"'"))
         XCTAssertFalse(setup.configuration(for: .codex).contains("\\/"))
-        XCTAssertFalse(setup.instructions(indexAvailable: true).contains("Note:"))
+        for removed in ["vibebuddy_search", "vibebuddy_list_sessions", "vibebuddy_get_summary"] {
+            XCTAssertFalse(setup.agentRule.contains(removed))
+        }
         XCTAssertTrue(printed.contains(setup.agentRule))
     }
 }

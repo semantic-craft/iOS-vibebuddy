@@ -178,7 +178,7 @@ public enum HandoffFacts {
     /// The Mac started this session to continue another (ContinuationLedger).
     private static func continuesLine(_ key: String, in records: [ContinuationRecord]) -> String? {
         guard let record = records.last(where: { $0.receiverKey == key }) else { return nil }
-        let from = record.handoffPath.map { "the handoff at " + line($0) } ?? "the history tools (no handoff document)"
+        let from = record.handoffPath.map { "the handoff at " + line($0) } ?? "the session transcript (no handoff document)"
         return "- Continues: \(record.sourceKey) (started by the Mac from \(from), \(iso(record.recordedAt)))"
     }
 

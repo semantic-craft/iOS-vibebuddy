@@ -1,6 +1,6 @@
 # ADR-0026: Update history indexes from directory events
 
-- Status: accepted
+- Status: accepted; superseded 2026-09-23 (History archive removed, see amendment)
 - Date: 2026-09-16
 - Complements: ADR-0019 and ADR-0024.
 
@@ -67,3 +67,16 @@ synthetic dropped-event tests. Compare changed-path updates with full refresh
 for snapshot and search parity. Exercise the native dashboard with isolated
 copies of real agent data, including update while a writer lock is occupied.
 Record workload and build configuration with performance measurements.
+
+## Amendment (2026-09-23): History archive removed
+
+Superseded. The History index this ADR kept current no longer exists (see
+ADR-0019's amendment of the same date): the FSEvents history watcher, the
+changed-path refresh, the re-index throttle and the 30-second reconciliation
+are deleted, and with them the steady CPU and disk cost they carried. The
+Mac app removes the old `SessionHistory/` cache once at launch.
+
+What remains: ADR-0024's selected-transcript watcher (`TranscriptFileWatcher`)
+for the one session the reading pane shows, and the filesystem revision
+(device, inode, size, modification and change time) that the transcript
+reader uses to decide whether to re-parse.

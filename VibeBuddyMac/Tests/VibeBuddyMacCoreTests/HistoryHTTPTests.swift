@@ -17,10 +17,7 @@ struct HistoryHTTPTests {
             lines.append(#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"message-NUMBER"}]}}"#.replacingOccurrences(of: "NUMBER", with: String(format: "%02d", i)))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
-        let reader = HistoryHTTPReader(repository: {
-            SessionHistoryRepository(claudeHome: root, codexHome: root, cursorHome: root,
-                cacheDirectory: root.appendingPathComponent("empty"), readOnly: true)
-        })
+        let reader = HistoryHTTPReader(reader: SessionTranscriptReader(claudeHome: root, codexHome: root, cursorHome: root))
         return (root, file, reader)
     }
     private func page(_ result: HistoryHTTPReader.Result) throws -> HistoryPage {

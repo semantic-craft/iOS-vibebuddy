@@ -9,10 +9,9 @@ struct SessionReaderSourceTests {
         AgentSession(id: id, agent: agent, project: "project", status: .working, statusSince: Date(), updatedAt: Date())
     }
 
-    @Test func transcriptKeysUseTheAgentKeyNameAndRecordIDsTheRawValue() throws {
+    @Test func transcriptKeysUseTheAgentKeyName() throws {
         let claude = live("019c6e27-e55b-73d1-87d8-4e01f1f75043", .claudeCode)
         #expect(SessionReaderSource.resolve(for: claude) == .transcript(key: "claude-code:019c6e27-e55b-73d1-87d8-4e01f1f75043"))
-        #expect(SessionReaderSource.recordID(for: claude) == "claude:019c6e27-e55b-73d1-87d8-4e01f1f75043")
         #expect(SessionReaderSource.resolve(for: live("thread_1", .codex)) == .transcript(key: "codex:thread_1"))
         #expect(SessionReaderSource.resolve(for: live("composer-9", .cursor)) == .transcript(key: "cursor:composer-9"))
         // Every key this produces must parse as a history reference.
@@ -24,16 +23,13 @@ struct SessionReaderSourceTests {
         for agent in [AgentKind.grok, .grokBot, .copilot, .opencode, .qwen, .kimi, .antigravity] {
             #expect(SessionReaderSource.resolve(for: live("abc-123", agent)) == .recentOutput, "\(agent)")
         }
-        // Grok Build still has a list-only record id, so the star and Show source can find it.
-        #expect(SessionReaderSource.recordID(for: live("abc-123", .grok)) == "grokBuild:abc-123")
-        #expect(SessionReaderSource.recordID(for: live("abc-123", .grokBot)) == nil)
     }
 
     @Test func idsThatAreNotNativeSessionIDsNeverBecomeKeys() {
         #expect(SessionReaderSource.resolve(for: live("bc_1234", .cursor)) == .transcript(key: "cursor:bc_1234"))
         #expect(SessionReaderSource.resolve(for: live("cloud/agent 7", .cursor)) == .recentOutput)
         #expect(SessionReaderSource.resolve(for: live("", .claudeCode)) == .recentOutput)
-        #expect(SessionReaderSource.recordID(for: live("a:b", .claudeCode)) == nil)
+        #expect(SessionReaderSource.resolve(for: live("a:b", .claudeCode)) == .recentOutput)
     }
 }
 
