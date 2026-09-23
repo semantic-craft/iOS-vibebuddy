@@ -501,7 +501,8 @@ struct ObservationHealthDetectorTests {
         #expect(result.diagnostic(agent: .cursor, source: .acp)?.isInformational == true)
         #expect(result.diagnostic(agent: .cursor, source: .cloud)?.isInformational == true)
 
-        // Cursor present but no vibebuddy hooks: still not installed, not empty.
+        // Cursor present with only the user's own hooks: incomplete, with Repair,
+        // the way the other agents report a config that lacks vibebuddy's.
         try FileManager.default.createDirectory(
             at: home.appendingPathComponent(".cursor", isDirectory: true), withIntermediateDirectories: true)
         try write(#"{"version":1,"hooks":{"stop":[{"command":"/usr/local/bin/mine.sh"}]}}"#,
@@ -534,6 +535,21 @@ struct ObservationHealthDetectorTests {
         #expect(gated.diagnostic(agent: .cursor, source: .hook)?.configuredCoverage
             == ObservationEventCoverage.allCases)
         #expect(gated.health(agent: .cursor, source: .cloud) == .healthy)
+    }
+
+    @Test("a hosted cursor-agent starting clears the idle note from the cached row")
+    func acpSignalClearsIdleNote() async throws {
+        let store = SessionStore(sourceID: "acp-idle")
+        await store.recordSourceSignal(agent: .cursor, source: .cloud, health: .healthy, at: Date())
+        func acpRow() async -> ObservationSourceDiagnostic? {
+            await store.snapshot(now: Date()).observationDiagnostics?
+                .first(where: { $0.agent == .cursor })?.sources.first(where: { $0.source == .acp })
+        }
+        #expect(await acpRow()?.reasonCode == "acpIdle")
+        await store.recordSourceSignal(agent: .cursor, source: .acp, health: .healthy, at: Date())
+        let row = await acpRow()
+        #expect(row?.health == .healthy)
+        #expect(row?.reasonCode == nil)
     }
 
     @Test("CLAUDE_CONFIG_DIR and CODEX_HOME move what the detector inspects")

@@ -903,6 +903,14 @@ public actor SessionStore {
         broadcast()
     }
 
+    /// Forget a source's liveness — the Cursor API key was removed, so the row
+    /// returns to its not-configured state instead of keeping the last verdict.
+    public func clearSourceSignal(agent: AgentKind, source: ObservationSource) {
+        guard runtimeSignals[agent]?.removeValue(forKey: source) != nil else { return }
+        diagnosticCache = nil
+        broadcast()
+    }
+
     /// While the app-server daemon is reporting a Codex thread itself, a
     /// rollout or hook event for the same thread may only corroborate: it is
     /// recorded as evidence (and still enriches token facts) but does not move
@@ -1996,7 +2004,8 @@ public actor SessionStore {
         var row = cache.value[agentIndex].sources[sourceIndex]
         guard row.health == .healthy || row.health == .temporarilySilent else { return false }
 
-        if row.reasonCode == "awaitingActivity" { row.reasonCode = nil }
+        // No-signal placeholders stop applying once any signal arrives.
+        if ["awaitingActivity", "acpIdle"].contains(row.reasonCode) { row.reasonCode = nil }
         row.lastObservedAt = max(row.lastObservedAt ?? signal.lastObservedAt,
                                  signal.lastObservedAt)
         row.observedCoverage = Array(

@@ -62,6 +62,11 @@ public actor CursorCloudAgentMonitor {
         let (agents, events) = await pass(now: now)
         if client.isConfigured {
             await report(agents == nil ? .sourceUnreadable : .healthy, to: store, at: now)
+        } else if reported != nil {
+            // The key was removed: neither the last verdict nor its staleness
+            // describes a source that is no longer set up.
+            reported = nil
+            await store.clearSourceSignal(agent: .cursor, source: .cloud)
         }
         guard let agents else { return }
         await store.applyCursorCloudAgents(agents)

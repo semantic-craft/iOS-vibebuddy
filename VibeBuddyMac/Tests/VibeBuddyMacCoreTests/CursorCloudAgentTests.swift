@@ -10,6 +10,17 @@ final class Counter: @unchecked Sendable {
     func next() -> Int { lock.withLock { defer { value += 1 }; return value } }
 }
 
+/// An API key a test can remove between passes.
+final class KeySlot: @unchecked Sendable {
+    private let lock = NSLock()
+    private var key: String?
+    init(_ key: String?) { self.key = key }
+    var value: String? {
+        get { lock.withLock { key } }
+        set { lock.withLock { key = newValue } }
+    }
+}
+
 /// Scripted `api.cursor.com`. Records every request so a test can assert what
 /// was — and was not — sent.
 final class ScriptedCursorCloudTransport: CursorCloudTransport, @unchecked Sendable {
@@ -338,6 +349,30 @@ struct CursorCloudAgentTests {
         #expect(await cloudHealth() == .sourceUnreadable)
         await Self.monitor(Self.monitorTransport([[:]])).poll(store: store, now: Date())
         #expect(await cloudHealth() == .healthy)
+    }
+
+    @Test("removing the key returns the cloud row to not configured, not a stale verdict")
+    func removedKeyClearsSourceHealth() async throws {
+        let slot = KeySlot(Self.key)
+        let monitor = CursorCloudAgentMonitor(client: CursorCloudAgentClient(
+            baseURL: URL(string: "https://api.cursor.example")!, apiKey: { slot.value },
+            transport: ScriptedCursorCloudTransport { request in
+                ScriptedCursorCloudTransport.json("{}", status: 401, for: request)
+            }))
+        let store = SessionStore(sourceID: "test")
+        // Another live source keeps the diagnostics list present throughout.
+        await store.recordSourceSignal(agent: .cursor, source: .acp, health: .healthy, at: Date())
+        func cloudRow() async -> ObservationSourceDiagnostic? {
+            await store.snapshot(now: Date()).observationDiagnostics?
+                .first(where: { $0.agent == .cursor })?.sources.first(where: { $0.source == .cloud })
+        }
+        await monitor.poll(store: store, now: Date())
+        #expect(await cloudRow()?.health == .sourceUnreadable)
+        slot.value = nil
+        await monitor.poll(store: store, now: Date())
+        let row = await cloudRow()
+        #expect(row?.health == .notInstalled)
+        #expect(row?.reasonCode == "optionalSourceNotConfigured")
     }
 
     @Test("an agent that leaves the list ends, once")
