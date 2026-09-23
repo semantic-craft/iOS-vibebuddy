@@ -194,6 +194,79 @@ struct TokenConsumptionScanTests {
         #expect(try scan() == 9)
     }
 
+    @Test("the line reader splits across chunks and skips only what the filter rejects")
+    func lineReaderAcrossChunks() throws {
+        let root = try makeRoot()
+        let url = root.appendingPathComponent("lines.jsonl")
+        let long = String(repeating: "x", count: 200_000)  // spans several 64 KB reads
+        let lines = [
+            json(["n": 1, "keep": true]),
+            json(["n": 2, "blob": long]),
+            "",
+            json(["n": 3, "keep": true, "blob": long]),
+            "not json",
+            json(["n": 4, "keep": true]),
+        ]
+        // No trailing newline: the last line still counts.
+        try Data(lines.joined(separator: "\n").utf8).write(to: url)
+        var all: [Int] = []
+        TokenLogJSON.forEachObject(url: url) { all.append($0["n"] as? Int ?? -1) }
+        #expect(all == [1, 2, 3, 4])
+        var kept: [Int] = []
+        TokenLogJSON.forEachObject(url: url, mayMatter: { TokenLogJSON.contains($0, "\"keep\"") }) {
+            kept.append($0["n"] as? Int ?? -1)
+        }
+        #expect(kept == [1, 3, 4])
+    }
+
+    @Test("a Codex line is skipped only when its head says it cannot count")
+    func codexLineFilter() {
+        func mayCount(_ line: String) -> Bool {
+            Array(line.utf8).withUnsafeBytes { CodexTokenConsumptionParser.mayCount($0) }
+        }
+        let stamp = #"{"timestamp":"2026-07-21T10:00:00.000Z","ordinal":7,"#
+        // Structure says so up front: skipped, whatever the rest contains.
+        #expect(!mayCount(stamp + #""type":"response_item","payload":{"type":"function_call_output","output":"token_count"}}"#))
+        #expect(!mayCount(stamp + #""type":"event_msg","payload":{"type":"exec_command_end","stdout":""token_count""}}"#))
+        // The lines the parser acts on.
+        #expect(mayCount(stamp + #""type":"event_msg","payload":{"type":"token_count","info":{}}}"#))
+        #expect(mayCount(stamp + #""type":"event_msg","payload":{"type":"task_started"}}"#))
+        #expect(mayCount(stamp + #""type":"session_meta","payload":{"id":"s"}}"#))
+        #expect(mayCount(stamp + #""type":"turn_context","payload":{"model":"gpt"}}"#))
+        // A layout the head check does not recognise falls back to the full search.
+        #expect(mayCount(#"{"payload":{"type":"token_count","info":{}},"type":"event_msg"}"#))
+        #expect(!mayCount(#"{"payload":{"type":"agent_message"},"type":"event_msg"}"#))
+    }
+
+    @Test("the fast timestamp path returns exactly what the ISO formatters return")
+    func fastTimestampMatchesFormatters() {
+        let iso = ISO8601DateFormatter()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var samples = ["2026-07-21T12:00:00Z", "2026-07-21T12:00:00.000Z", "2024-02-29T23:59:59.999Z",
+                       "2000-03-01T00:00:00.001Z", "1970-01-01T00:00:00.000Z", "2099-12-31T23:59:59.500Z"]
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<2_000 {
+            let seconds = Double.random(in: 1_600_000_000...2_000_000_000, using: &generator).rounded(.down)
+            let millis = Int.random(in: 0...999, using: &generator)
+            let base = iso.string(from: Date(timeIntervalSince1970: seconds))  // …Z, whole seconds
+            samples.append(String(base.dropLast()) + String(format: ".%03dZ", millis))
+        }
+        for sample in samples {
+            let fast = TokenLogJSON.utcMillisecondDate(sample)
+            let formatted = fractional.date(from: sample) ?? iso.date(from: sample)
+            #expect(fast != nil)
+            #expect(fast == formatted, "\(sample)")
+        }
+        // Anything else falls through to the formatters unchanged.
+        for other in ["2026-07-21T12:00:00+08:00", "2026-07-21T12:00:00.123456Z", "2026-02-30T00:00:00Z",
+                      "2026-07-21 12:00:00Z", "yesterday"] {
+            #expect(TokenLogJSON.utcMillisecondDate(other) == nil, "\(other)")
+            #expect(TokenLogJSON.date(other, iso: iso, fractional: fractional)
+                    == (fractional.date(from: other) ?? iso.date(from: other)))
+        }
+    }
+
     private func makeRoot() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("vb-tokens-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

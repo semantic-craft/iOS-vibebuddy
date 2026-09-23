@@ -244,39 +244,130 @@ enum TokenLogJSON {
     /// become 100 MB of live dictionaries. Each line's bridged NSDictionary is
     /// drained by its own pool, so a whole-home scan does not grow the app's
     /// footprint by the size of everything it read.
-    static func forEachObject(url: URL, _ body: ([String: Any]) -> Void) {
+    ///
+    /// `mayMatter` sees each line's raw bytes before it is decoded; a line it
+    /// rejects is skipped unparsed. It must accept every line whose object
+    /// `body` would act on — a superset is fine. The first scan after launch
+    /// reads every transcript of the last week (hundreds of MB), and decoding
+    /// tool results nobody reads was most of the app's first-minute CPU.
+    static func forEachObject(
+        url: URL,
+        mayMatter: ((UnsafeRawBufferPointer) -> Bool)? = nil,
+        _ body: ([String: Any]) -> Void
+    ) {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return }
         defer { try? handle.close() }
-        var remainder = Data()
+        var buffer: [UInt8] = []
         var total = 0
+        func emit(_ range: Range<Int>) {
+            guard !range.isEmpty else { return }
+            let wanted = mayMatter.map { accept in
+                buffer.withUnsafeBytes { accept(UnsafeRawBufferPointer(rebasing: $0[range])) }
+            } ?? true
+            guard wanted else { return }
+            autoreleasepool {
+                if let obj = try? JSONSerialization.jsonObject(with: Data(buffer[range])) as? [String: Any] {
+                    body(obj)
+                }
+            }
+        }
         while true {
             let chunk = (try? handle.read(upToCount: 64 * 1024)) ?? Data()
             if chunk.isEmpty { break }
             total += chunk.count
-            remainder.append(chunk)
-            while let newline = remainder.firstIndex(of: 10) {
-                let line = Data(remainder[..<newline])
-                remainder.removeSubrange(...newline)
-                guard !line.isEmpty else { continue }
-                autoreleasepool {
-                    if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
-                        body(obj)
-                    }
-                }
+            // Only the new bytes can hold the next newline; a long line is not
+            // rescanned from its start on every chunk.
+            var searchFrom = buffer.count
+            buffer.append(contentsOf: chunk)
+            var lineStart = 0
+            while let newline = buffer.withUnsafeBytes({ bytes -> Int? in
+                guard searchFrom < bytes.count,
+                      let hit = memchr(bytes.baseAddress! + searchFrom, 10, bytes.count - searchFrom)
+                else { return nil }
+                return bytes.baseAddress!.distance(to: UnsafeRawPointer(hit))
+            }) {
+                emit(lineStart..<newline)
+                lineStart = newline + 1
+                searchFrom = lineStart
             }
+            buffer.removeFirst(lineStart)
             if total > byteLimit { break }
         }
-        guard total <= byteLimit, !remainder.isEmpty else { return }
-        autoreleasepool {
-            if let obj = try? JSONSerialization.jsonObject(with: remainder) as? [String: Any] {
-                body(obj)
-            }
-        }
+        guard total <= byteLimit else { return }
+        emit(0..<buffer.count)
+    }
+
+    /// True when `needle` occurs anywhere in `bytes`. Line filters use it to
+    /// look for a JSON key or value without decoding the line.
+    static func contains(_ bytes: UnsafeRawBufferPointer, _ needle: StaticString) -> Bool {
+        guard let base = bytes.baseAddress, bytes.count >= needle.utf8CodeUnitCount else { return false }
+        return memmem(base, bytes.count, needle.utf8Start, needle.utf8CodeUnitCount) != nil
+    }
+
+    /// The string that follows `prefix` up to the next `"`, when both sit
+    /// inside `bytes`.
+    static func stringValue(after prefix: StaticString, in bytes: UnsafeRawBufferPointer) -> String? {
+        guard let base = bytes.baseAddress, bytes.count >= prefix.utf8CodeUnitCount,
+              let hit = memmem(base, bytes.count, prefix.utf8Start, prefix.utf8CodeUnitCount) else { return nil }
+        let start = base.distance(to: UnsafeRawPointer(hit)) + prefix.utf8CodeUnitCount
+        guard let end = bytes[start...].firstIndex(of: UInt8(ascii: "\"")) else { return nil }
+        return String(decoding: UnsafeRawBufferPointer(rebasing: bytes[start..<end]), as: UTF8.self)
     }
 
     static func date(_ raw: Any?, iso: ISO8601DateFormatter, fractional: ISO8601DateFormatter) -> Date? {
         guard let string = raw as? String, !string.isEmpty else { return nil }
+        if let fast = utcMillisecondDate(string) { return fast }
         return fractional.date(from: string) ?? iso.date(from: string)
+    }
+
+    /// `YYYY-MM-DDTHH:MM:SS.mmmZ` and `YYYY-MM-DDTHH:MM:SSZ` — what Claude Code
+    /// and Codex write on every line — decoded without ICU, which reloads its
+    /// date symbols on each `ISO8601DateFormatter` parse. Returns the same
+    /// `Date` the formatters would (they resolve to whole milliseconds);
+    /// anything else, including out-of-range fields, is left to them.
+    static func utcMillisecondDate(_ string: String) -> Date? {
+        guard string.utf8.count == 20 || string.utf8.count == 24 else { return nil }
+        // A string bridged out of JSONSerialization has no contiguous UTF-8
+        // until asked for it; at 24 bytes the copy is nothing next to ICU.
+        var contiguous = string
+        contiguous.makeContiguousUTF8()
+        return contiguous.utf8.withContiguousStorageIfAvailable { s -> Date? in
+            guard s.count == 20 || s.count == 24, s[s.count - 1] == UInt8(ascii: "Z"),
+                  s[4] == UInt8(ascii: "-"), s[7] == UInt8(ascii: "-"), s[10] == UInt8(ascii: "T"),
+                  s[13] == UInt8(ascii: ":"), s[16] == UInt8(ascii: ":") else { return nil }
+            func number(_ from: Int, _ count: Int) -> Int? {
+                var value = 0
+                for i in from..<(from + count) {
+                    let digit = Int(s[i]) - 48
+                    guard (0...9).contains(digit) else { return nil }
+                    value = value * 10 + digit
+                }
+                return value
+            }
+            guard let year = number(0, 4), let month = number(5, 2), let day = number(8, 2),
+                  let hour = number(11, 2), let minute = number(14, 2), let second = number(17, 2),
+                  year >= 1970, (1...12).contains(month), hour < 24, minute < 60, second < 60
+            else { return nil }
+            var millis = 0
+            if s.count == 24 {
+                guard s[19] == UInt8(ascii: "."), let fraction = number(20, 3) else { return nil }
+                millis = fraction
+            }
+            let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+            let monthDays = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            guard (1...monthDays[month - 1]).contains(day) else { return nil }
+            // Days since 1970-01-01 in the proleptic Gregorian calendar.
+            let y = month <= 2 ? year - 1 : year
+            let era = y / 400
+            let yearOfEra = y - era * 400
+            let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+            let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+            let days = era * 146_097 + dayOfEra - 719_468
+            let epochMillis = ((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis
+            // The formatters' path: ICU's millisecond UDate, divided, then
+            // rebased to the reference date — same arithmetic, same Double.
+            return Date(timeIntervalSinceReferenceDate: Double(epochMillis) / 1000.0 - 978_307_200.0)
+        } ?? nil
     }
 
     static func projectName(_ cwd: String?, fallback: String) -> String {
@@ -402,7 +493,11 @@ enum ClaudeTokenConsumptionParser {
         var sessionProject = file.fallbackProject
         var foundCwd = false
 
-        TokenLogJSON.forEachObject(url: file.url) { obj in
+        // Only a line naming `usage` can count, and until the session's
+        // directory is known, a line naming `cwd` can name it.
+        TokenLogJSON.forEachObject(url: file.url, mayMatter: { line in
+            TokenLogJSON.contains(line, "\"usage\"") || (!foundCwd && TokenLogJSON.contains(line, "\"cwd\""))
+        }) { obj in
             if !foundCwd, let cwd = obj["cwd"] as? String, !cwd.trimmingCharacters(in: .whitespaces).isEmpty {
                 sessionProject = TokenLogJSON.projectName(cwd, fallback: file.fallbackProject)
                 foundCwd = true
@@ -502,6 +597,36 @@ enum CodexTokenConsumptionParser {
         return bySession.values.flatMap(\.entries)
     }
 
+    /// Whether a rollout line can be one `parseFile` acts on. Every such line
+    /// names one of the searched types; the rest of a rollout (messages, tool
+    /// calls and their output) is skipped unparsed.
+    ///
+    /// Most bytes are `response_item` lines and chatty `event_msg` lines, and
+    /// both say which they are in their first bytes. `"type":"…"` there is
+    /// structure, not text — quotes inside a JSON string are escaped — so a
+    /// line that announces itself as one of those is dropped without searching
+    /// the rest of it. A line whose layout this does not recognise gets the
+    /// full search, so a format change costs time, never counts.
+    /// The `event_msg` payload types `parseFile` reads. `mayCount` drops every
+    /// other event by its head, so a new branch there must be listed here.
+    static let actedEventTypes: Set<String> = ["token_count", "task_started", "thread_settings_applied"]
+
+    static func mayCount(_ line: UnsafeRawBufferPointer) -> Bool {
+        let head = UnsafeRawBufferPointer(rebasing: line.prefix(160))
+        if TokenLogJSON.contains(head, "\"type\":\"response_item\"") { return false }
+        if TokenLogJSON.contains(head, "\"type\":\"session_meta\"")
+            || TokenLogJSON.contains(head, "\"type\":\"turn_context\"") { return true }
+        if TokenLogJSON.contains(head, "\"type\":\"event_msg\""),
+           let payloadType = TokenLogJSON.stringValue(after: "\"payload\":{\"type\":\"", in: head) {
+            return actedEventTypes.contains(payloadType)
+        }
+        return TokenLogJSON.contains(line, "\"token_count\"")
+            || TokenLogJSON.contains(line, "\"session_meta\"")
+            || TokenLogJSON.contains(line, "\"turn_context\"")
+            || TokenLogJSON.contains(line, "\"task_started\"")
+            || TokenLogJSON.contains(line, "\"thread_settings_applied\"")
+    }
+
     private static func parseFile(_ file: TokenLogFile) -> (sessionID: String?, project: String, entries: [TokenUsageEntry]) {
         let iso = ISO8601DateFormatter()
         let fractional = ISO8601DateFormatter()
@@ -515,7 +640,7 @@ enum CodexTokenConsumptionParser {
         var prevCumulativeTotal: Int?
         var entries: [TokenUsageEntry] = []
 
-        TokenLogJSON.forEachObject(url: file.url) { obj in
+        TokenLogJSON.forEachObject(url: file.url, mayMatter: mayCount) { obj in
             let type = obj["type"] as? String
             if type == "session_meta", let payload = obj["payload"] as? [String: Any] {
                 sessionMetaCount += 1
@@ -533,7 +658,8 @@ enum CodexTokenConsumptionParser {
                 return
             }
             guard type == "event_msg", let payload = obj["payload"] as? [String: Any],
-                  let eventType = payload["type"] as? String else { return }
+                  let eventType = payload["type"] as? String,
+                  actedEventTypes.contains(eventType) else { return }
             if eventType == "thread_settings_applied",
                let settings = payload["thread_settings"] as? [String: Any],
                let name = settings["model"] as? String, !name.isEmpty {
