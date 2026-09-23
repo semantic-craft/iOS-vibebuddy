@@ -216,6 +216,29 @@ struct SoundPolicyTests {
         #expect(alerts.isEmpty)
     }
 
+    @Test("a /loop round settling done does not ring agent_done (AI-04)")
+    func loopRoundSilent() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
+        var round = session("a", .done, since: 40)
+        round.loopScheduled = true
+        #expect(p.evaluate(input([round], now: 40, appActive: false)).isEmpty)
+    }
+
+    @Test("rows name held and outliving background work (AI-04)")
+    func backgroundWorkLabels() {
+        var held = session("a", .working)
+        held.backgroundTaskCount = 2
+        #expect(ToolActivity.label(for: held) == "Background tasks running: 2")
+        var loop = session("b", .done)
+        loop.loopScheduled = true
+        #expect(ToolActivity.label(for: loop) == "Loop scheduled")
+        #expect(RowPresentation(session: loop).activityOrResult == "Loop scheduled")
+        var outliving = session("c", .done)
+        outliving.backgroundTaskCount = 1
+        #expect(RowPresentation(session: outliving).progress == "Background tasks still running: 1")
+    }
+
     @Test("done after a >30s run while the app is backgrounded rings agent_done")
     func doneBackgrounded() {
         let p = SoundPolicy()

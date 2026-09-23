@@ -20,13 +20,17 @@ public enum ToolActivity {
                 : String(localized: "Needs input", bundle: .module)
         case .working:
             // `phrase` stays the English base; the table keys are `Editing…` etc.
-            return phrase(for: session.activeTool)
-                .map { String(localized: String.LocalizationValue($0 + "…"), bundle: .module) }
-                ?? String(localized: "Working", bundle: .module)
+            if let phrase = phrase(for: session.activeTool) {
+                return String(localized: String.LocalizationValue(phrase + "…"), bundle: .module)
+            }
+            if let count = session.backgroundTaskCount, count > 0 {
+                return String(localized: "Background tasks running: \(count)", bundle: .module)
+            }
+            return String(localized: "Working", bundle: .module)
         case .done:
-            return session.isStuck
-                ? String(localized: "Stopped with an issue", bundle: .module)
-                : String(localized: "Ready", bundle: .module)
+            if session.isStuck { return String(localized: "Stopped with an issue", bundle: .module) }
+            if session.loopScheduled == true { return String(localized: "Loop scheduled", bundle: .module) }
+            return String(localized: "Ready", bundle: .module)
         }
     }
 

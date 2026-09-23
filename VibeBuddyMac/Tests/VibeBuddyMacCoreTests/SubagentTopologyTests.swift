@@ -152,7 +152,10 @@ struct SubagentTopologyTests {
             (#"{"hook_event_name":"SubagentStart","session_id":"parent","agent_id":"agent-a","agent_type":"Explore"}"#, 2),
             (#"{"hook_event_name":"Stop","session_id":"parent"}"#, 3),
         ])
-        #expect(working.sessions["parent"]?.status == .done)
+        // A main-agent Stop with a subagent still running is a pause (AI-04):
+        // the parent stays working until that subagent stops.
+        #expect(working.sessions["parent"]?.status == .working)
+        #expect(working.sessions["parent"]?.backgroundTaskCount == 1)
         #expect(working.sessions["parent"]?.runningChildAgentCount == 1)
         #expect(working.sessions["parent"]?.activeTool == nil)
     }

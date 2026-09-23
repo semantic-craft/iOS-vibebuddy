@@ -184,3 +184,8 @@
 "The selected file diff is unavailable." = "The selected file diff is unavailable.";
 "Untracked · %lld" = "Untracked · %lld";
 "%lld added, %lld deleted" = "%lld added, %lld deleted";
+
+/* Claude background work (AI-04) */
+"Background tasks running: %lld" = "Background tasks running: %lld";
+"Loop scheduled" = "Loop scheduled";
+"Background tasks still running: %lld" = "Background tasks still running: %lld";

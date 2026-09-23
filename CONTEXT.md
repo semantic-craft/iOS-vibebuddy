@@ -411,6 +411,28 @@ code, and tests — don't drift to synonyms.
   The app's Quiet mode / Quiet hours read every session as `muted`; only a positively
   identified current task view can cap its cue to `list`. Source-app presence alone
   cannot identify the viewed task. `list` and `drop` never push.
+- **Background work at a Claude Stop** (AI-04) — Claude's main-agent `Stop`
+  carries `background_tasks` and `session_crons` when its task registry is
+  reachable; when present they are the truth, even empty. Running subagents,
+  workflows or teammates make the `Stop` a pause: the session stays `working`
+  (row: background tasks running) and the reducer holds the `Stop`. Only when
+  the arrays are absent do running subagents in the child topology stand in;
+  task-list entries (`TaskCreated`) never do, and an interrupted or failed main
+  turn marks its running subagents unknown. A turn held only by subagents moves
+  to a 45-second grace once as many `SubagentStop`s as it awaited have arrived
+  and none still runs; the main agent usually continues within it and its own
+  `Stop` replaces the held one. Workflows and teammates report no end, so only
+  a newer `Stop` or the ten-minute backstop releases them. The sweep settles a
+  due `Stop` through the normal path, stamped with the release time; a new
+  turn, a wait or a new session discards it. Claude sessions restored as
+  `working` after a daemon restart retire quietly (`probeRetired`) if no event
+  arrives within the backstop. Running shells, monitors, MCP tasks and cloud
+  sessions do not hold the turn: it completes and the row says background
+  tasks are still running (`backgroundTaskCount`). A recurring `session_crons`
+  entry marks the ending `loopScheduled`: it settles `done` with no completion
+  identity, no unread badge and no `agentDone` cue, because a `/loop` session
+  always has one; a one-shot reminder does not. A main-agent `PostToolUse` that
+  lands after the `Stop` settled cannot reopen the turn.
 - **Completion reminder** — `CompletionReminderSchedule` re-issues the
   `agentDone` cue for a `done`, unread session whose effective attention is
   `followed`, after 5, 10, 20 and then 40 minutes — at most 4 times per

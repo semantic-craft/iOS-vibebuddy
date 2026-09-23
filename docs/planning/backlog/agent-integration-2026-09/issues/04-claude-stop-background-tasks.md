@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Executor:** Claude · branch `claude/ai-04-stop-background-tasks` · 2026-09-23
+
 - [ ] `HookParser` 解析并挂到 `HookEvent`（`backgroundTasks`、`sessionCrons`）。
 - [ ] Reducer 规则 + 测试（夹具用官方文档形状）。
 - [ ] 手机/Mac 行文案。
@@ -24,3 +26,11 @@
     5. 数组缺失或为空 → 回退到 SubagentStart / SubagentStop 计数；10 分钟兜底落定。
     6. `Stop` 之后才到的 `PostToolUse`（后台 Bash 的回执）不能把已完成的会话拉回 working（vibe-notch#98 的坑）。
   - 验收第 4 条保持："一个 `/loop 1m` 会话在 Stop 后不响完成提醒"，按规则 4 实现；另加一条：后台 subagent 跑完后的真正 `Stop` 正常提醒一次。
+- 2026-09-23 实现与评审修订（Opus 评审 PR #264 后）：
+  - 规则 5 改为：**数组存在（即使为空）以数组为准**；只有数组缺失（旧版 CLI 或 registry 不可达）才用子代理计数。原因：残留的子代理行（async hook 丢了 `SubagentStop`、Esc 打断前台子代理）会让之后每一轮都挂 10 分钟。主 agent 的 Interrupt / StopFailure / 用户停止会把仍在跑的子代理标为 unknown。
+  - 只被 subagent 挂起的轮次：收到与挂起时数量相同的 `SubagentStop` 且没有仍在跑的子代理后，进入 45 秒宽限；主 agent 通常在宽限内续跑，它自己的 `Stop` 取代挂起的那个，所以只提醒一次、用的是新文案。workflow / teammate 没有结束 hook，只能由更新的 `Stop` 或 10 分钟兜底释放。
+  - 释放出的 `Stop` 用释放时刻作时间戳，避免完成提醒立刻叠加。
+  - daemon 重启后恢复为 working 的 Claude 会话，10 分钟无事件则安静落定（`probeRetired`）。
+  - 规则 4 只认 `recurring` 的 cron；一次性提醒不让之后每轮都静音。
+  - 已知取舍：规则 3 的"还有 N 项后台任务"在 done 之后没有递减事件，只有 Claude 续跑发出新的 `Stop` 时更新；旧版 iPhone 前台连着时仍会为每轮 loop 响一次（新 `SoundPolicy` 随新版手机生效）。
+

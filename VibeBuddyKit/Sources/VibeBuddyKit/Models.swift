@@ -553,6 +553,15 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// Mac that sent `turn/interrupt` knows it was deliberate. Optional so
     /// older snapshots decode as they did before.
     public var userStopped: Bool?
+    /// Claude background work the row should mention: while `working`, the
+    /// subagents / workflows / teammates the turn is paused on; once `done`,
+    /// the shells and monitors that outlived it. Optional so older snapshots
+    /// decode as "none".
+    public var backgroundTaskCount: Int?
+    /// True when this ending left a scheduled loop (`/loop`, session crons):
+    /// the round settled, but it is not a result worth a completion cue.
+    /// Optional so older snapshots decode as a normal completion.
+    public var loopScheduled: Bool?
     /// Facts Claude Code's status line reports about the session (all optional
     /// so older snapshots decode unchanged): the `--name` / `/rename` or
     /// generated title, the effort level, the client-side cost estimate, the

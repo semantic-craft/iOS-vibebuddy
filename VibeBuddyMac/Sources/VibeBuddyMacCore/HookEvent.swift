@@ -33,6 +33,15 @@ public struct HookEvent: Sendable, Equatable {
     /// Explicit provider evidence that this is a new session, not a resume.
     public var startsNewSession = false
     public var toolCall: ToolCallRecord? = nil
+    /// What Claude's `Stop` reported still running (`background_tasks`,
+    /// `session_crons`). Nil when the payload carried neither array: an older
+    /// CLI, or the task registry was unreachable.
+    public var backgroundWork: BackgroundWork? = nil
+    /// A `Stop` the reducer held for background work, now released to settle.
+    public var releasesHeldStop = false
+    /// For a released `Stop`, when Claude originally stopped. Its transcript
+    /// evidence (`stop_hook_summary`) carries this moment, not the release.
+    public var pausedAt: Date? = nil
     public let kind: Kind
     public let sessionID: String
     public let agent: AgentKind
@@ -174,7 +183,7 @@ public struct HookEvent: Sendable, Equatable {
 
     /// Mark this ending as the answer to a stop the user asked for.
     public func markingUserStop() -> HookEvent {
-        HookEvent(
+        var event = HookEvent(
             kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName,
             toolName: toolName, message: message, waitKind: waitKind,
             transcriptPath: transcriptPath, model: model, observationSource: observationSource,
@@ -185,12 +194,36 @@ public struct HookEvent: Sendable, Equatable {
             completionText: completionText, completionSucceeded: completionSucceeded,
             sourceCompletionID: sourceCompletionID, observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,
             approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
+        event.backgroundWork = backgroundWork
+        event.releasesHeldStop = releasesHeldStop
+        return event
+    }
+
+    /// A held `Stop` released to settle now. It carries the release moment so
+    /// the ending's `statusSince` and reminder clock start when it settles,
+    /// not when Claude first paused.
+    public func releasing(at date: Date) -> HookEvent {
+        var event = HookEvent(
+            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName,
+            toolName: toolName, message: message, waitKind: waitKind,
+            transcriptPath: transcriptPath, model: model, observationSource: observationSource,
+            toolError: toolError, timestamp: date, childID: childID,
+            childKind: childKind, childName: childName, childType: childType,
+            childAction: childAction, turnID: turnID, turnStartedAt: turnStartedAt, enrichment: enrichment,
+            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: userStopped,
+            completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID,
+            observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,
+            approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
+        event.backgroundWork = backgroundWork
+        event.releasesHeldStop = true
+        event.pausedAt = pausedAt ?? timestamp
+        return event
     }
 
     /// Stamp the rollout file this event was tailed from, so a later read-only
     /// recent-output fetch can find the same source without guessing.
     public func withTranscriptPath(_ path: String, sessionName: String? = nil) -> HookEvent {
-        HookEvent(
+        var event = HookEvent(
             kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName ?? self.sessionName,
             toolName: toolName, message: message, waitKind: waitKind,
             transcriptPath: path, model: model, observationSource: observationSource,
@@ -201,5 +234,33 @@ public struct HookEvent: Sendable, Equatable {
             completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID,
             observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,
             approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
+        event.backgroundWork = backgroundWork
+        event.releasesHeldStop = releasesHeldStop
+        return event
+    }
+}
+
+/// Work a Claude session still has running when its main agent stops
+/// (code.claude.com/docs/en/hooks#stop-input). Only subagents, workflows and
+/// teammates pause the turn; shells, monitors, MCP tasks and cloud sessions
+/// outlive it. Scheduled loops are counted apart: a `/loop` session always has
+/// one, so they may silence the completion cue but never hold the turn open.
+public struct BackgroundWork: Equatable, Sendable {
+    /// Running subagents. Their `SubagentStop` hooks can release the turn.
+    public var subagents: Int
+    /// Running workflows and teammates. No hook we receive reports their end,
+    /// so only a newer `Stop` or the backstop releases a turn they hold.
+    public var workflowsOrTeammates: Int
+    /// Running shells, monitors, MCP tasks, cloud sessions and unknown types.
+    public var otherTasks: Int
+    /// Recurring entries in `session_crons` (`/loop`). A one-shot reminder
+    /// does not make every later round quiet.
+    public var crons: Int
+
+    public init(subagents: Int = 0, workflowsOrTeammates: Int = 0, otherTasks: Int = 0, crons: Int = 0) {
+        self.subagents = subagents
+        self.workflowsOrTeammates = workflowsOrTeammates
+        self.otherTasks = otherTasks
+        self.crons = crons
     }
 }
