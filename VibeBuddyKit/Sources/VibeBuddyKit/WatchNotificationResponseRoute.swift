@@ -221,6 +221,53 @@ public struct WatchBannerAction: Equatable, Sendable {
     }
 }
 
+/// The words of a banner reply the wrist did not deliver, kept on the card so a
+/// refusal never costs the wearer what they dictated (ADR-0033 decision 5).
+public struct WatchUnsentReply: Equatable, Sendable {
+    public let sessionID: String
+    public let text: String
+    /// The attempt that was in flight when the words were refused, or the
+    /// attempt that carried them and was refused. It can never supersede them:
+    /// an answer that was already on its way before these words were set aside
+    /// says nothing about them.
+    public let attemptID: String?
+
+    public init(sessionID: String, text: String, attemptID: String?) {
+        self.sessionID = sessionID
+        self.text = text
+        self.attemptID = attemptID
+    }
+
+    /// Whether an answer for this session has since reached the iPhone or the
+    /// Mac, so the words have been superseded by ones that travelled.
+    ///
+    /// Only a *change* counts — a new attempt, or one moving into that phase.
+    /// The action state is re-published on every install, and an earlier
+    /// answer still sitting at `awaitingResolution` while the iPhone re-sends
+    /// the same context would otherwise wipe the words a moment after they
+    /// were kept.
+    public func isSuperseded(from old: WatchSessionActionAttempt?,
+                             to new: WatchSessionActionAttempt?) -> Bool {
+        guard let new, new.sessionId == sessionID, new.attemptId != attemptID,
+              new.answerText != nil || new.answers != nil,
+              new.phase == .awaitingResolution || new.phase == .queued else { return false }
+        return old?.attemptId != new.attemptId || old?.phase != new.phase
+    }
+
+    /// The words to put back on the card when the attempt that carried them —
+    /// a banner reply the wrist did send — ends without reaching the agent.
+    /// `refused` (the question moved on before the iPhone's gate) and `failed`
+    /// both mean nothing was said; `unknown` may have been, so it is not
+    /// offered for sending again.
+    public func restored(by attempt: WatchSessionActionAttempt?) -> WatchUnsentReply? {
+        guard let attempt, attempt.attemptId == attemptID else { return nil }
+        switch attempt.phase {
+        case .refused, .failed: return self
+        case .sending, .awaitingResolution, .queued, .unknown: return nil
+        }
+    }
+}
+
 /// Why a banner action was *not* sent from the wrist, in words the card shows
 /// above the buttons it still offers. Every case leaves the person looking at
 /// the request with a live way forward — never a silent drop.

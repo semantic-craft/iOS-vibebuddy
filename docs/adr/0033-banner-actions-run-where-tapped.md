@@ -107,13 +107,19 @@ banner: a background POST that fails leaves no trace.
 
    Where the words may go is one pure decision,
    `WatchBannerAction.replyStanding`: the bound question → send (if one string
-   finishes it); a *different* question on the session → refused as
-   `.noLongerWaiting`; a question with no id on the wrist (part of it must be
+   finishes it); a *different* question on the session → held like an
+   absent request (nothing can be sent meanwhile except to the bound id) and
+   refused as `.noLongerWaiting` once a newer revision still shows it or
+   patience runs out; a question with no id on the wrist (part of it must be
    typed, and it may be the bound one) → `.notDecidableHere`; nothing → gone
    only when a newer revision proves it. A refused reply's words stay on the
-   card (`unsentBannerReply`, "Not sent: …") until the card closes, a new
-   banner reply replaces them, or an answer for that session reaches the
-   iPhone or the Mac; where the card can answer in one string it offers
+   card (`WatchUnsentReply`, "Not sent: …") until the card closes, a new
+   banner reply replaces them, or a *later* answer for that session reaches
+   the iPhone or the Mac (`isSuperseded` counts only a change, since the
+   action state is re-published on every install). A banner reply that did
+   leave the wrist and comes back `refused` or `failed` said nothing to the
+   agent, so its words are put back the same way (`restored`; not for
+   `unknown`, which the Mac may have); where the card can answer in one string it offers
    **Use my reply**, which opens the ordinary confirmation page on the
    question being asked *now* — so re-pointing the words is the wearer's
    choice, never the wrist's.
@@ -130,10 +136,13 @@ banner: a background POST that fails leaves no trace.
      below. Diagnostics tell the two apart:
      `notification.action-answer` vs `notification.action-answer-unbound`.
    - *A lagging first state.* A live relayed state older than the
-     notification can still show the previous question; the reply is then
-     refused (`.noLongerWaiting`) rather than sent — safe, never misdirected —
-     and the sentence comes down once the newer state shows the bound
-     question, leaving the words and **Use my reply** on the card.
+     notification can still show the previous question. The reply is held,
+     not refused, until a newer revision decides it; if none arrives within
+     the patience it is refused (`.noLongerWaiting`) — safe, never
+     misdirected — and the sentence comes down once the newer state shows the
+     bound question, leaving the words and **Use my reply** on the card. The
+     cost of holding: a reply whose question really did change waits up to
+     the patience (8 s) before the card says so.
    - *Id-less prompts.* The wrist cannot tell whether a prompt it holds no id
      for is the bound question; it says "decide it on your iPhone or Mac",
      which is true either way.

@@ -54,10 +54,20 @@ final class WatchStateStore: NSObject, ObservableObject {
             if oldValue.isBusy != pendingAction.isBusy { refreshFallback() }
             // Once the iPhone or the Mac holds an answer for this session, the
             // banner's words have been superseded by one that travelled.
-            if let unsent = unsentBannerReply, let attempt = pendingAction.action,
-               attempt.sessionId == unsent.sessionID, attempt.answerText != nil,
-               attempt.phase == .awaitingResolution || attempt.phase == .queued {
+            if unsentBannerReply?.isSuperseded(from: oldValue.action, to: pendingAction.action) == true {
                 unsentBannerReply = nil
+            }
+            // A banner reply that did leave the wrist and was refused or failed
+            // said nothing to the agent: its words go back on the card.
+            if let sent = bannerSentReply {
+                if pendingAction.action?.attemptId != sent.attemptID {
+                    bannerSentReply = nil
+                } else if let restored = sent.restored(by: pendingAction.action) {
+                    unsentBannerReply = restored
+                    bannerSentReply = nil
+                } else if pendingAction.action?.phase != .sending {
+                    bannerSentReply = nil
+                }
             }
         }
     }
@@ -87,7 +97,10 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// sentence above it — that one comes down when it stops being true, the
     /// words stay until the card closes, a new banner reply replaces them, or
     /// an answer for this session reaches the iPhone or the Mac.
-    @Published private(set) var unsentBannerReply: UnsentBannerReply?
+    @Published private(set) var unsentBannerReply: WatchUnsentReply?
+    /// A banner reply the wrist did send, until its attempt comes to rest —
+    /// so a refusal or a failure can put the words back (`unsentBannerReply`).
+    private var bannerSentReply: WatchUnsentReply?
     /// Whether the iPhone is in range right now. It is the only way the Watch
     /// can tell "the phone stopped relaying" from "the phone is gone", and it is
     /// read live rather than relayed — a reachability flag inside a payload
@@ -248,7 +261,8 @@ final class WatchStateStore: NSObject, ObservableObject {
             bannerActionFallbackRoute = held.route
             bannerActionFallbackPendingID = bound
             if case .answer(let sessionID, _, let text) = held.route {
-                unsentBannerReply = UnsentBannerReply(sessionID: sessionID, text: text)
+                unsentBannerReply = WatchUnsentReply(sessionID: sessionID, text: text,
+                                                     attemptID: pendingAction.action?.attemptId)
             }
             WatchNavigationDiagnostics.shared.record("banner.action-fallback.\(reason.rawValue)")
             WatchHapticPlayer.shared.play(WatchHaptics.beats(for: .error), reason: "banner action \(reason.rawValue)")
@@ -316,7 +330,17 @@ final class WatchStateStore: NSObject, ObservableObject {
                                                    sessionID: sessionID, alerts: state.alerts) {
             case .asking(let asking): alert = asking
             case .unbindable: giveUp(.notDecidableHere); return
-            case .replaced: giveUp(.noLongerWaiting); return
+            // Another question on the session is refused, but not on the first
+            // look: a cold launch's first relayed state can be the context the
+            // iPhone sent before this notification, still showing the previous
+            // question. Held like an absent request — nothing can be sent
+            // meanwhile except to the bound id — and refused once a newer
+            // revision still shows another question, or patience runs out.
+            case .replaced:
+                if expired || bannerAction?.provesRequestGone(currentRevision: state.relayRevision) == true {
+                    giveUp(.noLongerWaiting)
+                }
+                return
             case .absent: alert = nil
             }
         case .open, .ignore:
@@ -362,10 +386,22 @@ final class WatchStateStore: NSObject, ObservableObject {
             started = submit(alert, choice)
         case .answer(let sessionID, _, let text):
             started = submitAnswer(sessionId: sessionID, pendingId: alert.pendingId ?? "", text: text)
+            if started {
+                let sent = WatchUnsentReply(sessionID: sessionID, text: text,
+                                            attemptID: pendingAction.action?.attemptId)
+                // `submitAnswer` fails the attempt on the spot over a dead link,
+                // before there was anything here to watch it.
+                if let restored = sent.restored(by: pendingAction.action) {
+                    unsentBannerReply = restored
+                } else {
+                    bannerSentReply = sent
+                }
+            }
         case .open, .ignore:
-            // Nothing to send is not a failure. Unreachable: `perform` holds
-            // only actions, and neither of these finds an alert above.
-            started = true
+            // Nothing to send is not a failure, and nothing was sent either, so
+            // no sentence and no diagnostic. Unreachable: `perform` holds only
+            // actions, and neither of these finds an alert above.
+            return
         }
         // Both send paths re-run the checks just made, so a refusal here should
         // be unreachable. If one ever is not, it must still leave a sentence: a
@@ -723,6 +759,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         bannerActionFallbackRoute = nil
         bannerActionFallbackPendingID = nil
         unsentBannerReply = nil
+        bannerSentReply = nil
     }
 
     /// Called only by the exact detail body after it has appeared. Viewing is
@@ -1228,10 +1265,4 @@ extension WatchStateStore: WCSessionDelegate {
         let reachable = session.isReachable
         Task { @MainActor [weak self] in self?.linkChanged(reachable: reachable) }
     }
-}
-
-/// A banner reply the wrist refused to send, and the session it was about.
-struct UnsentBannerReply: Equatable {
-    let sessionID: String
-    let text: String
 }

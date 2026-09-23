@@ -243,3 +243,49 @@ struct WatchBannerReplyStandingTests {
     }
 }
 
+
+/// When the words of a refused banner reply may leave the card, and when the
+/// words of a sent one come back to it.
+struct WatchUnsentReplyTests {
+    private func attempt(_ id: String, _ phase: WatchSessionActionAttempt.Phase,
+                         session: String = "s-build") -> WatchSessionActionAttempt {
+        WatchSessionActionAttempt(attemptId: id, sessionId: session,
+                                  action: .answer(pendingId: "q-1", text: "yes"), phase: phase)
+    }
+
+    @Test func anEarlierAnswerRepublishedUnchangedDoesNotWipeTheWords() {
+        // The card answered q-1 (X, awaiting), the banner reply for q-2 was
+        // refused while X was in flight, then an install re-publishes X as is.
+        let unsent = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: "X")
+        #expect(unsent.isSuperseded(from: attempt("X", .awaitingResolution),
+                                    to: attempt("X", .awaitingResolution)) == false)
+        // Even a phase change of that earlier attempt is not about these words.
+        #expect(unsent.isSuperseded(from: attempt("X", .sending), to: attempt("X", .queued)) == false)
+        // An install with nothing in flight before either.
+        let none = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: nil)
+        #expect(none.isSuperseded(from: attempt("X", .awaitingResolution),
+                                  to: attempt("X", .awaitingResolution)) == false)
+    }
+
+    @Test func aLaterAnswerThatTravelledSupersedesTheWords() {
+        let unsent = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: "X")
+        #expect(unsent.isSuperseded(from: attempt("Y", .sending), to: attempt("Y", .awaitingResolution)))
+        #expect(unsent.isSuperseded(from: attempt("X", .awaitingResolution), to: attempt("Y", .queued)))
+        // Not while it is still travelling, not when it failed, not another session.
+        #expect(unsent.isSuperseded(from: nil, to: attempt("Y", .sending)) == false)
+        #expect(unsent.isSuperseded(from: attempt("Y", .sending), to: attempt("Y", .failed)) == false)
+        #expect(unsent.isSuperseded(from: nil, to: attempt("Y", .awaitingResolution, session: "s-other")) == false)
+    }
+
+    @Test func aSentReplyThatSaidNothingComesBack() {
+        let sent = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: "Y")
+        #expect(sent.restored(by: attempt("Y", .refused)) == sent)
+        #expect(sent.restored(by: attempt("Y", .failed)) == sent)
+        // The Mac may have it, or does: never offered for sending again.
+        #expect(sent.restored(by: attempt("Y", .unknown)) == nil)
+        #expect(sent.restored(by: attempt("Y", .awaitingResolution)) == nil)
+        #expect(sent.restored(by: attempt("Z", .refused)) == nil)
+        // A restored reply can never be superseded by the attempt that failed.
+        #expect(sent.isSuperseded(from: nil, to: attempt("Y", .awaitingResolution)) == false)
+    }
+}
