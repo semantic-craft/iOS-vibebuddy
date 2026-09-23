@@ -230,7 +230,10 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
             .joined(separator: "|")
     }
 
-    /// `claude agents --json --all`, bounded; nil on any failure.
+    /// `claude agents --json --all`, bounded; nil on any failure. Every wait
+    /// is on the termination handler with a limit, never `waitUntilExit()`: a
+    /// CLI stuck in uninterruptible I/O outlives SIGKILL and would otherwise
+    /// block the serial queue and every waiter behind it.
     static func runCLI(environment: [String: String] = ProcessInfo.processInfo.environment,
                        home: URL = FileManager.default.homeDirectoryForCurrentUser,
                        timeout: TimeInterval = 15) -> Data? {
@@ -244,6 +247,8 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         do { try process.run() } catch { return nil }
         let collected = DataBox()
         let reader = DispatchGroup()
@@ -252,14 +257,18 @@ public final class ClaudeAgentsSource: @unchecked Sendable {
             collected.set(out.fileHandleForReading.readDataToEndOfFile())
             reader.leave()
         }
-        let deadline = DispatchTime.now() + timeout
-        if reader.wait(timeout: deadline) == .timedOut {
-            process.terminate()
-            if reader.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL) }
-            process.waitUntilExit()
-            return nil
+        // TERM, a second's grace, then KILL; `isRunning` guards both signals, so
+        // an exited child's PID, which may be reused, is never signalled.
+        func stop() {
+            if process.isRunning { process.terminate() }
+            guard exited.wait(timeout: .now() + 1) == .timedOut else { return }
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            _ = exited.wait(timeout: .now() + 2)
         }
-        process.waitUntilExit()
+        let deadline = DispatchTime.now() + timeout
+        if reader.wait(timeout: deadline) == .timedOut { stop(); return nil }
+        // Stdout closed; the exit normally follows at once.
+        if exited.wait(timeout: max(deadline, .now() + 1)) == .timedOut { stop(); return nil }
         return process.terminationStatus == 0 ? collected.get() : nil
     }
 
