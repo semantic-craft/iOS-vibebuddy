@@ -76,12 +76,15 @@ banner: a background POST that fails leaves no trace.
    mirrors the phone's identifiers and options, so an independent watchOS
    delivery draws the same buttons with the same meaning. The mirrored copy of
    a phone notification draws the phone's; both agree.
-5. **Reply from the wrist is bound to the question it first saw.** A banner
-   names the permission it is about — `approvalId` rides in its `userInfo` —
-   but never the question, so a reply cannot be bound at the tap. It is bound
-   at the first sight of one instead: the first answerable question a *relayed*
-   state holds for that session (`WatchBannerAction.bindsAnswer`), and from
-   then on the binding does not move. A held reply that followed the session
+5. **Reply from the wrist is bound to the question its banner named.** A
+   banner names the permission it is about — `approvalId` rides in its
+   `userInfo` — and, since #248, the question too (`questionId`, from the Mac's
+   APNs payload and the iPhone's local notifier alike). The Watch reads it into
+   the route and `WatchBannerAction` is bound the moment it is held, before
+   any state arrives (amended 2026-09-23, WR-07). A cue from an older sender
+   carries no `questionId` and is bound at the first sight of one instead: the
+   first answerable question a *relayed* state holds for that session
+   (`WatchBannerAction.bindsAnswer`). Either way the binding does not move. A held reply that followed the session
    would have answered whatever was being asked by the time it travelled — the
    agent answers "Delete the database?" and asks "Ship the release?", the
    lookup matches the new question, the iPhone's gate accepts it because that
@@ -102,13 +105,50 @@ banner: a background POST that fails leaves no trace.
    (`bannerActionFallbackPendingID`), so the question that *replaced* it — the
    very thing the sentence is explaining — does not take it back down.
 
-   **Residual.** Between the tap and the first relayed state the wrist has only
-   its disk cache, which `WatchStoredState` strips of every id, so no binding
-   can be made from it: a question that changed inside that gap is inherited
-   silently.
+   Where the words may go is one pure decision,
+   `WatchBannerAction.replyStanding`: the bound question → send (if one string
+   finishes it); a *different* question on the session → held like an
+   absent request (nothing can be sent meanwhile except to the bound id) and
+   refused as `.noLongerWaiting` once a newer revision still shows it or
+   patience runs out; a question with no id on the wrist (part of it must be
+   typed, and it may be the bound one) → `.notDecidableHere`; nothing → gone
+   only when a newer revision proves it. A refused reply's words stay on the
+   card (`WatchUnsentReply`, "Not sent: …") until the card closes, a new
+   banner reply replaces them, or a *later* answer for that session reaches
+   the iPhone or the Mac (`isSuperseded` counts only a change, since the
+   action state is re-published on every install). A banner reply that did
+   leave the wrist and comes back `refused` or `failed` said nothing to the
+   agent, so its words are put back the same way (`restored`; not for
+   `unknown`, which the Mac may have); where the card can answer in one string it offers
+   **Use my reply**, which opens the ordinary confirmation page on the
+   question being asked *now* — so re-pointing the words is the wearer's
+   choice, never the wrist's.
 
-   The binding is therefore taken from the first *relayed* state, not the first
-   state that passes the evidence guard. That distinction is the whole
+   **Residual — closed for current senders (2026-09-23, WR-07).** The gap this
+   paragraph used to describe — between the tap and the first relayed state
+   the wrist has only its disk cache, whose ids `WatchStoredState` strips, so
+   a question that changed inside it was inherited silently — no longer exists
+   when the notification carries `questionId`: nothing relayed can move a
+   binding made at the hold. What remains:
+
+   - *Older senders.* A notification without `questionId` (an iPhone or Mac
+     build before #248) still binds at first relayed sight, with the gap
+     below. Diagnostics tell the two apart:
+     `notification.action-answer` vs `notification.action-answer-unbound`.
+   - *A lagging first state.* A live relayed state older than the
+     notification can still show the previous question. The reply is held,
+     not refused, until a newer revision decides it; if none arrives within
+     the patience it is refused (`.noLongerWaiting`) — safe, never
+     misdirected — and the sentence comes down once the newer state shows the
+     bound question, leaving the words and **Use my reply** on the card. The
+     cost of holding: a reply whose question really did change waits up to
+     the patience (8 s) before the card says so.
+   - *Id-less prompts.* The wrist cannot tell whether a prompt it holds no id
+     for is the bound question; it says "decide it on your iPhone or Mac",
+     which is true either way.
+
+   For older senders, the binding is taken from the first *relayed* state, not
+   the first state that passes the evidence guard. That distinction is the whole
    mitigation. `isLive` requires the phone to be reachable, and an unreachable
    stretch is exactly when a hold waits — so binding behind that guard let
    snapshots arrive, none of them able to bind, until the phone returned and
@@ -117,11 +157,8 @@ banner: a background POST that fails leaves no trace.
    patience. Real ids do not depend on the phone being reachable this instant;
    only sending does.
 
-   Closing the gap that remains needs the question's id in the notification
-   payload the way `approvalId` already travels — an APNs, Mac-notifier and
-   phone-notifier change, tracked separately rather than coupled to this Watch
-   fix. Until then the wrist refuses rather than guesses whenever the binding
-   and the live question disagree.
+   Whichever way the binding was made, the wrist refuses rather than guesses
+   whenever it and the live question disagree.
 
 ## Alternatives rejected
 
@@ -154,7 +191,8 @@ banner: a background POST that fails leaves no trace.
   should be unreachable; if one ever is not, it leaves a sentence rather than a
   diagnostic that says a vanished tap was sent.
 - `WatchNavigationDiagnostics` records `notification.action-decide`,
-  `notification.action-answer`, `banner.action-held`, `banner.action-sent` and
+  `notification.action-answer` (or `notification.action-answer-unbound` for a
+  cue with no `questionId`), `banner.action-held`, `banner.action-sent` and
   `banner.action-fallback.<reason>`, so the next device round can prove which
   path a tap took without reading its content.
 - What a simulator cannot prove stays listed for a paired device: that

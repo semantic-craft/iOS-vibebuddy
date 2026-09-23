@@ -7,9 +7,11 @@ import Testing
 struct WatchNotificationResponseRouteTests {
     private func resolve(_ action: NotificationActionID?, dismiss: Bool = false,
                          session: String? = "s-build", approval: String? = "ap-1",
+                         question: String? = nil,
                          text: String? = nil) -> WatchNotificationResponseRoute {
         WatchNotificationResponseRoute.resolve(action: action, isDismiss: dismiss,
-                                               sessionID: session, approvalID: approval, userText: text)
+                                               sessionID: session, approvalID: approval,
+                                               questionID: question, userText: text)
     }
 
     @Test func theDefaultTapOpensTheSession() {
@@ -29,9 +31,22 @@ struct WatchNotificationResponseRouteTests {
     }
 
     @Test func aReplyCarriesItsTrimmedTextOrOpens() {
-        #expect(resolve(.answer, text: "  ship it \n") == .answer(sessionID: "s-build", text: "ship it"))
+        #expect(resolve(.answer, text: "  ship it \n")
+                == .answer(sessionID: "s-build", questionID: nil, text: "ship it"))
         #expect(resolve(.answer, text: "   ") == .open(sessionID: "s-build"))
         #expect(resolve(.answer, text: nil) == .open(sessionID: "s-build"))
+    }
+
+    @Test func aReplyCarriesTheQuestionItsNotificationNamed() {
+        #expect(resolve(.answer, question: " q-7 ", text: "no")
+                == .answer(sessionID: "s-build", questionID: "q-7", text: "no"))
+        // An older sender's cue names none: the reply still goes, unbound.
+        #expect(resolve(.answer, question: "  ", text: "no")
+                == .answer(sessionID: "s-build", questionID: nil, text: "no"))
+        // A question id never turns a decision or a default tap into a reply.
+        #expect(resolve(.approve, question: "q-7") == .decide(sessionID: "s-build", approvalID: "ap-1",
+                                                               choice: .allow))
+        #expect(resolve(nil, question: "q-7") == .open(sessionID: "s-build"))
     }
 
     @Test func dismissAndMissingSessionAreNotRequests() {
@@ -108,11 +123,12 @@ struct WatchBannerActionPatienceTests {
     }
 }
 
-/// Which question a dictated reply belongs to. A banner names the permission it
-/// is about but never the question, so a held reply that followed the session
-/// would answer whatever was being asked by the time it travelled.
+/// Which question a dictated reply belongs to when its notification named none
+/// (an older phone or Mac): a held reply that followed the session would answer
+/// whatever was being asked by the time it travelled.
 struct WatchBannerActionAnswerBindingTests {
-    private let route = WatchNotificationResponseRoute.answer(sessionID: "s-build", text: "no")
+    private let route = WatchNotificationResponseRoute.answer(sessionID: "s-build", questionID: nil,
+                                                              text: "no")
 
     @Test func theFirstQuestionSeenIsTheOneTheWordsAreFor() {
         var held = WatchBannerAction(route: route)
@@ -158,5 +174,118 @@ struct WatchBannerActionAnswerBindingTests {
         let held = WatchBannerAction(route: .decide(sessionID: "s-build", approvalID: "ap-1",
                                                     choice: .allow))
         #expect(held.boundPendingID == nil)
+    }
+}
+
+/// A reply whose notification named its question (`questionId`, #248) is bound
+/// the moment it is held, and `replyStanding` decides where the words may go —
+/// the pure half of `WatchStateStore.settleBannerAction`.
+struct WatchBannerReplyStandingTests {
+    private func question(_ pendingID: String?, session: String = "s-build",
+                          walked: Bool = false) -> WatchAlert {
+        WatchAlert(sessionId: session, agent: .claudeCode, project: "vibebuddy", waitKind: .question,
+                   request: "Delete the database?", pendingId: pendingID,
+                   questions: walked ? [WatchQuestionItem(id: "a", text: "Which?", options: [])] : nil,
+                   handling: .remoteAvailable, waitingSince: Date(timeIntervalSince1970: 0))
+    }
+
+    private func standing(bound: String?, _ alerts: [WatchAlert]) -> WatchBannerAction.ReplyStanding {
+        WatchBannerAction.replyStanding(boundPendingID: bound, sessionID: "s-build", alerts: alerts)
+    }
+
+    @Test func aNamedQuestionIsBoundAtTheHoldAndNoStateMovesIt() {
+        var held = WatchBannerAction(route: .answer(sessionID: "s-build", questionID: "q-2", text: "no"))
+        #expect(held.boundPendingID == "q-2")
+        // The first relayed state after a cold launch may still show the
+        // previous question. First sight used to bind to it; now it is refused.
+        let firstSight = held.bindsAnswer(to: "q-1")
+        #expect(firstSight == false)
+        #expect(held.boundPendingID == "q-2")
+        let own = held.bindsAnswer(to: "q-2")
+        #expect(own)
+    }
+
+    @Test func anUnnamedReplyStillBindsAtFirstSight() {
+        let held = WatchBannerAction(route: .answer(sessionID: "s-build", questionID: nil, text: "no"))
+        #expect(held.boundPendingID == nil)
+        #expect(standing(bound: nil, [question("q-1")]) == .asking(question("q-1")))
+    }
+
+    @Test func theBoundQuestionIsTheOneAnswered() {
+        let other = question("q-9", session: "s-other")
+        #expect(standing(bound: "q-2", [other, question("q-2")]) == .asking(question("q-2")))
+    }
+
+    @Test func aQuestionThatChangedBetweenDictationAndSendIsRefused() {
+        // "No" to "Delete the database?" must not reach "Ship the release?".
+        #expect(standing(bound: "q-1", [question("q-2")]) == .replaced)
+    }
+
+    @Test func aPromptWithNoIdCannotBeAnsweredFromTheBanner() {
+        // Id-less on the wrist: part of it must be typed. It may be the bound
+        // question itself (the Mac names it, the wrist drops the id), so it is
+        // "decide it elsewhere", never "no longer waiting".
+        #expect(standing(bound: "q-1", [question(nil)]) == .unbindable(question(nil)))
+        #expect(standing(bound: nil, [question("  ")]) == .unbindable(question("  ")))
+    }
+
+    @Test func aWalkedPromptIsFoundSoTheCallerCanSendItToTheCard() {
+        // Multi-part: found by its id, then refused by `isAnswerableInOneString`
+        // — the card's question-by-question walk is the way to answer it.
+        let walked = question("q-1", walked: true)
+        #expect(standing(bound: "q-1", [walked]) == .asking(walked))
+        #expect(walked.isAnswerableInOneString == false)
+    }
+
+    @Test func aSessionAskingNothingIsAbsent() {
+        #expect(standing(bound: "q-1", []) == .absent)
+        #expect(standing(bound: nil, [question("q-1", session: "s-other")]) == .absent)
+    }
+}
+
+
+/// When the words of a refused banner reply may leave the card, and when the
+/// words of a sent one come back to it.
+struct WatchUnsentReplyTests {
+    private func attempt(_ id: String, _ phase: WatchSessionActionAttempt.Phase,
+                         session: String = "s-build") -> WatchSessionActionAttempt {
+        WatchSessionActionAttempt(attemptId: id, sessionId: session,
+                                  action: .answer(pendingId: "q-1", text: "yes"), phase: phase)
+    }
+
+    @Test func anEarlierAnswerRepublishedUnchangedDoesNotWipeTheWords() {
+        // The card answered q-1 (X, awaiting), the banner reply for q-2 was
+        // refused while X was in flight, then an install re-publishes X as is.
+        let unsent = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: "X")
+        #expect(unsent.isSuperseded(from: attempt("X", .awaitingResolution),
+                                    to: attempt("X", .awaitingResolution)) == false)
+        // Even a phase change of that earlier attempt is not about these words.
+        #expect(unsent.isSuperseded(from: attempt("X", .sending), to: attempt("X", .queued)) == false)
+        // An install with nothing in flight before either.
+        let none = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: nil)
+        #expect(none.isSuperseded(from: attempt("X", .awaitingResolution),
+                                  to: attempt("X", .awaitingResolution)) == false)
+    }
+
+    @Test func aLaterAnswerThatTravelledSupersedesTheWords() {
+        let unsent = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: "X")
+        #expect(unsent.isSuperseded(from: attempt("Y", .sending), to: attempt("Y", .awaitingResolution)))
+        #expect(unsent.isSuperseded(from: attempt("X", .awaitingResolution), to: attempt("Y", .queued)))
+        // Not while it is still travelling, not when it failed, not another session.
+        #expect(unsent.isSuperseded(from: nil, to: attempt("Y", .sending)) == false)
+        #expect(unsent.isSuperseded(from: attempt("Y", .sending), to: attempt("Y", .failed)) == false)
+        #expect(unsent.isSuperseded(from: nil, to: attempt("Y", .awaitingResolution, session: "s-other")) == false)
+    }
+
+    @Test func aSentReplyThatSaidNothingComesBack() {
+        let sent = WatchUnsentReply(sessionID: "s-build", text: "no", attemptID: "Y")
+        #expect(sent.restored(by: attempt("Y", .refused)) == sent)
+        #expect(sent.restored(by: attempt("Y", .failed)) == sent)
+        // The Mac may have it, or does: never offered for sending again.
+        #expect(sent.restored(by: attempt("Y", .unknown)) == nil)
+        #expect(sent.restored(by: attempt("Y", .awaitingResolution)) == nil)
+        #expect(sent.restored(by: attempt("Z", .refused)) == nil)
+        // A restored reply can never be superseded by the attempt that failed.
+        #expect(sent.isSuperseded(from: nil, to: attempt("Y", .awaitingResolution)) == false)
     }
 }

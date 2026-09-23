@@ -225,3 +225,6 @@
 "Background tasks running: %lld" = "等待 %lld 项后台任务";
 "Loop scheduled" = "已排定循环";
 "Background tasks still running: %lld" = "还有 %lld 项后台任务在运行";
+
+/* Voice call ended at the provider's per-call limit (D-1) */
+"Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation." = "通话已结束：%@ 单次通话时长已到上限。重拨会开始新通话，不带这次的对话内容。";

@@ -194,3 +194,6 @@
 "Background tasks running: %lld" = "Background tasks running: %lld";
 "Loop scheduled" = "Loop scheduled";
 "Background tasks still running: %lld" = "Background tasks still running: %lld";
+
+/* Voice call ended at the provider's per-call limit (D-1) */
+"Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation." = "Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation.";

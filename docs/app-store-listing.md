@@ -23,7 +23,7 @@ vibebuddy is the phone companion for the vibebuddy Mac app. It shows the live st
 • Status buddy — an at-a-glance mood indicator for everything that's running.
 • Remote approvals — when an agent asks to run a command or edit a file, review the command or a bounded diff preview on your phone and approve or deny.
 • Notifications & Live Activity — get a banner the moment a session needs you; track counts on the lock screen and Dynamic Island.
-• Voice companion (optional) — talk to your agents in real time and approve or answer by voice, using your own AI-provider key. Off by default with an in-app disclosure before first use.
+• Voice companion (optional) — talk to your agents in real time and approve or answer by voice, using your own AI-provider key. Off by default with an in-app disclosure before first use. If the provider's per-call time limit ends a call, one tap starts a fresh one.
 
 vibebuddy connects directly to your own Mac over your local network (paired by scanning a QR code) — your session data never goes through our servers. The Mac app is free and open source.
 
