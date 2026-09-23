@@ -57,6 +57,16 @@ struct WatchTaskDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("watch-banner-action-fallback")
                 }
+                // The words of a reply that was not sent stay on the card: a
+                // refusal says why, it never takes the dictation with it.
+                if let unsent = store.unsentBannerReply, unsent.sessionID == link.sessionID {
+                    Text("Not sent: “\(unsent.text)”")
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("watch-banner-unsent-reply")
+                }
                 if let task = link.task(in: store.state) {
                     taskBody(task)
                 } else if let alert = link.alert(in: store.state) {
