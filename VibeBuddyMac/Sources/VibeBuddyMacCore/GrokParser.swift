@@ -132,16 +132,14 @@ public enum GrokParser {
             guard let text else { return "Permission required" }
             return text.lowercased().contains("permission") ? text : "Permission required: \(text)"
         case "stop_failure":
-            // Mirrors Claude's `StopFailure` prose so `FailureHeuristic` marks the
-            // session stuck through the same path.
+            // Mirrors Claude's `StopFailure` prose.
             let kind = nonEmpty(raw.error) ?? "unknown"
             guard let detail = nonEmpty(raw.errorDetails) ?? nonEmpty(raw.lastAssistantMessage) else {
                 return "Turn failed: \(kind)"
             }
             return "Turn failed (\(kind)): \(detail)"
         case "stop_cancelled":
-            // A cancel is not a failure, so carry only the agent's own words —
-            // synthesized prose here would trip the failure heuristic.
+            // A cancel is not a failure, so carry only the agent's own words.
             return nonEmpty(raw.lastAssistantMessage)
         case "stop":
             return nonEmpty(raw.lastAssistantMessage)

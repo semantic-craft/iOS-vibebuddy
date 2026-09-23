@@ -490,10 +490,6 @@ final class DashboardStore: ObservableObject {
             guard let self else { return WatchCompletionResult(attemptID: request.attemptID, outcome: .failed) }
             return await self.acknowledgeFromWatch(request)
         }
-        watchRelay?.onRecapReadRequest = { [weak self] request in
-            guard let self else { return WatchRecapReadResult(attemptID: request.attemptID, outcome: .failed) }
-            return await self.recapReadFromWatch(request)
-        }
         // The wrist's only way to act. It asks; this decides.
         watchRelay?.onSessionAction = { [weak self] request in
             guard let self else {
@@ -718,44 +714,6 @@ final class DashboardStore: ObservableObject {
         return result(outcome)
     }
 
-    /// Mark all from the wrist: each named round as an exact-round read first,
-    /// the horizon last. The order matters: a snapshot whose horizon has moved
-    /// retires the Watch's queued request, so the horizon must not move until
-    /// every read has been delivered — otherwise a read that failed after it
-    /// would never be retried. The Mac decides everything; this phone keeps no
-    /// record of its own — the Watch holds the retryable intent. Outcomes that
-    /// are final for a round (already read, a later round, an unknown session)
-    /// are done; only a delivery failure is reported as `failed`, so the Watch
-    /// tries the whole thing again and the Mac's idempotent routes absorb it.
-    func recapReadFromWatch(_ message: WatchRecapReadRequest) async -> WatchRecapReadResult {
-        func result(_ outcome: RecapReadOutcome) -> WatchRecapReadResult {
-            WatchRecapReadResult(attemptID: message.attemptID, outcome: outcome)
-        }
-        guard message.pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
-        guard state == .connected, let pairing, let sourceID else { return result(.failed) }
-        guard message.sourceID == sourceID, message.pairingEpoch == pairingEpoch else { return result(.sourceMismatch) }
-        for link in message.completions {
-            guard link.sourceID == sourceID, link.pairingEpoch == pairingEpoch,
-                  let request = link.readRequest else { continue }
-            let outcome = await decisionClient.acknowledge(pairing, request: request)
-            guard self.pairing == pairing, pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
-            completionReads.received(outcome, request: request)
-            switch outcome {
-            case .accepted, .alreadyAcknowledged, .staleCompletion, .unavailable, .sourceMismatch: continue
-            case .failed: return result(.failed)
-            }
-        }
-        let horizon = await decisionClient.advanceRecapHorizon(pairing, request: message.recapRead)
-        guard self.pairing == pairing, message.sourceID == self.sourceID,
-              message.pairingEpoch == self.pairingEpoch,
-              pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
-        switch horizon {
-        case .failed: return result(.failed)
-        case .sourceMismatch: return result(.sourceMismatch)
-        case .accepted: return result(.accepted)
-        }
-    }
-
     /// Register this Live Activity's APNs push token with the Mac. Best-effort.
     private func uploadActivityToken(_ token: String) {
         guard !isDemo, let pairing,
@@ -959,8 +917,7 @@ final class DashboardStore: ObservableObject {
         guard let watchRelay else { return }
         let now = Date()
         var projection = WatchDashboardProjection.make(
-            snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime, sourceID: sourceID,
-                               recap: isDemo ? WatchDemoScenario.recap(now: now) : lastRecap),
+            snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime, sourceID: sourceID),
             quotas: isDemo ? WatchDemoScenario.normal.quotas(now: now) : lastProviderQuota,
             relay: state == .connected ? .live : .disconnected,
             now: lastServerTime,

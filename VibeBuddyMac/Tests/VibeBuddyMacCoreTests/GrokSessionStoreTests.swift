@@ -82,7 +82,7 @@ struct GrokSessionStoreTests {
         let store = SessionStore(grokHome: fixture.home)
         await store.ingest(hook("session_start", fixture), agent: .grok, receivedAt: t0)
 
-        let entries = await store.recentTranscript(sessionID: fixture.sessionID)
+        let entries = await store.recentOutput(sessionID: fixture.sessionID).entries
         #expect(entries.map(\.role) == ["user", "assistant", "assistant", "assistant"])
         #expect(entries.map(\.text) == ["do the thing", "on it", "⚙ read_file", "done the thing"])
     }
@@ -121,7 +121,7 @@ struct GrokSessionStoreTests {
         let session = try #require(await store.snapshot(now: t0).sessions.first)
         #expect(session.model == nil)
         #expect(session.contextWindow == nil)
-        let entries = await store.recentTranscript(sessionID: fixture.sessionID)
+        let entries = await store.recentOutput(sessionID: fixture.sessionID).entries
         #expect(entries.isEmpty)
     }
 

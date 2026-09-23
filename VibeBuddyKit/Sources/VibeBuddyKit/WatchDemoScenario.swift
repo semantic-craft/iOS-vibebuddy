@@ -51,8 +51,7 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
         }
         var state = WatchDashboardProjection.make(
             snapshot: Snapshot(sessions: samples, serverTime: now,
-                               sourceID: Self.sourceID,
-                               recap: samples.isEmpty ? nil : Self.recap(now: now)),
+                               sourceID: Self.sourceID),
             quotas: quotas(now: now),
             relay: self == .macDisconnected ? .disconnected : .live,
             now: now.addingTimeInterval(-observedAgo),
@@ -236,57 +235,6 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
                 model: "claude-opus-4-8", status: .done, summary: "Sorted reminders by due date.",
                 statusSince: now.addingTimeInterval(-1_500), updatedAt: now.addingTimeInterval(-1_500)),
         ]
-    }
-
-    // MARK: recap
-
-    /// What ended while the wearer was away, as the Mac would have recorded
-    /// it: seven rounds over the last few hours — one that failed, one already
-    /// read on the Mac — after a horizon set this morning. The sessions are the
-    /// ones above, so a round names a project the rest of the demo shows.
-    public static func recap(now: Date) -> Recap {
-        func entry(_ session: String, round: String? = "round", kind: RecapEntryKind = .completed,
-                   agent: AgentKind, project: String, title: String, points: [String],
-                   minutesAgo: Double, read: Bool = false) -> RecapEntry {
-            let endedAt = now.addingTimeInterval(-minutesAgo * 60)
-            let completionID = kind == .completed ? round.map { session + "-" + $0 } : nil
-            let id = kind == .completed
-                ? RecapEntry.completedID(sourceID: sourceID, sessionID: session, completionID: completionID ?? "")
-                : RecapEntry.failedID(sourceID: sourceID, sessionID: session, statusSince: endedAt)
-            return RecapEntry(id: id, kind: kind, sessionID: session, completionID: completionID,
-                              agent: agent, project: project, title: title, points: points,
-                              endedAt: endedAt, isRead: read)
-        }
-        return Recap(horizon: now.addingTimeInterval(-5 * 3_600), entries: [
-            entry("demo-watch-docs", agent: .claudeCode, project: "docs-site",
-                  title: "Deployed docs to production",
-                  points: ["Rebuilt 42 pages and fixed three broken links.", "6 files · 4 commands · +212 −40"],
-                  minutesAgo: 12),
-            entry("demo-watch-release", round: nil, kind: .failed, agent: .codex, project: "release-check",
-                  title: "Build failed with two signing errors",
-                  points: ["Provisioning profile expired before upload.", "2 files · 5 commands"],
-                  minutesAgo: 25),
-            entry("demo-watch-todo", agent: .claudeCode, project: "todo-app",
-                  title: "Sorted reminders by due date",
-                  points: ["Reminders now sort by due date, then title.", "3 files · 2 commands · +48 −12"],
-                  minutesAgo: 41, read: true),
-            entry("demo-watch-auth", round: "round-1", agent: .claudeCode, project: "web-dashboard",
-                  title: "Auth middleware refactored",
-                  points: ["Dropped the legacy cookie path and added six tests.", "9 files · 7 commands · +310 −188"],
-                  minutesAgo: 65),
-            entry("demo-watch-tests", round: "round-1", agent: .codex, project: "ios-vibebuddy",
-                  title: "Test suite green after the retry",
-                  points: ["48 of 48 tests passed on the second run.", "1 file · 3 commands · +4 −4"],
-                  minutesAgo: 100),
-            entry("demo-watch-notes", agent: .claudeCode, project: "api-notes",
-                  title: "Summarised 14 endpoints",
-                  points: ["No code changed; notes are in docs/api.md.", "1 file · 1 command · +96 −0"],
-                  minutesAgo: 140),
-            entry("demo-watch-site", agent: .cursor, project: "semantic-craft/site",
-                  title: "Opened PR #7 from the cloud agent",
-                  points: ["Repository run, not local; CI is still pending."],
-                  minutesAgo: 190),
-        ])
     }
 
     // MARK: quota

@@ -68,4 +68,5 @@ Priority when a session could be in two: `needsResponse` > `working` > `done`.
 
 - [prd.md](./prd.md) — problem, solution, user stories, decisions
 - [architecture.md](./architecture.md) — components, data model, state machine, wire protocol
-- [roadmap-2026-09.html](./roadmap-2026-09.html) — the live construction plan (施工图); `roadmap-2026-09.json` is its export
+- [backlog/README.md](./backlog/README.md) — every open item as of 2026-09-23, with its ticket, status and evidence; start here
+- [roadmap-2026-09.html](./roadmap-2026-09.html) — the 2026-09-06 construction plan (施工图) snapshot; `roadmap-2026-09.json` is its export. Node statuses there are not updated; the backlog supersedes them

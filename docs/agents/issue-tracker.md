@@ -1,30 +1,22 @@
 # Issue tracker: Local Markdown
 
-Issues and PRDs for this repo live as markdown files in `.scratch/`.
+Issues and PRDs for this repo live as tracked markdown files in `docs/planning/backlog/`, indexed by `docs/planning/backlog/README.md`.
 GitHub Issues on `semantic-craft/iOS-vibebuddy` is **not** used for work tracking.
+
+`.scratch/` is gitignored and invisible to worktrees and other machines; uncommitted work there has been lost. Use it only for session-local notes, `/wayfinder` maps and handoff documents (`.scratch/<feature>/handoffs/`, which the Mac's handoff scanner reads).
 
 ## Conventions
 
-- One feature per directory: `.scratch/<feature-slug>/`
-- The PRD is `.scratch/<feature-slug>/PRD.md`
-- Implementation issues are `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`
+- One feature per directory: `docs/planning/backlog/<feature-slug>/`
+- The PRD is `docs/planning/backlog/<feature-slug>/PRD.md`
+- Implementation issues are `docs/planning/backlog/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`
+- Every open issue has a row in `docs/planning/backlog/README.md`; pick a ticket up in place and change its `Status:` line in the same PR as the work; when it is done, delete the file and its row
 - Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
-## Existing features (as of setup)
-
-The convention is already in use:
-
-- `.scratch/ios-voice-parity/issues/` (01–04)
-- `.scratch/bg-sound-parity/issues/` (01)
-- `.scratch/design-polish/issues/` (01)
-- `.scratch/dynamic-island/issues/` (01)
-- `.scratch/failure-signal/issues/` (01)
-- `.scratch/realtime-verify/issues/` (01)
-
 ## When a skill says "publish to the issue tracker"
 
-Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
+Create a new file under `docs/planning/backlog/<feature-slug>/` (creating the directory if needed), add its row to `docs/planning/backlog/README.md`, and commit it.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -32,7 +24,7 @@ Read the file at the referenced path. The user will normally pass the path or th
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
+Used by `/wayfinder`. The **map** is a file with one **child** file per ticket. These stay in `.scratch/` because they are session-local; move any outcome that must outlive the session into the tracked backlog.
 
 - **Map**: `.scratch/<effort>/map.md` (the Destination / Notes / Decisions-so-far / Not yet specified / Out of scope body).
 - **Child ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records `open`/`claimed`/`resolved`.

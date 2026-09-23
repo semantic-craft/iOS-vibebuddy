@@ -5,15 +5,6 @@ import Foundation
 public enum NotificationCategoryID: String, Sendable, CaseIterable {
     case approval
     case question
-
-    /// The UNNotificationCategory id for this cue, if it has actions.
-    public static func forSound(_ sound: NotificationSound) -> NotificationCategoryID? {
-        switch sound {
-        case .needsApproval: return .approval
-        case .needsAnswer: return .question
-        default: return nil
-        }
-    }
 }
 
 /// Banner buttons, shared by both apps' `UNNotificationAction` identifiers.

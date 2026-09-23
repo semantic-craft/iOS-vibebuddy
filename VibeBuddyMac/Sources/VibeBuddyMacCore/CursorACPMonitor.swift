@@ -215,8 +215,6 @@ public actor CursorACPMonitor {
     /// Whether this monitor is carrying the conversation right now.
     public func hosts(_ sessionID: String) -> Bool { hosted[sessionID] != nil }
 
-    public func hostedSessionIDs() -> Set<String> { Set(hosted.keys) }
-
     /// Whether a turn is running on a hosted conversation.
     public func isRunning(_ sessionID: String) -> Bool { hosted[sessionID]?.running == true }
 

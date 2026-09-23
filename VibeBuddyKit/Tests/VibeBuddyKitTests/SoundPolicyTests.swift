@@ -75,9 +75,6 @@ struct SoundPolicyTests {
 
     @Test("shared category and action ids cover approval and question only")
     func notificationCategoryIDs() {
-        #expect(NotificationCategoryID.forSound(.needsApproval) == .approval)
-        #expect(NotificationCategoryID.forSound(.needsAnswer) == .question)
-        #expect(NotificationCategoryID.forSound(.agentDone) == nil)
         #expect(NotificationCategoryID.approval.rawValue == "approval")
         #expect(NotificationCategoryID.question.rawValue == "question")
         #expect(NotificationActionID.approve.rawValue == "approve")

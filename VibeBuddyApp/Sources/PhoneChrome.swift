@@ -265,13 +265,6 @@ extension PhoneEmptyState where Action == EmptyView {
 }
 
 extension View {
-    /// One neutral ground under a sheet, and the phone's accent inside it.
-    func phoneSheet() -> some View {
-        self
-            .background(CompanionPalette.bg)
-            .tint(CompanionPalette.accent)
-    }
-
     /// A `Form` / `List` restyled onto the phone's ground.
     func phoneList() -> some View {
         self

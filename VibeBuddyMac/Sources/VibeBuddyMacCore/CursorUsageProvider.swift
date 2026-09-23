@@ -38,10 +38,6 @@ public enum CursorSessionCookieStore {
         write(normalize(value), manualKeychainAccount)
     }
 
-    public static func loadImported(read: (String) -> String? = { KeychainStore.get($0) }) -> String? {
-        normalize(read(importedKeychainAccount))
-    }
-
     /// Persists the imported cookie only when it differs from the stored value.
     /// Returns `nil` when no write was needed; otherwise the Keychain OSStatus.
     @discardableResult

@@ -8,26 +8,13 @@
 
 ## 何时读取及如何继续
 
-讨论下一步计划、选择新开发任务，或修改 macOS 分发、沙盒、代理接入相关行为时，读取本文件与本地 `.scratch/mac-app-store/CHECKLIST.md`。用户给了其他明确任务时先完成该任务；不要因此自动启动商店版开发。
+讨论下一步计划、选择新开发任务，或修改 macOS 分发、沙盒、代理接入相关行为时，读取本文件与 `docs/planning/backlog/mac-app-store/CHECKLIST.md`。用户给了其他明确任务时先完成该任务；不要因此自动启动商店版开发。
 
-- 本地状态入口：`.scratch/mac-app-store/CHECKLIST.md`。
+- 状态入口：`docs/planning/backlog/mac-app-store/CHECKLIST.md`（随仓库保存；2026-09-23 起 09 需从零重做，见其末节）。
 - 候选 spec 和研究：同目录 `PRD.md`、`RESEARCH.md`。
-- 工作票：同目录 `issues/`；当前有效票与依赖按 checklist 的精确链接定位，不从历史票号推断。
-- Claude 独立评审提示词：同目录 `CLAUDE-CODE-PROMPT.md`。只有实际存在评审结果才声称收到意见。
+- 工作票：同目录 `issues/`（09–18）；当前有效票与依赖按 checklist 的精确链接定位，不从历史票号推断。实测结论在同目录 `evidence/`。
+- Claude 独立评审结果：同目录 `CLAUDE-REVIEW.md`。HTML 实施手册、提示词和探针源码只在 `~/Projects/_shared-work/archive/iOS-vibebuddy-scratch-2026-09-23.tgz`。
 
 领取工作前复核当前源码、git 状态、票 owner 和已有证据；收尾回写 checklist 的下一张票及 ticket 证据。本文件不复制动态状态。
 
-## 本地材料缺失时
-
-`.scratch/` 按项目规则不入 Git；新 clone、worktree 或其他机器可能没有这些材料。不要把缺失当作“已完成”或遗忘该方向。先在可访问的原工作区查找；跨机交付按项目规则和用户授权进行，不自动同步。确实无法取回时，在本地重建候选计划并明确没有继承任何实测结果：
-
-1. 独立复核 Apple 规则和源码，不以模型意见代替运行证据。
-2. 建立隔离沙盒 app，核验实际签名、独立容器/端口、无 Sparkle；保留直接版。
-3. 优先验证 Codex Unix socket 的真实观察/审批/问答；目录授权不能证明 IPC 可用。
-4. 验证 Claude hooks 的自包含资源、用户配置授权、token、原生响应和 fail-open，不依赖系统 Python。
-5. 验证目录持久授权、容器存储、音频/局域网/通知拒绝及恢复。
-6. 按实验结果选路线和功能范围；额外 bridge、功能削减都须说明产品代价。
-7. 集成商店渠道，并对真实 Mac/iPhone 闭环及直接版受影响行为做验收。
-8. 准备签名归档、隐私、截图和审核复现材料；公众 APNs 独立核验，上传/提交另按授权执行。
-
-稳定入口和工作原则可随正常源码提交保存；本地 tickets 与证据的跨机交付需单独安排。入口存在不能代替实际交付完成。
+票据和证据随仓库保存；入口存在不能代替实际交付完成。

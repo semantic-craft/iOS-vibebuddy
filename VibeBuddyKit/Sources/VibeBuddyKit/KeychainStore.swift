@@ -300,13 +300,6 @@ public enum VoiceSettings {
         return .ready(summary)
     }
 
-    /// Pin read-aloud to one provider, or pass `nil` to follow summaries again.
-    /// A provider that cannot speak is not a pin — it clears one.
-    public static func selectReadAloudProvider(_ provider: VoiceProvider?, defaults: UserDefaults = .standard) {
-        let pin = provider.flatMap { $0.supportsVoice ? $0 : nil }
-        defaults.set(pin?.rawValue ?? "", forKey: readAloudProviderKey)
-    }
-
     /// The read-aloud model / voice for a provider; blank falls back to the
     /// provider's own default.
     public static func readAloudModel(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> String {

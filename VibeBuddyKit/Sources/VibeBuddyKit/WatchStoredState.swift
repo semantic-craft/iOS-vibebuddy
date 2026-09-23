@@ -5,13 +5,9 @@ import Foundation
 public struct WatchStoredState: Codable, Equatable, Sendable {
     public var state: WatchDashboardState
     public var queue: WatchCompletionQueue
-    /// The queued Mark all, if any. Optional on the wire so a cache written
-    /// before the recap existed still decodes (as "nothing queued").
-    public var recapQueue: WatchRecapQueue?
     public var complication: WatchComplicationSnapshot
 
     public init(state: WatchDashboardState, queue: WatchCompletionQueue,
-                recapQueue: WatchRecapQueue? = nil,
                 previous: WatchComplicationSnapshot? = nil) {
         var cached = state
         cached.alerts = state.alerts.map { alert in
@@ -29,7 +25,6 @@ public struct WatchStoredState: Codable, Equatable, Sendable {
         }
         self.state = cached
         self.queue = queue
-        self.recapQueue = recapQueue
         complication = WatchComplicationSnapshot(state: cached, previous: previous)
         complication.pendingCompletionIDs = queue.markedLinks.filter {
             $0.sourceID == state.sourceID && $0.pairingEpoch == state.pairingEpoch

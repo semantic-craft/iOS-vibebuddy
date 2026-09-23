@@ -171,10 +171,6 @@ public enum QuotaPresentation {
         return scopedOnlyTitle(words.isEmpty ? key : words)
     }
 
-    public static func isAllModelsScope(_ name: String) -> Bool {
-        slug(name) == "all-models" || slug(name).hasSuffix("-all-models")
-    }
-
     public static func spendLine(_ spend: QuotaSpend) -> String {
         spend.amount.formatted(.currency(code: spend.currencyCode).locale(Locale(identifier: "en_US")))
     }

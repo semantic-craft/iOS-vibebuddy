@@ -20,9 +20,9 @@ Changes to behavior or architecture should also follow the
 [domain guide](docs/agents/domain.md), [CONTEXT.md](CONTEXT.md) and relevant
 [architecture decisions](docs/adr).
 
-For work planning, this project uses local Markdown under `.scratch/<feature>/`,
-as described in the [issue-tracker guide](docs/agents/issue-tracker.md). Those
-local notes are not committed. Send reviewable changes as GitHub pull requests;
+For work planning, this project uses Markdown tickets under
+`docs/planning/backlog/<feature>/`, as described in the
+[issue-tracker guide](docs/agents/issue-tracker.md). Send reviewable changes as GitHub pull requests;
 for a substantial proposal, explain the intended behavior before investing in a
 large implementation.
 

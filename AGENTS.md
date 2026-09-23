@@ -28,7 +28,7 @@ Repository-owned skills live in `docs/agents/skills/` and are tracked here: `ver
 
 | Work | Reference |
 | --- | --- |
-| Creating, reading, or updating tickets and PRDs — local Markdown under `.scratch/<feature>/`, not GitHub Issues; a skill's "publish to the issue tracker" means writing that file | `docs/agents/issue-tracker.md` |
+| Creating, reading, or updating tickets and PRDs — tracked Markdown under `docs/planning/backlog/<feature>/` with an index row, not GitHub Issues and not `.scratch/`; a skill's "publish to the issue tracker" means writing and committing that file | `docs/agents/issue-tracker.md` |
 | Assigning or changing triage state (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` as a `Status:` line) | `docs/agents/triage-labels.md` |
 | Changing domain behavior, terminology, or architecture (single-context layout: `CONTEXT.md` + `docs/adr/`) | `docs/agents/domain.md`, `CONTEXT.md`, and the relevant ADRs; flag a conflict with an existing ADR before implementing against it |
 | Resuming earlier work ("上次", "昨天", "继续") | `docs/agents/skills/vibebuddy-history/SKILL.md`: newest handoff first, then source `facts` for drift, then the saved summary; a summary never overrides a newer handoff. Optional `status --exclude-session` reports other sessions in this checkout; report them and let the user decide. History tools are read-only |
