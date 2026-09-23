@@ -19,6 +19,7 @@ public struct HistoryToolExecutor: Sendable {
                 return try await HistoryLiveStatus.call(arguments: arguments, environment: environment)
             case HandoffFacts.toolName:
                 // Handoff facts read the daemon's ledger files and probe git.
+                await LedgerFlushRequest.send(environment: environment)
                 return try HandoffFacts.call(arguments: arguments, directory: HandoffFacts.directory(environment: environment))
             case "vibebuddy_get_session":
                 return try await HistoryTools.getSession(arguments: arguments, reader: reader)

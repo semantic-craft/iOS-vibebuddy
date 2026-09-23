@@ -612,10 +612,25 @@ public actor SessionStore {
     private var handoffCache: (at: ContinuousClock.Instant, directories: [String], records: [HandoffRecord])?
     static let handoffCacheWindow: Duration = .seconds(5)
 
-    /// A tool call that runs `vibebuddy-mcp facts` (CLI) or the MCP tool.
+    /// A tool call that runs `vibebuddy-mcp facts`, `call vibebuddy_handoff_facts`, or the MCP tool.
     static func readsHandoffFacts(_ record: ToolCallRecord) -> Bool {
         record.tool.hasSuffix("vibebuddy_handoff_facts")
-            || (record.command?.contains("vibebuddy-mcp facts") ?? false)
+            || (record.command.map { $0.contains("vibebuddy_handoff_facts") || $0.contains("vibebuddy-mcp facts") } ?? false)
+    }
+
+    /// Every tool-ledger observation, from hooks and native monitors alike.
+    private func noteToolObservation(_ record: ToolCallRecord, kind: HookEvent.Kind, at date: Date) {
+        // Best effort ahead of the facts call; the reader also asks for a
+        // flush itself (`POST /ledger/flush`) because hooks are asynchronous.
+        if kind == .preToolUse, Self.readsHandoffFacts(record) { toolLedger.flush(now: date) }
+        // A handoff note just written must reach the next pushed snapshot.
+        if record.files.contains(where: { $0.contains("/.scratch/") }) { handoffCache = nil }
+    }
+
+    /// Write the tool ledger now, for a reader in another process
+    /// (`vibebuddy-mcp facts` via `POST /ledger/flush`).
+    public func flushToolLedgerForReader(now: Date = Date()) {
+        toolLedger.flush(now: now)
     }
 
     private func cachedHandoffs(directories: [String]) -> [HandoffRecord] {
@@ -803,17 +818,8 @@ public actor SessionStore {
             if !appServerOutranks(event, from: .hook), !acpOutranks(event, from: .hook),
                let record = ToolLedger.hook(data, event: event) {
                 toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt, agent: event.agent)
-                // The handoff facts tool reads this file from another process;
-                // the agent calls it right after its last step, inside the write
-                // window. Write through before that call runs.
-                if Self.readsHandoffFacts(record) { toolLedger.flush(now: receivedAt) }
-                // A handoff note just written must reach the next pushed snapshot.
-                if record.files.contains(where: { $0.contains("/.scratch/") }) { handoffCache = nil }
+                noteToolObservation(record, kind: event.kind, at: receivedAt)
                 armToolLedgerFlush()
-            }
-            if event.kind == .stop || event.kind == .sessionEnd {
-                toolLedger.flush(now: receivedAt)
-                handoffCache = nil
             }
             ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
@@ -940,6 +946,12 @@ public actor SessionStore {
         announcesWait: Bool = true
     ) {
         if dropsCursorObserveOnly(event) { return }
+        // A turn that ended, from any source: its last steps and any handoff
+        // it wrote must be visible to the next reader and pushed snapshot.
+        if event.kind == .stop || event.kind == .sessionEnd {
+            toolLedger.flush(now: event.timestamp)
+            handoffCache = nil
+        }
         // Corroborating progress can arrive after the exact native turn ended.
         // Keep its observation, but never reopen that turn or clear its result.
         let completedTurnProgress = completionResults.isCompletedProgress(event, sourceID: sourceID)
@@ -1000,6 +1012,7 @@ public actor SessionStore {
                 observedAt: event.timestamp, source: observationSource.rawValue,
                 coverage: "Tool activity observed; call identity and result details unavailable")
             toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp, agent: event.agent)
+            noteToolObservation(record, kind: event.kind, at: event.timestamp)
             armToolLedgerFlush()
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse

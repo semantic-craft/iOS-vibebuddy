@@ -1045,6 +1045,14 @@ public struct VibeBuddyServer: Sendable {
         // creates a session or moves progress, so an unknown session id is
         // still a 200 (the forwarder is fail-open and never retries).
         let usageFeed = self.usageFeed
+        // `vibebuddy-mcp facts` asks for the tool ledger to be on disk before
+        // it reads the file; hooks are async, so the agent's own facts call can
+        // otherwise race its last steps.
+        hookAuthed.post("ledger/flush") { _, _ -> HTTPResponse.Status in
+            await store.flushToolLedgerForReader()
+            return .noContent
+        }
+
         hookAuthed.post("statusline") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 256 * 1024)
             guard let obj = (try? JSONSerialization.jsonObject(with: Data(buffer: buffer))) as? [String: Any],

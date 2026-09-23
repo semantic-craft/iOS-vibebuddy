@@ -15,6 +15,7 @@ struct HandoffFactsFlushTests {
         }
         #expect(SessionStore.readsHandoffFacts(record("Bash", "vibebuddy-mcp facts claude-code:abc")))
         #expect(SessionStore.readsHandoffFacts(record("mcp__vibebuddy__vibebuddy_handoff_facts", nil)))
+        #expect(SessionStore.readsHandoffFacts(record("Bash", "vibebuddy-mcp call vibebuddy_handoff_facts '{}'")))
         #expect(!SessionStore.readsHandoffFacts(record("Bash", "swift test")))
     }
 
@@ -36,6 +37,26 @@ struct HandoffFactsFlushTests {
         let held = try String(contentsOf: dir.appendingPathComponent("tool-ledger.json"), encoding: .utf8)
         #expect(!held.contains("swift test"))   // still inside the window
         _ = await store.ingest(bash("PreToolUse", "b", "vibebuddy-mcp facts claude-code:s"), receivedAt: t0.addingTimeInterval(4))
+        let text = try String(contentsOf: dir.appendingPathComponent("tool-ledger.json"), encoding: .utf8)
+        #expect(text.contains("swift test"))
+    }
+
+    @Test("a Stop from any source writes the held steps")
+    func nonHookStopWritesThrough() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("facts-stop-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let store = SessionStore(journalURL: dir.appendingPathComponent("lifecycle-journal.json"))
+        let t0 = Date()
+        func bash(_ event: String, _ id: String, _ command: String) -> Data {
+            Data(#"{"hook_event_name":"\#(event)","session_id":"s","cwd":"/tmp","tool_name":"Bash","tool_use_id":"\#(id)","tool_input":{"command":"\#(command)"},"tool_response":{"stdout":"ok"}}"#.utf8)
+        }
+        _ = await store.ingest(bash("PreToolUse", "w", "echo warmup"), receivedAt: t0)
+        _ = await store.ingest(bash("PreToolUse", "a", "swift test"), receivedAt: t0.addingTimeInterval(1))
+        let held = try String(contentsOf: dir.appendingPathComponent("tool-ledger.json"), encoding: .utf8)
+        #expect(!held.contains("swift test"))
+        await store.ingest(HookEvent(kind: .stop, sessionID: "s", agent: .claudeCode,
+                                     observationSource: .transcript, timestamp: t0.addingTimeInterval(2)))
         let text = try String(contentsOf: dir.appendingPathComponent("tool-ledger.json"), encoding: .utf8)
         #expect(text.contains("swift test"))
     }
