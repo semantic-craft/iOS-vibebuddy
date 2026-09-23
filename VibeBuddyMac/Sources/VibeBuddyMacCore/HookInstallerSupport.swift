@@ -82,7 +82,7 @@ public struct HookInstallerEnvironment: Sendable {
     /// uninstall, backups, and the saved original status line.
     public var supportDirectory: URL
     /// Environment variables: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`,
-    /// `CURSOR_HOME`, `XDG_CONFIG_HOME`, `VIBEBUDDY_PORT`.
+    /// `CURSOR_HOME`, `XDG_CONFIG_HOME`.
     public var variables: [String: String]
     /// The installed Claude Code version, nil when unknown.
     public var claudeVersion: @Sendable () -> ClaudeCodeVersion?
@@ -185,27 +185,76 @@ public struct HookPaths: Sendable {
     public var backups: URL { support.appendingPathComponent("backups", isDirectory: true) }
 
     /// A short, stable id for one config file (first 12 hex digits of the
-    /// SHA-256 of its standardized path), so two Claude config directories
-    /// never share a saved status line, a backup rotation or a manifest entry.
-    public func configKey(_ url: URL) -> String {
-        let digest = SHA256.hash(data: Data(url.standardizedFileURL.path.utf8))
-        return digest.prefix(6).map { String(format: "%02x", $0) }.joined()
+    /// SHA-256 of its canonical path), so two Claude config directories
+    /// never share a saved status line, a backup rotation or a manifest entry
+    /// — and one directory reached two ways (a `~/.claude` symlink and
+    /// `CLAUDE_CONFIG_DIR` naming its target) gets one id, not two.
+    public func configKey(_ url: URL) -> String { Self.digest(Self.canonicalPath(url)) }
+
+    /// The key #266 wrote, from the standardized path without resolving
+    /// symlinks; read only to carry a saved status line over.
+    func unresolvedConfigKey(_ url: URL) -> String { Self.digest(url.standardizedFileURL.path) }
+
+    private static func digest(_ path: String) -> String {
+        SHA256.hash(data: Data(path.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Manifest and remembered-uninstall key: the agent plus its config path.
+    /// `url` with every symlink resolved, including in the parents of a file
+    /// that does not exist yet (`resolvingSymlinksInPath` leaves a path with
+    /// a missing leaf untouched): realpath(3) on the deepest existing
+    /// ancestor, then the missing components appended. The result is never
+    /// standardized again: that strips `/private` only from paths that exist,
+    /// so a config's key would change the moment an uninstall deletes it.
+    static func canonicalPath(_ url: URL) -> String {
+        var ancestor = url.standardizedFileURL
+        var missing: [String] = []
+        while true {
+            if let resolved = realpath(ancestor.path, nil) {
+                defer { free(resolved) }
+                return missing.reversed().reduce(String(cString: resolved)) { ($0 as NSString).appendingPathComponent($1) }
+            }
+            let parent = ancestor.deletingLastPathComponent()
+            guard parent.path != ancestor.path else { return url.standardizedFileURL.path }
+            missing.append(ancestor.lastPathComponent)
+            ancestor = parent
+        }
+    }
+
+    /// Manifest and remembered-uninstall key: the agent plus its canonical config path.
     public func entryKey(_ agent: HookAgent) -> String {
-        "\(agent.rawValue):\(hookFile(agent).standardizedFileURL.path)"
+        "\(agent.rawValue):\(Self.canonicalPath(hookFile(agent)))"
+    }
+
+    /// A stored manifest or uninstall key in today's form: a bare agent name
+    /// (written by b95d7ce9, before keys named the config) takes `config`, or
+    /// this environment's config file when there is none; any path is
+    /// canonicalized. Keys that name no agent are returned unchanged.
+    func normalizedEntryKey(_ key: String, config: String? = nil) -> String {
+        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        guard let agent = parts.first.flatMap(HookAgent.init(rawValue:)) else { return key }
+        let path = parts.count == 2 ? parts[1] : (config ?? hookFile(agent).path)
+        return "\(agent.rawValue):\(Self.canonicalPath(URL(fileURLWithPath: path)))"
     }
 
     public var claudeKey: String { configKey(claudeSettings) }
     /// `~/.claude`, the only directory the unkeyed pre-C-1 files belonged to.
     public var isDefaultClaudeDirectory: Bool {
-        claudeDirectory.standardizedFileURL.path
-            == environment.home.appendingPathComponent(".claude").standardizedFileURL.path
+        Self.canonicalPath(claudeDirectory) == Self.canonicalPath(environment.home.appendingPathComponent(".claude"))
     }
     /// The status line saved for *this* Claude config directory.
     public var statusLineOriginal: URL { support.appendingPathComponent("statusline-original.\(claudeKey).json") }
     public var statusLineOriginalCommand: URL { support.appendingPathComponent("statusline-original.\(claudeKey).cmd") }
+    /// The same files under #266's unresolved keys — this config path's, and
+    /// `~/.claude`'s when that is this directory through a symlink — where
+    /// they differ from today's key; empty for a path with no symlink in it.
+    var unresolvedKeyStatusLineOriginals: [(json: URL, command: URL)] {
+        var settings = [claudeSettings]
+        if isDefaultClaudeDirectory { settings.append(environment.home.appendingPathComponent(".claude/settings.json")) }
+        var keys: [String] = []
+        for key in settings.map(unresolvedConfigKey) where key != claudeKey && !keys.contains(key) { keys.append(key) }
+        return keys.map { (support.appendingPathComponent("statusline-original.\($0).json"),
+                           support.appendingPathComponent("statusline-original.\($0).cmd")) }
+    }
     /// The unkeyed files the Python installer (and scripts from older app
     /// builds) used; read for `~/.claude` only.
     public var legacyStatusLineOriginal: URL { support.appendingPathComponent("statusline-original.json") }
@@ -383,8 +432,30 @@ extension HookFileStore {
         return decoder
     }()
 
+    /// The manifest with every key in today's form (`HookPaths.normalizedEntryKey`).
+    /// When two stored keys name the same config, their commands are merged
+    /// (every one stays recognisably ours) and the other fields come from a
+    /// path-qualified key over a bare one, then the newer install; the order
+    /// is total, so every load gives the same manifest.
     func loadManifest() -> HookManifest {
-        read(paths.manifest).flatMap { try? Self.decoder.decode(HookManifest.self, from: $0) } ?? HookManifest()
+        var manifest = read(paths.manifest).flatMap { try? Self.decoder.decode(HookManifest.self, from: $0) } ?? HookManifest()
+        var agents: [String: HookManifest.Entry] = [:]
+        let ordered = manifest.agents.sorted { a, b in
+            let (aBare, bBare) = (!a.key.contains(":"), !b.key.contains(":"))
+            if aBare != bBare { return aBare }
+            if a.value.installedAt != b.value.installedAt { return a.value.installedAt < b.value.installedAt }
+            return a.key < b.key
+        }
+        for (key, entry) in ordered {
+            let normalized = paths.normalizedEntryKey(key, config: entry.config)
+            var winner = entry
+            if let earlier = agents[normalized] {
+                winner.commands = Array(Set(earlier.commands + entry.commands)).sorted()
+            }
+            agents[normalized] = winner
+        }
+        manifest.agents = agents
+        return manifest
     }
 
     func saveManifest(_ manifest: HookManifest) throws {
@@ -393,7 +464,10 @@ extension HookFileStore {
     }
 
     func loadState() -> HookInstallState {
-        read(paths.state).flatMap { try? Self.decoder.decode(HookInstallState.self, from: $0) } ?? HookInstallState()
+        var state = read(paths.state).flatMap { try? Self.decoder.decode(HookInstallState.self, from: $0) } ?? HookInstallState()
+        var seen = Set<String>()
+        state.uninstalled = state.uninstalled.map { paths.normalizedEntryKey($0) }.filter { seen.insert($0).inserted }
+        return state
     }
 
     func saveState(_ state: HookInstallState) throws {
@@ -410,14 +484,23 @@ extension HookFileStore {
 // MARK: - Where the runtime scripts come from
 
 /// The directory holding the runtime hook scripts, for callers without an app
-/// bundle of their own (`vibebuddyd hooks`): an explicit directory, then
-/// `VIBEBUDDY_HOOKS_DIR`, then an app bundle — the one enclosing this
-/// executable, else the installed `/Applications/VibeBuddyMacApp.app` — and
-/// only then a `hooks/` directory above the executable or the working
-/// directory (a checkout). The bundle wins over a checkout so that running a
-/// feature branch's daemon does not replace the shared `bin/` with that
-/// branch's scripts unless asked to (`--hooks-dir`). Nil when none has the
-/// scripts; the installer then relies on an existing stable `bin/` copy.
+/// bundle of their own (`vibebuddyd hooks`). The scripts must come from the
+/// same build as the binary writing the configs, so the order follows the
+/// running executable, not whatever else happens to be installed:
+///
+/// 1. an explicit directory (`--hooks-dir`), then `VIBEBUDDY_HOOKS_DIR`;
+/// 2. the app bundle enclosing this executable;
+/// 3. a checkout's `hooks/` above the executable (`swift run` builds live in
+///    `<checkout>/VibeBuddyMac/.build/…`);
+/// 4. only for a binary with neither — copied somewhere on its own — the
+///    installed `/Applications/VibeBuddyMacApp.app`, then a checkout above
+///    the working directory.
+///
+/// Before C-1b the installed app came before the executable's own checkout,
+/// so `vibebuddyd hooks install` from a newer checkout copied an older app's
+/// scripts into `bin/` (C-1 review W1). The app still refreshes `bin/` from
+/// its own bundle on launch, so each writer leaves its own scripts. Nil when
+/// none has the scripts; the installer then relies on an existing `bin/` copy.
 public enum HookScriptSource {
     public static func locate(explicit: String? = nil,
                               environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -430,22 +513,11 @@ public enum HookScriptSource {
                 FileManager.default.fileExists(atPath: url.appendingPathComponent($0).path)
             }
         }
-        if let explicit {
-            let url = URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath, isDirectory: true)
-            return valid(url) ? url : nil
+        func bundled(_ resources: URL?) -> URL? {
+            guard let candidate = resources?.appendingPathComponent("hooks", isDirectory: true) else { return nil }
+            return valid(candidate) ? candidate : nil
         }
-        if let variable = environment["VIBEBUDDY_HOOKS_DIR"], !variable.isEmpty {
-            let url = URL(fileURLWithPath: (variable as NSString).expandingTildeInPath, isDirectory: true)
-            if valid(url) { return url }
-        }
-        for resources in [bundleResources, installedApp].compactMap({ $0 }) {
-            let candidate = resources.appendingPathComponent("hooks", isDirectory: true)
-            if valid(candidate) { return candidate }
-        }
-        var starts: [URL] = []
-        if let executable { starts.append(executable.resolvingSymlinksInPath().deletingLastPathComponent()) }
-        starts.append(workingDirectory)
-        for start in starts {
+        func checkout(above start: URL) -> URL? {
             var directory = start
             for _ in 0..<8 {
                 let candidate = directory.appendingPathComponent("hooks", isDirectory: true)
@@ -454,7 +526,37 @@ public enum HookScriptSource {
                 if parent.path == directory.path { break }
                 directory = parent
             }
+            return nil
         }
-        return nil
+        if let explicit {
+            let url = URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath, isDirectory: true)
+            return valid(url) ? url : nil
+        }
+        if let variable = environment["VIBEBUDDY_HOOKS_DIR"], !variable.isEmpty {
+            let url = URL(fileURLWithPath: (variable as NSString).expandingTildeInPath, isDirectory: true)
+            if valid(url) { return url }
+        }
+        if let own = bundled(bundleResources) { return own }
+        if let executable, let own = checkout(above: executable.resolvingSymlinksInPath().deletingLastPathComponent()) {
+            return own
+        }
+        return bundled(installedApp) ?? checkout(above: workingDirectory)
+    }
+
+    /// The installed app's hooks directory when `source` is not that app and
+    /// its runtime scripts differ from the app's: an install from a checkout
+    /// then replaces the scripts every agent on this Mac runs, until the app
+    /// next launches and puts its own back. Nil when they match or there is
+    /// no installed app.
+    public static func differingInstalledApp(_ source: URL,
+                                             installedApp: URL? = URL(fileURLWithPath: "/Applications/VibeBuddyMacApp.app/Contents/Resources")) -> URL? {
+        guard let app = installedApp?.appendingPathComponent("hooks", isDirectory: true),
+              app.resolvingSymlinksInPath().path != source.resolvingSymlinksInPath().path else { return nil }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: app.path) else { return nil }
+        let differs = (HookInstaller.runtimeScripts + [HookInstaller.opencodePlugin]).contains {
+            fm.contents(atPath: source.appendingPathComponent($0).path) != fm.contents(atPath: app.appendingPathComponent($0).path)
+        }
+        return differs ? app : nil
     }
 }
