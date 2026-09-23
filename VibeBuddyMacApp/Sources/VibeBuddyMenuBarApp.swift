@@ -161,6 +161,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "VibeBuddy runs a background daemon (HTTP/WebSocket server + hooks) that must stay alive")
         openRequestObserver = AppRuntime.observeOpenRequests()
         GlobalHotkey.install()
+        // Configs name the stable script copy; an update refreshes it here.
+        HookSetup.refreshScriptsOnLaunch()
         Self.log.notice("didFinishLaunching")
         // The retired History archive left a derived cache (up to tens of GB).
         Task.detached(priority: .utility) {

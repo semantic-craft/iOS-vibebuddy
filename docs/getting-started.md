@@ -140,21 +140,34 @@ your daemon. There are no approval, answer, stop or dispatch tools.
 
 ## Connect an agent for live observation
 
-Start with Setup in the Mac app's settings. For manual installation, clone this
-repository and run the appropriate installer from its root while VibeBuddy is
-running. Python 3 and the agent CLI are required.
+Start with Setup in the Mac app's settings: **Install / repair** wires every
+detected CLI. No Python is needed — the app installs natively, copies the hook
+scripts (sh and curl only) to `~/Library/Application Support/vibebuddy/bin/`, and
+points each CLI's config at that one path, so app updates never change the
+installed commands. **Uninstall** removes only VibeBuddy's entries, restores your
+status line, and is remembered: updates never put the hooks back.
+
+Without the menu-bar app, the daemon does the same from a checkout of this
+repository:
+
+```bash
+cd VibeBuddyMac
+swift run vibebuddyd hooks install                    # every detected CLI
+swift run vibebuddyd hooks install --agent claude     # one CLI (repeatable)
+swift run vibebuddyd hooks status                     # what is installed where
+swift run vibebuddyd hooks uninstall                  # remove everything
+```
 
 ### Claude Code
 
 ```bash
-python3 hooks/install-claude-hooks.py --dry-run
-python3 hooks/install-claude-hooks.py --install
+swift run vibebuddyd hooks install --agent claude
 ```
 
-To enable supported permission decisions and question replies, also run:
+To enable supported permission decisions and question replies, add `--approval`:
 
 ```bash
-python3 hooks/install-claude-hooks.py --approval
+swift run vibebuddyd hooks install --agent claude --approval
 ```
 
 Start a fresh Claude Code session and submit a short task. When a supported
@@ -164,12 +177,14 @@ request belongs to the native Mac prompt, the companion directs you there.
 ### Codex
 
 ```bash
-python3 hooks/install-codex-hooks.py --install
-python3 hooks/install-codex-hooks.py --approval
+swift run vibebuddyd hooks install --agent codex
+swift run vibebuddyd hooks install --agent codex --approval
 ```
 
 In a fresh Codex CLI session, review and trust the installed hooks through
-`/hooks`. The approval option is needed only for remote permission decisions.
+`/hooks`. Codex keys that trust to each hook's command, which stays the same
+across app updates, so it is needed once (and once more when an older install
+is migrated to the stable path). The approval option is needed only for remote permission decisions.
 Follow the Mac setup instructions for the app-server connection used by task
 creation, continuation and steering.
 
@@ -181,12 +196,11 @@ establish permission coverage or task-control access. Read the
 ### Grok Build
 
 ```bash
-python3 hooks/install-grok-hooks.py --dry-run
-python3 hooks/install-grok-hooks.py --install
+swift run vibebuddyd hooks install --agent grok
 ```
 
 Reload Grok's hooks with `/hooks` then `r`, or start a fresh session. The optional
-`--approval` installer flag adds the blocking approval gate. Grok's permission
+`--approval` flag adds the blocking approval gate. Grok's permission
 mode determines whether a phone approval also resolves the native prompt; read
 the [Grok Build setup details](multi-cli-hook-setup.md#grok-build-grokhooksvibebuddyjson)
 before enabling it. Task observation and account usage do not require that gate.
@@ -214,8 +228,9 @@ integration; Cursor task tracking and remote approval are not yet supported.
 ### Experimental adapters and removal
 
 See [multi-agent hook setup](multi-cli-hook-setup.md) for experimental adapters.
-The Claude, Codex and Grok installers accept `--uninstall` to remove managed entries.
-Keep this checkout at its installed path while file-based hooks refer to it.
+`vibebuddyd hooks uninstall` (or Settings → Uninstall) removes managed entries.
+Installed hooks name the stable copy in `~/Library/Application Support/vibebuddy/bin/`,
+not this checkout, so the checkout can move once the hooks are installed.
 
 ## Optional AI and notifications
 

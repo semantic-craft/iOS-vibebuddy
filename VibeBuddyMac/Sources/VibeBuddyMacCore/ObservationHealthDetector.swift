@@ -165,8 +165,14 @@ public enum ObservationHealthDetector {
                                   upToCount: (1 << 20) + 1, fileManager: .default),
               data.count <= 1 << 20, let text = String(data: data, encoding: .utf8)
         else { return false }
-        // Same deliberately narrow scalar scan as install-codex-hooks.py.
-        // Skip multiline string bodies: example keys are not settings.
+        return codexHooksFeatureDisabled(configText: text)
+    }
+
+    /// A deliberately narrow scalar scan of `config.toml` for `[features]
+    /// hooks` and its deprecated alias `codex_hooks`, shared with the hook
+    /// installer's warning. Not a TOML parser; never writes. Skips multiline
+    /// string bodies: example keys are not settings.
+    static func codexHooksFeatureDisabled(configText text: String) -> Bool {
         var table: [String]? = []
         var multiline: String?
         var values: [String: Bool] = [:]

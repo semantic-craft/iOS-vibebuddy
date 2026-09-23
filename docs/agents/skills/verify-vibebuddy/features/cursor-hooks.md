@@ -16,7 +16,7 @@ In an independently identified Cursor IDE profile using a disposable project and
 ## Driving it with control-vibebuddy
 
 1. Launch and doctor-check the isolated daemon under the feature index rules. Use a temporary Cursor configuration/profile; never rewrite production global hooks for verification. Confirm the IDE window/profile identity before interacting with it.
-2. Run `python3 hooks/test_install_agent_hooks.py`. Its real hung and partial-response HTTP checks must exit normally with empty output inside the configured stop-hook timeout; installation checks use disposable directories.
+2. Run `swift test --filter 'CursorFollowupTimeout|HookInstaller'` in `VibeBuddyMac`. The real hung and partial-response HTTP checks must exit normally with empty output inside the stop-hook timeout the installer writes; installation checks use disposable home directories.
 3. Run the affected `CursorHookAdapter` Swift suite. Fixture results verify decoding and ledger behavior, not actual IDE emission.
 4. Through the real isolated IDE, exercise a failed shell command and a successful read of a file containing JSON error-like fields. Save the emitted hooks and a fresh authenticated snapshot. Check the original tool identity and result, preserving the difference between shell metadata and file contents.
 5. Observe a real stop/follow-up cycle and record elapsed time, collection and the actual subsequent turn separately. Do not infer immediate steering or delivery from a successful HTTP collection response.

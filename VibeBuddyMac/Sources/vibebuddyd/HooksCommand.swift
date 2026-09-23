@@ -1,0 +1,90 @@
+import Foundation
+import VibeBuddyMacCore
+
+/// `vibebuddyd hooks …`: install, remove or inspect vibebuddy's agent hooks
+/// without the menu-bar app and without python3.
+enum HooksCommand {
+    static let usage = """
+    Usage:
+      vibebuddyd hooks install   [--agent NAME]... [--approval] [--statusline] [--hooks-dir DIR]
+      vibebuddyd hooks uninstall [--agent NAME]...
+      vibebuddyd hooks status
+
+      --agent NAME   claude, codex, cursor, grok, opencode or antigravity (repeatable,
+                     or comma-separated). Default: install into every configured CLI;
+                     uninstall from all of them.
+      --approval     add the blocking phone-approval gate (Claude, Codex, Grok, Cursor).
+      --statusline   Claude's status line only; no hooks are touched.
+      --hooks-dir    where the runtime scripts are (default: the checkout's hooks/).
+                     They are copied to ~/Library/Application Support/vibebuddy/bin/,
+                     the one path every config names.
+
+    """
+
+    static func run(_ arguments: [String]) async -> Int32 {
+        guard let action = arguments.first, ["install", "uninstall", "status"].contains(action) else {
+            FileHandle.standardError.write(Data(usage.utf8))
+            return EXIT_FAILURE
+        }
+        var agents: [HookAgent] = []
+        var approval = false
+        var statusLine = false
+        var hooksDirectory: String?
+        var rest = arguments.dropFirst().makeIterator()
+        while let argument = rest.next() {
+            switch argument {
+            case "--agent":
+                guard let value = rest.next() else { return fail("--agent needs a name") }
+                for name in value.split(separator: ",").map(String.init) {
+                    guard let agent = HookAgent(rawValue: name) else { return fail("unknown agent: \(name)") }
+                    if !agents.contains(agent) { agents.append(agent) }
+                }
+            case "--approval": approval = true
+            case "--statusline": statusLine = true
+            case "--hooks-dir":
+                guard let value = rest.next() else { return fail("--hooks-dir needs a directory") }
+                hooksDirectory = value
+            default: return fail("unknown option: \(argument)")
+            }
+        }
+        let source = HookScriptSource.locate(explicit: hooksDirectory)
+        if hooksDirectory != nil && source == nil {
+            return fail("\(hooksDirectory!) does not contain the hook scripts")
+        }
+        let installer = HookInstaller(environment: .live(), scriptSource: source)
+        switch action {
+        case "status":
+            for status in installer.status() { print(status.summary) }
+            print("stable scripts: \(installer.paths.bin.path)")
+            print(CodexHookTrustProbe.lines(for: await CodexHookTrustProbe.check(socketPath: installer.paths.codexControlSocket.path, timeout: .seconds(3)))
+                .joined(separator: "\n"))
+            return EXIT_SUCCESS
+        case "uninstall":
+            let report = installer.uninstall(agents.isEmpty ? nil : agents)
+            print(report.text)
+            return report.failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE
+        default:
+            let report: HookInstallReport
+            if statusLine {
+                report = installer.enableStatusLine()
+            } else {
+                report = installer.install(agents.isEmpty ? nil : agents, approval: approval)
+            }
+            print(report.text)
+            if report.touched.contains(.codex), !statusLine {
+                print("")
+                print(CodexHookTrustProbe.lines(for: await CodexHookTrustProbe.check(socketPath: installer.paths.codexControlSocket.path, timeout: .seconds(3)))
+                    .joined(separator: "\n"))
+            }
+            if source == nil {
+                print("note: no hook script source found; used the existing \(installer.paths.bin.path)")
+            }
+            return report.failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE
+        }
+    }
+
+    private static func fail(_ message: String) -> Int32 {
+        FileHandle.standardError.write(Data("vibebuddyd hooks: \(message)\n\n\(usage)".utf8))
+        return EXIT_FAILURE
+    }
+}

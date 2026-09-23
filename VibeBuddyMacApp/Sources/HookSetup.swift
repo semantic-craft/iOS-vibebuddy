@@ -1,13 +1,13 @@
 import Foundation
+import OSLog
 import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// Onboarding / setup model (issues 05 + 06): reports which agent CLIs are
 /// configured and whether the vibebuddy hook is injected (`EnvironmentDetector`,
-/// read-only), and drives install/uninstall by shelling out to the **bundled,
-/// already-tested** Python installers (`hooks/install-agent-hooks.py`) rather than
-/// reimplementing injection in Swift (ADR-less decision recorded in
-/// `.scratch/mac-power-features/issues/06`).
+/// read-only), and drives install/uninstall through the native
+/// `HookInstaller` — no python3, so a stranger's Mac can be wired from here.
+/// Every operation runs off the main thread.
 @MainActor
 final class HookSetup: ObservableObject {
     @Published private(set) var statuses: [CLIHookStatus] = []
@@ -24,13 +24,16 @@ final class HookSetup: ObservableObject {
         refreshGeneration += 1
         refreshPending = true
         guard refreshTask == nil else { return }
-        let home = E2ERunConfiguration.current?.file("agents").path ?? NSHomeDirectory()
+        let e2eHome = E2ERunConfiguration.current?.file("agents").path
+        let home = e2eHome ?? NSHomeDirectory()
+        // An isolated acceptance run must not follow the user's overrides.
+        let environment = e2eHome == nil ? ProcessInfo.processInfo.environment : [:]
         refreshTask = Task { [weak self] in
             while self?.refreshPending == true {
                 self?.refreshPending = false
                 guard let generation = self?.refreshGeneration else { return }
                 let statuses = await Task.detached(priority: .userInitiated) {
-                    EnvironmentDetector.detect(EnvironmentDetector.defaultCLIs(home: home))
+                    EnvironmentDetector.detect(EnvironmentDetector.defaultCLIs(home: home, environment: environment))
                 }.value
                 if let self, !self.running && generation == self.refreshGeneration { self.statuses = statuses }
             }
@@ -45,63 +48,70 @@ final class HookSetup: ObservableObject {
         statuses.contains { $0.configured && (!$0.hookInjected || $0.statusLineWired == false) }
     }
 
-    func install() { run("--install") }
-    func uninstall() { run("--uninstall") }
+    /// Every detected CLI; keeps any approval gate the user opted into.
+    func install() { run(checkCodexTrust: true) { $0.install() } }
+
+    /// Removes vibebuddy from every CLI and remembers it, so launches and
+    /// updates never put the hooks back.
+    func uninstall() { run(checkCodexTrust: false) { $0.uninstall() } }
 
     /// Targeted repair is only reached from an explicit per-agent Settings
-    /// button. Both installers are idempotent and preserve foreign hook entries.
+    /// button. Idempotent; foreign hook entries are preserved.
     func repair(_ agent: AgentKind) {
-        switch agent {
-        case .claudeCode: run("--install", scriptName: "install-claude-hooks.py")
-        case .codex: run("--install", scriptName: "install-codex-hooks.py")
-        case .grok: run("--install", scriptName: "install-grok-hooks.py")
-        case .cursor: run("--approval", scriptName: "install-cursor-hooks.py")
-        default: break
-        }
+        guard let target = HookAgent(agent) else { return }
+        run(checkCodexTrust: target == .codex) { $0.install([target], approval: target == .cursor) }
     }
 
     func enableStatusLine() {
-        run("--statusline", scriptName: "install-claude-hooks.py")
+        run(checkCodexTrust: false) { $0.enableStatusLine() }
     }
 
-    /// Locate the installer bundled at `Contents/Resources/hooks/`.
-    private static func scriptURL(named name: String) -> URL? {
-        Bundle.main.resourceURL?.appendingPathComponent("hooks/\(name)")
+    /// The installer reading the runtime scripts from
+    /// `Contents/Resources/hooks/` and copying them to the stable
+    /// `~/Library/Application Support/vibebuddy/bin/` every config names.
+    nonisolated static func makeInstaller() -> HookInstaller {
+        HookInstaller(environment: .live(),
+                      scriptSource: Bundle.main.resourceURL?.appendingPathComponent("hooks", isDirectory: true))
     }
 
-    private func run(_ mode: String, scriptName: String = "install-agent-hooks.py") {
+    /// App launch: re-copy the scripts after an update, but only for hooks the
+    /// user has installed and not explicitly removed. Never edits a config.
+    nonisolated static func refreshScriptsOnLaunch() {
+        guard E2ERunConfiguration.current == nil else { return }
+        Task.detached(priority: .utility) {
+            if let note = makeInstaller().refreshOnLaunch() {
+                Logger(subsystem: "com.vibebuddy.app", category: "hooks").notice("\(note, privacy: .public)")
+            }
+        }
+    }
+
+    private func run(checkCodexTrust: Bool,
+                     _ operation: @escaping @Sendable (HookInstaller) -> HookInstallReport) {
         guard E2ERunConfiguration.current == nil else {
             lastOutput = "Hook installation is disabled during isolated acceptance."
             return
         }
-        guard !running, let script = Self.scriptURL(named: scriptName),
-              FileManager.default.fileExists(atPath: script.path) else {
-            lastOutput = "Installer not found in the app bundle."
-            return
-        }
+        guard !running else { return }
         refreshGeneration += 1
         refreshPending = false
         running = true
         Task.detached(priority: .userInitiated) {
-            let output = Self.shell(script: script.path, mode: mode)
+            let installer = Self.makeInstaller()
+            let report = operation(installer)
+            var lines = [report.text]
+            // Written into hooks.json is not the same as run: ask Codex.
+            if checkCodexTrust, report.touched.contains(.codex) {
+                let verdict = await CodexHookTrustProbe.check(
+                    socketPath: installer.paths.codexControlSocket.path, timeout: .seconds(3))
+                lines.append(CodexHookTrustProbe.lines(for: verdict).joined(separator: "\n"))
+            }
+            if report.failures > 0 { lines.append("\(report.failures) failure(s).") }
+            let output = lines.joined(separator: "\n\n")
             await MainActor.run {
                 self.lastOutput = output
                 self.running = false
                 self.refresh()
             }
         }
-    }
-
-    nonisolated private static func shell(script: String, mode: String) -> String {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["python3", script, mode]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = pipe
-        do { try p.run() } catch { return "Failed to launch installer: \(error.localizedDescription)" }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return String(decoding: data, as: UTF8.self)
     }
 }

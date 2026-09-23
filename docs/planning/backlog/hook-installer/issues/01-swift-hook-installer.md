@@ -2,6 +2,8 @@
 
 **Status:** ready-for-agent
 
+**Executor:** Claude（Opus 实现）· branch `claude/c1-swift-hook-installer` · 2026-09-23
+
 **Blocked by:** None
 
 **Node:** C-1（`docs/planning/roadmap-2026-09.json` 的完整 prompt 仍是执行交接）
@@ -39,3 +41,9 @@ Swift 安装器是主路径；Claude / Cursor 插件暂不做，只作为以后�
 - [ ] 已装旧 python 版本的机器升级后，旧条目被识别、迁移，无重复 hook；Codex 不要求重新信任（命令未变时）。
 - [ ] 卸载后 settings.json / hooks.json / config.toml 只剩用户自己的内容，statusLine 恢复原值；App 更新后不重装。
 - [ ] `HookInstaller` 测试覆盖：幂等、迁移、卸载、statusLine 防递归、事件名按版本过滤、`CLAUDE_CONFIG_DIR`。
+
+## Comments
+
+- 2026-09-23 实现（PR 见 backlog README）：`HookInstaller`（VibeBuddyMacCore）取代全部 python 安装器，`vibebuddyd hooks install|uninstall|status` 供无 App 的用户使用；脚本复制到 `~/Library/Application Support/vibebuddy/bin/`；manifest + 带时间戳备份 + 原子写；Claude 事件按 `claude --version` 过滤；statusLine 防递归且无备份不删；尊重 CLAUDE_CONFIG_DIR / CODEX_HOME / GROK_HOME / CURSOR_HOME / XDG_CONFIG_HOME；记住卸载；Codex `config.toml` 不写（B-3），只读提示。已有用户：点一次 Install / Repair 迁到稳定路径，**Codex 需在 `/hooks` 重新信任一次**。
+- 待验收（真机）：干净账户（无 python3）一键安装四家各收到真实事件；App 更新后不重装。
+

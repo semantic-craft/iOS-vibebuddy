@@ -8,8 +8,14 @@
 # changes. With no original command, it prints nothing.
 #
 # The original command lives in a plain file next to the daemon token
-# (install-claude-hooks.py writes it; --uninstall restores it), so this script
-# never parses JSON and costs one fork beyond the original.
+# (the Mac app's HookInstaller writes it; uninstall restores it), so this
+# script never parses JSON and costs one fork beyond the original.
+#
+# Recursion guard: a wrapper that ends up running itself — a saved original
+# naming this script, or two wrappers chained — would fork until the machine
+# runs out of processes. A nested run forwards nothing and prints nothing.
+[ -n "$VIBEBUDDY_STATUSLINE_ACTIVE" ] && exit 0
+export VIBEBUDDY_STATUSLINE_ACTIVE=1
 INPUT=$(cat)
 PORT="${VIBEBUDDY_PORT:-9876}"
 SUPPORT="${VIBEBUDDY_SUPPORT_DIR:-$HOME/Library/Application Support/vibebuddy}"
@@ -23,6 +29,7 @@ fi
 ORIGINAL_FILE="${VIBEBUDDY_STATUSLINE_ORIGINAL:-$SUPPORT/statusline-original.cmd}"
 if [ -s "$ORIGINAL_FILE" ]; then
   ORIGINAL=$(cat "$ORIGINAL_FILE")
+  case "$ORIGINAL" in *vibebuddy-statusline.sh*) exit 0 ;; esac
   [ -n "$ORIGINAL" ] && printf '%s' "$INPUT" | /bin/sh -c "$ORIGINAL"
 fi
 exit 0

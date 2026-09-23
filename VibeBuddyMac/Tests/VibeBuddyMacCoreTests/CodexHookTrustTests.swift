@@ -134,4 +134,27 @@ struct CodexHookTrustTests {
             home: URL(fileURLWithPath: "/nonexistent/vb-codex-home"),
             hook: healthy, now: now, hookTrust: blocked) == .hooksNotTrusted(blocked))
     }
+
+    /// The one-shot check the installer and `vibebuddyd hooks` print (the
+    /// Swift port of the retired Python trust check): read-only, never fatal.
+    @Test("the one-shot trust probe reports ok, blocked and unreachable")
+    func probe() async throws {
+        let socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-probe-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: socket.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: socket) }
+        let forwarder = "\"/Users/x/Library/Application Support/vibebuddy/bin/vibebuddy-forward.sh\" codex"
+        func verdict(_ hooks: [[String: Any]]) async -> CodexHookTrustProbe.Verdict {
+            let connection = FakeConnection(results: ["initialize": [:], "hooks/list": ["data": [["cwd": "/a", "hooks": hooks]]]])
+            return await CodexHookTrustProbe.check(socketPath: socket.path, makeClient: { _ in connection })
+        }
+        let ok = await verdict([hook("stop", command: forwarder, trust: "trusted", key: "k1")])
+        #expect(ok == .ok(CodexHookTrust(installed: 1, blockedEvents: [], blocked: 0)))
+        let blocked = await verdict([hook("stop", command: forwarder, trust: "modified", key: "k1"),
+                                     hook("stop", command: "echo mine", trust: "modified", key: "k2")])
+        #expect(blocked == .blocked(CodexHookTrust(installed: 1, blockedEvents: ["stop"], blocked: 1)))
+        #expect(CodexHookTrustProbe.lines(for: blocked).contains { $0.contains("/hooks") })
+        #expect(await verdict([]) == .blocked(nil))
+        let missing = await CodexHookTrustProbe.check(socketPath: socket.path + "-absent")
+        guard case .unreachable = missing else { Issue.record("expected unreachable"); return }
+    }
 }
