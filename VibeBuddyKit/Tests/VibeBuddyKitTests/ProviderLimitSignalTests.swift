@@ -36,15 +36,16 @@ struct ProviderLimitSignalTests {
         let atLimit = QwenRealtimeSession.connectionEndEvent(status: 101, detail: "closed",
             serverCloseCode: .normalClosure, connectedFor: 120 * 60)
         #expect(isLimit(atLimit))
-        let internalError = QwenRealtimeSession.connectionEndEvent(status: 101, detail: "closed",
-            serverCloseCode: .internalServerError, connectedFor: 120 * 60 + 5)
-        #expect(isLimit(internalError))
+        let goingAway = QwenRealtimeSession.connectionEndEvent(status: 101, detail: "closed",
+            serverCloseCode: .goingAway, connectedFor: 120 * 60 + 5)
+        #expect(isLimit(goingAway))
     }
 
     @Test("Qwen: an early close or a drop without a close frame stays a failure")
     func qwenNotLimit() {
         for (code, age) in [(URLSessionWebSocketTask.CloseCode.normalClosure, 30.0 * 60),
-                            (.invalid, 120.0 * 60), (.abnormalClosure, 125.0 * 60)] {
+                            (.invalid, 120.0 * 60), (.abnormalClosure, 125.0 * 60),
+                            (.internalServerError, 121.0 * 60)] {
             let event = QwenRealtimeSession.connectionEndEvent(status: 101, detail: "The network connection was lost.",
                 serverCloseCode: code, connectedFor: age)
             #expect(!isLimit(event))
@@ -62,4 +63,30 @@ struct ProviderLimitSignalTests {
         let drop = GeminiRealtimeSession.connectionEndEvent(afterGoAway: false, detail: "Socket is not connected")
         #expect(!isLimit(drop))
     }
+
+    /// A microphone frame in flight fails as the server closes at the cap. Its
+    /// send failure must not reach the coordinator first as a generic error.
+    @Test("a send failing at the cap defers to the receive loop's limit classification")
+    @MainActor func sendFailureAtCapDoesNotPreemptTheLimit() {
+        #expect(GeminiRealtimeSession.sendFailureEvent(afterGoAway: true, detail: "Socket is not connected") == nil)
+        #expect(GeminiRealtimeSession.sendFailureEvent(afterGoAway: false, detail: "Socket is not connected") != nil)
+        #expect(QwenRealtimeSession.sendFailureEvent(connectedFor: 120 * 60, detail: "Socket is not connected") == nil)
+        #expect(QwenRealtimeSession.sendFailureEvent(connectedFor: 10 * 60, detail: "Socket is not connected") != nil)
+
+        // What the coordinator sees at Gemini's cap: send failure suppressed, then the limit.
+        let coordinator = VoiceCallCoordinator(audio: SilentAudio(), actionHandler: { _ in "" })
+        coordinator.handle(.connected)
+        let events = [GeminiRealtimeSession.sendFailureEvent(afterGoAway: true, detail: "Socket is not connected"),
+                      GeminiRealtimeSession.connectionEndEvent(afterGoAway: true, detail: "closed")]
+        for case let event? in events { coordinator.handle(event) }
+        #expect(coordinator.phase == .ended(.providerLimit) && coordinator.errorText == nil)
+    }
+}
+
+@MainActor
+private final class SilentAudio: VoiceCallAudio {
+    var isPlaybackPending: Bool { false }
+    func flushPlayback() -> [VoicePlaybackCheckpoint] { [] }
+    func enqueue(_ pcm: Data, item: VoiceAudioItem?) {}
+    func stop() {}
 }

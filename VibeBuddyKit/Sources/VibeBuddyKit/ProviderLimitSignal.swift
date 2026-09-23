@@ -28,10 +28,16 @@ enum ProviderLimitSignal {
 
     /// Qwen sends no limit event: the server closes the WebSocket. Only a close
     /// frame the server actually sent, on a connection that has lived to the
-    /// documented limit, counts. An earlier close, or a drop without a close
-    /// frame, is not the limit.
+    /// documented limit, counts. An earlier close, a drop without a close
+    /// frame, or a server-error close (1011) is not the limit.
     static func isQwenLimit(serverCloseCode: URLSessionWebSocketTask.CloseCode, connectedFor: TimeInterval) -> Bool {
-        serverCloseCode != .invalid && serverCloseCode != .abnormalClosure
-            && connectedFor >= qwenSessionLimit - qwenSessionLimitMargin
+        ![.invalid, .abnormalClosure, .internalServerError].contains(serverCloseCode)
+            && isQwenLimitWindow(connectedFor: connectedFor)
+    }
+
+    /// Past this age a Qwen close may be the cap, so only the receive loop —
+    /// which sees the close frame — may decide how the connection ended.
+    static func isQwenLimitWindow(connectedFor: TimeInterval) -> Bool {
+        connectedFor >= qwenSessionLimit - qwenSessionLimitMargin
     }
 }

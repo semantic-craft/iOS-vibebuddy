@@ -317,8 +317,19 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { [weak self] error in
             guard let error else { return }
-            Task { await self?.yield(.failed("send: \(error.localizedDescription)")) }
+            Task { await self?.sendFailed(error.localizedDescription) }
         }
+    }
+
+    private func sendFailed(_ detail: String) {
+        let age = sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if let event = Self.sendFailureEvent(connectedFor: age, detail: detail) { yield(event) }
+    }
+
+    /// At the session cap a microphone frame in flight fails as the server
+    /// closes; the receive loop sees the close frame and classifies that end.
+    static func sendFailureEvent(connectedFor: TimeInterval, detail: String) -> RealtimeVoiceEvent? {
+        ProviderLimitSignal.isQwenLimitWindow(connectedFor: connectedFor) ? nil : .failed("send: \(detail)")
     }
 
     private func yield(_ event: RealtimeVoiceEvent) { continuation?.yield(event) }

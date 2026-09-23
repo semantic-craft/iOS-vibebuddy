@@ -127,9 +127,11 @@ Realtime providers cap one connection. Reaching the cap used to surface as
 a generic connection failure, or not at all. It is now its own event,
 `RealtimeVoiceEvent.providerLimitReached`, and the coordinator's terminal phase
 `VoiceCallPhase.ended(.providerLimit)`: audio stops, the session closes once,
-late provider events are ignored and no error is shown. iPhone and Mac show
-"Call ended: <provider> reached its per-call time limit" with a **Redial**
-button. Redial is an ordinary new call with the same Settings — no transcript,
+late provider events are ignored and no error is shown. iPhone (voice strip,
+voice page) and Mac (menu-bar panel, Glance, Voice and reading panel, dashboard
+sidebar) show "Call ended: <provider> reached its per-call time limit" with a
+**Redial** button. A microphone frame that fails to send as the server closes
+at the cap is left to the receive loop, which classifies the close. Redial is an ordinary new call with the same Settings — no transcript,
 tool state or provider session carries over. Continuing a call across the cap
 (Gemini session resumption, context carry-over) is deliberately not built.
 
@@ -143,5 +145,5 @@ quota or rate-limit error, or a server fault stays `failed`. The rules
 | OpenAI GPT-Live | not stated | `session.closed` with `reason: "expired"` |
 | OpenAI Realtime | 60 minutes | `error.code == "session_expired"` (code seen in field reports; the docs list no code) |
 | Gemini Live | ~10-minute connection, 15-minute audio session | the socket ending after a `goAway` message |
-| Qwen-Audio 3.0 Realtime | 120 minutes on the shared realtime endpoint (Omni docs; the Qwen-Audio page states none) | a server close frame once the connection is ≥ 119 minutes old — Qwen sends no limit event |
+| Qwen-Audio 3.0 Realtime | 120 minutes on the shared realtime endpoint (Omni docs; the Qwen-Audio page states none) | a server close frame (not 1011) once the connection is ≥ 119 minutes old — Qwen sends no limit event |
 | Doubao Realtime | none documented | not mapped; its idle release (10 minutes silent) stays a failure |

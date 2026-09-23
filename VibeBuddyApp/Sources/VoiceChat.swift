@@ -78,7 +78,7 @@ final class VoiceChat: ObservableObject {
     func enableCompanion() { UserDefaults.standard.set(true, forKey: VoiceSettings.companionEnabledKey) }
 
     /// The master switch was turned off in Settings — end any live call.
-    func companionDisabled() { if isActive { stopRealtime() } }
+    func companionDisabled() { endNotice = nil; if isActive { stopRealtime() } }
 
     // MARK: Realtime speech-to-speech
 
@@ -341,6 +341,7 @@ final class VoiceChat: ObservableObject {
     /// session is live, restart it so the new provider takes effect immediately —
     /// no manual close-then-reopen. A no-op when idle.
     func reloadProviderIfActive() {
+        endNotice = nil   // it names the provider that ended; Redial would use the new one
         guard isActive else { return }
         stopRealtime()
         startRealtime()

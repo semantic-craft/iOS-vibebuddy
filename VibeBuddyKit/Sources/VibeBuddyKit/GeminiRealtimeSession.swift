@@ -96,8 +96,18 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { [weak self] error in
             guard let error else { return }
-            Task { await self?.yield(.failed("send: \(error.localizedDescription)")) }
+            Task { await self?.sendFailed(error.localizedDescription) }
         }
+    }
+
+    private func sendFailed(_ detail: String) {
+        if let event = Self.sendFailureEvent(afterGoAway: goAwayReceived, detail: detail) { yield(event) }
+    }
+
+    /// After `goAway` a microphone frame in flight fails as the server closes;
+    /// the receive loop classifies that end, so the send must not pre-empt it.
+    static func sendFailureEvent(afterGoAway: Bool, detail: String) -> RealtimeVoiceEvent? {
+        afterGoAway ? nil : .failed("send: \(detail)")
     }
 
     private func yield(_ event: RealtimeVoiceEvent) { continuation?.yield(event) }

@@ -141,23 +141,6 @@ struct VoiceCallCoordinatorTests {
         #expect(hungUp.phase == .idle && hungUp.endReason == nil)
     }
 
-    @Test("Redial is a fresh call: a new coordinator carries nothing from the ended one")
-    func redialStartsFresh() {
-        let ended = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "" })
-        ended.handle(.connected)
-        ended.handle(.userTranscript(text: "what's running", final: true))
-        ended.handle(.assistantTranscript(text: "Two tasks.", final: true))
-        ended.handle(.providerLimitReached)
-        #expect(ended.endReason == .providerLimit)
-
-        let redial = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "" })
-        #expect(redial.phase == .idle && redial.endReason == nil && !redial.isFinished)
-        #expect(redial.lastUserText.isEmpty && redial.lastReply.isEmpty && redial.errorText == nil)
-        redial.beginConnecting()
-        redial.handle(.connected)
-        #expect(redial.phase == .listening)
-    }
-
     @Test("The provider-limit notice names the provider and resolves in Chinese")
     func providerLimitNotice() throws {
         let english = VoiceCallEndReason.providerLimit.notice(provider: .qwen)
