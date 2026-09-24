@@ -15,7 +15,7 @@ struct VibeBuddyMenuBarApp: App {
     /// minute on a busy Mac). The label and menu observe the model themselves.
     private let model: MenuBarModel
     @State private var isMenuPresented = false
-    @StateObject private var placementRecovery: MenuBarPlacementRecovery
+    private let placementRecovery: MenuBarPlacementRecovery
     private let role: AppRuntime.Role
     // Visibility affects only the icon; app-level commands stay available.
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
@@ -23,7 +23,7 @@ struct VibeBuddyMenuBarApp: App {
     init() {
         let role = AppRuntime.role
         self.role = role
-        _placementRecovery = StateObject(wrappedValue: MenuBarPlacementRecovery(enabled: role == .primary))
+        placementRecovery = MenuBarPlacementRecovery(enabled: role == .primary)
         // Read-aloud used to be Qwen-only; move its saved model and voice onto the
         // per-provider keys before any view reads them. Idempotent.
         VoiceSettings.migrateLegacyReadAloudKeys()
