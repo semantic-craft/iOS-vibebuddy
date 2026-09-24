@@ -349,6 +349,7 @@ struct VoiceCallCoordinatorTests {
             }
         )
 
+        coordinator.handle(.userTranscript(text: "Approve payments-api.", final: true))
         coordinator.handle(.toolCall(
             name: "approve_session",
             arguments: #"{"project":"payments-api"}"#,
@@ -375,6 +376,7 @@ struct VoiceCallCoordinatorTests {
             return await withCheckedContinuation { receipt = $0 }
         }, sendToolResult: { _, _, result in sent.append(result) })
         let event = RealtimeVoiceEvent.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "one")
+        coordinator.handle(.userTranscript(text: "approve fixture", final: true))
         coordinator.handle(event)
         for _ in 0..<100 where receipt == nil { await Task.yield() }
         coordinator.handle(event)
@@ -392,6 +394,7 @@ struct VoiceCallCoordinatorTests {
         let coordinator = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in
             await withCheckedContinuation { receipt = $0 }
         }, sendToolResult: { _, _, result in sent.append(result) })
+        coordinator.handle(.userTranscript(text: "approve fixture", final: true))
         coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "late"))
         for _ in 0..<100 where receipt == nil { await Task.yield() }
         coordinator.stop()
@@ -427,6 +430,7 @@ struct VoiceCallCoordinatorTests {
             calls += 1
             return await withCheckedContinuation { receipt = $0 }
         }, sendToolResult: { _, _, result in sent.append(result) })
+        coordinator.handle(.userTranscript(text: "approve fixture", final: true))
         coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "queued"))
         coordinator.handle(.toolCallsCancelled(["queued"]))
         for _ in 0..<100 { await Task.yield() }
@@ -453,6 +457,7 @@ struct VoiceCallCoordinatorTests {
             submitted += 1
             return "submitted"
         }, sendToolResult: { id, _, _ in results.append(id) })
+        coordinator.handle(.userTranscript(text: "approve fixture", final: true))
         func tool(_ id: String) -> RealtimeVoiceEvent {
             .toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: id)
         }
@@ -487,6 +492,7 @@ struct VoiceCallCoordinatorTests {
             submitted = !Task.isCancelled
             return "result"
         })
+        coordinator.handle(.userTranscript(text: "approve fixture", final: true))
         coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "one"))
         for _ in 0..<100 where gate == nil { await Task.yield() }
         coordinator.audioStateChanged(.recovering)

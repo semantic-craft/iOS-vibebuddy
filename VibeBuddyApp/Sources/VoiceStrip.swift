@@ -32,6 +32,11 @@ struct VoiceStrip: View {
                 } else if voice.phase == .recovering {
                     Text("Recovering audio… tap the mic to end").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 } else {
+                    if let held = voice.heldNotice {
+                        Label(held, systemImage: "hand.raised")
+                            .font(CompanionType.font(12, .medium)).foregroundStyle(CompanionPalette.status(.requiresInput))
+                            .lineLimit(2)
+                    }
                     if !voice.lastUserText.isEmpty {
                         Text(voice.lastUserText).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3).lineLimit(1)
                     }

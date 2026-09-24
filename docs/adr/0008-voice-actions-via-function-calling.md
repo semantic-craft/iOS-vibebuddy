@@ -154,3 +154,37 @@ no farewell/substring fallback. Doubao final transcription selects nonblank
 750 ms Live caption settling heuristic and structured end-call tool are retained.
 Conditional response-ID reuse or nonconforming event reordering are documented
 separately from reproduced failures; they do not justify weakening identity checks.
+
+## Named target (2026-09-24, RV-03)
+
+Synthetic-speech acceptance showed the model choosing a different waiting task:
+the user said "reject grape", Qwen transcribed 高客 and sent
+`deny_session(orange)`. Scope, unique matching and pending revalidation all
+passed that call; only a hold timeout on orange stopped it. The target must be
+checked against something the model does not choose.
+
+A task action — approve, deny, answer, instruct — is sent only when the user's
+own words in the current exchange name its target (`VoiceTargetCheck`). The
+words are every user transcript and caption since the companion last produced
+output; a companion reply starts a new exchange, so an earlier mention never
+carries over. Project name or session title, ignoring case, spaces and
+punctuation; Latin names match whole words only; a distinct word of the project
+name counts when no other in-scope task shares it; a name heard only inside a
+longer in-scope name does not count. Transcription can follow the tool call
+(Qwen: 0.1–0.7 s later), so the check waits up to 2.5 s for it.
+
+Otherwise the action is held, not sent. The tool result tells the model which
+name was heard (or that none was) and to ask the user to say the target's name;
+the screen shows a short held notice. Confirmation is the user saying the name,
+checked the same way — "yes" or "对" alone never releases it. Marking a result
+read changes no task and is not held.
+
+This does not relax "transcript fragments never authorize coding actions": the
+transcript can only veto. The structured tool call, scope, unique matching and
+current-request revalidation still decide what is sent.
+
+Considered: a spoken yes/no confirmation for every action (slower, and a yes
+misheard from a no would release it); holding only when several tasks are
+waiting (the user can name a task that is not waiting, and the only waiting one
+still receives it). Known cost: when ASR garbles a name every time (an English
+name in Chinese speech), voice cannot act on that task; the card still can.

@@ -23,6 +23,9 @@ final class VoiceChat: ObservableObject {
     /// Why the last call ended on its own (a provider's per-call limit), shown
     /// with a one-tap redial. Not an error; cleared when the next call starts.
     @Published private(set) var endNotice: String?
+    /// A task action held because the user's words did not name its target
+    /// (RV-03); the companion also says why. Cleared by the next sent action.
+    @Published private(set) var heldNotice: String?
     /// Drives the inline consent sheet when a disabled buddy is tapped.
     @Published var showConsent = false
 
@@ -287,6 +290,7 @@ final class VoiceChat: ObservableObject {
         lastReply = coordinator.lastReply
         errorText = coordinator.errorText
         endNotice = coordinator.endReason.map { $0.notice(provider: callProvider ?? VoiceSettings.provider) }
+        heldNotice = coordinator.heldNotice
     }
 
     private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {

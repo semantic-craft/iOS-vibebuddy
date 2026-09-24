@@ -202,6 +202,9 @@ code, and tests — don't drift to synonyms.
   selects tools. Interrupting speech does not cancel a coding task.
 - **Voice scope** — the sessions the user included in a conversation. Reading
   status and resolving an action target stay inside that scope.
+- **Named target** — a voice task action (approve, deny, answer, instruct) is
+  sent only when the user's own words in the current exchange name its target;
+  otherwise it is **held** and the user is asked to say the name (ADR-0008).
 - **Voice companion** — a **realtime speech-to-speech** conversation that knows
   the live sessions and can **approve / answer** for you. Started by the same
   **mic circle** on every surface (ADR-0017 §3): the iPhone composer (always
