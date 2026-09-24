@@ -175,6 +175,38 @@ struct ClaudeBackgroundWorkTests {
         #expect(stillWaiting.isEmpty)
     }
 
+    @Test("AI-09: a SubagentStop for a child never seen starting does not open the grace; the known child's does")
+    func unknownChildStopDoesNotRelease() throws {
+        // "lost" started for real but its SubagentStart never arrived; the
+        // CLI's internal agent ("internal") stops without ever starting.
+        var reducer = reduce([
+            (start, 0),
+            (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 5),
+            (stop(tasks: #"[{"id":"a","type":"subagent","status":"running"},{"id":"lost","type":"subagent","status":"running"}]"#), 30),
+            (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"internal","agent_type":""}"#, 31),
+            (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"internal2","agent_type":""}"#, 32),
+        ])
+        #expect(reducer.heldStops["s"]?.awaitedSubagentStops == 2)
+        #expect(reducer.takeDueStops(now: t0.addingTimeInterval(32 + 45)).isEmpty)
+        reducer.apply(try #require(parse(#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, at: 100)))
+        #expect(reducer.heldStops["s"]?.awaitedSubagentStops == 1)
+        #expect(reducer.takeDueStops(now: t0.addingTimeInterval(100 + 45)).isEmpty)   // "lost" still runs
+        #expect(reducer.sessions["s"]?.status == .working)
+        let backstop = reducer.takeDueStops(now: t0.addingTimeInterval(30 + SessionReducer.heldStopBackstop))
+        #expect(backstop.count == 1)
+
+        // A single known child: its stop opens the grace even after internal stops.
+        var known = reduce([
+            (start, 0),
+            (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 5),
+            (stop(tasks: #"[{"id":"a","type":"subagent","status":"running"}]"#), 30),
+            (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"internal","agent_type":""}"#, 31),
+            (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 100),
+        ])
+        #expect(known.takeDueStops(now: t0.addingTimeInterval(100 + 44)).isEmpty)
+        #expect(known.takeDueStops(now: t0.addingTimeInterval(100 + 45)).count == 1)
+    }
+
     @Test("S1: the main agent continuing within the grace replaces the held Stop; one completion, new words")
     func continuationReplacesHeldStop() {
         var reducer = reduce([

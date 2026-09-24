@@ -1,6 +1,6 @@
 # 09: 挂起的 `Stop` 只按已知子代理的 `SubagentStop` 扣减
 
-**Status:** ready-for-agent
+**Status:** done（本 PR）
 
 **Blocked by:** None（AI-04 [票 04](04-claude-stop-background-tasks.md) 已合并并验收）
 
@@ -20,9 +20,11 @@ AI-04 规定：只被 subagent 挂起的主 agent `Stop`，收到与挂起时数
 
 ## 验收
 
-- [ ] Reducer 测试：挂起时有一个已知子代理和一个 `SubagentStart` 丢失的子代理；两条未知 `SubagentStop` 不扣减、不开启宽限；已知子代理结束后计数只减 1，宽限仍不开始；10 分钟兜底照常释放。
-- [ ] Reducer 测试：只有一个已知子代理时，它的 `SubagentStop` 照常开启 45 s 宽限（前面夹着的内部代理 `SubagentStop` 不影响）。
-- [ ] 现有 AI-04 测试（`ClaudeBackgroundWorkTests`）不改断言、全部通过；全量 `cd VibeBuddyMac && swift test` 通过。
-- [ ] `CONTEXT.md`「Background work at a Claude Stop」写明只数已知子代理的结束。
+- [x] Reducer 测试：挂起时有一个已知子代理和一个 `SubagentStart` 丢失的子代理；两条未知 `SubagentStop` 不扣减、不开启宽限；已知子代理结束后计数只减 1，宽限仍不开始；10 分钟兜底照常释放。
+- [x] Reducer 测试：只有一个已知子代理时，它的 `SubagentStop` 照常开启 45 s 宽限（前面夹着的内部代理 `SubagentStop` 不影响）。
+- [x] 现有 AI-04 测试（`ClaudeBackgroundWorkTests`）不改断言、全部通过；全量 `cd VibeBuddyMac && swift test` 通过。
+- [x] `CONTEXT.md`「Background work at a Claude Stop」写明只数已知子代理的结束。
 
 ## Comments
+
+- 2026-09-24 实现：`SessionReducer` 的 `.childLifecycle` 分支在应用子代理事件前后各查一次拓扑，只有「之前 running、之后不再 running」的子代理 `SubagentStop` 才扣减 `awaitedSubagentStops`（`isRunningSubagent`）。新测试 `unknownChildStopDoesNotRelease`：去掉这条判断时宽限在 +145 s 提前放行（4 处断言失败），加上后通过；全量 `swift test` 1251 项（149 组）+ XCTest 57 项（1 项跳过）通过。S1 夹具里的子代理没有 `SubagentStart`，它的结束现在不再开启宽限，仍由主 agent 续跑发出的 `Stop` 取代，断言不变。
