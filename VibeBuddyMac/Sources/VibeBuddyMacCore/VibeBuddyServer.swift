@@ -201,6 +201,7 @@ public struct VibeBuddyServer: Sendable {
     /// entry offers, and hides itself behind when empty.
     public func dispatchAgents() async -> [AgentKind] {
         await cursorACP?.registerRecoverableSessions()
+        await grokACP?.registerRecoverableSessions()
         var agents: [AgentKind] = []
         if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
         if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
@@ -1116,7 +1117,13 @@ public struct VibeBuddyServer: Sendable {
             // pane/tab really came forward — not merely that a command existed.
             let outcome: JumpOutcome
             let session = await store.snapshot(now: Date()).sessions.first { $0.id == sid }
-            if let ref = await store.terminalRef(for: sid) {
+            if session?.agent == .grok, let grokACP, await grokACP.isRecoverable(sid) {
+                // A hosted Grok session whose process is gone: reopen it in a
+                // terminal with `grok --resume`, where the user can go on. First:
+                // a ref here may be the pane the daemon itself was started in.
+                outcome = await grokACP.resumeInTerminal(sessionID: sid,
+                                                         preferring: await store.preferredTerminalProgram())
+            } else if let ref = await store.terminalRef(for: sid) {
                 outcome = await onJump(ref)
             } else if let thread = await store.desktopThreadID(for: sid) {
                 // Codex Desktop runs no hook, so this session will never have a
@@ -1225,7 +1232,7 @@ public struct VibeBuddyServer: Sendable {
                                           return await monitor?.steer(threadID: sessionID, text: text) ?? false
                                       },
                                       startTurn: { sessionID, text in
-                                          if let grokACP, await grokACP.hosts(sessionID) {
+                                          if let grokACP, await grokACP.owns(sessionID) {
                                               return await grokACP.prompt(sessionID: sessionID, text: text)
                                           }
                                           return await monitor?.startTurn(threadID: sessionID, text: text) ?? false

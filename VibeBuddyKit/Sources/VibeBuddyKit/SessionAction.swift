@@ -36,10 +36,12 @@ public struct SessionActionSupport: Equatable, Sendable {
     public var isAvailable: Bool { unsupportedReason == nil }
 
     public static func resolve(for session: AgentSession) -> SessionActionSupport {
-        if session.agent == .cursor, session.cursorACPRecoverable == true, session.controlChannel != .acp {
+        if session.agent == .cursor || session.agent == .grok, session.cursorACPRecoverable == true,
+           session.controlChannel != .acp {
+            let product = session.agent == .grok ? "Grok Build" : "Cursor CLI"
             return SessionActionSupport(intent: .continue, unsupportedReason: session.cursorACPRecoveryUnavailable,
                 note: session.cursorACPRecoveryFailure.map { $0 + " Send again to retry reconnecting." }
-                    ?? "Reconnects the managed Cursor CLI session before sending this message.")
+                    ?? "Reconnects the managed \(product) session before sending this message.")
         }
         if session.status == .needsResponse {
             let handling = WaitHandling.resolve(for: session)

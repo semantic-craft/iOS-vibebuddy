@@ -313,6 +313,14 @@ public struct AnswerDispatch: Sendable {
                 return .failed("This session is still running")
             }
             guard await startTurn(request.sessionID, typed) else {
+                // A Grok session that could not be reloaded says why.
+                if session?.agent == .grok, session?.cursorACPRecoverable == true {
+                    let current = await store.snapshot(now: Date()).sessions.first { $0.id == request.sessionID }
+                    if let failure = current?.cursorACPRecoveryFailure { return .failed(failure) }
+                    return .failed(current?.cursorACPRecoverable == true
+                        ? "Reconnecting to this Grok session — try again in a moment."
+                        : "This Grok session is open in a terminal on the Mac; continue it there.")
+                }
                 return .unknown
             }
             return .accepted

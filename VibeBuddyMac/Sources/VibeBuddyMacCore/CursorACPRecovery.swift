@@ -1,21 +1,21 @@
 import Foundation
 import Darwin
 
-/// Metadata only: Cursor owns prompts, history and authentication.
-struct CursorACPRecovery: Codable, Sendable {
-    let sessionID: String
-    let cwd: String
-    let options: CursorLaunchOptions
-    let createdAt: Date
-    var updatedAt: Date? = nil
-    let origin: String
-    let unavailable: String?
+/// What a hosted ACP session keeps so a later host can load it again:
+/// metadata only — the agent owns prompts, history and authentication. One
+/// private file per session (0600 in a 0700 directory), kept 30 days and at
+/// most 100 records.
+protocol ACPRecoveryRecord: Codable, Sendable {
+    var sessionID: String { get }
+    var createdAt: Date { get }
+    var origin: String { get }
+    /// The `origin` this host writes; any other record is ignored.
+    static var expectedOrigin: String { get }
+}
 
-    static var directory: URL {
-        let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        return URL(fileURLWithPath: home).appendingPathComponent("Library/Application Support/vibebuddy/cursor-acp")
-    }
+extension ACPRecoveryRecord {
     var filename: String { Data(sessionID.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_") }
+
     func save(in directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let target = directory.appendingPathComponent(filename + ".json")
@@ -30,7 +30,7 @@ struct CursorACPRecovery: Codable, Sendable {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         let entries = files.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, Self)? in
             guard let data = try? Data(contentsOf: url), let value = try? JSONDecoder().decode(Self.self, from: data),
-                  value.origin == "vibebuddy-acp", !value.sessionID.isEmpty else { return nil }
+                  value.origin == Self.expectedOrigin, !value.sessionID.isEmpty else { return nil }
             return (url, value)
         }.sorted { $0.1.createdAt > $1.1.createdAt }
         var result: [Self] = []
@@ -40,18 +40,41 @@ struct CursorACPRecovery: Codable, Sendable {
         }
         return result
     }
+
+    static func remove(_ sessionID: String, in directory: URL) {
+        let name = Data(sessionID.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_")
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(name + ".json"))
+    }
+}
+
+/// Metadata only: Cursor owns prompts, history and authentication.
+struct CursorACPRecovery: ACPRecoveryRecord {
+    let sessionID: String
+    let cwd: String
+    let options: CursorLaunchOptions
+    let createdAt: Date
+    var updatedAt: Date? = nil
+    let origin: String
+    let unavailable: String?
+
+    static let expectedOrigin = "vibebuddy-acp"
+
+    static var directory: URL {
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return URL(fileURLWithPath: home).appendingPathComponent("Library/Application Support/vibebuddy/cursor-acp")
+    }
 }
 
 /// Never unlink lock files: replacing their inode defeats cross-process exclusion.
 final class CursorACPLease: @unchecked Sendable {
     private let descriptor: Int32
-    init(directory: URL, record: CursorACPRecovery) throws {
+    init<Record: ACPRecoveryRecord>(directory: URL, record: Record, agent: String = "Cursor") throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         descriptor = open(directory.appendingPathComponent(record.filename + ".lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
             Darwin.close(descriptor)
-            throw NSError(domain: "CursorACP", code: 1, userInfo: [NSLocalizedDescriptionKey: "Another host is driving this Cursor session"])
+            throw NSError(domain: "CursorACP", code: 1, userInfo: [NSLocalizedDescriptionKey: "Another host is driving this \(agent) session"])
         }
         var bytes = [UInt8](repeating: 0, count: 512)
         let count = pread(descriptor, &bytes, bytes.count, 0)
@@ -59,7 +82,7 @@ final class CursorACPLease: @unchecked Sendable {
            previous.isStillRunning {
             flock(descriptor, LOCK_UN)
             Darwin.close(descriptor)
-            throw NSError(domain: "CursorACP", code: 3, userInfo: [NSLocalizedDescriptionKey: "Previous Cursor process is still running"])
+            throw NSError(domain: "CursorACP", code: 3, userInfo: [NSLocalizedDescriptionKey: "Previous \(agent) process is still running"])
         }
     }
     private struct ProcessIdentity: Codable {

@@ -474,15 +474,18 @@ final class MenuBarModel: ObservableObject {
             followups: cursorFollowups,
             executable: cursorExecutable, recoveryDirectory: cursorRecovery)
         let grokExecutable: URL?
+        let grokRecovery: URL?
         if let run = E2ERunConfiguration.current {
             grokExecutable = run.grokACPEnabled ? run.file("grok") : nil
+            grokRecovery = run.grokACPEnabled ? run.file("grok-acp") : nil
         } else {
             grokExecutable = GrokUsageProvider.resolveGrokExecutable()
+            grokRecovery = GrokACPMonitor.defaultRecoveryDirectory
         }
         grokACP = GrokACPMonitor(
             store: store, approvals: approvalRegistry, approvalContext: approvalContext,
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
-            executable: grokExecutable)
+            executable: grokExecutable, recoveryDirectory: grokRecovery)
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -822,6 +825,8 @@ final class MenuBarModel: ObservableObject {
                 if !cursorReady { cursorReady = await self.cursorLauncher.isSupported() }
                 if cursorReady { agents.append(.cursor) }
                 if await self.grokACP.isSupported() { agents.append(.grok) }
+                // Once per launch: hosted Grok sessions an earlier run left.
+                await self.grokACP.registerRecoverableSessions()
                 if self.dispatchAgents != agents { self.dispatchAgents = agents }
                 let nextLifecycleTimeline = await self.store.recentLifecycle()
                 if self.lifecycleTimeline != nextLifecycleTimeline { self.lifecycleTimeline = nextLifecycleTimeline }
@@ -1238,7 +1243,7 @@ final class MenuBarModel: ObservableObject {
                 return await monitor.steer(threadID: id, text: text)
             },
             startTurn: { id, text in
-                if await grok.hosts(id) { return await grok.prompt(sessionID: id, text: text) }
+                if await grok.owns(id) { return await grok.prompt(sessionID: id, text: text) }
                 return await monitor.startTurn(threadID: id, text: text)
             },
             queueCursorFollowup: { id, text in
@@ -1323,7 +1328,14 @@ final class MenuBarModel: ObservableObject {
             return
         }
         Task { [store] in await store.recordInteraction(sessionID: session.id) }
-        if let ref = session.terminalRef {
+        if session.resumesInTerminal {
+            // A hosted Grok session whose process is gone: `grok --resume` in a terminal.
+            Task { [weak self, store, grokACP] in
+                let outcome = await grokACP.resumeInTerminal(sessionID: session.id,
+                                                             preferring: await store.preferredTerminalProgram())
+                self?.showJumpFeedback(outcome, for: session.id)
+            }
+        } else if let ref = session.terminalRef {
             Task { [weak self] in
                 let outcome = await TerminalJumper.jump(ref)
                 self?.showJumpFeedback(outcome, for: session.id)
@@ -1533,7 +1545,7 @@ final class MenuBarModel: ObservableObject {
                     return await monitor.steer(threadID: id, text: text)
                 },
                 startTurn: { id, text in
-                    if await grok.hosts(id) { return await grok.prompt(sessionID: id, text: text) }
+                    if await grok.owns(id) { return await grok.prompt(sessionID: id, text: text) }
                     return await monitor.startTurn(threadID: id, text: text)
                 },
                 queueCursorFollowup: { id, text in

@@ -256,15 +256,27 @@ public actor SessionStore {
         if toolLedger.needsTrailingWrite { armToolLedgerFlush() }  // the write failed; try again
     }
 
-    public func registerACPRecovery(sessionID: String, cwd: String, model: String?, unavailable: String?, updatedAt: Date, retryable: Bool = false) {
-        var row = AgentSession(id: sessionID, agent: .cursor, project: cwd, checkoutPath: cwd,
-                               model: model, status: .done, summary: "Managed Cursor session; reconnects on continue",
+    /// A Cursor or Grok session an ACP host started that a later host can
+    /// reload on Continue. The `cursorACP*` fields carry it for both agents.
+    public func registerACPRecovery(sessionID: String, agent: AgentKind = .cursor, cwd: String, model: String?,
+                                    unavailable: String?, updatedAt: Date, retryable: Bool = false) {
+        let summary = agent == .grok ? "Managed Grok Build session; reconnects on continue"
+            : "Managed Cursor session; reconnects on continue"
+        var row = AgentSession(id: sessionID, agent: agent, project: cwd, checkoutPath: cwd,
+                               model: model, status: .done, summary: summary,
                                statusSince: updatedAt, updatedAt: updatedAt)
         row.historyOnly = true
         row.cursorACPRecoverable = true
         row.cursorACPRecoveryUnavailable = retryable ? nil : unavailable
         row.cursorACPRecoveryFailure = retryable ? unavailable : nil
         acpRecoveryRows[sessionID] = row
+        broadcast()
+    }
+
+    /// The session went to a terminal (`grok --resume`); nothing here can
+    /// reload it any more.
+    public func forgetACPRecovery(sessionID: String) {
+        guard acpRecoveryRows.removeValue(forKey: sessionID) != nil else { return }
         broadcast()
     }
 
@@ -311,7 +323,9 @@ public actor SessionStore {
             // A Grok Build session vibebuddy hosts over ACP (ADR-0030) is the
             // only Grok write path; a session seen through hooks alone keeps
             // the agent's rule (no stamp: the phone says "use the terminal").
-            return acpHosted.contains(session.id) ? .acp : nil
+            // A reloadable one is reachable only after Continue reloads it.
+            if acpHosted.contains(session.id) { return .acp }
+            return acpRecoveryRows[session.id] != nil ? ControlChannel.none : nil
         default:
             return nil
         }

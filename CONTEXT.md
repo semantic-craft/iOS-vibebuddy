@@ -111,7 +111,10 @@ code, and tests — don't drift to synonyms.
   not `userStopped`. The session's permission frequency is the user's own
   `[ui] permission_mode`; under `always-approve` no card appears. A Grok
   session opened in a terminal is unchanged (hooks observe, the phone says to
-  use the terminal). Recovery after a daemon restart is not promised yet.
+  use the terminal). After a daemon or app restart a hosted session comes back
+  as a reloadable row (`GrokACPRecovery`, ADR-0030 amendment 1): Continue
+  reloads it with `session/load` in a new process; if that fails, opening it on
+  the Mac runs `grok --resume=<id>` in a terminal, which owns it from then on.
 - **Control channel** (`ControlChannel`) — the one write path the daemon would
   use for a session right now: `hook` (Cursor IDE, follow-ups only), `acp`
   (hosted Cursor or Grok Build CLI), `appserver` (Codex), `cloud` (Cursor cloud agent), `none`
