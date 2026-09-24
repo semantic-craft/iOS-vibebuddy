@@ -30,7 +30,7 @@ Start a refactor in Claude Code, a test run in Codex and a build in Grok Build. 
 
 ## Use Codex across your Apple devices
 
-Follow Codex tasks and usage on Mac and iPhone, and check completion results on Apple Watch. A connected Codex app-server lets you create, continue, steer and stop the tasks it owns, and respond to supported approval requests and questions. Codex Desktop observation is also supported; its native approvals may still require the Mac.
+Follow Codex tasks and usage on Mac and iPhone, and check completion results on Apple Watch. A connected Codex app-server lets you create, continue, steer (not yet verified end to end) and stop the tasks it owns, and respond to supported approval requests and questions. Codex Desktop observation is also supported; its native approvals may still require the Mac.
 
 Optional OpenAI voice conversation and read-aloud use your own API key. The repository includes the Swift integration code, protocol checks and documented limits. See [Codex and OpenAI workflows](docs/codex-openai-workflows.md) for setup, source links and a workflow you can try.
 
@@ -79,9 +79,9 @@ VibeBuddy connects to the agents you already run. Available controls follow the 
 | Connection | Available integration | Where the boundary is |
 | --- | --- | --- |
 | **Claude Code** | Lifecycle hooks, task state, usage, permission decisions and answers to supported questions. | Remote responses need the approval hooks. When the native prompt owns the interaction, respond on Mac. |
-| **Codex CLI / connected app-server** | Task state, usage, supported approvals and questions; create, continue, steer and stop tasks through a connected app-server. | Task control requires the connected server to own the task and expose the required turn/request. Steering a running turn is covered by unit tests but has not yet passed an end-to-end check. MCP elicitation is read-only. |
+| **Codex CLI / connected app-server** | Task state, usage, supported approvals and questions; create, continue, steer and stop tasks through a connected app-server. | Task control requires the connected server to own the task and expose the required turn/request. Steering a running turn has not yet been verified end to end. MCP elicitation is read-only. |
 | **Codex Desktop** | Observe local task progress and completions; jump back to the app. | Desktop may own a separate app-server. Native Desktop approval coverage is incomplete; use the Mac prompt when no answerable request is available. |
-| **Grok Build** | CLI lifecycle hooks, task state, account usage and configured approval gates; tasks started from VibeBuddy are hosted over ACP with remote approval, questions, follow-ups and stop. | Whether Grok asks at all depends on its permission mode: under `always-approve` no approval reaches the phone, for tasks started from VibeBuddy too. For a session opened in a terminal, whether a remote approval resolves the native prompt also depends on that mode. |
+| **Grok Build** | CLI lifecycle hooks, task state, account usage and configured approval gates; tasks started from VibeBuddy are hosted over ACP with remote approval, questions, follow-ups and stop. | Tasks started from VibeBuddy follow Grok's `permission_mode`: under `always-approve` they never ask, so no approval reaches the phone. For a session opened in a terminal, a remote approval resolves the native prompt only under `always-approve`. |
 | **Grok Bot** | Account usage only. | There is no task integration: tasks, replies and approvals all stay in the official app. |
 | **Cursor** | Task state for the Agent panel and the Cursor CLI, supported approvals and questions, queued follow-ups for a running turn, continuation of a finished chat through the Cursor CLI, and account usage with separate **Cursor Models** and **Other Models** pools. | Task state and remote responses need the Cursor hooks; without them the agent transcript still reports progress. Cursor exposes no way to interrupt a running turn, and no link that opens a specific chat — a jump brings Cursor forward. |
 
