@@ -465,6 +465,7 @@ struct VoiceCallCoordinatorTests {
         coordinator.handle(.speechStarted)
         for _ in 0..<100 { await Task.yield() }
         #expect(entered == 0)
+        coordinator.handle(.userTranscript(text: "approve fixture", final: true))
         coordinator.handle(tool("suspended"))
         for _ in 0..<100 where gate == nil { await Task.yield() }
         #expect(gate != nil)
@@ -473,6 +474,7 @@ struct VoiceCallCoordinatorTests {
         for _ in 0..<100 { await Task.yield() }
         #expect(submitted == 0)
         #expect(results.isEmpty)
+        coordinator.handle(.userTranscript(text: "approve fixture", final: true))
         coordinator.handle(tool("new"))
         for _ in 0..<100 where gate == nil { await Task.yield() }
         gate?.resume(); gate = nil

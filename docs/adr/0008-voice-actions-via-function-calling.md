@@ -164,14 +164,20 @@ passed that call; only a hold timeout on orange stopped it. The target must be
 checked against something the model does not choose.
 
 A task action — approve, deny, answer, instruct — is sent only when the user's
-own words in the current exchange name its target (`VoiceTargetCheck`). The
-words are every user transcript and caption since the companion last produced
-output; a companion reply starts a new exchange, so an earlier mention never
-carries over. Project name or session title, ignoring case, spaces and
-punctuation; Latin names match whole words only; a distinct word of the project
-name counts when no other in-scope task shares it; a name heard only inside a
-longer in-scope name does not count. Transcription can follow the tool call
-(Qwen: 0.1–0.7 s later), so the check waits up to 2.5 s for it.
+own words in the current exchange name its target (`VoiceTargetCheck`). An
+exchange starts when the user starts speaking (`speechStarted`) or speaks again
+after the companion did, so an earlier mention never carries over. Final
+transcripts accumulate within it; a partial transcript is the provider's
+hypothesis for the utterance so far and replaces the previous one (Gemini's
+increments are accumulated in its adapter); Live captions are read as their
+latest group, since Live's continuous output audio is not a reply. Project name
+or session title, ignoring case, spaces and punctuation; Latin names match whole
+words only and need three letters; a distinct word of the project name counts
+when it is not a common or command word and no other in-scope name contains it;
+a name heard only inside a longer in-scope name does not count. Transcription
+can follow the tool call (Qwen: 0.1–0.7 s later), so the check waits up to
+2.5 s for it. iPhone resolves the action inside the voice scope, as the Mac
+does, so the checked target is the one acted on.
 
 Otherwise the action is held, not sent. The tool result tells the model which
 name was heard (or that none was) and to ask the user to say the target's name;
@@ -187,4 +193,5 @@ Considered: a spoken yes/no confirmation for every action (slower, and a yes
 misheard from a no would release it); holding only when several tasks are
 waiting (the user can name a task that is not waiting, and the only waiting one
 still receives it). Known cost: when ASR garbles a name every time (an English
-name in Chinese speech), voice cannot act on that task; the card still can.
+name in Chinese speech, or Gemini transcribing a short Chinese reply as
+Japanese), voice cannot act on that task; the card still can.

@@ -118,6 +118,96 @@ struct VoiceTargetCheckTests {
         coordinator.stop()
     }
 
+    @Test("common and command words, and two Latin letters, name nothing")
+    func commonWords() {
+        let grape = waiting("grape"), login = waiting("fix-the-login"), auto = waiting("auto-approve"), it = waiting("it")
+        let scope = [grape, login, auto, it]
+        #expect(VoiceTargetCheck.verdict(target: login, heard: "approve the grape request", scope: scope) == .namedOther("grape"))
+        #expect(VoiceTargetCheck.verdict(target: auto, heard: "approve grape", scope: scope) == .namedOther("grape"))
+        #expect(VoiceTargetCheck.verdict(target: it, heard: "deny it", scope: scope) == .unnamed)
+        #expect(VoiceTargetCheck.verdict(target: login, heard: "approve the login one", scope: scope) == .named)
+    }
+
+    /// Qwen: speech starts, the tool call follows, the transcript comes last.
+    private func qwenCoordinator(_ scope: [AgentSession], sent: @escaping (VoiceAction) -> Void,
+                                 results: @escaping (String) -> Void) -> VoiceCallCoordinator {
+        VoiceCallCoordinator(audio: SilentAudio(), actionHandler: { sent($0); return "Sent." },
+            sendToolResult: { _, _, result in results(result) },
+            contextProvider: { scope }, transcriptGrace: .milliseconds(400))
+    }
+
+    @Test("a name from the previous utterance does not release this one's action")
+    func previousUtteranceIsStale() async {
+        var sent: [VoiceAction] = [], results: [String] = []
+        let c = qwenCoordinator([waiting("orange"), waiting("grape")], sent: { sent.append($0) }, results: { results.append($0) })
+        c.handle(.userTranscript(text: "grape 在等什么？", final: true))
+        c.handle(.assistantTranscript(text: "grape 在等一个 Bash 批准。", final: true))
+        c.handle(.speechStarted)
+        c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"grape"}"#, callID: "1"))
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(sent.isEmpty) // waiting for this utterance's transcript
+        c.handle(.userTranscript(text: "拒绝 orange。", final: true))
+        await waitFor { results.count == 1 }
+        #expect(sent.isEmpty)
+        #expect(results.first?.contains("named orange, not grape") == true)
+        c.stop()
+    }
+
+    @Test("a transcript arriving during the wait releases the named action")
+    func lateTranscriptReleases() async {
+        var sent: [VoiceAction] = [], results: [String] = []
+        let c = qwenCoordinator([waiting("orange"), waiting("grape")], sent: { sent.append($0) }, results: { results.append($0) })
+        c.handle(.speechStarted)
+        c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"grape"}"#, callID: "1"))
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(sent.isEmpty)
+        c.handle(.userTranscript(text: "拒绝 grape 的请求。", final: true))
+        await waitFor { results.count == 1 }
+        #expect(sent == [.deny(project: "grape")])
+        c.stop()
+    }
+
+    @Test("a revised partial hypothesis no longer counts")
+    func revisedPartial() async {
+        var sent: [VoiceAction] = [], results: [String] = []
+        let c = qwenCoordinator([waiting("orange"), waiting("grape")], sent: { sent.append($0) }, results: { results.append($0) })
+        c.handle(.speechStarted)
+        c.handle(.userTranscript(text: "拒绝 orange", final: false))
+        c.handle(.userTranscript(text: "拒绝 grape", final: false))
+        c.handle(.userTranscript(text: "拒绝 grape。", final: true))
+        c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"orange"}"#, callID: "1"))
+        await waitFor { results.count == 1 }
+        #expect(sent.isEmpty)
+        c.stop()
+    }
+
+    @Test("stopping during the wait sends nothing")
+    func stopDuringWait() async {
+        var sent: [VoiceAction] = [], results: [String] = []
+        let c = qwenCoordinator([waiting("orange")], sent: { sent.append($0) }, results: { results.append($0) })
+        c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"orange"}"#, callID: "1"))
+        try? await Task.sleep(for: .milliseconds(100))
+        c.stop()
+        try? await Task.sleep(for: .milliseconds(500))
+        #expect(sent.isEmpty && results.isEmpty && c.heldNotice == nil)
+    }
+
+    @Test("Live's continuous audio does not split the user's caption")
+    func liveContinuousAudio() async {
+        var sent: [VoiceAction] = [], results: [String] = []
+        let c = VoiceCallCoordinator(audio: SilentAudio(), actionHandler: { sent.append($0); return "Sent." },
+            sendToolResult: { _, _, result in results.append(result) }, continuousPlayback: true,
+            contextProvider: { [self.waiting("orange"), self.waiting("grape")] }, transcriptGrace: .milliseconds(200))
+        for (i, text) in ["approve ", "grape ", "please"].enumerated() {
+            c.handle(.audioDelta(Data(count: 4800)))
+            c.handle(.transcriptFragment(.init(speaker: .user, text: text, startMilliseconds: i * 400, endMilliseconds: i * 400 + 300)))
+        }
+        c.handle(.toolCall(name: "approve_session", arguments: #"{"project":"grape"}"#, callID: "1"))
+        await waitFor { results.count == 1 }
+        #expect(sent == [.approve(project: "grape")])
+        c.stop()
+    }
+
     private func waitFor(_ condition: () -> Bool) async {
         for _ in 0..<300 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
     }

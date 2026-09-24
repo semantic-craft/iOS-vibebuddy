@@ -280,6 +280,7 @@ final class VoiceChat: ObservableObject {
     private func closeRealtimeSession(completingTool: VoiceToolResult? = nil) {
         phase = .idle
         coordinator = nil
+        heldNotice = nil
         startID = UUID()
         eventTask?.cancel(); eventTask = nil
         audioIO = nil

@@ -54,8 +54,9 @@ public final class VoiceCallCoordinator {
     public private(set) var lastUserText = ""
     public private(set) var lastReply = ""
     public private(set) var errorText: String?
-    /// A task action the user's words did not name, held instead of sent
-    /// (RV-03). Cleared when a later task action is sent or the call stops.
+    /// Set while the latest action tool call was held because the user's
+    /// words did not name its target (RV-03); cleared when the next action
+    /// call is evaluated, when the user starts speaking again, or on stop.
     public private(set) var heldNotice: String?
     public var endReason: VoiceCallEndReason? {
         if case .ended(let reason) = phase { return reason }
@@ -81,10 +82,14 @@ public final class VoiceCallCoordinator {
     private var recoveringAudio = false
     private var stopped = false
     private var closeIntentTask: Task<Void, Never>?
-    /// What the user was heard saying in the current exchange: every user
-    /// transcript or caption since the companion last produced output. Only a
-    /// veto for task actions (VoiceTargetCheck), never an authorization.
-    private var heardWords = ""
+    /// What the user was heard saying in the current exchange, only ever a
+    /// veto for task actions (VoiceTargetCheck), never an authorization. An
+    /// exchange starts when the user starts speaking (`speechStarted`) or
+    /// speaks again after the companion did. Final transcripts accumulate; a
+    /// partial is the provider's hypothesis for the utterance so far and
+    /// replaces the previous one. Live captions are read as their latest group.
+    private var heardFinal = ""
+    private var heardPartial = ""
     private var companionSpokeSinceUser = false
     private let transcriptGrace: Duration
     public private(set) var endedByExplicitVoiceCommand = false
@@ -140,7 +145,7 @@ public final class VoiceCallCoordinator {
             phase = !recoveringAudio ? .listening : .recovering
         case .userTranscript(let text, let final):
             lastUserText = text
-            heard(text)
+            heard(text, final: final)
             if final, VoiceCloseIntent.isExplicitCallEnd(text) {
                 endedByExplicitVoiceCommand = true
                 stop()
@@ -150,7 +155,6 @@ public final class VoiceCallCoordinator {
             // late fragments. Captions never authorize coding actions. A narrow
             // settled call-ending command controls this local voice session only.
             if fragment.speaker == .user {
-                heard(fragment.text)
                 userFragments.append(fragment)
                 userFragments = Array(userFragments.suffix(128))
                 lastUserText = Self.caption(userFragments)
@@ -182,7 +186,9 @@ public final class VoiceCallCoordinator {
             }
         case .audioDelta(let pcm, let item):
             guard !recoveringAudio else { return }
-            companionSpokeSinceUser = true
+            // Live's output is one continuous stream, silence included; only
+            // its captions show that the companion spoke.
+            if !continuousPlayback { companionSpokeSinceUser = true }
             turnComplete = continuousPlayback
             audio.enqueue(pcm, item: item)
             guard !recoveringAudio, !stopped else { return }
@@ -194,6 +200,7 @@ public final class VoiceCallCoordinator {
         case .toolCall(let name, let arguments, let callID):
             let action = VoiceTools.action(name: name, arguments: arguments)
             guard !stopped, handledToolIDs.insert(callID).inserted else { return }
+            if action != .none { heldNotice = nil }
             let playing = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
             phase = !recoveringAudio ? (playing ? .speaking : .thinking) : .recovering
             toolTasks[callID] = Task { [weak self] in
@@ -218,11 +225,12 @@ public final class VoiceCallCoordinator {
                     heldNotice = held.notice
                     result = held.result
                 } else {
-                    if action.taskTarget != nil { heldNotice = nil }
                     result = action == .none ? "Sorry, I couldn't do that." : await actionHandler(action)
                 }
                 guard !Task.isCancelled, !stopped else { return }
-                if action != .none, !continuousPlayback { lastReply = result }
+                // A held action's result is instructions for the model; the
+                // person sees `heldNotice` instead.
+                if action != .none, !continuousPlayback, heldNotice == nil { lastReply = result }
                 sendToolResult(callID, name, result)
                 toolTasks[callID] = nil
             }
@@ -240,6 +248,11 @@ public final class VoiceCallCoordinator {
         case .closed:
             stop()
         case .speechStarted:
+            // A new utterance: earlier words no longer name anything. This also
+            // cancels an action still waiting for its transcript; the user is
+            // speaking again, as with any interrupted tool call.
+            heardFinal = ""; heardPartial = ""; companionSpokeSinceUser = false
+            heldNotice = nil
             toolTasks.values.forEach { $0.cancel() }
             toolTasks.removeAll()
             truncatePlayback(audio.flushPlayback())
@@ -276,12 +289,21 @@ public final class VoiceCallCoordinator {
         }
     }
 
-    private func heard(_ text: String) {
+    private func heard(_ text: String, final: Bool) {
         if companionSpokeSinceUser {
-            heardWords = ""
+            heardFinal = ""; heardPartial = ""
             companionSpokeSinceUser = false
         }
-        heardWords = String((heardWords + " " + text).suffix(2000))
+        if final {
+            heardFinal = String((heardFinal + " " + text).suffix(2000))
+            heardPartial = ""
+        } else {
+            heardPartial = String(text.suffix(2000))
+        }
+    }
+
+    private var heardWords: String {
+        [heardFinal, heardPartial, Self.caption(userFragments)].joined(separator: " ")
     }
 
     /// Nil when the user's words name the action's target. Otherwise the

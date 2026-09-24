@@ -12,9 +12,10 @@ import Foundation
 ///
 /// Matching is lenient about spelling and strict about identity: case, spaces
 /// and punctuation are ignored ("vibe buddy" names `vibe-buddy`), and a distinct
-/// word of the project name counts when no other task in scope shares it. A
-/// name heard only inside a longer in-scope name does not count (`app` is not
-/// named by "app-server").
+/// word of the project name counts when no other task in scope contains it and
+/// it is not a word said in every request ("approve", "the"). Latin names match
+/// whole words only, and need three letters. A name heard only inside a longer
+/// in-scope name does not count (`app` is not named by "app-server").
 public enum VoiceTargetCheck {
     public enum Verdict: Equatable, Sendable {
         /// The user's words name the target.
@@ -41,7 +42,7 @@ public enum VoiceTargetCheck {
     /// For a caller without a session scope: the model-supplied name itself must be heard.
     public static func verdict(project: String, heard: String) -> Verdict {
         let name = normalize(project)
-        return name.count >= 2 && !Spoken(heard).occurrences(of: name).isEmpty ? .named : .unnamed
+        return nameable(name) && !Spoken(heard).occurrences(of: name).isEmpty ? .named : .unnamed
     }
 
     static func mentions(_ session: AgentSession, in spoken: Spoken, others: [AgentSession]) -> Bool {
@@ -54,11 +55,28 @@ public enum VoiceTargetCheck {
                 !covered.contains { $0.lowerBound <= hit.lowerBound && hit.upperBound <= $0.upperBound }
             }
         }
-        if names(session).contains(where: { $0.count >= 2 && free($0) }) { return true }
-        // A distinct word of the project name, e.g. "ios" for "ios-vibebuddy".
-        let otherWords = Set(others.flatMap { words($0.project) })
-        return words(session.project).contains { $0.count >= 3 && !otherWords.contains($0) && free($0) }
+        if names(session).contains(where: { nameable($0) && free($0) }) { return true }
+        // A distinct word of the project name, e.g. "ios" for "ios-vibebuddy":
+        // not a common or command word, and in no other in-scope name.
+        return words(session.project).contains { word in
+            word.count >= 3 && !commonWords.contains(word)
+                && !otherNames.contains { $0.contains(word) } && free(word)
+        }
     }
+
+    /// Two Latin letters ("it", "go", "ui") turn up in ordinary speech; such a
+    /// name cannot be confirmed by voice. Two Chinese characters are a word.
+    private static func nameable(_ name: String) -> Bool {
+        name.count >= (name.allSatisfy(\.isASCII) ? 3 : 2)
+    }
+
+    /// Words said in almost every request, never evidence of which task is meant.
+    static let commonWords: Set<String> = [
+        "the", "and", "for", "with", "this", "that", "one", "all", "any", "not", "you", "your", "our",
+        "approve", "approved", "approval", "allow", "deny", "reject", "answer", "reply", "confirm", "cancel",
+        "stop", "yes", "please", "request", "requests", "task", "tasks", "project", "projects", "session",
+        "sessions", "app", "apps", "agent", "new", "old", "fix", "test", "tests", "main", "run", "check",
+    ]
 
     private static func names(_ session: AgentSession) -> [String] {
         [session.project, session.name ?? ""].map(normalize).filter { !$0.isEmpty }

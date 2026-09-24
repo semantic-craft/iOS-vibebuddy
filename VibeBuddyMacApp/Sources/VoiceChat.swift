@@ -133,8 +133,9 @@ final class VoiceChat: ObservableObject {
             sendToolResult: { [weak self] callID, name, result in
                 // Includes coordinator refusals (ambiguous/out-of-scope), not
                 // just actions which reached the application handler. Status
-                // reads and provider captions never replace this receipt.
-                if VoiceTools.all.contains(where: { $0.name == name }) {
+                // reads and provider captions never replace this receipt, and
+                // a held action's instructions to the model show as heldNotice.
+                if VoiceTools.all.contains(where: { $0.name == name }), self?.coordinator?.heldNotice == nil {
                     self?.actionReceipt = result
                 }
                 Task { await session.sendToolResult(callID: callID, name: name, result: result) }
@@ -270,6 +271,7 @@ final class VoiceChat: ObservableObject {
     private func closeRealtimeSession(completingTool: VoiceToolResult? = nil) {
         phase = .idle
         coordinator = nil
+        heldNotice = nil
         eventTask?.cancel(); eventTask = nil
         audioIO = nil
         audioStarted = false
