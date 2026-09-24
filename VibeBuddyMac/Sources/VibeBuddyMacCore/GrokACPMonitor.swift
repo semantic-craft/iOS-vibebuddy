@@ -175,6 +175,11 @@ public actor GrokACPMonitor {
         guard !recoveryRegistered, let recoveryDirectory else { return }
         recoveryRegistered = true
         for record in GrokACPRecovery.read(in: recoveryDirectory) where hosted[record.sessionID] == nil {
+            // Already reopened in a terminal: that terminal owns it.
+            if openInGrok(record.sessionID) {
+                GrokACPRecovery.remove(record.sessionID, in: recoveryDirectory)
+                continue
+            }
             recoveries[record.sessionID] = record
             await store.registerACPRecovery(sessionID: record.sessionID, agent: .grok, cwd: record.cwd,
                                             model: record.model, unavailable: nil,
@@ -203,6 +208,8 @@ public actor GrokACPMonitor {
                                         unavailable: nil, updatedAt: record.updatedAt ?? record.createdAt)
         var client: CursorACPClient?
         do {
+            // `shutdown` may have run during the await above.
+            guard !stopping else { throw CursorACPClient.ClientError.closed }
             // Refuses while the previous grok process of this session still runs.
             let lease = try CursorACPLease(directory: recoveryDirectory, record: record, agent: "Grok")
             // With our own old process gone (the lease), a live grok on this
@@ -288,6 +295,13 @@ public actor GrokACPMonitor {
         defer { loading.remove(sessionID) }
         // Two writers on one session is what the lease exists to prevent.
         guard let lease = try? CursorACPLease(directory: recoveryDirectory, record: record, agent: "Grok") else {
+            return .unsupported
+        }
+        // Already open in a live grok (someone ran `grok --resume`): hand it over.
+        if openInGrok(sessionID) {
+            recoveries[sessionID] = nil
+            GrokACPRecovery.remove(sessionID, in: recoveryDirectory)
+            await store.forgetACPRecovery(sessionID: sessionID)
             return .unsupported
         }
         let opened = await openInTerminal(sessionID, record.cwd, terminal)
