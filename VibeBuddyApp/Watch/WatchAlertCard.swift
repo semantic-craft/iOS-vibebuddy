@@ -204,7 +204,7 @@ struct WatchApprovalActions: View {
     /// decision and delivers it later (ADR-0032).
     private var blocked: LocalizedStringResource? {
         if !store.canReachPhone { return "Can't reach your iPhone — decide there, or move closer." }
-        return WatchLinkBlock.message(store, now: Date(), holdable: true)
+        return WatchLinkBlock.message(store, now: Date(), sendsWhileMacAway: true)
     }
 
     /// What the iPhone is holding for this very approval, when it is.
@@ -317,15 +317,18 @@ enum WatchLinkBlock {
     /// the relayed verdict alone, so a state that has simply aged out disables
     /// the buttons instead of leaving a live-looking one that does nothing.
     ///
-    /// `holdable` is an approval or an answer: those the iPhone will hold and
-    /// deliver when it can reach the Mac (ADR-0032), so the Mac being out of
-    /// reach is a note, not a block. A stop is never held.
+    /// `sendsWhileMacAway` is for an action the iPhone takes on even while it
+    /// reports the Mac out of reach — which a locked phone reports whether or
+    /// not the Mac is there. An approval or an answer is held and delivered
+    /// when the Mac can be reached (ADR-0032); a stop is tried once at once and
+    /// never held (WR-08). For those the Mac being out of reach is a note, not
+    /// a block.
     @MainActor
-    static func message(_ store: WatchStateStore, now: Date, holdable: Bool = false) -> LocalizedStringResource? {
+    static func message(_ store: WatchStateStore, now: Date, sendsWhileMacAway: Bool = false) -> LocalizedStringResource? {
         guard let state = store.state else { return "Waiting for an updated request from your iPhone." }
         switch state.connection(now: now, phoneReachable: store.canReachPhone) {
         case .macDisconnected:
-            return holdable ? nil : "Your iPhone can't reach your Mac, so this can't be sent."
+            return sendsWhileMacAway ? nil : "Your iPhone can't reach your Mac, so this can't be sent."
         case .phoneDisconnected:
             return "Your iPhone hasn't sent an update. Open VibeBuddy on your iPhone."
         case .watchUnreachable:
@@ -371,7 +374,18 @@ struct WatchStopControl: View {
         }
     }
 
-    private var blocked: LocalizedStringResource? { WatchLinkBlock.message(store, now: Date()) }
+    private var attemptReason: ConnectionFailureReason? {
+        store.pendingAction.action.flatMap {
+            $0.isStop && $0.sessionId == task.sessionID ? $0.reason : nil
+        }
+    }
+
+    /// The phone tries a stop once against the Mac's own snapshot even when it
+    /// reports the Mac out of reach (WR-08), so only a link the wrist can
+    /// prove is down disables the button.
+    private var blocked: LocalizedStringResource? {
+        WatchLinkBlock.message(store, now: Date(), sendsWhileMacAway: true)
+    }
 
     var body: some View {
         switch task.stop {
@@ -431,10 +445,15 @@ struct WatchStopControl: View {
         switch phase {
         case .sending: return "Sending…"
         case .awaitingResolution: return "Sent. Waiting for your Mac to confirm."
-        // Never "couldn't send": a timeout can drop the reply to a stop the Mac
-        // already carried out, and this is the one action where inviting a
-        // blind retry is worse than saying the truth.
-        case .failed, .unknown, .queued: return "Couldn't confirm that. Check the task."
+        // A failure the iPhone names a missing link for is one where nothing
+        // was sent — the Mac's own snapshot could not be read (WR-08) — so it
+        // says so. Otherwise never "couldn't send": a timeout can drop the reply
+        // to a stop the Mac already carried out, and this is the one action
+        // where inviting a blind retry is worse than saying the truth.
+        case .failed:
+            if let reason = attemptReason { return WatchLinkCopy.failed(reason) }
+            return "Couldn't confirm that. Check the task."
+        case .unknown, .queued: return "Couldn't confirm that. Check the task."
         case .refused: return "This isn't running any more."
         case nil: return nil
         }

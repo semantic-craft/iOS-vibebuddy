@@ -156,3 +156,32 @@ Both are on the phone; the wrist's rules from ADR-0033 are unchanged. What
 the next device round has to show is one round in which the banner buzzes,
 the tap is made on the wrist alone, and the Mac clears within seconds while
 the phone stays locked.
+
+## Amendment — a stop is tried once too, and the wrist lets it go (2026-09-24, WR-08)
+
+The 2026-09-23 amendment gave a held decision one pass at once, because a
+locked phone has no stream while the Mac is one request away. It left the
+stop out, since a stop is never held. So the same false reading, "the Mac
+cannot be reached", still blocked it in three places. On Hermes, with the phone
+locked, a Stop from the watch never reached the Mac: the Stop button was greyed
+out as "Your iPhone can't reach your Mac", `submitStop` refused on
+`.macDisconnected`, and `actFromWatch` never tried a destructive action without
+a stream. The same Stop went through as soon as the phone was unlocked.
+
+Now:
+
+- **The wrist lets a stop travel on `.macDisconnected`**, as it already did an
+  approval or an answer. A locked phone reports exactly that whether or not the
+  Mac is there. Only a phone the Watch cannot reach still blocks it
+  (`WatchLinkBlock.message(sendsWhileMacAway:)`, `canTravel`).
+- **The phone tries a stop once, now, and never holds it**
+  (`DashboardStore.stopWithoutStream`). It reads the Mac's own snapshot through
+  the saved pairing, judges the tap against it (`watchActions.admit`, so the
+  turn the wrist was shown must still be the running one), and sends it. The
+  Mac checks `expectedStatusSince` again on arrival. A snapshot that cannot be
+  read means nothing was sent: `failed`, with the phone's diagnosis of the
+  missing link. `hold()` still refuses destructive actions, so no pass started
+  later can carry a stop to another turn.
+
+Unchanged: a stop is never queued and never late. It lands on the turn it was
+aimed at now, or the wrist is told it was not sent.

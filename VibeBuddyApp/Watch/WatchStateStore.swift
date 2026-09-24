@@ -873,10 +873,10 @@ final class WatchStateStore: NSObject, ObservableObject {
     ///
     /// A decision may travel over a link the Mac cannot be given right now:
     /// the phone holds it and delivers it later (ADR-0032), so `canTravel`
-    /// with `holdable: true` is the gate here, not a live link.
+    /// is the gate here, not a live link.
     @discardableResult
     func submit(_ alert: WatchAlert, _ choice: WatchApprovalChoice) -> Bool {
-        guard let state, canTravel(state, holdable: true),
+        guard let state, canTravel(state),
               state.alerts.contains(where: { $0.sessionId == alert.sessionId && $0.approvalId == alert.approvalId }),
               let request = pendingAction.begin(alert: alert, choice: choice,
                                                 attemptId: UUID().uuidString)
@@ -912,7 +912,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         // Same order as a stop: the attempt exists before the link is judged,
         // so a confirmation tapped over a dead link leaves a sentence on screen
         // instead of dismissing in silence.
-        guard canTravel(state, holdable: true) else {
+        guard canTravel(state) else {
             pendingAction.fail(attemptId: request.attemptId)
             return true
         }
@@ -939,7 +939,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         guard let request = pendingAction.begin(alert: current, answers: answers,
                                                 attemptId: UUID().uuidString)
         else { return false }
-        guard canTravel(state, holdable: true) else {
+        guard canTravel(state) else {
             pendingAction.fail(attemptId: request.attemptId)
             return true
         }
@@ -969,10 +969,16 @@ final class WatchStateStore: NSObject, ObservableObject {
         // A different in-flight action must not dismiss this confirmation.
         else { return false }
         // The attempt is started before the link is judged, so a confirmation
-        // tapped while the phone or the Mac is unreachable leaves something on
-        // screen. A destructive action that dismisses its own sheet in silence
-        // is indistinguishable, from the wrist, from one that worked.
-        guard isLive(state) else {
+        // tapped while the phone is unreachable leaves something on screen. A
+        // destructive action that dismisses its own sheet in silence is
+        // indistinguishable, from the wrist, from one that worked.
+        //
+        // "The iPhone can't reach the Mac" is not a reason to keep it: a locked
+        // phone reports exactly that, because its stream is asleep, while the
+        // Mac is one request away (WR-08, the #260 finding for stops). The
+        // phone never holds a stop; it tries once against the Mac's own
+        // snapshot and says what happened.
+        guard canTravel(state) else {
             pendingAction.fail(attemptId: request.attemptId)
             return true
         }
@@ -986,15 +992,16 @@ final class WatchStateStore: NSObject, ObservableObject {
         canReachPhone && state.connection(now: Date(), phoneReachable: canReachPhone) == .live
     }
 
-    /// Whether an action is worth sending to the iPhone right now. A holdable
-    /// one — an approval, an answer — may go while the iPhone reports the Mac
-    /// out of reach: the iPhone holds it and delivers it later (ADR-0032). A
-    /// stop may not: it is bound to a turn that will not be there later.
-    private func canTravel(_ state: WatchDashboardState, holdable: Bool) -> Bool {
+    /// Whether an action is worth sending to the iPhone right now. Any action
+    /// may go while the iPhone reports the Mac out of reach — which is what a
+    /// locked phone reports whether or not the Mac is there. An approval or an
+    /// answer the phone cannot deliver at once is held and delivered later
+    /// (ADR-0032); a stop is tried once and never held, since it is bound to a
+    /// turn that will not be there later (WR-08).
+    private func canTravel(_ state: WatchDashboardState) -> Bool {
         guard canReachPhone else { return false }
         switch state.connection(now: Date(), phoneReachable: true) {
-        case .live: return true
-        case .macDisconnected: return holdable
+        case .live, .macDisconnected: return true
         case .phoneDisconnected, .watchUnreachable, .noData: return false
         }
     }
