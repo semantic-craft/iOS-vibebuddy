@@ -204,7 +204,7 @@ struct WatchApprovalActions: View {
     /// decision and delivers it later (ADR-0032).
     private var blocked: LocalizedStringResource? {
         if !store.canReachPhone { return "Can't reach your iPhone — decide there, or move closer." }
-        return WatchLinkBlock.message(store, now: Date(), holdable: true)
+        return WatchLinkBlock.message(store, now: Date(), sendsWhileMacAway: true)
     }
 
     /// What the iPhone is holding for this very approval, when it is.
@@ -317,15 +317,18 @@ enum WatchLinkBlock {
     /// the relayed verdict alone, so a state that has simply aged out disables
     /// the buttons instead of leaving a live-looking one that does nothing.
     ///
-    /// `holdable` is an approval or an answer: those the iPhone will hold and
-    /// deliver when it can reach the Mac (ADR-0032), so the Mac being out of
-    /// reach is a note, not a block. A stop is never held.
+    /// `sendsWhileMacAway` is for an action the iPhone takes on even while it
+    /// reports the Mac out of reach — which a locked phone reports whether or
+    /// not the Mac is there. An approval or an answer is held and delivered
+    /// when the Mac can be reached (ADR-0032); a stop is tried once at once and
+    /// never held (WR-08). For those the Mac being out of reach is a note, not
+    /// a block.
     @MainActor
-    static func message(_ store: WatchStateStore, now: Date, holdable: Bool = false) -> LocalizedStringResource? {
+    static func message(_ store: WatchStateStore, now: Date, sendsWhileMacAway: Bool = false) -> LocalizedStringResource? {
         guard let state = store.state else { return "Waiting for an updated request from your iPhone." }
         switch state.connection(now: now, phoneReachable: store.canReachPhone) {
         case .macDisconnected:
-            return holdable ? nil : "Your iPhone can't reach your Mac, so this can't be sent."
+            return sendsWhileMacAway ? nil : "Your iPhone can't reach your Mac, so this can't be sent."
         case .phoneDisconnected:
             return "Your iPhone hasn't sent an update. Open VibeBuddy on your iPhone."
         case .watchUnreachable:
@@ -371,7 +374,12 @@ struct WatchStopControl: View {
         }
     }
 
-    private var blocked: LocalizedStringResource? { WatchLinkBlock.message(store, now: Date()) }
+    /// The phone tries a stop once against the Mac's own snapshot even when it
+    /// reports the Mac out of reach (WR-08), so only a link the wrist can
+    /// prove is down disables the button.
+    private var blocked: LocalizedStringResource? {
+        WatchLinkBlock.message(store, now: Date(), sendsWhileMacAway: true)
+    }
 
     var body: some View {
         switch task.stop {

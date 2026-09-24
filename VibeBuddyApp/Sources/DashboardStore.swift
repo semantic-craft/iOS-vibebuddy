@@ -517,11 +517,16 @@ final class DashboardStore: ObservableObject {
         func result(_ outcome: WatchSessionActionOutcome) -> WatchSessionActionResult {
             WatchSessionActionResult(attemptId: request.attemptId, outcome: outcome)
         }
-        // No link to the Mac. An approval or an answer that the live sessions
-        // still admit is held on this phone under the tap's own id and
-        // delivered when the link returns; a stop is not, and the wrist is
-        // told which link is missing (ADR-0032).
+        // No stream to the Mac. An approval or an answer that the live
+        // sessions still admit is held on this phone under the tap's own id
+        // and delivered when the link returns (ADR-0032); a stop is never
+        // held, only tried once now (WR-08).
         guard isDemo || state == .connected else {
+            // A stop is never held, but the stream being down is not the Mac
+            // being away either: a locked phone has no stream while the Mac is
+            // one request off (WR-08). It gets the one attempt a held decision
+            // gets, now, judged on the Mac's own snapshot.
+            if request.action.isDestructive { return await stopWithoutStream(request) }
             // An empty memory (a cold launch, no snapshot yet) is not proof
             // the prompt is gone; only a loaded session that no longer shows
             // it is. The flush judges a held tap against the Mac's own copy.
@@ -637,6 +642,44 @@ final class DashboardStore: ObservableObject {
             return result(.accepted)
         case .refused:
             return result(.refused)
+        }
+        watchActions.commit(request.attemptId)
+        return result(.accepted)
+    }
+
+    /// A wrist stop while this phone has no stream to the Mac: one attempt
+    /// against the saved pairing, never a hold. The Mac's own snapshot, read
+    /// here, is what it is judged on — the turn it was aimed at must still be
+    /// the running one (`statusSince`), and the Mac checks that again on
+    /// arrival — so a stop either lands on its turn now or is reported as not
+    /// sent; it is never carried to a later turn.
+    private func stopWithoutStream(_ request: WatchSessionActionRequest) async -> WatchSessionActionResult {
+        func result(_ outcome: WatchSessionActionOutcome,
+                    reason: ConnectionFailureReason? = nil) -> WatchSessionActionResult {
+            WatchSessionActionResult(attemptId: request.attemptId, outcome: outcome, reason: reason)
+        }
+        guard !linkAbandoned, let pairing = pairing ?? ConnectionStore().pairing else {
+            return result(.failed, reason: currentFailureReason())
+        }
+        let epoch = pairingEpoch
+        guard let snapshot = await decisionClient.actionSnapshot(pairing) else {
+            return result(.failed, reason: currentFailureReason())
+        }
+        // A cold phone may not have read this Mac's identity yet; the saved
+        // pairing's token is what authenticated the snapshot.
+        guard epoch == pairingEpoch, sourceID == nil || snapshot.sourceID == sourceID,
+              let current = snapshot.sessions.first(where: { $0.id == request.sessionId })
+        else { return result(.refused) }
+        switch watchActions.admit(request, sessions: snapshot.sessions) {
+        case .duplicate: return result(.accepted)
+        case .stop: break
+        case .decide, .answer, .answerAll, .refused: return result(.refused)
+        }
+        switch await decisionClient.phoneStop(pairing, session: current, requestID: request.attemptId) {
+        case .accepted: break
+        case .refused: return result(.refused)
+        case .unconfirmed: return result(.unknown)
+        case .failed: return result(.failed, reason: currentFailureReason())
         }
         watchActions.commit(request.attemptId)
         return result(.accepted)

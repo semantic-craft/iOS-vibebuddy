@@ -26,7 +26,7 @@ struct WatchAnswerControl: View {
     /// place as every other action on this Watch.
     private var blocked: LocalizedStringResource? {
         if !store.canReachPhone { return "Can't reach your iPhone — answer there, or move closer." }
-        return WatchLinkBlock.message(store, now: Date(), holdable: true)
+        return WatchLinkBlock.message(store, now: Date(), sendsWhileMacAway: true)
     }
 
     private var phase: WatchSessionActionAttempt.Phase? {

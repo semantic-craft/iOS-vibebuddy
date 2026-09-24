@@ -7,17 +7,20 @@ import VibeBuddyKit
 private final class IntermittentMac: DecisionClient, @unchecked Sendable {
     struct Decision: Equatable { let approvalId: String; let decision: ApprovalDecision; let requestID: String }
     struct Answer: Equatable { let sessionId: String; let text: String?; let requestID: String }
+    struct Stop: Equatable { let sessionId: String; let statusSince: Date; let requestID: String }
 
     private let lock = NSLock()
     private var _snapshot: Snapshot?
     private var _reachable = false
     private var _decisions: [Decision] = []
     private var _answers: [Answer] = []
+    private var _stops: [Stop] = []
     /// What the Mac answers a decision with while reachable.
     var decisionResult: PhoneActionResult = .received
 
     var decisions: [Decision] { lock.withLock { _decisions } }
     var answers: [Answer] { lock.withLock { _answers } }
+    var stops: [Stop] { lock.withLock { _stops } }
 
     func set(snapshot: Snapshot?, reachable: Bool) {
         lock.withLock { _snapshot = snapshot; _reachable = reachable }
@@ -43,6 +46,14 @@ private final class IntermittentMac: DecisionClient, @unchecked Sendable {
             guard _reachable else { return .failed }
             _answers.append(Answer(sessionId: session.id, text: text, requestID: requestID))
             return .received
+        }
+    }
+
+    func phoneStop(_ pairing: PairingPayload, session: AgentSession, requestID: String) async -> StopDelivery {
+        lock.withLock {
+            guard _reachable else { return .failed }
+            _stops.append(Stop(sessionId: session.id, statusSince: session.statusSince, requestID: requestID))
+            return .accepted
         }
     }
 
@@ -235,6 +246,9 @@ final class HeldDecisionFlowTests: XCTestCase {
         guard case .gone? = notifier.reports.last else { return XCTFail("\(notifier.reports)") }
     }
 
+    /// With the Mac really out of reach a stop fails at once, names the link
+    /// that is missing, and is not kept for later, when it would land on some
+    /// other turn. (With only the stream down it goes through: WR-08, below.)
     func testAStopIsNeverHeldAndNamesTheMissingLink() async throws {
         let transport = HeldTransport()
         let mac = IntermittentMac()
@@ -253,11 +267,15 @@ final class HeldDecisionFlowTests: XCTestCase {
         let task = try XCTUnwrap(state.followedTasks.first { $0.sessionID == "task-run" })
         var action = WatchSessionActionState()
         let stop = try XCTUnwrap(action.begin(stop: task, attemptId: "stop-1"))
+        mac.set(snapshot: stream, reachable: false)
 
         let result = await transport.tap(stop)
         XCTAssertEqual(result.outcome, .failed)
         XCTAssertEqual(result.reason, .tailnetOff(host: "100.100.0.7"))
         XCTAssertTrue(store.heldActions.isEmpty)
+        mac.set(snapshot: stream, reachable: true)
+        await store.retryHeldDecisions()
+        XCTAssertEqual(mac.stops, [], "nothing was kept to be sent later")
     }
 
     func testThePhoneCardNeverSendsASecondDecisionBesideAHeldOne() async throws {
@@ -410,5 +428,68 @@ final class HeldDecisionFlowTests: XCTestCase {
         let persisting = await store.decideConfirmed("ap-1", .alwaysAllow)
         XCTAssertNotEqual(persisting, .held)
         XCTAssertEqual(store.heldActions.count, 1)
+    }
+
+    // MARK: - A stop from the wrist while the stream is down (WR-08)
+
+    /// A running turn the Mac's app-server connection carries: stoppable.
+    private func runningCodex(startedAt: Date) -> AgentSession {
+        AgentSession(id: "codex-1", agent: .codex, project: "ios-vibebuddy", status: .working,
+                     observations: [ObservationEvidence(source: .appserver, lastObservedAt: startedAt,
+                                                        health: .healthy)],
+                     attention: .followed, statusSince: startedAt, updatedAt: startedAt)
+    }
+
+    private func relayedStop(_ transport: HeldTransport, attempt: String) throws -> WatchSessionActionRequest {
+        let state = try XCTUnwrap(transport.states.last)
+        let task = try XCTUnwrap(state.followedTasks.first { $0.sessionID == "codex-1" })
+        XCTAssertEqual(task.stop, .offered)
+        var action = WatchSessionActionState()
+        return try XCTUnwrap(action.begin(stop: task, attemptId: attempt))
+    }
+
+    /// 2026-09-24 on Hermes: the phone was locked, its stream asleep, the Mac
+    /// one request away — and a Stop from the wrist was refused as "the iPhone
+    /// can't reach the Mac". It is tried once, now, against the Mac's own copy.
+    func testAWristStopWhileTheStreamIsDownIsSentOnceNowAndNeverHeld() async throws {
+        let transport = HeldTransport()
+        let mac = IntermittentMac()
+        let started = now.addingTimeInterval(-30)
+        let stream = snapshot([runningCodex(startedAt: started)])
+        mac.set(snapshot: stream, reachable: true)
+        let store = try await store(transport: transport, mac: mac, notifier: DeliveryNotifier(),
+                                    queue: PendingActionStore(url: nil), streamer: OneShotStreamer(stream))
+        for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotEqual(store.state, .connected)
+
+        let request = try relayedStop(transport, attempt: "stop-1")
+        let result = await transport.tap(request)
+        XCTAssertEqual(result.outcome, .accepted, "\(result)")
+        XCTAssertEqual(mac.stops, [.init(sessionId: "codex-1", statusSince: started, requestID: "stop-1")])
+        XCTAssertTrue(store.heldActions.isEmpty, "a stop is never held")
+
+        // The same tap again interrupts nothing a second time.
+        let repeated = await transport.tap(request)
+        XCTAssertEqual(repeated.outcome, .accepted)
+        XCTAssertEqual(mac.stops.count, 1)
+    }
+
+    /// The Mac's own copy has moved on to the next turn: the stop is refused
+    /// without reaching it.
+    func testAWristStopWithoutAStreamAimedAtAnEndedTurnIsRefused() async throws {
+        let transport = HeldTransport()
+        let mac = IntermittentMac()
+        let stream = snapshot([runningCodex(startedAt: now.addingTimeInterval(-30))])
+        mac.set(snapshot: stream, reachable: true)
+        let store = try await store(transport: transport, mac: mac, notifier: DeliveryNotifier(),
+                                    queue: PendingActionStore(url: nil), streamer: OneShotStreamer(stream))
+        for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        let request = try relayedStop(transport, attempt: "stop-1")
+        mac.set(snapshot: snapshot([runningCodex(startedAt: now)]), reachable: true)
+
+        let result = await transport.tap(request)
+        XCTAssertEqual(result.outcome, .refused)
+        XCTAssertEqual(mac.stops, [])
+        XCTAssertTrue(store.heldActions.isEmpty)
     }
 }
