@@ -68,7 +68,7 @@ B-U、H-1、H-5、M-11、D-U 的 agent 部分已跑完，基于 main `ebd06396`�
 
 | 项 | 结果 | 依据 |
 |---|---|---|
-| Codex 探针 `probe.py audit` | review | daemon 0.153.4，CLI 0.156.1。VibeBuddy 的 14 条 hook 全是 `modified`，等 owner 在 `/hooks` 里重新信任（「只剩你」第 2 件）；11:20 重跑的结果另存为 `bu/codex-probe-audit-rerun-1120.jsonl`。客户端方法和必填字段都齐。`~/.codex/config.toml` 的默认模型是 `gpt-6-astra`；这次 turn 失败的原因是额度用完，不是模型 |
+| Codex 探针 `probe.py audit` | review | daemon 0.153.4，CLI 0.156.1。VibeBuddy 的 14 条 hook 全是 `modified`，等 owner 在 `/hooks` 里重新信任（「只剩你」第 2 件）；11:20 重跑的结果另存为 `bu/codex-probe-audit-rerun-1120.jsonl`。客户端方法和必填字段都齐。`~/.codex/config.toml` 的默认模型是 `gpt-6-astra`；这次 turn 失败的原因是额度用完，不是模型 |（2026-09-24 已信任，`hooks status` 显示 14 条全部运行，见 README「只剩你」第 3 件）
 | B-U 配额 1 秒内更新 | **Claude 通过；Codex 受阻** | Claude：状态行送到 `/statusline`，约 0.1 s 后快照里出现配额（10:10:39.659 → .755，50 ms 轮询）。这是第一次读数：从「Collection is turned off」变成有值，不是数值变化。Codex：额度用完，不会发 `account/rateLimits/updated`。监听了 90 s（未另存），一条都没收到（文件只记收到的事件）。启动时 `rateLimits/read` 的结果正常进了快照：剩余 0%，重置时间正确 |
 | B-U 状态行字段 | **部分通过：能写入，但会被转录覆盖** | 真实 Claude 2.1.281 会话，10:10–10:11 状态行把显示名「Opus 5.5 (1M context)」、`effort` medium、`contextWindow` 1000000、费用和增删行数写进了会话行，statusline 来源 `healthy`；5 h 和 7 天两个窗口进了 `providerQuota`。到 10:13 的快照里，同一会话变成 `claude-opus-5-5`、窗口 200000：读转录时 `SessionReducer.enrich` 用型号表把它们改掉了。1M 上下文的会话因此在两次状态行之间显示约 20% 占用，实际约 4%。开了[票 10](agent-integration-2026-09/issues/10-transcript-overrides-statusline-window.md) |
 | B-U / M-11 在场门控 | **通过（两种判定都验了）** | 离开：前台是 Claude 桌面 App → `away`，卡片交给手机，可回答。在场：Terminal 在前台，会话的 tmux 窗格就在这个 Terminal 里，空闲 0 s → `present`；卡片 `answerable:false`，Claude 立即在本地弹出询问。空闲超过 120 s 一律判离开；owner 不在时，用一个原位、零位移的鼠标移动事件把空闲清零（见 `bu/harness.log` 的 presence 行） |

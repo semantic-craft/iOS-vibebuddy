@@ -1,6 +1,6 @@
 # 01: Swift 安装器替换 python 安装脚本（C-1，吸收 AI-08）
 
-**Status:** ready-for-human（#266 已合并；第 40、42、43 行 2026-09-24 由 agent 确认；剩第 41 行：Codex 迁到固定路径后要 owner 在 `/hooks` 重新信任一次，之后更新不再需要）
+**Status:** ready-for-agent（#266 已合并；第 40、42、43 行 2026-09-24 由 agent 确认；第 41 行：owner 已于 2026-09-24 在 `/hooks` 信任，14 条 hook 全部运行；只剩下次重新部署后确认 Codex 仍视为已信任、不要求重新信任）
 
 **Executor:** Claude（Opus 实现）· branch `claude/c1-swift-hook-installer` · 2026-09-23
 
@@ -49,3 +49,4 @@ Swift 安装器是主路径；Claude / Cursor 插件暂不做，只作为以后�
 - 2026-09-23：#266 已合并并装机。本机 Claude、Grok 已迁到固定目录并验证（新路径转发事件被 App 收到）；Codex 待 owner 重新信任；干净账户验收待 owner。评审后续小项并入 backlog 的 C-1b。
 - 2026-09-24：干净账户验收由 agent 在不新建系统账户的条件下模拟完成：临时 HOME（同时设 `CFFIXED_USER_HOME`），PATH 去掉 python，隔离 daemon 在 :18771。四家配置和脚本都到位，每家一个事件都送达，Claude 审批门正常，卸载 Grok 后模拟 App 更新（`refreshOnLaunch`）不会把 Grok 装回，真实 `~` 没被改动。明细见 `docs/planning/backlog/roadmap-audit-2026-09-24.md`，证据在 `~/Projects/_shared-work/iOS-vibebuddy/c1-clean-account-2026-09-24/`。第 41 行未勾：本机 Claude、Grok 已迁移（09-23），Codex 迁到固定路径后命令变了，需要 owner 在 `/hooks` 重新信任一次（见上面 09-23 的 Comments）。
 - 2026-09-24：本机 Codex 已迁移。按设置页「修复」同样的调用跑了 `vibebuddyd hooks install --agent codex`，脚本来自 `/Applications` 的 bundle。`~/.codex/hooks.json` 的 14 条命令全部改指 `~/Library/Application Support/vibebuddy/bin/`，`config.toml` 没变。备份在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/03-codex-migration/backup/` 和安装器自己的备份目录。迁移后 `hooks status` 报告 Codex「skipping 14 of 14」：信任之前 Codex 的 hook 事件和命令行审批拦截都不运行；会话和进度仍经 app-server / 转录读到（快照里 06:31Z 仍有 Codex 会话更新，来源是 appserver / transcript）。待办：owner 用 `/hooks` 信任；信任之后的下一次重新部署时，再确认 Codex 仍视 hook 为已信任。
+- 2026-09-24：owner 在 Codex `/hooks` 信任了迁到固定目录的 14 条 VibeBuddy hook；`vibebuddyd hooks status` 显示「Codex is running all 14 VibeBuddy hooks」。验收最后一步：下一次从 `main` 重新部署后再跑一次 `vibebuddyd hooks status`，Codex 不应要求重新信任（命令字符串不变）。
