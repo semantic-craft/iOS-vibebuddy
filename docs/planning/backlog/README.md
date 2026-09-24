@@ -74,11 +74,11 @@
 | MAS-15 Codex Desktop 等待提醒 | 维持只观察进度，不承诺等待提醒 | open-vibe-island#506 与我们实测一致；openai/codex#28833 该 hook 会误报 | [15](mac-app-store/issues/15-codex-desktop-remind-only.md) Comments |
 | G-5 截图矩阵 | 关闭；检查表并入 G-4 | demo 模式截图（`VIBEBUDDY_DEMO=1`、`tools/watch-qa-shots.sh`、`docs/app-store-screenshots/1.3.17/`）已在用；fastlane snapshot 不支持 macOS | 本表 |
 
-仍需你本人做的只剩下一节末尾的五件事。
+仍需你本人做的只剩下一节末尾的六件事。
 
 ## 验收：agent 自己确认的与只剩你做的
 
-规则（2026-09-24 起）：凡是 agent 能用测试、日志、隔离 daemon、模拟器或 computer use 确认的，都不交给你；要你动手的只留下面五件，每件一两步；第 1 件是一轮里的若干单步。
+规则（2026-09-24 起）：凡是 agent 能用测试、日志、隔离 daemon、模拟器或 computer use 确认的，都不交给你；要你动手的只留下面六件，每件一两步；第 1 件是一轮里的 6 个单步。
 
 **agent 在做（各自一个会话，完成后同步本表和可交互施工图）**
 
@@ -90,7 +90,7 @@
 | H-2 零漏接 | 在冻结的 1.3.33 候选（之后不再合并）上，用本机真实会话的活动看漏接台账，≥ 30 分钟无新增即算 Mac 端通过；不能用提交审核代替。手机 / 手表端由下面第 1 步那轮覆盖 | 同上（冻结前先做一次预跑） |
 | AI-04 真实会话（已完成） | **2026-09-24 通过**，经过见[票 04](agent-integration-2026-09/issues/04-claude-stop-background-tasks.md) Comments 末条：真实 `/loop 1m` 共 7 轮都落定为「已排定循环」，共享 App 的投递记录 0 条；后台 subagent 挂起期间保持 working，结束后 Mac 通知 1 条、APNs 每台手机 1 条。隔离 `vibebuddyd` 不推首次完成提醒，「响没响」只能用菜单栏 App（:9876，`d43c762b`）核对。记录表在 `~/Projects/_shared-work/iOS-vibebuddy/ai04-acceptance-2026-09-23/` | 「VibeBuddy AI-04 真机验收准备」 |
 | 路线图旧项的 agent 部分 | B-U（配额 1 s、状态行、在场门控、`/jump` 接回、Desktop 跳转、steer、新任务派活、手机界面回答）、H-1 / H-5（Mirroring 手机批准、杀 App 后 APNs）、M-11（在场 / 离场、断联待定决策、跨端撤销、文案只留通过项）、D-U 合成语音 approve / deny / answer；A-03 漏接为 0 并入 H-2。明细见 [路线图核对](roadmap-audit-2026-09-24.md) | 待开（新会话） |
-| Hermes / 手表装新版 | AI-04 已通过，装含 #275 的开发版；能在模拟器上验的（WR-07 绑定与降级文案、ADR-0033 拒绝 / 回答、D-1 iPhone）先验完 | 「Install the new phone build, then prep the watch check」 |
+| Hermes / 手表装新版 | 开发版 1.3.28 (58)，`main` 9137f92f（与 ebd06396 应用代码相同），含 #275。**模拟器已验（2026-09-24）**：横幅「回复」带 `questionId` 时持有即绑定并送达，agent 收到的正是那一题；换题后等约 8.6 s 拒绝，卡片显示「这项请求已经不需要你处理了」+「未发送：…」，新题没被答；多段问题不发送、口述留在卡片；无 `questionId` 的旧通知记为 `-unbound`，在首份中继状态绑定后送达；横幅「拒绝」送达，agent 收到 deny。手表在模拟器上不能弹横幅，点击由本地临时注入代替（未提交），点击之后全是正式代码。**D-1 iPhone 未验**：未签名的模拟器构建没有钥匙串权限（`-34018`），存不了 key；Xcode 27 的 Device Hub 没有可操作的模拟器窗口。hook 等待只有 25 s，腕上每步要在约 20 s 内做完。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md` | 「Install the new phone build, then prep the watch check」 |
 
 **2026-09-24 已由 agent 确认（[路线图核对](roadmap-audit-2026-09-24.md)）**
 
@@ -100,13 +100,20 @@
 | 路线图旧项 | E-2 **图标资源层面已覆盖**（现有 PNG 小尺寸可读，E-1 之后重看）；A-03、M-01、D-U、H-1、H-5 **部分覆盖**；B-U 真机证据很少、剩余都可由 agent 做；M-11 范围已过时（M-09 延后、M-10 取消）。只能你做的部分并入下面第 1 步，语音耳测是第 3 件 |
 | iOS 1.3.28 (58) 审核状态 | **未查到**：没有配置 ASC API key，Chrome 里 App Store Connect 登录已过期（agent 不代为登录），读 Mail / Outlook 的请求被拒绝。最后记录：2026-09-23 03:40 提交、「可供审核」 |
 
-**只剩你（共五件）**
+**只剩你（共六件）**
 
-1. **手表一轮**（约 20–30 分钟，可分两次：WR-07 + ADR-0033 一次，WR-06 一次）：agent 装好新版、在 Mac 上发好每道题，一次只给你一步（「手表上点拒绝」这种）。需要你口述、把手机锁屏；触觉能不能分辨由你回一个字；其余结果 agent 在 Mac 上看。真实手腕的结果不用模拟器代替。同一轮顺带做路线图旧项里只有你能做的几步（每步一个动作）：手机开专注模式时看一条问题横幅是否仍弹出、锁屏点批准时要 Face ID（A-03）；摘下手表、戴着但锁定时各看一条推送落在哪（M-01）；手表上对 Claude、Codex、Grok 各批准一次（H-1）；在 Cursor IDE 的 agent 里输入一句提示词（H-5）。
-2. **Codex 重新信任**（1 分钟）：agent 在设置里点完「修复」后，你在 Codex 里输入 `/hooks`，信任 VibeBuddy 那几条。
-3. **三家语音耳测**（约 10 分钟，D-U，只能靠耳朵）：Gemini、Qwen 各打一通短电话，中英文各说一句；OpenAI 补一句英文。每通回一句「听得清吗、能打断吗」。
-4. **App Store Connect 登录一次**（1 分钟，可选）：在 Chrome 里登录 appstoreconnect.apple.com，agent 就能读 iOS 1.3.28 (58) 的审核状态。Mail / Outlook 的读取请求你已拒绝，所以也可以直接告诉 agent 状态邮件写的是什么。
-5. **要不要发布**：第 1 步和 H-2 通过后再问你。Mac 1.3.33（带上 #262–#281）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。
+1. **手表一轮**（WR-07 + ADR-0033 + WR-06，约 15 分钟）：打开会话「Install the new phone build, then prep the watch check」照着做。开始前把手机锁屏放一边，整轮不碰手机。agent 每次在 Mac 上发一道题，横幅到了你 20 秒内做完那一步，回一个「好」。结果 agent 从 Mac 的记录和手表诊断里看。
+   1. 审批横幅：点「拒绝」。
+   2. 问题横幅：点「回复」，说一句话，发送。
+   3. 问题横幅：点「回复」，说一句话，数到十再发送。
+   4. 问题横幅：点横幅打开卡片，选一个预设回答，双指互点两下发送。
+   5. 审批横幅：点横幅打开卡片，双指互点两下「允许」。
+   6. 手表上打开 VibeBuddy，点正在跑的 Codex 任务，点「停下」，双指互点两下确认；回一个字：这几次震动分得清吗（能 / 不能）。
+2. **路线图旧项里只有你能做的几步**（手表一轮之后，每步一个动作）：手机开专注模式时看一条问题横幅是否仍弹出、锁屏点批准时要 Face ID（A-03）；摘下手表、戴着但锁定时各看一条推送落在哪（M-01）；手表上对 Claude、Codex、Grok 各批准一次（H-1）；在 Cursor IDE 的 agent 里输入一句提示词（H-5）。
+3. **Codex 重新信任**（1 分钟）：agent 在设置里点完「修复」后，你在 Codex 里输入 `/hooks`，信任 VibeBuddy 那几条。
+4. **三家语音耳测**（约 10 分钟，D-U，只能靠耳朵）：Gemini、Qwen 各打一通短电话，中英文各说一句；OpenAI 补一句英文。每通回一句「听得清吗、能打断吗」。
+5. **App Store Connect 登录一次**（1 分钟，可选）：在 Chrome 里登录 appstoreconnect.apple.com，agent 就能读 iOS 1.3.28 (58) 的审核状态。Mail / Outlook 的读取请求你已拒绝，所以也可以直接告诉 agent 状态邮件写的是什么。
+6. **要不要发布**：第 1 件和 H-2 通过后再问你。Mac 1.3.33（带上 #262–#281）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。
 
 ## 观察项（暂不动手）
 
