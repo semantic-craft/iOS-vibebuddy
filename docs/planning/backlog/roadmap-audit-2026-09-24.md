@@ -69,7 +69,7 @@ B-U、H-1、H-5、M-11、D-U 的 agent 部分已跑完，基于 main `ebd06396`�
 | 项 | 结果 | 依据 |
 |---|---|---|
 | Codex 探针 `probe.py audit` | review | daemon 0.153.4，CLI 0.156.1。VibeBuddy 的 14 条 hook 全是 `modified`，等 owner 在 `/hooks` 里重新信任（「只剩你」第 2 件）；11:20 重跑的结果另存为 `bu/codex-probe-audit-rerun-1120.jsonl`。客户端方法和必填字段都齐。`~/.codex/config.toml` 的默认模型是 `gpt-6-astra`；这次 turn 失败的原因是额度用完，不是模型 |
-| B-U 配额 1 秒内更新 | **Claude 通过；Codex 受阻** | Claude：状态行送到 `/statusline`，约 0.1 s 后快照里出现配额（10:10:39.659 → .755，50 ms 轮询）。这是第一次读数：从「Collection is turned off」变成有值，不是数值变化。Codex：额度用完，不会发 `account/rateLimits/updated`。监听了 90 s，一条都没收到（文件只记收到的事件）。启动时 `rateLimits/read` 的结果正常进了快照：剩余 0%，重置时间正确 |
+| B-U 配额 1 秒内更新 | **Claude 通过；Codex 受阻** | Claude：状态行送到 `/statusline`，约 0.1 s 后快照里出现配额（10:10:39.659 → .755，50 ms 轮询）。这是第一次读数：从「Collection is turned off」变成有值，不是数值变化。Codex：额度用完，不会发 `account/rateLimits/updated`。监听了 90 s（未另存），一条都没收到（文件只记收到的事件）。启动时 `rateLimits/read` 的结果正常进了快照：剩余 0%，重置时间正确 |
 | B-U 状态行字段 | **部分通过：能写入，但会被转录覆盖** | 真实 Claude 2.1.281 会话，10:10–10:11 状态行把显示名「Opus 5.5 (1M context)」、`effort` medium、`contextWindow` 1000000、费用和增删行数写进了会话行，statusline 来源 `healthy`；5 h 和 7 天两个窗口进了 `providerQuota`。到 10:13 的快照里，同一会话变成 `claude-opus-5-5`、窗口 200000：读转录时 `SessionReducer.enrich` 用型号表把它们改掉了。1M 上下文的会话因此在两次状态行之间显示约 20% 占用，实际约 4%。开了[票 10](agent-integration-2026-09/issues/10-transcript-overrides-statusline-window.md) |
 | B-U / M-11 在场门控 | **通过（两种判定都验了）** | 离开：前台是 Claude 桌面 App → `away`，卡片交给手机，可回答。在场：Terminal 在前台，会话的 tmux 窗格就在这个 Terminal 里，空闲 0 s → `present`；卡片 `answerable:false`，Claude 立即在本地弹出询问。空闲超过 120 s 一律判离开；owner 不在时，用一个原位、零位移的鼠标移动事件把空闲清零（见 `bu/harness.log` 的 presence 行） |
 | B-U 新任务面板派 Claude | **通过** | 在手机「New task」面板选 Claude Code、名字填 `bu-dispatch-claude` → `claude --bg`，会话 `7eb77dae…` 出现在快照并完成 |
@@ -88,11 +88,11 @@ B-U、H-1、H-5、M-11、D-U 的 agent 部分已跑完，基于 main `ebd06396`�
 | M-11 语音误识别 | **本轮没有落错，但属于侥幸** | Qwen 第 1 轮：说的是「拒绝 grape」，模型发了 `deny_session(orange)`。被拒的原因是 orange 的卡片已经超时消失，不是复核发现目标不对；如果 orange 还挂着（比如没有 25 s 超时的 Cursor 审批），这次拒绝就会落到别的任务上。`answer_session(cherry)` 被拒，是因为有两个同名 cherry 会话。见下面发现 1 |
 | M-11 README / 上架文案 | **已核对** | 今天通过的能力（Claude / Grok / Cursor 手机批准、语音批准 / 拒绝 / 回答、Desktop 跳转、派活）和文案一致。README 改了两处：Codex steer 标为未经端到端验证；Grok 行写明托管任务在 `always-approve` 下不会询问。上架文案没有写 steer 或 Grok，不用改 |
 | D-U 合成语音 · Gemini（英文） | **第 4 轮 3/3；前 3 轮各有失败** | `say` 合成 16 kHz 语音，送进真实 `gemini-3.1-flash-live-preview`，走 `VoiceCallCoordinator`，再照手机 `performVoiceAction` 的同一映射复刻（`VoiceSessionMatch` → `/decision` / `/answer`，没有调用 App 本身的 `decideConfirmed`）。卡片是 `/approval` 造的合成 hook，不是真实 agent。第 4 轮：批准 kiwi → allow，拒绝 melon → deny，回答 papaya → 「blue」，都由挂着的 hook 收到。第 1 轮只有回答成功：批准那句在会话建好之前就发了，模型只查了状态；拒绝 banana 没有任何工具调用，没留转写，原因不明。第 2 轮三项都被拒：项目名和第 1 轮重名，按设计拒绝。第 3 轮：批准 mango 在会话建好前发出、没有工具调用，拒绝和回答成功。第 4 轮改为连上后等 2 s 再说 |
-| D-U 合成语音 · Qwen（中文） | **第 4 轮 3/3；前 3 轮 0/3** | `qwen-audio-3.0-realtime-plus`。第 4 轮：批准 桃子 → allow，拒绝 李子 → deny，回答 橘子 → 「蓝色」。第 1 轮用英文项目名，识别听错（orange→「波动」、grape→「高客」、lemon→「任务」），模型改发别的目标，见上一格。第 2 轮说「西瓜项目」，模型没先查状态就把「项目」拼进了名字，匹配不上被拒；「樱桃」听成了「英超」。第 3 轮转写完全正确（「批准葡萄的请求」「拒绝菠萝的请求」），模型查了状态后却没有发批准或拒绝，回答发给了 cherry，被拒 |
+| D-U 合成语音 · Qwen（中文） | **第 4 轮 3/3；前 3 轮 0/3** | `qwen-audio-3.0-realtime-plus`。第 4 轮：批准 桃子 → allow，拒绝 李子 → deny，回答 橘子 → 「蓝色」。第 1 轮用英文项目名，识别听错（orange→「波动」、grape→「高客」、lemon→「任务」），模型改发别的目标，见上一格。第 2 轮说「西瓜项目」，模型没先查状态就把「项目」拼进了名字，匹配不上被拒；「樱桃」听成了「英超」。第 3 轮转写完全正确（「批准葡萄的请求」「拒绝菠萝的请求」），但批准那步模型只查了状态，拒绝那步没有任何工具调用；回答发给了 cherry，被拒 |
 
-### 发现（本次没有修；1 需要时开票，2 已开票 10）
+### 发现（本次没有修；1 开了 realtime-verify 票 03，2 开了票 10）
 
-1. **语音模型会对没点名的任务下手，App 挡不住「另一个有效目标」。** Qwen 第 1 轮把「拒绝 grape」发成了 `deny_session(orange)`。`VoiceSessionMatch` 和 App 的复核只拦得住对不上号或不唯一的名字；模型点名另一个仍在等待的任务时，动作会被执行。第 4 轮的输入转写是「批准调整的请求」「拒绝你这个请求」，模型给出的项目名却是正确的 桃子、李子。这份转写和模型实际听到的是不是同一路输入，代码里没有说明，所以分不清模型是听对了，还是按唯一候选猜的。
+1. **语音模型会对没点名的任务下手，App 挡不住「另一个有效目标」**（[realtime-verify 票 03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md)）。 Qwen 第 1 轮把「拒绝 grape」发成了 `deny_session(orange)`。`VoiceSessionMatch` 和 App 的复核只拦得住对不上号或不唯一的名字；模型点名另一个仍在等待的任务时，动作会被执行。第 4 轮的输入转写是「批准调整的请求」「拒绝你这个请求」，模型给出的项目名却是正确的 桃子、李子。这份转写和模型实际听到的是不是同一路输入，代码里没有说明，所以分不清模型是听对了，还是按唯一候选猜的。
 2. **转录读取覆盖状态行的上下文窗口和型号**，见[票 10](agent-integration-2026-09/issues/10-transcript-overrides-statusline-window.md)。
 3. **Qwen 会漏掉明确的指令**：第 3 轮转写正确，模型却没有发动作。
 4. **Claude 的审批和问题在手机上只停留约 25 s**（`approvalTimeout`），过了就只能在 Mac 上回答。这是设计如此，但手机端在卡片消失前没有倒计时提示。
@@ -104,4 +104,5 @@ B-U、H-1、H-5、M-11、D-U 的 agent 部分已跑完，基于 main `ebd06396`�
 
 - Codex 的 steer、手机批准、`rateLimits/updated` 1 s：9 月 25 日 9:00 额度重置后，用 `kit/` 重建验收服务再跑一次。
 - 票 10：修状态行被覆盖的问题。
+- realtime-verify 票 03：先定方案，再改语音动作的目标确认。
 - A-03 漏接为 0：仍并入 H-2。
