@@ -52,6 +52,7 @@
 | C-1b | 评审留下的小尾巴 | — | done（#277） | ① 后台会话的 jobs 目录尊重 `CLAUDE_CONFIG_DIR`（诊断那半已在 #278 完成）；② `configKey` / manifest key 解析软链，#266 旧 key 下保存的状态栏原件会迁移；③ 旧 manifest / 卸载记录的裸 key 读取时迁移；④ 早期 inline-curl 标记：9876 照旧，其他端口只认当年安装器的原命令，用户自己的本地 webhook 不会被删；⑤ `vibebuddyd hooks install` 先用自身 bundle / checkout 的脚本，再用 `/Applications`，与已装 App 不同时提示；⑥ 跳转查找 3 s 总时限，`/jump` 新分支有测试；⑦ `/ledger/flush` 路由测试，`VIBEBUDDY_PORT` 非法时不发请求，`LedgerFlushRequest` 与 live status 共用无代理 / 无 cookie / 不跟随重定向的会话。全部完成，无跳过 | — |
 | T-1 | 测试不清理临时目录 | — | **done**（#276） | 9 个测试文件补 `defer` 清理（`DeviceRegistryTests`、`DevicePushFailureTests`、`EnvironmentDetectorTests`、`TokenConsumptionScanTests`、`ApprovalRoutesTests`、`RecapLedgerTests`、`AttentionTests`、`ClaudeBackgroundLauncherTests`、`CodexAppServerApprovalTests`）；Codex app-server 测试的账本不再写进 `$TMPDIR` 根目录（曾反复覆盖 `tool-ledger.json`）；生产代码无泄漏 | 全量 `swift test` 在 `$TMPDIR` 留下的测试条目 58 → 0，根目录文件不再被改写 |
 | AI-06 | 观测健康诊断补 Cursor 行 | [06](agent-integration-2026-09/issues/06-cursor-observation-health-row.md) | done（#278） | Cursor 行含 hook / transcript / ACP / cloud 四个来源，没装 hooks 时显示“未安装”；隔离 daemon 快照已验证；设置页界面等协调会话统一重新部署后再看一眼 | — |
+| AI-09 | 挂起的 `Stop` 只按已知子代理的 `SubagentStop` 扣减 | [09](agent-integration-2026-09/issues/09-held-stop-known-children.md) | done（#288） | AI-04 验收发现：CLI 内部代理的 `SubagentStop` 没有对应 `SubagentStart`，会先把挂起 `Stop` 的等待计数扣到 0；真正子代理的 `SubagentStart` 丢失时会提前进入 45 s 宽限，后台工作还在跑就提醒完成。现只数结束了已知 running 子代理的 `SubagentStop`，丢了 `SubagentStart` 的轮次由更新的 `Stop` 或 10 分钟兜底释放 | — |
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok -r` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | ready-for-agent | 代码里只有 `--no-leader`，没有恢复逻辑 | 保留 |
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | ready-for-agent | 代码里没有对应实现 | 保留 |
 | WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | 已合并（#275），待真机验收 | 手表读 `questionId`，持有时即绑定；换题则拒绝并把口述留在卡片（「Use my reply」可改投当前问题）；无 id 的旧通知降级为首份中继状态绑定；ADR-0033 Residual 已改写 | 只剩手腕上验收（见「只剩你」第 1 件） |
@@ -124,7 +125,7 @@
 
 - **AI-07**：Codex 从 rollout 文件迁到 SQLite 后的降级预案。0.153.4 仍在写 rollout。见 [07](agent-integration-2026-09/issues/07-codex-rollout-degradation.md)。
 - **Antigravity hooks**：上游有 bug，已记录在 `docs/multi-cli-hook-setup.md`。
-- **Claude `Stop` 里后台任务的类型**：子代理起的后台 shell 与 monitor 都报 `type:"shell"`（TUI 显示「1 shell, 1 monitor」），目前只影响「还有 N 项后台任务」的计数口径，不影响落定规则。三类任务都只见过 `status:"running"`，结束后直接从数组消失；CLI 内部代理的 `SubagentStop` 没有对应的 `SubagentStart`，会先扣减挂起 `Stop` 的等待计数，目前靠「仍有 running 子代理」这条检查兜住；若真正子代理的 `SubagentStart` 丢失会提前进入 45 s 宽限，可改为只对已知 running 子代理的 `SubagentStop` 扣减（AI-04 验收发现）。
+- **Claude `Stop` 里后台任务的类型**：子代理起的后台 shell 与 monitor 都报 `type:"shell"`（TUI 显示「1 shell, 1 monitor」），目前只影响「还有 N 项后台任务」的计数口径，不影响落定规则。三类任务都只见过 `status:"running"`，结束后直接从数组消失；CLI 内部代理的 `SubagentStop` 没有对应的 `SubagentStart`，它们扣减挂起 `Stop` 等待计数的问题已由 AI-09 修复（#288，[票 09](agent-integration-2026-09/issues/09-held-stop-known-children.md)）。
 
 ## Mac App Store：代码已丢失
 

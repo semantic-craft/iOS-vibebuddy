@@ -288,8 +288,14 @@ public struct SessionReducer: Sendable {
             // not clear its tool/wait state or manufacture a progress transition.
             updateMetadata(event)
         case .childLifecycle:
+            // Only a stop that ends a subagent we saw start counts toward a
+            // held Stop. The CLI's internal agents send SubagentStop with no
+            // SubagentStart; counted, they would open the grace early if a
+            // real subagent's start had been lost.
+            let wasRunning = isRunningSubagent(event)
             applyChildLifecycle(event)
             if event.childKind == .subagent, event.childAction == .stopped,
+               wasRunning, !isRunningSubagent(event),
                var held = heldStops[event.sessionID], let awaited = held.awaitedSubagentStops {
                 held.awaitedSubagentStops = awaited - 1
                 if awaited - 1 <= 0, runningSubagentCount(event.sessionID) == 0 {
@@ -473,6 +479,12 @@ public struct SessionReducer: Sendable {
 
     private func runningSubagentCount(_ sessionID: String) -> Int {
         sessions[sessionID]?.runningChildAgents.filter { $0.kind == .subagent }.count ?? 0
+    }
+
+    private func isRunningSubagent(_ event: HookEvent) -> Bool {
+        guard let childID = event.childID else { return false }
+        return sessions[childLifecycleTarget(event)]?.childAgents?
+            .contains { $0.id == childID && $0.kind == .subagent && $0.status == .running } ?? false
     }
 
     /// A new turn, a wait or a new session supersedes whatever the last
