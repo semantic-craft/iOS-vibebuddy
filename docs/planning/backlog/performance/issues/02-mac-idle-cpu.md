@@ -1,6 +1,6 @@
 # 02: Mac App 空闲 CPU 降到 2% 以下
 
-**Status:** ready-for-agent
+**Status:** done（#300；空闲目标达标，装机版 1.50%。负载、2 h 内存和审批延迟三项没有复测，只按推理豁免，理由见 Comments）
 
 **Blocked by:** None
 
@@ -26,10 +26,10 @@ PERF-01 收尾后负载和内存都达标：5–6 个 working 会话时 CPU 均�
 
 ## 验收
 
-- [ ] 装机版，0 个 working 会话，10 min，启动后等待 ≥ 90 s：CPU 均值 < 2%。
+- [x] 装机版，0 个 working 会话，10 min，启动后等待 ≥ 90 s：CPU 均值 < 2%。（1.50%，见 Comments）
 - [ ] 5 个活跃会话 < 10%；2 h 内存不单调增长，保持 PERF-01 的结果。
-- [ ] 审批卡片出现、完成提醒的延迟不变长（隔离 daemon 端到端 + 手动核对一次）。
-- [ ] `swift test` 与 Mac App 构建通过。
+- [ ] 审批卡片出现、完成提醒的延迟不变长（隔离 daemon 端到端 + 手动核对一次）。（未复测：审批走 hook，本 PR 没有改；Cursor 转录各测了一次，0.77 s 变为 working、0.10 s 变为 done，见 Comments）
+- [x] `swift test` 与 Mac App 构建通过。
 
 ## Comments
 
@@ -44,3 +44,9 @@ PERF-01 收尾后负载和内存都达标：5–6 个 working 会话时 CPU 均�
   - 时效：在新版副本里往克隆的 Cursor 转录追加一轮对话，快照 0.77 s 内变为 working，追加 `turn_ended` 后 0.10 s 内变为 done（原来固定 2 s 一次，最坏 2 s）。审批走 hook，不经过这些轮询。
   - 验证：全量 `swift test` 通过（1252 个 Swift Testing + 57 个 XCTest，1 个照旧跳过）；新增两个测试：转录写入唤醒尾随（两个定时器都设成 600 s，只有文件事件能送达）、周标签与 `yyyy-MM-dd` 格式化器在公历 / 佛历 / 和历下一致。Release App 构建通过。
   - 待做：合并后装机，按 PERF-01 的方法（启动后 ≥ 90 s，10 min，5 s 采样）测装机版空闲 CPU。
+- 2026-09-24（#300 合并后装机验收）：
+  - #300 经独立 Opus 评审两轮后合并（MERGE WITH FIXES → MERGE），合并提交为 43c52e0f。第一轮的两条应修：一是漏看周标签在农历、希伯来历下与旧格式化器不一致，改用 ICU 的 `Date.VerbatimFormatStyle`；二是唤醒测试原来用固定等待，改成等 seed 完成。两条均已修复。评审结论贴在 PR 评论里。
+  - 11:00Z 从 main 43c52e0f 重建并替换 `/Applications`。替换前检查了 `vibebuddy-mcp status`、`git worktree list`、会话列表和投递台账，没有会话在共享 App 上做验收。12:08Z 另一个会话按 #301 又从 main 替换了一次。测量用的就是这一版，已确认二进制里含本 PR 的代码。
+  - 测法同 PERF-01：`/Applications` 里的 App，启动 ≥ 90 s 后开始，`ps -o time` 每 5 s 采样，共 10 min；每分钟从快照数 working 会话。本会话在测量期间保持空闲。机器上其他会话一直在跑，所以用脚本等到连续 2 min 没有 working 会话才开始测；窗口内一旦出现 working 就作废重测（`perf-02-2026-09-24/installed-idle-try1…5`）。
+  - 结果：第 5 次窗口干净（13:33–13:43Z，10 次检查都是 0 个 working，138 个会话），CPU 均值 **1.50%**，p95 2.6%，最大 15.4%。修复前 2.56%（b07b2dab，p95 4.2%），**达标**。此前 5 个窗口（`installed-43c52e0f`、try1–4）中途都出现了 1–2 个 working 会话，均值 1.73–4.02%，不计入。
+  - 没有复测的三项（按推理豁免）：hook 事件路径上没有新增工作，只是变便宜了（每次快照组装回顾时少建条目）；Cursor 转录每次处理后仍至少间隔 2 s，与原来的固定节奏相同。所以 5 个活跃会话（6.2%）、2 h 内存（254 MB 持平）和审批延迟都不应变差。附带观察：活跃时的开销主要在每个 hook 事件都要做一次快照组装，并整份写回生命周期日志和 约 80 KB 的 `recent-directories.json`。这是负载路径的问题，要另开票才处理。

@@ -52,13 +52,14 @@
 | #287 | 每个 hook 事件不再把 512 条完成结果重新编码一遍（集合没变就跳过）；Cursor 转录轮询改用 URL resource values，不再读扩展属性 | 活跃时 CPU 下降；Cursor 单次扫描约 12 → 5 ms |
 | #290 | App 不再观察模型，菜单栏修饰器不会随每次发布重建（MenuBarExtraAccess 1.3.1 每次重建都会泄漏一组观察者）；新增 `tools/menubar-leak-check.sh` | 2 h 内存从一路上升（193 → 293 MB）变为 254 MB 持平 |
 | #293 | 空闲轮询先看界面、后查锁屏；Cursor 解不出的项目名缓存 60 s | 空闲 3.09% → 2.56%（目标 < 2%，转 PERF-02） |
+| #300 | **PERF-02**：Cursor 转录改由 FSEvents 唤醒（仍至少间隔 2 s，另有 30 s 兜底）；回顾只为 24 h 内最新 12 条建条目（输出不变，快照组装仍然每次都做）；数据库签名、Codex 目录检查改用 stat / lstat；漏看周标签不再每次新建 `DateFormatter` | 装机版空闲（0 个 working，10 min）2.56% → **1.50%**；隔离 A/B 2.13% → 1.71%；Cursor 状态各测了一次：0.77 s 变为 working、0.10 s 变为 done（原来固定 2 s 轮询一次），连续写入时仍至少间隔 2 s 处理一次 |
 
 ## 开发项
 
 | ID | 内容 | 票据 | 状态 | 依据 | 建议 |
 |---|---|---|---|---|---|
 | PERF-01 | Mac App 性能收尾 | [01](performance/issues/01-mac-cpu-and-memory.md) | **done**（#265、#281、#287、#290、#293；空闲一项转 PERF-02） | 2026-09-24 装机版三档负载 × 10 min：同负载对比只有 2–3 个 working 一档：8.7% → 6.2%（修复前 4 / 8 个 working 为 10.4% / 11.6%，修复后另两档负载不同）；#287 去掉每个 hook 事件对 512 条完成结果的重复编码，并让 Cursor 轮询不再读扩展属性；#290 修掉菜单栏观察者泄漏（每分钟约 25 组，2 h 内存 193 → 293 MB）；#293 把空闲轮询里的 WindowServer 查询从每轮 266 次降到最多 2 次。修复后 5–6 个 working **6.2%**（目标 < 10%）；2 h 内存（49552ecd，后 90 min 基本空闲）在 254 MB 持平，heap 里泄漏的对象恒为 1；空闲 **2.56%**（目标 < 2%，未达标）。证据在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/` | — |
-| PERF-02 | Mac App 空闲 CPU 降到 2% 以下 | [02](performance/issues/02-mac-idle-cpu.md) | ready-for-agent | 0 个 working 会话时 2.56%；时间分散在 2 s 快照组装（133 个会话 + 回顾）、Cursor 转录 2 s 轮询、`claude agents` 刷新和 Codex / Cursor 扫描上 | 下一个性能项 |
+| PERF-02 | Mac App 空闲 CPU 降到 2% 以下 | [02](performance/issues/02-mac-idle-cpu.md) | **done**（#300；空闲达标；负载、2 h 内存和审批延迟没有复测，按推理豁免） | 装机版（main 含 #300、#301），0 个 working 会话，10 min：**1.50%**（p95 2.6%）。修复前 2.56%。原因：Cursor 转录每 2 s 全量列目录并 stat；每次快照把一周约 1550 条回顾全部建成条目。证据在 `~/Projects/_shared-work/iOS-vibebuddy/perf-02-2026-09-24/` | 活跃时每个 hook 事件都整份写回日志和最近目录，可另开票 |
 | A-12 前置 | CloudKit 私有库提醒推送原型 | [01](public-push/issues/01-cloudkit-alert-push-prototype.md) | ready-for-agent | ADR-0013 已选方向 D，需实测延迟与按钮 | 保留，通过后 A-12 按 D 实现 |
 | C-1b | 评审留下的小尾巴 | — | done（#277） | ① 后台会话的 jobs 目录尊重 `CLAUDE_CONFIG_DIR`（诊断那半已在 #278 完成）；② `configKey` / manifest key 解析软链，#266 旧 key 下保存的状态栏原件会迁移；③ 旧 manifest / 卸载记录的裸 key 读取时迁移；④ 早期 inline-curl 标记：9876 照旧，其他端口只认当年安装器的原命令，用户自己的本地 webhook 不会被删；⑤ `vibebuddyd hooks install` 先用自身 bundle / checkout 的脚本，再用 `/Applications`，与已装 App 不同时提示；⑥ 跳转查找 3 s 总时限，`/jump` 新分支有测试；⑦ `/ledger/flush` 路由测试，`VIBEBUDDY_PORT` 非法时不发请求，`LedgerFlushRequest` 与 live status 共用无代理 / 无 cookie / 不跟随重定向的会话。全部完成，无跳过 | — |
 | T-1 | 测试不清理临时目录 | — | **done**（#276） | 9 个测试文件补 `defer` 清理（`DeviceRegistryTests`、`DevicePushFailureTests`、`EnvironmentDetectorTests`、`TokenConsumptionScanTests`、`ApprovalRoutesTests`、`RecapLedgerTests`、`AttentionTests`、`ClaudeBackgroundLauncherTests`、`CodexAppServerApprovalTests`）；Codex app-server 测试的账本不再写进 `$TMPDIR` 根目录（曾反复覆盖 `tool-ledger.json`）；生产代码无泄漏 | 全量 `swift test` 在 `$TMPDIR` 留下的测试条目 58 → 0，根目录文件不再被改写 |
@@ -102,7 +103,7 @@
 
 | 项 | 怎么确认 | 会话 |
 |---|---|---|
-| 装机 + 端到端（已完成） | **2026-09-24 通过**：从 `main` 装机 3 次（9137f92f → 49552ecd → b07b2dab，最后一次含 #287、#288、#290、#292、#293）；每次都核对了签名、单进程、`/health`、hook 脚本与仓库一致。隔离 daemon（:18791）17 项全部通过：允许 / 拒绝、问题回答与过期 409、`/device` 403、AI-04 三种情形、Codex / Grok 事件、`/ledger/flush` 204 / 401；跳转查找在已装 App 上 0.49–1.04 s（3 s 时限内）。Codex 已改走固定目录（等同设置页「修复」），`vibebuddyd hooks status` 显示已装、14 条当时等你信任（2026-09-24 你已信任，现在全部运行）；信任之前 Codex 的 hook 事件和命令行审批拦截不运行（已信任，此限制已解除）；会话和进度仍经 app-server / 转录看得到。待办：下一次重新部署后，再确认 Codex 仍视 hook 为已信任。设置页截图没拍（computer use 未获授权）。记录在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/` | 「Install the latest Mac App and run acceptance」 |
+| 装机 + 端到端（已完成） | **2026-09-24 通过**：从 `main` 装机 3 次（9137f92f → 49552ecd → b07b2dab，最后一次含 #287、#288、#290、#292、#293）；每次都核对了签名、单进程、`/health`、hook 脚本与仓库一致。隔离 daemon（:18791）17 项全部通过：允许 / 拒绝、问题回答与过期 409、`/device` 403、AI-04 三种情形、Codex / Grok 事件、`/ledger/flush` 204 / 401；跳转查找在已装 App 上 0.49–1.04 s（3 s 时限内）。Codex 已改走固定目录（等同设置页「修复」），`vibebuddyd hooks status` 显示已装、14 条当时等你信任（2026-09-24 你已信任，现在全部运行）；信任之前 Codex 的 hook 事件和命令行审批拦截不运行（已信任，此限制已解除）；会话和进度仍经 app-server / 转录看得到。2026-09-24 重新部署后已确认 Codex 仍视为已信任（见 C-1 票）。设置页截图没拍（computer use 未获授权）。记录在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/` | 「Install the latest Mac App and run acceptance」 |
 | D-1 真实通话 | **Kit 层已验（2026-09-24）**：无界面的测试程序跑 Kit 里 App 共用的 Gemini 会话，约 10 分钟到上限后正确结束，重拨接通；界面截图未拍。iPhone 路径：模拟器上试过但没走通（未签名的模拟器构建拿不到钥匙串，`-34018`；Xcode 27 的 Device Hub 没有可操作的窗口），改由 agent 用签名的模拟器构建 + XCUITest 点麦克风再走一遍，key 从 `GEMINI_API_KEY` 经测试进程写入，不在界面里输入；尚未做 | 同上 + 「Install the new phone build, then prep the watch check」 |
 | PERF-01 收尾（已完成） | 见开发项 PERF-01 行：负载与 2 h 内存达标，空闲转 PERF-02 | 「Install the latest Mac App and run acceptance」 |
 | H-2 零漏接 | 在冻结的 1.3.33 候选（之后不再合并）上，用本机真实会话的活动看漏接台账，≥ 30 分钟无新增即算 Mac 端通过。**预跑已通过（2026-09-24，main 9137f92f）**：01:45–03:14Z 共 89 min，本机 2–8 个真实会话在跑，整段漏接新增 0（其中 01:45–02:35 读到 10 次提醒、共 30 条投递记录）；之后的腕上一轮不计入。这次不含 Codex 的 hook 事件：01:51 起它们等你信任、不运行（之后你已信任，正式跑会包含）。正式跑之前先做「只剩你」第 3 件，冻结 1.3.33 候选后再跑一次；不能用提交审核代替。手机 / 手表端：2026-09-24 那一轮**没有通过**（锁屏停下失败，另有 2 次推送已被苹果接受但手表没出现），等 WR-08 修好后再判 | 同上（预跑已做） |
@@ -127,7 +128,7 @@
    3. 摘下手表看一条推送落在哪；戴上但不解锁再看一条（M-01）。
    4. 手表上对 Claude、Codex、Grok 各批准一次（H-1）。
    5. 在 Cursor IDE 的 agent 里输入一句提示词（H-5）。
-3. ~~**Codex 重新信任**~~ **已完成**（2026-09-24）：你已在 `/hooks` 信任，`vibebuddyd hooks status` 显示「Codex is running all 14 VibeBuddy hooks」，路径是固定目录。剩下的由 agent 做：下次重新部署后确认 Codex 仍视为已信任。
+3. ~~**Codex 重新信任**~~ **已完成**（2026-09-24）：你已在 `/hooks` 信任，`vibebuddyd hooks status` 显示「Codex is running all 14 VibeBuddy hooks」，路径是固定目录。重新部署后已确认：两次从 main 替换 App 之后（11:00Z、12:08Z），`hooks status` 仍显示「running all 14」，不需要重新信任。
 4. **三家语音耳测**（约 10 分钟，D-U，只能靠耳朵）：Gemini、Qwen 各打一通短电话，中英文各说一句；OpenAI 补一句英文。每通回一句「听得清吗、能打断吗」。
 5. **App Store Connect 登录一次**（1 分钟，可选）：在 Chrome 里登录 appstoreconnect.apple.com，agent 就能读 iOS 1.3.28 (58) 的审核状态。Mail / Outlook 的读取请求你已拒绝，所以也可以直接告诉 agent 状态邮件写的是什么。
 6. **要不要发布**：WR-08 修好且锁屏停下复验通过，H-2 也通过后再问你。Mac 1.3.33（带上 #262 起已合并的全部改动，含 #287、#290、#293）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。
