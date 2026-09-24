@@ -48,6 +48,13 @@ public struct SessionReducer: Sendable {
     /// `PostToolUse` that lands after it is a late receipt (a background
     /// shell, or hook delivery racing the stop), not a new turn.
     private var settledByStop: Set<String> = []
+    /// Sessions whose status line reported a model name / a context window
+    /// (AI-10). The status line knows the real window (1M for a `[1m]` model)
+    /// and the display name; a transcript read only knows the raw model id
+    /// and the model table's default, so it may fill these only until the
+    /// status line has spoken.
+    private var statusLineModel: Set<String> = []
+    private var statusLineWindow: Set<String> = []
 
     public init() {}
 
@@ -283,6 +290,8 @@ public struct SessionReducer: Sendable {
             currentTurnStartedAt[event.sessionID] = nil
             heldStops[event.sessionID] = nil
             settledByStop.remove(event.sessionID)
+            statusLineModel.remove(event.sessionID)
+            statusLineWindow.remove(event.sessionID)
         case .sessionMetadataChanged:
             // Model and cwd changes describe the same live session. They must
             // not clear its tool/wait state or manufacture a progress transition.
@@ -340,11 +349,15 @@ public struct SessionReducer: Sendable {
     }
 
     /// Facts from Claude's status line. Never creates a session and never
-    /// touches status, wait kind, tools or summary; the status line's own
-    /// context figure outranks the transcript estimate.
+    /// touches status, wait kind, tools or summary. Its model name and context
+    /// window outrank the transcript's until the model changes (AI-10); the
+    /// token count is whichever source read last.
     public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
         guard var s = sessions[sample.sessionID] else { return false }
-        if let model = sample.model { s.model = model }
+        if let model = sample.model {
+            s.model = model
+            statusLineModel.insert(sample.sessionID)
+        }
         if let cwd = sample.cwd {
             s.project = Self.projectName(cwd)
             if cwd.hasPrefix("/") { s.checkoutPath = cwd }
@@ -352,6 +365,7 @@ public struct SessionReducer: Sendable {
         if let name = sample.sessionName { s.name = name }
         if let effort = sample.effort { s.effort = effort }
         if let cost = sample.costUSD { s.costUSD = cost }
+        if sample.contextWindow != nil { statusLineWindow.insert(sample.sessionID) }
         if let tokens = sample.contextTokens {
             s.contextTokens = tokens
             s.contextWindow = sample.contextWindow ?? s.contextWindow ?? Self.contextWindow(for: s.model)
@@ -442,6 +456,8 @@ public struct SessionReducer: Sendable {
             lastCountedTurn[id] = nil
             heldStops[id] = nil
             settledByStop.remove(id)
+            statusLineModel.remove(id)
+            statusLineWindow.remove(id)
         }
     }
 
@@ -496,12 +512,13 @@ public struct SessionReducer: Sendable {
         sessions[sessionID]?.loopScheduled = nil
     }
 
-    /// Layer transcript-derived metadata onto an existing session. Model and
-    /// token usage always apply; the prose summary only applies when the session
+    /// Layer transcript-derived metadata onto an existing session. Token usage
+    /// always applies; model and context window only until the status line has
+    /// reported them (AI-10); the prose summary only applies when the session
     /// is not waiting on the user (so a permission/question prompt isn't clobbered).
     public mutating func enrich(sessionID: String, with info: TranscriptInfo) {
         guard var s = sessions[sessionID] else { return }
-        if let model = info.model { s.model = model }
+        if let model = info.model, !statusLineModel.contains(sessionID) { s.model = model }
         if let branch = info.branch { s.branch = branch }
         if let tokens = info.tokens {
             s.tokens = tokens
@@ -514,10 +531,14 @@ public struct SessionReducer: Sendable {
         }
         if let contextTokens = info.contextTokens {
             s.contextTokens = contextTokens
-            // A source that records the real window (Grok's `signals.json`)
-            // wins over the model table, which only knows published defaults.
-            s.contextWindow = info.contextWindow
-                ?? Self.contextWindow(for: info.model ?? s.model)
+            // The status line's window is the real one; between its samples
+            // the transcript only moves the token count. Otherwise a source
+            // that records the real window (Grok's `signals.json`) wins over
+            // the model table, which only knows published defaults.
+            if !statusLineWindow.contains(sessionID) {
+                s.contextWindow = info.contextWindow
+                    ?? Self.contextWindow(for: info.model ?? s.model)
+            }
         }
         // Only ever *names* a tool the hooks have not named. `PostToolUse` clears
         // `activeTool` before the log records the matching `tool_call_update`,
@@ -759,7 +780,13 @@ public struct SessionReducer: Sendable {
             return
         }
         if let cwd = event.cwd { session.project = Self.projectName(cwd) }
-        if let model = event.model { session.model = model }
+        if let model = event.model {
+            session.model = model
+            // A model switch (`PostModelSwitch`) outdates the status line's
+            // name and window; the transcript may fill them until it reports.
+            statusLineModel.remove(event.sessionID)
+            statusLineWindow.remove(event.sessionID)
+        }
         // A metadata event may carry a line worth showing (Claude waiting for
         // its usage limit to reset); it replaces the summary without touching
         // progress, and the next turn clears it as usual.
