@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: Watch 喊停 Codex 会话；03: Watch 快捷回答；05: 触觉语言与 Double Tap
 
-**Status:** ready-for-human（agent 能做的已做完；剩腕上一轮，见 backlog README「只剩你」第 1 件）
+**Status:** ready-for-human（2026-09-24 已做一轮，见 Comments；还剩：锁屏停下（等 WR-08）、真实 Codex 停下、长显示触觉、批准时双指互点两下）
 
 - [ ] 停止一个真实 Codex working Session：Watch 显示已发出 → 下一份快照变为 done；重复点击一次、断线一次、Session 已结束后再点一次，各自结果符合 accepted / refused / failed 口径。
 - [ ] 预设短语与听写各回答一次真实问题；取消一次不发送；Mac 先回答后 Watch 再发被拒绝。
@@ -21,6 +21,6 @@
 - 2026-09-24 腕上一轮的结果（记录：`~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md`）：
   - 快捷回答：通过。卡片上选预设「Yes」，用双指互点两下发送，agent 收到「Yes」。
   - 双指互点两下：「发送」处通过；「停下确认」处用过，但手机锁屏时停下没送达（见 08）；「允许 / 批准」处未验，你点的是横幅按钮。
-  - 喊停：手机解锁时通过（托管 Cursor 任务，12:04:55 记为 `userStopped`）；手机锁屏时失败，停下没到 Mac（[08](08-locked-phone-stop.md)）。Codex 那天额度用完，改用托管 Cursor 验，Kit 规则里两者都能停。
-  - 触觉：长显示有没有自定义节奏，你没数到，**未验**。「需要你」横幅震了，也有两次推送已被苹果接受但手表没震（手机屏幕朝上；见 11）。
+  - 喊停：手机解锁时通过（托管 Cursor 任务 `061f9bdf`，12:04:55 记为 `userStopped`；来源是你的口述加 Mac 快照，停下本身不写手表诊断）。手机锁屏时失败，停下没到 Mac（[08](08-locked-phone-stop.md)）。Codex 那天额度用完，改用托管 Cursor 验。Mac 上停下的执行路径不同（Cursor 走 `cursorACP.cancel`，Codex 走 `monitor.interrupt`），**真实 Codex 停下仍未验**，9 月 25 日 09:00 额度重置后再跑。
+  - 触觉：长显示有没有自定义节奏，你没数到，**未验**。「需要你」横幅震了，也有两次推送已被苹果接受但手表没震，原因不明：当时手机朝上，但同一时段另三次正常送达（见 11）。
   - 新发现：[08](08-locked-phone-stop.md) 锁屏手机上的停下，[09](09-banner-reply-opens-app.md) 横幅「回复」直接打开 App，[10](10-back-to-dashboard-dead.md)「返回总览」点了没反应，[11](11-hook-wait-vs-wrist.md) Mac 只等 25 秒。
