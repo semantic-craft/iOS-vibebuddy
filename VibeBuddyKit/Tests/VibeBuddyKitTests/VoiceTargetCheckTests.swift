@@ -133,7 +133,7 @@ struct VoiceTargetCheckTests {
                                  results: @escaping (String) -> Void) -> VoiceCallCoordinator {
         VoiceCallCoordinator(audio: SilentAudio(), actionHandler: { sent($0); return "Sent." },
             sendToolResult: { _, _, result in results(result) },
-            contextProvider: { scope }, transcriptGrace: .milliseconds(400))
+            contextProvider: { scope }, transcriptGrace: .seconds(2))
     }
 
     @Test("a name from the previous utterance does not release this one's action")
@@ -144,7 +144,7 @@ struct VoiceTargetCheckTests {
         c.handle(.assistantTranscript(text: "grape 在等一个 Bash 批准。", final: true))
         c.handle(.speechStarted)
         c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"grape"}"#, callID: "1"))
-        try? await Task.sleep(for: .milliseconds(100))
+        for _ in 0..<50 { await Task.yield() }
         #expect(sent.isEmpty) // waiting for this utterance's transcript
         c.handle(.userTranscript(text: "拒绝 orange。", final: true))
         await waitFor { results.count == 1 }
@@ -159,7 +159,7 @@ struct VoiceTargetCheckTests {
         let c = qwenCoordinator([waiting("orange"), waiting("grape")], sent: { sent.append($0) }, results: { results.append($0) })
         c.handle(.speechStarted)
         c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"grape"}"#, callID: "1"))
-        try? await Task.sleep(for: .milliseconds(150))
+        for _ in 0..<50 { await Task.yield() }
         #expect(sent.isEmpty)
         c.handle(.userTranscript(text: "拒绝 grape 的请求。", final: true))
         await waitFor { results.count == 1 }
@@ -186,9 +186,9 @@ struct VoiceTargetCheckTests {
         var sent: [VoiceAction] = [], results: [String] = []
         let c = qwenCoordinator([waiting("orange")], sent: { sent.append($0) }, results: { results.append($0) })
         c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"orange"}"#, callID: "1"))
-        try? await Task.sleep(for: .milliseconds(100))
+        for _ in 0..<50 { await Task.yield() }
         c.stop()
-        try? await Task.sleep(for: .milliseconds(500))
+        try? await Task.sleep(for: .milliseconds(300))
         #expect(sent.isEmpty && results.isEmpty && c.heldNotice == nil)
     }
 
@@ -208,8 +208,23 @@ struct VoiceTargetCheckTests {
         c.stop()
     }
 
+    @Test("a held call beside a sent one does not hide the sent receipt")
+    func parallelCallsKeepTheReceipt() async {
+        var results: [String] = []
+        let c = qwenCoordinator([waiting("grape"), waiting("lemon")], sent: { _ in }, results: { results.append($0) })
+        c.handle(.userTranscript(text: "approve grape", final: true))
+        c.handle(.toolCall(name: "deny_session", arguments: #"{"project":"lemon"}"#, callID: "held"))
+        c.handle(.toolCall(name: "approve_session", arguments: #"{"project":"grape"}"#, callID: "sent"))
+        await waitFor { results.count == 2 }
+        #expect(results.first == "Sent.")
+        #expect(results.last.map(VoiceTargetCheck.isHeldResult) == true)
+        #expect(c.lastReply == "Sent.")
+        #expect(c.heldNotice != nil)
+        c.stop()
+    }
+
     private func waitFor(_ condition: () -> Bool) async {
-        for _ in 0..<300 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<1000 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 }
 

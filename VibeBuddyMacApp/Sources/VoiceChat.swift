@@ -135,7 +135,7 @@ final class VoiceChat: ObservableObject {
                 // just actions which reached the application handler. Status
                 // reads and provider captions never replace this receipt, and
                 // a held action's instructions to the model show as heldNotice.
-                if VoiceTools.all.contains(where: { $0.name == name }), self?.coordinator?.heldNotice == nil {
+                if VoiceTools.all.contains(where: { $0.name == name }), !VoiceTargetCheck.isHeldResult(result) {
                     self?.actionReceipt = result
                 }
                 Task { await session.sendToolResult(callID: callID, name: name, result: result) }

@@ -185,6 +185,17 @@ the screen shows a short held notice. Confirmation is the user saying the name,
 checked the same way — "yes" or "对" alone never releases it. Marking a result
 read changes no task and is not held.
 
+Residual gaps (accepted): Gemini emits `speechStarted` only on interruption,
+so if its tool call arrives before the first transcription chunk of the new
+utterance, the previous utterance's words still count; in every replay the
+chunks came first. Live captions are not reset by the companion's reply, only
+by a new caption group (a gap over 1.5 s), so the same holds for a backend tool
+call that precedes the new captions. Marking words stale whenever the companion
+spoke before the tool call was rejected: it would hold every action preceded by
+a spoken filler. Doubao also maps `response.canceled` to `speechStarted`; if it
+lands between the transcript and the tool call, the action is held, not sent —
+check this first if Doubao holds a named action.
+
 This does not relax "transcript fragments never authorize coding actions": the
 transcript can only veto. The structured tool call, scope, unique matching and
 current-request revalidation still decide what is sent.

@@ -26,6 +26,12 @@ public enum VoiceTargetCheck {
         case unnamed
     }
 
+    /// Every held action's tool result starts with this, so a receipt display
+    /// can tell instructions for the model from an application receipt.
+    public static let heldPrefix = "Not sent: "
+
+    public static func isHeldResult(_ result: String) -> Bool { result.hasPrefix(heldPrefix) }
+
     /// `target` is the resolved session; `scope` is every session the call can act on.
     public static func verdict(target: AgentSession, heard: String, scope: [AgentSession]) -> Verdict {
         let spoken = Spoken(heard)

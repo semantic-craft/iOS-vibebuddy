@@ -230,7 +230,7 @@ public final class VoiceCallCoordinator {
                 guard !Task.isCancelled, !stopped else { return }
                 // A held action's result is instructions for the model; the
                 // person sees `heldNotice` instead.
-                if action != .none, !continuousPlayback, heldNotice == nil { lastReply = result }
+                if action != .none, !continuousPlayback, !VoiceTargetCheck.isHeldResult(result) { lastReply = result }
                 sendToolResult(callID, name, result)
                 toolTasks[callID] = nil
             }
@@ -330,10 +330,10 @@ public final class VoiceCallCoordinator {
         case .named:
             return nil
         case .namedOther(let other):
-            return ("Not sent: the user named \(other), not \(name); nothing was sent to \(name). Tell the user, and act only on the task they name.",
+            return (VoiceTargetCheck.heldPrefix + "the user named \(other), not \(name); nothing was sent to \(name). Tell the user, and act only on the task they name.",
                     String(localized: "Not sent to \(name): you said \(other).", bundle: .module))
         case .unnamed:
-            return ("Not sent: the user's words did not name \(name), so nothing was sent. Say which task you would act on and ask the user to say its name; call the tool again only after they say it.",
+            return (VoiceTargetCheck.heldPrefix + "the user's words did not name \(name), so nothing was sent. Say which task you would act on and ask the user to say its name; call the tool again only after they say it.",
                     String(localized: "Not sent to \(name): say “\(name)” to confirm.", bundle: .module))
         }
     }
