@@ -58,6 +58,7 @@
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | ready-for-agent | 代码里没有对应实现 | 保留 |
 | WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | 已合并（#275），待真机验收 | 手表读 `questionId`，持有时即绑定；换题则拒绝并把口述留在卡片（「Use my reply」可改投当前问题）；无 id 的旧通知降级为首份中继状态绑定；ADR-0033 Residual 已改写 | 只剩手腕上验收（见「只剩你」第 1 件） |
 | D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | agent 验收中（代码已合入，#280） | Kit 状态机与四家信号映射有测试，两端构建通过；真实通话到上限由 agent 验（见「验收」节） | — |
+| RV-03 | 语音动作不要落到用户没点名的另一个等待中的任务 | [03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md) | needs-triage | 2026-09-24 合成语音验收：Qwen 把「拒绝 grape」发成了 `deny_session(orange)`，只因 orange 的卡片刚超时才没落错；现有复核拦不住另一个仍在等待的目标 | 先定方案（转写比对或二次确认），再改 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
 | G-4 | 无障碍检查（VoiceOver / 动态字体 / Reduce Motion），并入 G-5 的设计检查表 | roadmap JSON `G-4` | 部分完成 | Xcode 27 构建和 zh-Hans 已完成，无障碍检查没做 | 缩成只做无障碍 + 检查表 |
 | M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | roadmap JSON `M-07`（按 ADR-0021 2026-09-23 修订缩小） | 可开工 | 不做腕上朗读 | 保留 |
