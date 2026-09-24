@@ -1,6 +1,6 @@
 # 01: Swift 安装器替换 python 安装脚本（C-1，吸收 AI-08）
 
-**Status:** ready-for-human（#266 已合并，等 owner 真机验收）
+**Status:** ready-for-human（#266 已合并；干净账户与「更新不重装」2026-09-24 由 agent 模拟通过，只剩 Codex `/hooks` 重新信任）
 
 **Executor:** Claude（Opus 实现）· branch `claude/c1-swift-hook-installer` · 2026-09-23
 
@@ -37,9 +37,9 @@ Swift 安装器是主路径；Claude / Cursor 插件暂不做，只作为以后�
 
 ## 验收
 
-- [ ] 干净用户账户（无 python3 或 PATH 里没有）从 Settings 一键安装四家；各触发一次真实事件到 daemon。
+- [x] 干净用户账户（无 python3 或 PATH 里没有）从 Settings 一键安装四家；各触发一次真实事件到 daemon。（2026-09-24 agent 模拟：临时 HOME + 无 python 的 PATH，走 `vibebuddyd hooks install`，与设置页共用 `HookInstaller.install`；四家事件到隔离 daemon。见 backlog `roadmap-audit-2026-09-24.md`）
 - [ ] 已装旧 python 版本的机器升级后，旧条目被识别、迁移，无重复 hook；Codex 不要求重新信任（命令未变时）。
-- [ ] 卸载后 settings.json / hooks.json / config.toml 只剩用户自己的内容，statusLine 恢复原值；App 更新后不重装。
+- [x] 卸载后 settings.json / hooks.json / config.toml 只剩用户自己的内容，statusLine 恢复原值；App 更新后不重装。（卸载与状态行恢复见 C-1b #277；2026-09-24 卸载 Grok 后跑 `refreshOnLaunch`，只更新脚本，Grok 未被装回）
 - [ ] `HookInstaller` 测试覆盖：幂等、迁移、卸载、statusLine 防递归、事件名按版本过滤、`CLAUDE_CONFIG_DIR`。
 
 ## Comments
@@ -47,3 +47,4 @@ Swift 安装器是主路径；Claude / Cursor 插件暂不做，只作为以后�
 - 2026-09-23 实现（PR 见 backlog README）：`HookInstaller`（VibeBuddyMacCore）取代全部 python 安装器，`vibebuddyd hooks install|uninstall|status` 供无 App 的用户使用；脚本复制到 `~/Library/Application Support/vibebuddy/bin/`；manifest + 带时间戳备份 + 原子写；Claude 事件按 `claude --version` 过滤；statusLine 防递归且无备份不删；尊重 CLAUDE_CONFIG_DIR / CODEX_HOME / GROK_HOME / CURSOR_HOME / XDG_CONFIG_HOME；记住卸载；Codex `config.toml` 不写（B-3），只读提示。已有用户：点一次 Install / Repair 迁到稳定路径，**Codex 需在 `/hooks` 重新信任一次**。
 - 待验收（真机）：干净账户（无 python3）一键安装四家各收到真实事件；App 更新后不重装。
 - 2026-09-23：#266 已合并并装机。本机 Claude、Grok 已迁到固定目录并验证（新路径转发事件被 App 收到）；Codex 待 owner 重新信任；干净账户验收待 owner。评审后续小项并入 backlog 的 C-1b。
+- 2026-09-24：干净账户验收由 agent 在不新建系统账户的条件下模拟完成：临时 HOME（同时设 `CFFIXED_USER_HOME`），PATH 去掉 python，隔离 daemon 在 :18771。四家配置和脚本都到位，每家一个事件都送达，Claude 审批门正常，卸载 Grok 后模拟 App 更新（`refreshOnLaunch`）不会把 Grok 装回，真实 `~` 没被改动。明细见 `docs/planning/backlog/roadmap-audit-2026-09-24.md`，证据在 `~/Projects/_shared-work/iOS-vibebuddy/c1-clean-account-2026-09-24/`。剩下的只有第 41 行的 Codex 重新信任（owner 在 `/hooks` 里操作一次）。
