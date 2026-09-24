@@ -624,11 +624,11 @@ final class DashboardStore: ObservableObject {
             case .unconfirmed: return result(.unknown)
             case .failed, .sending, .notPaired, .held: return result(.failed)
             }
-        case .stop:
+        case .stop(let tapped):
             // `refused` and `failed` are both a 409 on the wire and they mean
             // opposite things on a wrist: one says look at the task, the other
             // says the tap can be made again. Keep them apart.
-            switch await decisionClient.phoneStop(pairing, session: current,
+            switch await decisionClient.phoneStop(pairing, session: Self.aimed(current, at: tapped),
                                                   requestID: request.attemptId) {
             case .accepted: break
             case .refused: return result(.refused)
@@ -658,31 +658,47 @@ final class DashboardStore: ObservableObject {
                     reason: ConnectionFailureReason? = nil) -> WatchSessionActionResult {
             WatchSessionActionResult(attemptId: request.attemptId, outcome: outcome, reason: reason)
         }
+        // A tap that already landed is not sent again, whatever the link does now.
+        if case .duplicate = watchActions.admit(request, sessions: []) { return result(.accepted) }
         guard !linkAbandoned, let pairing = pairing ?? ConnectionStore().pairing else {
             return result(.failed, reason: currentFailureReason())
         }
         let epoch = pairingEpoch
         guard let snapshot = await decisionClient.actionSnapshot(pairing) else {
-            return result(.failed, reason: currentFailureReason())
+            // Diagnosed now: the stream's last failure may be hours old.
+            return result(.failed, reason: ConnectionDiagnosis.diagnose(
+                endpoint: pairing.endpoint, kind: .unreachable, phoneHasTailnet: phoneHasTailnet()))
         }
+        // The pairing ended or Demo began while the snapshot was read: nothing
+        // was sent, and nothing is said about the task.
+        guard epoch == pairingEpoch, !linkAbandoned, !isDemo else { return result(.failed) }
         // A cold phone may not have read this Mac's identity yet; the saved
         // pairing's token is what authenticated the snapshot.
-        guard epoch == pairingEpoch, sourceID == nil || snapshot.sourceID == sourceID,
+        guard sourceID == nil || snapshot.sourceID == sourceID,
               let current = snapshot.sessions.first(where: { $0.id == request.sessionId })
         else { return result(.refused) }
-        switch watchActions.admit(request, sessions: snapshot.sessions) {
-        case .duplicate: return result(.accepted)
-        case .stop: break
-        case .decide, .answer, .answerAll, .refused: return result(.refused)
+        guard case .stop(let tapped) = watchActions.admit(request, sessions: snapshot.sessions) else {
+            return result(.refused)
         }
-        switch await decisionClient.phoneStop(pairing, session: current, requestID: request.attemptId) {
+        switch await decisionClient.phoneStop(pairing, session: Self.aimed(current, at: tapped),
+                                              requestID: request.attemptId) {
         case .accepted: break
         case .refused: return result(.refused)
         case .unconfirmed: return result(.unknown)
-        case .failed: return result(.failed, reason: currentFailureReason())
+        // The Mac answered, so the link is fine; it could not act. No link to name.
+        case .failed: return result(.failed)
         }
         watchActions.commit(request.attemptId)
         return result(.accepted)
+    }
+
+    /// The session as the stop names it: the turn the wrist was shown, not the
+    /// one the Mac's snapshot happens to hold, so the Mac's own check of
+    /// `expectedStatusSince` is a second, independent guard against a stale tap.
+    private static func aimed(_ session: AgentSession, at statusSince: Date) -> AgentSession {
+        var aimed = session
+        aimed.statusSince = statusSince
+        return aimed
     }
 
     /// Demo Mode resolves the sample locally, so the wrist can rehearse the

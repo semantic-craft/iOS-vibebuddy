@@ -374,6 +374,12 @@ struct WatchStopControl: View {
         }
     }
 
+    private var attemptReason: ConnectionFailureReason? {
+        store.pendingAction.action.flatMap {
+            $0.isStop && $0.sessionId == task.sessionID ? $0.reason : nil
+        }
+    }
+
     /// The phone tries a stop once against the Mac's own snapshot even when it
     /// reports the Mac out of reach (WR-08), so only a link the wrist can
     /// prove is down disables the button.
@@ -439,10 +445,15 @@ struct WatchStopControl: View {
         switch phase {
         case .sending: return "Sending…"
         case .awaitingResolution: return "Sent. Waiting for your Mac to confirm."
-        // Never "couldn't send": a timeout can drop the reply to a stop the Mac
-        // already carried out, and this is the one action where inviting a
-        // blind retry is worse than saying the truth.
-        case .failed, .unknown, .queued: return "Couldn't confirm that. Check the task."
+        // A failure the iPhone names a missing link for is one where nothing
+        // was sent — the Mac's own snapshot could not be read (WR-08) — so it
+        // says so. Otherwise never "couldn't send": a timeout can drop the reply
+        // to a stop the Mac already carried out, and this is the one action
+        // where inviting a blind retry is worse than saying the truth.
+        case .failed:
+            if let reason = attemptReason { return WatchLinkCopy.failed(reason) }
+            return "Couldn't confirm that. Check the task."
+        case .unknown, .queued: return "Couldn't confirm that. Check the task."
         case .refused: return "This isn't running any more."
         case nil: return nil
         }

@@ -492,4 +492,24 @@ final class HeldDecisionFlowTests: XCTestCase {
         XCTAssertEqual(mac.stops, [])
         XCTAssertTrue(store.heldActions.isEmpty)
     }
+
+    /// A snapshot from some other Mac than the one this phone was showing is
+    /// not the place to judge the tap: refused, nothing sent.
+    func testAWristStopWithoutAStreamIsRefusedWhenAnotherMacAnswers() async throws {
+        let transport = HeldTransport()
+        let mac = IntermittentMac()
+        let started = now.addingTimeInterval(-30)
+        let stream = snapshot([runningCodex(startedAt: started)])
+        mac.set(snapshot: stream, reachable: true)
+        let store = try await store(transport: transport, mac: mac, notifier: DeliveryNotifier(),
+                                    queue: PendingActionStore(url: nil), streamer: OneShotStreamer(stream))
+        for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        let request = try relayedStop(transport, attempt: "stop-1")
+        mac.set(snapshot: Snapshot(sessions: [runningCodex(startedAt: started)], serverTime: now,
+                                   sourceID: "another-mac"), reachable: true)
+
+        let result = await transport.tap(request)
+        XCTAssertEqual(result.outcome, .refused)
+        XCTAssertEqual(mac.stops, [])
+    }
 }

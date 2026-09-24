@@ -35,3 +35,11 @@
   - 手机：`DashboardStore.stopWithoutStream` 流程是：读 Mac 快照 → `watchActions.admit` → `phoneStop`。结果按 `StopDelivery` 映射，读不到快照回 `failed` 加原因，不持有、不重试。
   - 测试 `HeldDecisionFlowTests`：流断时送达一次，重复点不重发；目标轮次已换就 `refused` 且不 POST；Mac 真不可达就 `failed`，带 tailnetOff 原因，之后 flush 也不发。旧测试 `testAStopIsNeverHeldAndNamesTheMissingLink` 原本断言「Mac 可达、只是流断」时失败，那正是这个缺陷，现改为 Mac 真不可达。`HeldDecisionFlowTests` + `WatchRelayTests` 共 41 项通过，iOS + Watch 模拟器构建通过。
   - ADR-0032 已补修订。可选项（中继状态不只看流、手表下拉刷新能发出请求）这次没做。
+- 2026-09-24 评审（Opus，MERGE WITH FIXES），以下已修：
+  - Mac 真连不上时，手表说「未发送：<原因>」，不再说「无法确认」。
+  - Mac 回 `failed` 时不再附上流留下的旧诊断；取快照失败时当场重新诊断。
+  - `phoneStop` 带的是手表点击时那一轮的 `statusSince`，已连接路径也一样，Mac 的复核因此独立起作用。
+  - 读快照期间忘记配对或进入 Demo，回 `failed`，不再回 `refused`。
+  - 重复的点击先判重，再读快照。
+  - 补了 Mac 来源不一致的测试。42 项测试通过。
+- 后续（不在本票范围）：App 里提醒卡的 `connectionMessage`（`WatchAlertCard.swift` 顶部）仍用默认 `sendsWhileMacAway: false`。所以 `.macDisconnected` 时卡片会写「can't be sent」并收起批准按钮，与 #260（审批照常发送、由手机持有）矛盾。留给后续一并处理中继状态。
