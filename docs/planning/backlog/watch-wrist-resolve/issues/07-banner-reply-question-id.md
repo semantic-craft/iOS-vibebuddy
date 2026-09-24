@@ -4,11 +4,9 @@
 
 **What to build:** 在通知的 `userInfo` 里像 `approvalId` 一样带上待答问题的 id，让手表从横幅「回答」发出的听写直接绑定到它本来要回答的那个问题，而不是靠第一份中继状态去推断。涉及 APNs 负载与两侧通知构造（`APNs.swift`、Mac 侧 notifier、iPhone 侧 `LocalNotifier`），手表侧读出后塞进 `WatchNotificationResponseRoute.resolve`，`WatchBannerAction` 在持有那一刻就完成绑定。
 
-**Blocked by:** PR #249（ADR-0033，横幅动作在点击设备上执行）
+**Blocked by:** PR #249（ADR-0033，横幅动作在点击设备上执行，已合并）；09（横幅「回复」在真机上不带文字）
 
 **Status:** needs-triage（代码已完成，模拟器已验；真机上横幅口述走不到，等 [09](09-banner-reply-opens-app.md) 定方案）
-
-**Blocked by:** 09
 
 ## 为什么
 
