@@ -4,7 +4,7 @@
 
 **Blocked by:** None
 
-**Status:** done（PR 待合并，号见 README）；真实 Claude 会话的一次复看随下次装机
+**Status:** done（#296）；真实 Claude 会话的一次复看随下次装机
 
 **依据（2026-09-24 路线图验收，B-U 状态行字段）：** 真实 Claude 2.1.281 会话、Opus 5.5 (1M context)。10:10–10:11 状态行把 `model`「Opus 5.5 (1M context)」、`contextWindow` 1000000 写进会话行（statusline 观测 `healthy`）。到 10:13:01，同一会话的快照已变成 `model: "claude-opus-5-5"`、`contextWindow: 200000`、`contextTokens: 40039`：转录读取把它们改掉了。结果是 1M 上下文的会话，在两次状态行之间显示占用约 20%，实际约 4%。代码位置：`VibeBuddyMac/Sources/VibeBuddyMacCore/SessionReducer.swift` 的 `enrich`（`s.contextWindow = info.contextWindow ?? Self.contextWindow(for: …)`、`if let model = info.model { s.model = model }`），而 `applyStatusLine` 的注释写的是状态行的数字优先于转录估算。证据：`~/Projects/_shared-work/iOS-vibebuddy/roadmap-agent-acceptance-2026-09-24/bu/presence-away-snapshot.json`。
 
