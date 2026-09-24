@@ -215,13 +215,11 @@ struct MissedLedger {
         return keys.filter { $0.statusSince >= cutoff }
     }
 
-    private static func weekStartString(_ start: Date, calendar: Calendar) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: start)
+    /// `yyyy-MM-dd` in `calendar`. Asked on every 2 s poll, so from the
+    /// calendar's own components rather than a fresh `DateFormatter`.
+    static func weekStartString(_ start: Date, calendar: Calendar) -> String {
+        let day = calendar.dateComponents([.year, .month, .day], from: start)
+        return String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
     }
 
     private func persistBestEffort() {

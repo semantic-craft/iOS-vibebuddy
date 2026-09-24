@@ -66,6 +66,23 @@ struct MissedLedgerTests {
         #expect(!counts.weekStart.isEmpty)
     }
 
+    @Test("the week label matches a yyyy-MM-dd formatter in the ledger's calendar")
+    func weekLabelMatchesFormatter() {
+        for id in [Calendar.Identifier.gregorian, .buddhist, .japanese] {
+            var calendar = Calendar(identifier: id)
+            calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+            let formatter = DateFormatter()
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd"
+            for offset in stride(from: 0.0, to: 400 * 86_400, by: 7 * 86_400 + 3_601) {
+                let date = Date(timeIntervalSince1970: 1_790_000_000 + offset)
+                #expect(MissedLedger.weekStartString(date, calendar: calendar) == formatter.string(from: date))
+            }
+        }
+    }
+
     @Test("week window starts Monday 06:00 local; older weeks stay queryable")
     func weekBoundary() {
         var calendar = Calendar(identifier: .gregorian)
