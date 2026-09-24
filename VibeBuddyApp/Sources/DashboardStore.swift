@@ -660,8 +660,10 @@ final class DashboardStore: ObservableObject {
         }
         // A tap that already landed is not sent again, whatever the link does now.
         if case .duplicate = watchActions.admit(request, sessions: []) { return result(.accepted) }
+        // No pairing to use, or the person ended it: not sent, and no network
+        // to blame for it.
         guard !linkAbandoned, let pairing = pairing ?? ConnectionStore().pairing else {
-            return result(.failed, reason: currentFailureReason())
+            return result(.failed)
         }
         let epoch = pairingEpoch
         guard let snapshot = await decisionClient.actionSnapshot(pairing) else {
