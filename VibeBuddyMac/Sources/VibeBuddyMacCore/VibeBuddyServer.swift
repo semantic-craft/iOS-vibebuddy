@@ -1057,10 +1057,18 @@ public struct VibeBuddyServer: Sendable {
             return .noContent
         }
 
+        // `?agent=grok` marks Grok Build's status line (same wrapper, installed
+        // into `[ui.status_line]`); anything else is Claude's.
         hookAuthed.post("statusline") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 256 * 1024)
+            let agent: AgentKind
+            switch request.uri.queryParameters["agent"].map(String.init) {
+            case nil, "claude": agent = .claudeCode
+            case "grok": agent = .grok
+            default: throw HTTPError(.badRequest)
+            }
             guard let obj = (try? JSONSerialization.jsonObject(with: Data(buffer: buffer))) as? [String: Any],
-                  let sample = StatusLineSample.decode(obj)
+                  let sample = StatusLineSample.decode(obj, agent: agent)
             else { throw HTTPError(.badRequest) }
             let now = Date()
             await store.applyStatusLine(sample, at: now)

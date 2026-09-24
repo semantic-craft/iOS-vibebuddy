@@ -327,11 +327,17 @@ code, and tests — don't drift to synonyms.
   `100.64.0.0/10` address and no interface on the phone carries one,
   `macUnreachable`, `authentication`, `invalidAddress`, `dropped` — named on
   the phone's screens with the tap that fixes it (open Surge / Tailscale).
-- **Status line sample** — one status line JSON from Claude Code, copied to the
-  daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
-  `statusline`). It fills a known session's name, effort, cost, context, PR and
-  worktree and feeds Claude's live quota (`rate_limits`); it never creates a
-  session or moves the three states.
+- **Status line sample** — one status line JSON from Claude Code or Grok Build
+  (`/statusline?agent=grok`), copied to the daemon by
+  `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
+  `statusline`). It fills a known session's name, effort, cost, context, PR,
+  worktree and branch and feeds Claude's live quota (`rate_limits`; Grok sends
+  none); it never creates a session or moves the three states. A sample
+  identical to the last one within 30 s is skipped.
+- **Grok session registry** — `<grok home>/active_sessions.json`, Grok's own
+  list of open `grok` processes. A session the daemon saw listed that leaves
+  it, or whose process has died, is ended at the next sweep as its
+  `SessionEnd` would have ended it; absence alone proves nothing.
 - **Live usage feed** — `AccountUsageLiveFeed`: quota that arrives on its own
   (status line `rate_limits`, the Codex daemon's `account/rateLimits/*`). The
   usage coordinator treats a live sample like a fetch and holds the spawning

@@ -14,7 +14,8 @@ enum HooksCommand {
                      or comma-separated). Default: install into every configured CLI;
                      uninstall from all of them.
       --approval     add the blocking phone-approval gate (Claude, Codex, Grok, Cursor).
-      --statusline   Claude's status line only; no hooks are touched.
+      --statusline   the status line only (Claude's by default, Grok's with --agent grok);
+                     no hooks are touched.
       --hooks-dir    where the runtime scripts are (default: VIBEBUDDY_HOOKS_DIR, then this
                      binary's own app bundle or checkout, then /Applications/VibeBuddyMacApp.app).
                      They are copied to ~/Library/Application Support/vibebuddy/bin/,
@@ -76,7 +77,8 @@ enum HooksCommand {
         default:
             let report: HookInstallReport
             if statusLine {
-                report = installer.enableStatusLine()
+                guard agents.count <= 1 else { return fail("--statusline takes one --agent (claude or grok)") }
+                report = installer.enableStatusLine(agents.first ?? .claude)
             } else {
                 report = installer.install(agents.isEmpty ? nil : agents, approval: approval)
             }

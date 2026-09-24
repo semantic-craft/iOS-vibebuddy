@@ -343,7 +343,7 @@ public struct SessionReducer: Sendable {
     /// touches status, wait kind, tools or summary; the status line's own
     /// context figure outranks the transcript estimate.
     public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
-        guard var s = sessions[sample.sessionID] else { return false }
+        guard var s = sessions[sample.sessionID], s.agent == sample.agent else { return false }
         if let model = sample.model { s.model = model }
         if let cwd = sample.cwd {
             s.project = Self.projectName(cwd)
@@ -363,6 +363,7 @@ public struct SessionReducer: Sendable {
             s.prURL = sample.prURL
         }
         if let worktree = sample.worktree { s.worktree = worktree }
+        if let branch = sample.branch { s.branch = branch }
         sessions[sample.sessionID] = s
         return true
     }

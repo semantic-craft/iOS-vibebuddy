@@ -603,6 +603,14 @@ public actor SessionStore {
     /// Grok's own data directory (`$GROK_HOME`, else `~/.grok`), not the user's
     /// home: the session store is rooted at `<grok home>/sessions`.
     private let grokHome: URL
+    /// Grok's registry of open `grok` processes, read on each sweep, and the
+    /// sessions it listed last time. A session that was listed and no longer
+    /// is has closed — see `retireClosedGrokSessions`.
+    private var grokRegistry: GrokActiveSessions
+    private var grokRegistered: Set<String> = []
+    /// The last status line sample applied per session, to skip repeats:
+    /// Grok re-runs its status line every few hundred ms while a turn runs.
+    private var lastStatusLine: [String: (sample: StatusLineSample, at: Date)] = [:]
     private let diagnosticsHome: URL?
     /// `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CURSOR_HOME` as the hook installer
     /// sees them; empty in tests and isolated runs.
@@ -702,6 +710,7 @@ public actor SessionStore {
         self.diagnosticsHome = diagnosticsHome
         self.diagnosticsEnvironment = diagnosticsEnvironment
         self.grokHome = grokHome ?? GrokHome.url
+        self.grokRegistry = GrokActiveSessions(grokHome: grokHome ?? GrokHome.url)
         if let journalURL {
             let journal = LifecycleJournal(url: journalURL, now: now)
             self.lifecycleJournal = journal
@@ -756,6 +765,7 @@ public actor SessionStore {
             ingest(released, observationSource: .hook, recordsEvidence: false)
         }
         if reducer.retireStaleRestored(now: now) { broadcast() }
+        retireClosedGrokSessions(now: now)
         explicitWaits = explicitWaits.filter { id, wait in
             reducer.sessions[id].map(wait.matches) == true
         }
@@ -785,6 +795,7 @@ public actor SessionStore {
             explicitWaits[id] = nil
             completionResults.removeSession(id)
             transcriptPaths[id] = nil
+            lastStatusLine[id] = nil
             cursorHookLog[id] = nil
             if let directory = grokDirectories[id] { grokReads[directory.path] = nil }
             grokDirectories[id] = nil
@@ -800,6 +811,26 @@ public actor SessionStore {
         }
         evaluateMissed(now: now)
         if !removed.isEmpty { broadcast() }
+    }
+
+    /// A Grok terminal session that left Grok's registry (or whose process
+    /// died) has closed, even when its `session_end` hook never arrived — a
+    /// killed terminal, a daemon that was down. It ends the way that hook
+    /// would have ended it, so the row stops reading as working. Only a
+    /// session this daemon saw listed is retired: with `[cli]
+    /// session_registry = false`, another `GROK_HOME`, or a row restored after
+    /// a restart, absence proves nothing. A session vibebuddy hosts over ACP
+    /// is judged by its own pipe.
+    private func retireClosedGrokSessions(now: Date) {
+        guard let live = grokRegistry.liveSessionIDs() else { return }
+        let closed = grokRegistered.subtracting(live)
+        grokRegistered = live
+        for id in closed.sorted() {
+            guard reducer.sessions[id]?.agent == .grok, !acpHosted.contains(id) else { continue }
+            ingest(HookEvent(kind: .sessionEnd, sessionID: id, agent: .grok, timestamp: now),
+                   observationSource: .recovery, recordsEvidence: false)
+            appendJournal(sessionID: id, agent: .grok, event: "grokSessionClosed", source: .recovery, at: now)
+        }
     }
 
     private static func modificationDate(_ path: String) -> Date? {
@@ -868,12 +899,23 @@ public actor SessionStore {
     /// Idle discovery alone does not establish progress authority.
     public static let appServerAuthorityWindow: TimeInterval = 5 * 60
 
-    /// Claude's status line: fills the session's name, effort, cost, context,
-    /// PR and worktree. Only a session the hooks already opened is touched — a
+    /// How long an identical status line sample is skipped.
+    static let statusLineRepeatWindow: TimeInterval = 30
+
+    /// Claude's or Grok's status line: fills the session's name, effort, cost,
+    /// context, PR, worktree and branch. Only a session the hooks already opened is touched — a
     /// sample never creates one or moves its progress. Returns whether one was.
     @discardableResult
     public func applyStatusLine(_ sample: StatusLineSample, at date: Date) -> Bool {
+        // The same facts again (Grok re-runs its status line continuously
+        // during a turn): nothing to fill, and evidence still fresh.
+        if let last = lastStatusLine[sample.sessionID], last.sample == sample,
+           date.timeIntervalSince(last.at) < Self.statusLineRepeatWindow,
+           reducer.sessions[sample.sessionID] != nil {
+            return true
+        }
         let applied = reducer.applyStatusLine(sample)
+        lastStatusLine[sample.sessionID] = applied ? (sample, date) : nil
         rememberDirectory(sample.cwd, sessionID: sample.sessionID, at: date)
         if applied {
             if let path = sample.transcriptPath { transcriptPaths[sample.sessionID] = path }
@@ -881,7 +923,7 @@ public actor SessionStore {
                                       at: date, health: .healthy)
         }
         // The forwarder is demonstrably wired even when the session is unknown.
-        recordSignal(agent: .claudeCode, source: .statusline, at: date, health: .healthy, coverage: nil)
+        recordSignal(agent: sample.agent, source: .statusline, at: date, health: .healthy, coverage: nil)
         broadcast()
         return applied
     }
@@ -1063,6 +1105,7 @@ public actor SessionStore {
             cursorFollowupHandedAt[event.sessionID] = nil
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
+            lastStatusLine[event.sessionID] = nil
             cursorHookLog[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
             if let directory = grokDirectories[event.sessionID] { grokReads[directory.path] = nil }
