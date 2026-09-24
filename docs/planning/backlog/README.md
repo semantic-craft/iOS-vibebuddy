@@ -57,7 +57,7 @@
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok -r` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | ready-for-agent | 代码里只有 `--no-leader`，没有恢复逻辑 | 保留 |
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | ready-for-agent | 代码里没有对应实现 | 保留 |
 | WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | 已合并（#275）；模拟器已验；**腕上走不到** | 绑定逻辑在模拟器上已验过：送达、换题拒绝、多段拒绝、旧通知降级。2026-09-24 腕上验收发现，在 watchOS 27 上点横幅「回复」会直接打开 App，不带文字，所以横幅口述这条路径在真机上根本走不到（见 09） | 等 09 定方案 |
-| WR-08 | 手机锁屏时，手表上的「停下」发不出去 | [08](watch-wrist-resolve/issues/08-locked-phone-stop.md) | ready-for-agent | 2026-09-24 腕上验收：锁屏时停下没到 Mac，解锁后通过。手表只因中继状态为 `macDisconnected` 就拒绝发送；手机在流断时也不试。#260 已为审批和回答修过同一个误判 | **优先**，修复在分支 `claude/wr08-locked-phone-stop` |
+| WR-08 | 手机锁屏时，手表上的「停下」发不出去 | [08](watch-wrist-resolve/issues/08-locked-phone-stop.md) | 代码已完成，待真机：锁屏时停下一次 | 2026-09-24 腕上验收：锁屏时停下没到 Mac，解锁后通过。手表只因中继状态为 `macDisconnected` 就拒绝发送；手机在流断时也不试。#260 已为审批和回答修过同一个误判 | **优先**，修复在分支 `claude/wr08-locked-phone-stop` |
 | WR-09 | 手表横幅「回复」直接打开 App，不收文字 | [09](watch-wrist-resolve/issues/09-banner-reply-opens-app.md) | needs-triage | watchOS 27 上，带 `.foreground` 的文字输入按钮不弹输入框；什么都没发出去，是安全的 | 先查 Apple 文档与同类 App，再定方案 |
 | WR-10 | 任务详情页「返回总览」点了没反应 | [10](watch-wrist-resolve/issues/10-back-to-dashboard-dead.md) | ready-for-agent | 打开一个已离开列表的会话后出现，只能强制退出；另外列表行上不标 agent | 保留 |
 | WR-11 | Mac 只等 25 秒，手表上的操作常常来不及 | [11](watch-wrist-resolve/issues/11-hook-wait-vs-wrist.md) | needs-triage | 这一轮 9 次过期；卡片上还要多点一下「回复」 | 先量时间分布再定 |
