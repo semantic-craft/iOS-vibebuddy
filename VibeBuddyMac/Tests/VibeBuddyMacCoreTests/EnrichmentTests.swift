@@ -136,4 +136,28 @@ struct EnrichmentTests {
         #expect(s?.tokens == 1000)
         #expect(s?.summary == "finished refactor")
     }
+
+    @Test("a transcript read between status-line samples keeps the 1M window and display name (AI-10)")
+    func statusLineWindowSurvivesTranscript() async throws {
+        let tmp = NSTemporaryDirectory() + "vb-enrich-\(UUID().uuidString).jsonl"
+        let line = #"{"type":"assistant","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"working"}],"usage":{"input_tokens":40000,"cache_read_input_tokens":39,"output_tokens":10}}}"#
+        try line.write(toFile: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+
+        let store = SessionStore()
+        let prompt = #"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/proj"}"#
+        await store.ingest(Data(prompt.utf8), receivedAt: t0)
+        let doc = #"{"session_id":"s","cwd":"/x/proj","model":{"id":"claude-opus-5-5[1m]","display_name":"Opus 5.5 (1M context)"},"context_window":{"context_window_size":1000000,"used_percentage":3.0}}"#
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(doc.utf8)) as? [String: Any])
+        let sample = try #require(StatusLineSample.decode(json))
+        #expect(await store.applyStatusLine(sample, at: t0.addingTimeInterval(1)))
+
+        let tool = #"{"hook_event_name":"PostToolUse","session_id":"s","cwd":"/x/proj","tool_name":"Bash","transcript_path":"\#(tmp)"}"#
+        await store.ingest(Data(tool.utf8), receivedAt: t0.addingTimeInterval(2))
+
+        let s = try #require(await store.snapshot(now: t0).sessions.first)
+        #expect(s.contextTokens == 40_039)          // the transcript still moves the count
+        #expect(s.contextWindow == 1_000_000)       // not the model table's 200k
+        #expect(s.model == "Opus 5.5 (1M context)") // not the transcript's raw id
+    }
 }
