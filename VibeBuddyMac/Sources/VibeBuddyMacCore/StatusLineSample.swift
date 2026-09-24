@@ -1,14 +1,22 @@
 import Foundation
 import VibeBuddyKit
 
-/// One status line JSON from Claude Code, as forwarded by
+/// One status line JSON from Claude Code or Grok Build, as forwarded by
 /// `hooks/vibebuddy-statusline.sh`. Decoded at the boundary into the few
 /// facts the session row and the quota view use; everything else is dropped.
 ///
 /// A sample is bookkeeping: it fills fields on a session the hooks already
 /// opened and never creates one or moves the three-state progress.
+///
+/// Grok's payload follows the same convention with its own differences
+/// (`~/.grok/docs/user-guide/25-status-line.md`): `context_window.context_tokens`
+/// is the live occupancy (`session_*` counts are cumulative and pass 100%),
+/// `used_percentage` is rounded to a whole number, `workspace.branch` is sent,
+/// and there is no `pr` or `rate_limits`. A field Grok omits stays nil — an
+/// absent cost is unknown, not zero.
 public struct StatusLineSample: Sendable, Equatable {
     public let sessionID: String
+    public var agent: AgentKind = .claudeCode
     public var model: String?
     public var cwd: String?
     public var transcriptPath: String?
@@ -20,6 +28,7 @@ public struct StatusLineSample: Sendable, Equatable {
     public var prNumber: Int?
     public var prURL: String?
     public var worktree: String?
+    public var branch: String?
     /// The claude.ai rate-limit windows, when the CLI reports them.
     public var fiveHour: AccountUsageWindow?
     public var sevenDay: AccountUsageWindow?
@@ -27,9 +36,11 @@ public struct StatusLineSample: Sendable, Equatable {
 
     public init(sessionID: String) { self.sessionID = sessionID }
 
-    public static func decode(_ obj: [String: Any]) -> StatusLineSample? {
+    public static func decode(_ obj: [String: Any], agent: AgentKind = .claudeCode) -> StatusLineSample? {
         guard let sessionID = obj["session_id"] as? String, !sessionID.isEmpty else { return nil }
         var sample = StatusLineSample(sessionID: sessionID)
+        sample.agent = agent
+        if agent == .grok { return decodeGrok(obj, into: sample) }
         let model = obj["model"] as? [String: Any]
         sample.model = Self.nonEmpty(model?["display_name"] as? String) ?? Self.nonEmpty(model?["id"] as? String)
         let workspace = obj["workspace"] as? [String: Any]
@@ -67,9 +78,37 @@ public struct StatusLineSample: Sendable, Equatable {
         return sample
     }
 
+    private static func decodeGrok(_ obj: [String: Any], into base: StatusLineSample) -> StatusLineSample {
+        var sample = base
+        let model = obj["model"] as? [String: Any]
+        sample.model = Self.nonEmpty(model?["display_name"] as? String) ?? Self.nonEmpty(model?["id"] as? String)
+        let workspace = obj["workspace"] as? [String: Any]
+        sample.cwd = Self.nonEmpty(workspace?["current_dir"] as? String) ?? Self.nonEmpty(obj["cwd"] as? String)
+        sample.transcriptPath = Self.nonEmpty(obj["transcript_path"] as? String)
+        sample.sessionName = Self.nonEmpty(obj["session_name"] as? String)
+        sample.effort = Self.nonEmpty((obj["effort"] as? [String: Any])?["level"] as? String)
+        if let usd = Self.double((obj["cost"] as? [String: Any])?["total_cost_usd"]), usd.isFinite, usd >= 0 {
+            sample.costUSD = usd
+        }
+        if let context = obj["context_window"] as? [String: Any] {
+            let size = Self.int(context["context_window_size"]).flatMap { $0 > 0 ? $0 : nil }
+            sample.contextWindow = size
+            if let tokens = Self.int(context["context_tokens"]), tokens >= 0 {
+                sample.contextTokens = tokens
+            } else if let percent = Self.double(context["used_percentage"]), let size {
+                sample.contextTokens = Int((percent / 100 * Double(size)).rounded())
+            }
+        }
+        sample.worktree = Self.nonEmpty((obj["worktree"] as? [String: Any])?["name"] as? String)
+            ?? Self.nonEmpty(workspace?["git_worktree"] as? String)
+        sample.branch = Self.nonEmpty(workspace?["branch"] as? String)
+        return sample
+    }
+
     /// The subscription allowance this sample carries, in the collectors'
-    /// shape, or nil when the CLI sent no `rate_limits`.
+    /// shape, or nil when the CLI sent no `rate_limits` (Grok never does).
     public func usageSnapshot(fetchedAt: Date) -> AccountUsageSnapshot? {
+        guard agent == .claudeCode else { return nil }
         guard fiveHour != nil || sevenDay != nil || !extraWindows.isEmpty else { return nil }
         return AccountUsageSnapshot(
             provider: .claude, planType: nil,

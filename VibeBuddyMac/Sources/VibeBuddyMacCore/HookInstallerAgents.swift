@@ -225,11 +225,24 @@ struct GrokHooks {
     func isOurs() -> Bool { text()?.contains("vibebuddy-forward.sh") == true }
     func hasApproval() -> Bool { isOurs() && text()?.contains("approval-hook.sh") == true }
 
+    var statusLine: GrokStatusLine { GrokStatusLine(paths: paths) }
+
     func run(_ operation: HookInstaller.Operation) throws -> HookInstaller.Outcome {
         var outcome = HookInstaller.Outcome()
         let target = paths.grokHooks
         switch operation {
-        case .statusLine: return outcome
+        case .statusLine:
+            let changed = try statusLine.install(lines: &outcome.lines)
+            // Asked for explicitly, a status line left alone is a failure.
+            guard changed || statusLine.isWired() else {
+                throw HookInstallerError.invalidConfig(paths.grokConfig.path, outcome.lines.last ?? "status line left alone")
+            }
+            outcome.lines.insert("status line information: " + (changed ? "enabled" : "already enabled"), at: 0)
+            if changed { outcome.lines.append("applies to Grok sessions started from now on.") }
+            outcome.changed = changed
+            outcome.commands = try ourCommands()
+            outcome.approval = hasApproval()
+            return outcome
         case .install(let requested):
             let approval = requested || hasApproval()
             if !requested && approval { outcome.lines.append("keeping the existing approval gate (uninstall removes it)") }
@@ -247,6 +260,10 @@ struct GrokHooks {
                 }
                 outcome.changed = true
             }
+            if try statusLine.install(lines: &outcome.lines) {
+                outcome.changed = true
+                outcome.lines.append("status line information enabled in \(paths.grokConfig.path) (new sessions).")
+            }
             outcome.lines.insert("\(outcome.changed ? "installed" : "already installed:") vibebuddy grok hooks"
                 + (approval ? " + approval gate" : "") + ": \(target.path)", at: 0)
             if approval {
@@ -256,8 +273,13 @@ struct GrokHooks {
             outcome.approval = approval
             outcome.commands = try ourCommands()
         case .uninstall:
+            if try statusLine.uninstall(lines: &outcome.lines) {
+                outcome.changed = true
+                outcome.lines.append("status line restored: \(paths.grokConfig.path)")
+            }
             guard files.exists(target), isOurs() else {
-                return HookInstaller.Outcome(lines: ["nothing to remove (not installed by vibebuddy)"])
+                if !outcome.changed { outcome.lines.append("nothing to remove (not installed by vibebuddy)") }
+                return outcome
             }
             _ = try files.remove(target, agent: .grok)
             outcome.changed = true
@@ -271,10 +293,13 @@ struct GrokHooks {
         return outcome
     }
 
+    /// The hook commands, plus the status line wrapper when it is wired.
     func ourCommands() throws -> [String] {
-        guard isOurs(), let data = files.read(paths.grokHooks), let root = try? OrderedJSON.parse(data) else { return [] }
-        let all = (root["hooks"]?.members ?? []).flatMap { member in
-            (member.value.elements ?? []).flatMap(commands(in:))
+        var all = statusLine.ourCommand().map { [$0] } ?? []
+        if isOurs(), let data = files.read(paths.grokHooks), let root = try? OrderedJSON.parse(data) {
+            all += (root["hooks"]?.members ?? []).flatMap { member in
+                (member.value.elements ?? []).flatMap(commands(in:))
+            }
         }
         return Array(Set(all)).sorted()
     }

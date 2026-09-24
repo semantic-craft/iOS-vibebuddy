@@ -142,6 +142,8 @@ public struct HookPaths: Sendable {
     public var codexControlSocket: URL { codexDirectory.appendingPathComponent("app-server-control/app-server-control.sock") }
     public var grokDirectory: URL { directory("GROK_HOME", default: ".grok") }
     public var grokHooks: URL { grokDirectory.appendingPathComponent("hooks/vibebuddy.json") }
+    /// Grok's own settings, where `[ui.status_line]` lives.
+    public var grokConfig: URL { grokDirectory.appendingPathComponent("config.toml") }
     public var cursorDirectory: URL { directory("CURSOR_HOME", default: ".cursor") }
     public var cursorHooks: URL { cursorDirectory.appendingPathComponent("hooks.json") }
     public var opencodeDirectory: URL {
@@ -259,6 +261,12 @@ public struct HookPaths: Sendable {
     /// builds) used; read for `~/.claude` only.
     public var legacyStatusLineOriginal: URL { support.appendingPathComponent("statusline-original.json") }
     public var legacyStatusLineOriginalCommand: URL { support.appendingPathComponent("statusline-original.cmd") }
+
+    public var grokKey: String { configKey(grokConfig) }
+    /// The `[ui.status_line]` table saved for *this* Grok home (JSON, nil
+    /// section when there was none) and the command the wrapper runs.
+    public var grokStatusLineOriginal: URL { support.appendingPathComponent("grok-statusline-original.\(grokKey).json") }
+    public var grokStatusLineOriginalCommand: URL { support.appendingPathComponent("grok-statusline-original.\(grokKey).cmd") }
 
     public func script(_ name: String) -> URL { bin.appendingPathComponent(name) }
 }

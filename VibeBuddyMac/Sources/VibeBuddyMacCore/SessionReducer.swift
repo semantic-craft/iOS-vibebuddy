@@ -348,12 +348,13 @@ public struct SessionReducer: Sendable {
         }
     }
 
-    /// Facts from Claude's status line. Never creates a session and never
+    /// Facts from Claude's or Grok's status line (a sample fills only a row of
+    /// its own agent). Never creates a session and never
     /// touches status, wait kind, tools or summary. Its model name and context
     /// window outrank the transcript's until the model changes (AI-10); the
     /// token count is whichever source read last.
     public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
-        guard var s = sessions[sample.sessionID] else { return false }
+        guard var s = sessions[sample.sessionID], s.agent == sample.agent else { return false }
         if let model = sample.model {
             s.model = model
             statusLineModel.insert(sample.sessionID)
@@ -377,6 +378,7 @@ public struct SessionReducer: Sendable {
             s.prURL = sample.prURL
         }
         if let worktree = sample.worktree { s.worktree = worktree }
+        if let branch = sample.branch { s.branch = branch }
         sessions[sample.sessionID] = s
         return true
     }

@@ -105,8 +105,11 @@ public struct HookInstaller: Sendable {
     }
 
     private func referencesBin(_ agent: HookAgent) -> Bool {
-        guard let data = files.read(paths.hookFile(agent)) else { return false }
-        return String(decoding: data, as: UTF8.self).contains(paths.bin.path)
+        // Grok's status line wrapper lives in config.toml, beside its hooks file.
+        let configs = [paths.hookFile(agent)] + (agent == .grok ? [paths.grokConfig] : [])
+        return configs.contains { url in
+            files.read(url).map { String(decoding: $0, as: UTF8.self).contains(paths.bin.path) } ?? false
+        }
     }
 
     // MARK: - Operations
@@ -157,29 +160,35 @@ public struct HookInstaller: Sendable {
         return report
     }
 
-    /// Claude's status line alone: wraps whatever is configured, touches no hooks.
-    public func enableStatusLine() -> HookInstallReport {
+    /// The status line alone (Claude's `statusLine`, Grok's
+    /// `[ui.status_line]`): wraps whatever is configured, touches no hooks.
+    public func enableStatusLine(_ agent: HookAgent = .claude) -> HookInstallReport {
         var report = HookInstallReport()
+        guard agent == .claude || agent == .grok else {
+            report.failures += 1
+            report.lines.append("! \(agent.rawValue) has no status line vibebuddy can forward")
+            return report
+        }
         do {
             try refreshStableScripts()
-            let outcome = try perform(.statusLine, .claude, context(manifest: files.loadManifest()))
+            let outcome = try perform(.statusLine, agent, context(manifest: files.loadManifest()))
             report.lines += outcome.lines
-            report.touched = [.claude]
+            report.touched = [agent]
             var state = files.loadState()
-            state.uninstalled.removeAll { $0 == paths.entryKey(.claude) }
+            state.uninstalled.removeAll { $0 == paths.entryKey(agent) }
             var manifest = files.loadManifest()
-            if var entry = manifest.agents[paths.entryKey(.claude)] {
+            if var entry = manifest.agents[paths.entryKey(agent)] {
                 entry.commands = Array(Set(entry.commands + outcome.commands)).sorted()
-                manifest.agents[paths.entryKey(.claude)] = entry
+                manifest.agents[paths.entryKey(agent)] = entry
             } else {
-                manifest.agents[paths.entryKey(.claude)] = HookManifest.Entry(
-                    config: paths.claudeSettings.path, commands: outcome.commands,
+                manifest.agents[paths.entryKey(agent)] = HookManifest.Entry(
+                    config: paths.hookFile(agent).path, commands: outcome.commands,
                     approval: false, installedAt: paths.environment.now())
             }
             persist(manifest: manifest, state: state, into: &report)
         } catch {
             report.failures += 1
-            report.lines.append("! claude: \(error)")
+            report.lines.append("! \(agent.rawValue): \(error)")
         }
         return report
     }
@@ -242,6 +251,8 @@ public struct HookInstaller: Sendable {
             if agent == .claude {
                 statusLine = (try? ClaudeHooks(paths: paths, context: context, version: nil)
                     .statusLineWired()) ?? false
+            } else if agent == .grok {
+                statusLine = GrokStatusLine(paths: paths).isWired()
             }
             return HookAgentStatus(
                 agent: agent,

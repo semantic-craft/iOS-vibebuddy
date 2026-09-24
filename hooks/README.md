@@ -16,6 +16,7 @@ swift run vibebuddyd hooks install                      # every detected CLI
 swift run vibebuddyd hooks install --agent codex        # one CLI (repeatable / comma-separated)
 swift run vibebuddyd hooks install --approval           # + the phone-approval gate where supported
 swift run vibebuddyd hooks install --statusline         # Claude's status line only
+swift run vibebuddyd hooks install --statusline --agent grok   # Grok's status line only
 swift run vibebuddyd hooks status                       # per CLI, plus what Codex will run
 swift run vibebuddyd hooks uninstall [--agent NAME]     # revert (remembered)
 ```
@@ -182,7 +183,7 @@ What the rollout does and does not tell us:
 ## Grok Build
 
 ```bash
-vibebuddyd hooks install --agent grok              # write ~/.grok/hooks/vibebuddy.json
+vibebuddyd hooks install --agent grok              # ~/.grok/hooks/vibebuddy.json + status line
 vibebuddyd hooks install --agent grok --approval   # + the blocking approval gate
 vibebuddyd hooks uninstall --agent grok            # revert
 ```
@@ -207,6 +208,35 @@ them — but grok resolves an argument-less quoted `command` as a literal path
 (`~/.claude/"/…/capture-terminal.sh"`, command not found), which is why the
 Claude capture hook is installed as `"…/capture-terminal.sh" claude`: with an
 argument both CLIs shell-parse it, and the script ignores `$1`.
+
+### Grok status line
+
+Install also wraps `[ui.status_line]` in `~/.grok/config.toml` (Grok reads it
+at startup, so new sessions pick it up): `type = "command"` naming
+`vibebuddy-statusline.sh grok <key>`, which forwards Grok's status JSON to
+`/statusline?agent=grok` and then runs the command you had configured, so the
+row looks the same (no row when you had none). It fills the session's context
+(`context_window.context_tokens` / `context_window_size`), cost, model, effort,
+session name, branch and worktree; an absent cost stays unknown. Grok kills
+whatever a status line run leaves behind, so for Grok the wrapper waits for its
+1-second-bounded forward before exiting. Only a `[ui.status_line]` table is
+edited, as text; everything else in the file keeps its bytes. A `builtin` row,
+an inline `status_line = {…}`, dotted keys, a multi-line value or CRLF line
+endings are left alone with a note (`--statusline` then exits non-zero).
+Uninstall puts the table back exactly as it was (or removes the one vibebuddy
+added). As with Claude, the wrapper always exits 0: a user row that prints
+nothing and fails no longer shows Grok's `[status line: exit N]`, and a wrapper
+whose `bin/` copy was deleted without an uninstall shows `exit 127` in every
+new session.
+
+Grok's session registry, `~/.grok/active_sessions.json` (`[cli]
+session_registry`, on by default), is the liveness backstop: a session the
+daemon saw listed whose `grok` process has exited (a clean exit drops the entry,
+a killed terminal leaves a dead pid) ends at the next sweep (≤ 60 s) as if its
+`SessionEnd` had arrived. An entry that vanishes while its process still runs
+is left to the hooks. While a Grok leader answers in the Grok home
+(`leader*.sock`), nothing is retired: a leader keeps a session running after
+its terminal closes, and fires no `SessionEnd`.
 
 ### Grok remote approval
 
