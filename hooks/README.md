@@ -221,15 +221,22 @@ session name, branch and worktree; an absent cost stays unknown. Grok kills
 whatever a status line run leaves behind, so for Grok the wrapper waits for its
 1-second-bounded forward before exiting. Only a `[ui.status_line]` table is
 edited, as text; everything else in the file keeps its bytes. A `builtin` row,
-an inline `status_line = {…}`, dotted keys or a multi-line value are left alone
-with a note. Uninstall puts the table back exactly as it was (or removes the one
-vibebuddy added).
+an inline `status_line = {…}`, dotted keys, a multi-line value or CRLF line
+endings are left alone with a note (`--statusline` then exits non-zero).
+Uninstall puts the table back exactly as it was (or removes the one vibebuddy
+added). As with Claude, the wrapper always exits 0: a user row that prints
+nothing and fails no longer shows Grok's `[status line: exit N]`, and a wrapper
+whose `bin/` copy was deleted without an uninstall shows `exit 127` in every
+new session.
 
 Grok's session registry, `~/.grok/active_sessions.json` (`[cli]
 session_registry`, on by default), is the liveness backstop: a session the
-daemon saw listed that leaves the list, or whose process died (a killed
-terminal keeps its entry), ends at the next sweep (≤ 60 s) as if its
-`SessionEnd` had arrived.
+daemon saw listed whose `grok` process has exited (a clean exit drops the entry,
+a killed terminal leaves a dead pid) ends at the next sweep (≤ 60 s) as if its
+`SessionEnd` had arrived. An entry that vanishes while its process still runs
+is left to the hooks. While a Grok leader answers in the Grok home
+(`leader*.sock`), nothing is retired: a leader keeps a session running after
+its terminal closes, and fires no `SessionEnd`.
 
 ### Grok remote approval
 

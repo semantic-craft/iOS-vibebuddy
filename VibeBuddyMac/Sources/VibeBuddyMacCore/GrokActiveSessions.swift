@@ -38,17 +38,21 @@ struct GrokActiveSessions {
     let url: URL
     /// Whether a pid still belongs to the process that registered the entry.
     var isRunning: (Entry) -> Bool = GrokActiveSessions.processIsRunning
+    /// Whether a Grok leader answers in this Grok home. While one runs, a
+    /// session lives in the leader and outlives the terminal that opened it.
+    var leaderReachable: () -> Bool
 
     private var stamp: (Date, Int)?
     private var entries: [Entry] = []
 
     init(grokHome: URL) {
         url = grokHome.appendingPathComponent("active_sessions.json")
+        leaderReachable = { GrokActiveSessions.leaderAnswers(in: grokHome) }
     }
 
-    /// Session ids with a live `grok` process, or nil when the registry is
-    /// absent or unreadable — then it says nothing either way.
-    mutating func liveSessionIDs() -> Set<String>? {
+    /// The entries with a live `grok` process, by session id, or nil when the
+    /// registry is absent or unreadable — then it says nothing either way.
+    mutating func liveEntries() -> [String: Entry]? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let modified = attributes[.modificationDate] as? Date,
               let size = (attributes[.size] as? NSNumber)?.intValue else {
@@ -67,7 +71,38 @@ struct GrokActiveSessions {
             stamp = (modified, size)
             entries = decoded
         }
-        return Set(entries.filter(isRunning).map(\.sessionID))
+        var live: [String: Entry] = [:]
+        for entry in entries where isRunning(entry) { live[entry.sessionID] = entry }
+        return live
+    }
+
+    /// `leader.sock` or `leader-*.sock` in the Grok home (where `grok leader
+    /// list` looks) accepting a connection. A leader on a socket elsewhere
+    /// (`--leader-socket`) is not seen.
+    static func leaderAnswers(in grokHome: URL) -> Bool {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: grokHome.path)) ?? []
+        return names.contains { name in
+            guard name == "leader.sock" || (name.hasPrefix("leader-") && name.hasSuffix(".sock")) else { return false }
+            return socketAccepts(grokHome.appendingPathComponent(name).path)
+        }
+    }
+
+    private static func socketAccepts(_ path: String) -> Bool {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return false }
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: bytes)
+            buffer[bytes.count] = 0
+        }
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+        let length = socklen_t(MemoryLayout<sockaddr_un>.size)
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(descriptor, $0, length) == 0 }
+        }
     }
 
     /// Alive, and started no later than it registered (a second of slack for

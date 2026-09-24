@@ -233,8 +233,11 @@ struct GrokHooks {
         switch operation {
         case .statusLine:
             let changed = try statusLine.install(lines: &outcome.lines)
-            outcome.lines.insert("status line information: " + (changed ? "enabled" : statusLine.isWired()
-                ? "already enabled" : "not enabled"), at: 0)
+            // Asked for explicitly, a status line left alone is a failure.
+            guard changed || statusLine.isWired() else {
+                throw HookInstallerError.invalidConfig(paths.grokConfig.path, outcome.lines.last ?? "status line left alone")
+            }
+            outcome.lines.insert("status line information: " + (changed ? "enabled" : "already enabled"), at: 0)
             if changed { outcome.lines.append("applies to Grok sessions started from now on.") }
             outcome.changed = changed
             outcome.commands = try ourCommands()

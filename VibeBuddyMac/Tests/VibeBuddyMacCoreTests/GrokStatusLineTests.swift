@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 import NIOCore
@@ -62,7 +63,9 @@ struct GrokStatusLineTests {
 
     @Test("/statusline?agent=grok fills the Grok row; a sample never crosses agents")
     func route() async throws {
-        let store = SessionStore(grokHome: try temporaryDirectory())
+        let grokHome = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: grokHome) }
+        let store = SessionStore(grokHome: grokHome)
         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: id, agent: .grok,
                                      cwd: "/x/proj", timestamp: now))
         let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876, usageFeed: AccountUsageLiveFeed())
@@ -91,51 +94,96 @@ struct GrokStatusLineTests {
         #expect(session.costUSD == 0.01555024)
         #expect(session.branch == "main")
         #expect(session.observations?.contains { $0.source == .statusline } == true)
+
+        // A repeat within the window still puts back what a transcript
+        // enrichment overwrote in between.
+        var estimate = TranscriptInfo()
+        estimate.contextTokens = 99
+        await store.ingest(HookEvent(kind: .sessionMetadataChanged, sessionID: id, agent: .grok,
+                                     timestamp: now.addingTimeInterval(1), enrichment: estimate))
+        #expect(await store.snapshot(now: now).sessions.first { $0.id == id }?.contextTokens == 99)
+        let sample = try #require(StatusLineSample.decode(json(grokStatusLineJSON), agent: .grok))
+        #expect(await store.applyStatusLine(sample, at: now.addingTimeInterval(2)))
+        #expect(await store.snapshot(now: now).sessions.first { $0.id == id }?.contextTokens == 24_157)
     }
 
-    @Test("a session that leaves Grok's registry stops working; one never listed is left alone")
+    @Test("a listed session whose grok process exits stops working; live, unlisted and leader-held ones stay")
     func registryRetires() async throws {
-        let grokHome = try temporaryDirectory()
+        // Short: a Unix socket path must fit in 104 bytes.
+        let grokHome = URL(fileURLWithPath: "/tmp/vbg-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: grokHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: grokHome) }
         let registry = grokHome.appendingPathComponent("active_sessions.json")
-        func list(_ ids: [String], pid: Int32 = ProcessInfo.processInfo.processIdentifier,
-                  openedAt: String = "2099-01-01T00:00:00.000001Z") throws {
-            let entries = ids.map { #"{"session_id":"\#($0)","pid":\#(pid),"cwd":"/x","opened_at":"\#(openedAt)"}"# }
-            try Data("[\(entries.joined(separator: ","))]".utf8).write(to: registry)
+        func list(_ entries: [(String, Int32)]) throws {
+            let json = entries.map { #"{"session_id":"\#($0.0)","pid":\#($0.1),"cwd":"/x","opened_at":"2099-01-01T00:00:00.000001Z"}"# }
+            try Data("[\(json.joined(separator: ","))]".utf8).write(to: registry)
+        }
+        func grok() throws -> Process {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            process.arguments = ["60"]
+            try process.run()
+            return process
         }
         let store = SessionStore(grokHome: grokHome)
-        for session in ["listed", "unlisted"] {
+        let me = ProcessInfo.processInfo.processIdentifier
+        for session in ["closed", "killed", "rewritten", "unlisted", "leader"] {
             await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: session, agent: .grok,
                                          cwd: "/x", timestamp: now))
         }
-        try list(["listed"])
+        let closed = try grok(), killed = try grok()
+        try list([("closed", closed.processIdentifier), ("killed", killed.processIdentifier), ("rewritten", me)])
         await store.sweep(now: now.addingTimeInterval(60))
-        #expect(await store.hasSession("listed"))
-        try list([])
+        #expect(await store.hasSession("closed"))
+
+        // A clean exit leaves the list; `kill -9` leaves a dead pid behind.
+        closed.terminate(); closed.waitUntilExit()
+        killed.terminate(); killed.waitUntilExit()
+        try list([("killed", killed.processIdentifier)])
         await store.sweep(now: now.addingTimeInterval(120))
-        #expect(await !store.hasSession("listed"))
+        #expect(await !store.hasSession("closed"))
+        #expect(await !store.hasSession("killed"))
+        // Gone from the list while its process still runs: left to the hooks.
+        #expect(await store.hasSession("rewritten"))
         #expect(await store.hasSession("unlisted"))
 
-        // Killed outright: the entry stays but the pid is gone (or reused).
-        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "killed", agent: .grok,
-                                     cwd: "/x", timestamp: now))
-        try list(["killed"])
+        // While a leader answers, a session outlives its terminal.
+        let leader = try grok()
+        try list([("leader", leader.processIdentifier)])
         await store.sweep(now: now.addingTimeInterval(180))
-        #expect(await store.hasSession("killed"))
-        try list(["killed"], openedAt: "2001-01-01T00:00:00Z")   // this pid started after that
+        let socket = try Self.listen(at: grokHome.appendingPathComponent("leader.sock").path)
+        defer { close(socket) }
+        leader.terminate(); leader.waitUntilExit()
+        try list([])
         await store.sweep(now: now.addingTimeInterval(240))
-        #expect(await !store.hasSession("killed"))
+        #expect(await store.hasSession("leader"))
 
-        // An unreadable registry says nothing.
-        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "kept", agent: .grok,
-                                     cwd: "/x", timestamp: now))
-        try list(["kept"])
+        // An unreadable or missing registry says nothing.
+        let kept = try grok()
+        defer { kept.terminate() }
+        try list([("kept", kept.processIdentifier)])
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "kept", agent: .grok, cwd: "/x", timestamp: now))
         await store.sweep(now: now.addingTimeInterval(300))
         try Data("[{\"session_id\":".utf8).write(to: registry)
         await store.sweep(now: now.addingTimeInterval(360))
         try FileManager.default.removeItem(at: registry)
         await store.sweep(now: now.addingTimeInterval(420))
         #expect(await store.hasSession("kept"))
+    }
+
+    /// A listening Unix socket, standing in for a Grok leader.
+    static func listen(at path: String) throws -> Int32 {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        try #require(bytes.count < MemoryLayout.size(ofValue: address.sun_path))
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes + [0]) }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        try #require(bound == 0 && Darwin.listen(descriptor, 4) == 0)
+        return descriptor
     }
 
     @Test("registry dates carry microseconds")
@@ -253,9 +301,54 @@ struct GrokStatusLineTests {
         #expect(home.bytes(".grok/config.toml") == Data(original.utf8))
     }
 
+    @Test("appending and removing the table leaves the file's own ending as it was")
+    func appendRoundTrips() throws {
+        for original in ["a = 1\n\n", "a = 1", "", "# only a comment\n"] {
+            let (home, installer) = try home()
+            defer { home.remove() }
+            try home.write(".grok/config.toml", original)
+            #expect(installer.install([.grok]).failures == 0)
+            #expect(GrokStatusLine(paths: home.paths).isWired(), "\(original.debugDescription)")
+            #expect(installer.uninstall([.grok]).failures == 0)
+            #expect(home.bytes(".grok/config.toml") == Data(original.utf8), "\(original.debugDescription)")
+        }
+    }
+
+    @Test("triple quotes in a comment or a one-line string do not hide the table")
+    func tripleQuotesOutsideStrings() throws {
+        for original in [
+            "# use \"\"\" for prompts\n[ui.status_line]\ntype = \"command\"\ncommand = \"mine\"\n\n[x]\ny = 1\n",
+            "a = 'he said \"\"\"'\n[ \"ui\" . \"status_line\" ]\ntype = \"command\"\ncommand = \"mine\"\n",
+            "p = \"\"\"\n[ui.status_line]\n\"\"\"\n[ui.status_line]\ntype = \"command\"\ncommand = \"mine\"\n",
+        ] {
+            let (home, installer) = try home()
+            defer { home.remove() }
+            try home.write(".grok/config.toml", original)
+            #expect(installer.install([.grok]).failures == 0)
+            let text = String(decoding: try #require(home.bytes(".grok/config.toml")), as: UTF8.self)
+            #expect(GrokStatusLine(paths: home.paths).isWired(), "\(original.debugDescription)")
+            #expect(!text.contains("command = \"mine\""), "\(original.debugDescription)")
+            #expect(text.components(separatedBy: "type = ").count == 2, "one table: \(text.debugDescription)")
+            #expect(installer.uninstall([.grok]).failures == 0)
+            #expect(home.bytes(".grok/config.toml") == Data(original.utf8))
+        }
+    }
+
+    @Test("an explicit status line request that is left alone fails")
+    func explicitLeftAloneFails() throws {
+        let (home, installer) = try home()
+        defer { home.remove() }
+        try home.write(".grok/config.toml", "[ui.status_line]\ntype = \"builtin\"\n")
+        let report = installer.enableStatusLine(.grok)
+        #expect(report.failures == 1)
+        #expect(report.text.contains("built-in row"))
+    }
+
     @Test("builtin rows, inline tables and dotted keys are left alone; no config is created and removed cleanly")
     func leavesOtherShapesAlone() throws {
         for config in [
+            "[model]\r\ndefault = \"x\"\r\n\r\n[ui.status_line]\r\ntype = \"command\"\r\ncommand = \"mine\"\r\n",
+
             "[ui.status_line]\ntype = \"builtin\"\nitems = [\"cwd\"]\n",
             "[ui]\nstatus_line = { type = \"command\", command = \"x\" }\n",
             "[ui]\nstatus_line.type = \"command\"\n",

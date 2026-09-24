@@ -604,13 +604,13 @@ public actor SessionStore {
     /// home: the session store is rooted at `<grok home>/sessions`.
     private let grokHome: URL
     /// Grok's registry of open `grok` processes, read on each sweep, and the
-    /// sessions it listed last time. A session that was listed and no longer
-    /// is has closed — see `retireClosedGrokSessions`.
+    /// live entries it listed last time — see `retireClosedGrokSessions`.
     private var grokRegistry: GrokActiveSessions
-    private var grokRegistered: Set<String> = []
-    /// The last status line sample applied per session, to skip repeats:
-    /// Grok re-runs its status line every few hundred ms while a turn runs.
-    private var lastStatusLine: [String: (sample: StatusLineSample, at: Date)] = [:]
+    private var grokRegistered: [String: GrokActiveSessions.Entry] = [:]
+    /// When a status line sample last changed a row or refreshed its
+    /// evidence, per session: Grok re-runs its status line every few hundred
+    /// ms while a turn runs, and a repeat inside the window sends nothing.
+    private var lastStatusLineAt: [String: Date] = [:]
     private let diagnosticsHome: URL?
     /// `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `CURSOR_HOME` as the hook installer
     /// sees them; empty in tests and isolated runs.
@@ -795,7 +795,7 @@ public actor SessionStore {
             explicitWaits[id] = nil
             completionResults.removeSession(id)
             transcriptPaths[id] = nil
-            lastStatusLine[id] = nil
+            lastStatusLineAt[id] = nil
             cursorHookLog[id] = nil
             if let directory = grokDirectories[id] { grokReads[directory.path] = nil }
             grokDirectories[id] = nil
@@ -813,23 +813,27 @@ public actor SessionStore {
         if !removed.isEmpty { broadcast() }
     }
 
-    /// A Grok terminal session that left Grok's registry (or whose process
-    /// died) has closed, even when its `session_end` hook never arrived — a
-    /// killed terminal, a daemon that was down. It ends the way that hook
-    /// would have ended it, so the row stops reading as working. Only a
-    /// session this daemon saw listed is retired: with `[cli]
-    /// session_registry = false`, another `GROK_HOME`, or a row restored after
-    /// a restart, absence proves nothing. A session vibebuddy hosts over ACP
-    /// is judged by its own pipe.
+    /// A Grok terminal session whose `grok` process has exited has closed,
+    /// even when its `session_end` hook never arrived — a killed terminal, a
+    /// daemon that was down. It ends the way that hook would have ended it
+    /// (journalled `sessionEnd`, source `recovery`), so the row stops reading
+    /// as working. Only a session this daemon saw listed, whose listed process
+    /// is gone, is retired: a live process whose entry vanished (a rewritten
+    /// registry) is left to its hooks, and with `[cli] session_registry =
+    /// false`, another `GROK_HOME`, or a row restored after a restart,
+    /// absence proves nothing. While a Grok leader runs, a session outlives
+    /// its terminal (grok 1.0.41: the turn went on and no `session_end`
+    /// fired), so nothing is retired. A session vibebuddy hosts over ACP is
+    /// judged by its own pipe.
     private func retireClosedGrokSessions(now: Date) {
-        guard let live = grokRegistry.liveSessionIDs() else { return }
-        let closed = grokRegistered.subtracting(live)
+        guard let live = grokRegistry.liveEntries() else { return }
+        let exited = grokRegistered.filter { live[$0.key] == nil && !grokRegistry.isRunning($0.value) }
         grokRegistered = live
-        for id in closed.sorted() {
-            guard reducer.sessions[id]?.agent == .grok, !acpHosted.contains(id) else { continue }
+        let candidates = exited.keys.filter { reducer.sessions[$0]?.agent == .grok && !acpHosted.contains($0) }
+        guard !candidates.isEmpty, !grokRegistry.leaderReachable() else { return }
+        for id in candidates.sorted() {
             ingest(HookEvent(kind: .sessionEnd, sessionID: id, agent: .grok, timestamp: now),
                    observationSource: .recovery, recordsEvidence: false)
-            appendJournal(sessionID: id, agent: .grok, event: "grokSessionClosed", source: .recovery, at: now)
         }
     }
 
@@ -907,16 +911,19 @@ public actor SessionStore {
     /// sample never creates one or moves its progress. Returns whether one was.
     @discardableResult
     public func applyStatusLine(_ sample: StatusLineSample, at date: Date) -> Bool {
-        // The same facts again (Grok re-runs its status line continuously
-        // during a turn): nothing to fill, and evidence still fresh.
-        if let last = lastStatusLine[sample.sessionID], last.sample == sample,
-           date.timeIntervalSince(last.at) < Self.statusLineRepeatWindow,
-           reducer.sessions[sample.sessionID] != nil {
+        let before = reducer.sessions[sample.sessionID]
+        let applied = reducer.applyStatusLine(sample)
+        rememberDirectory(sample.cwd, sessionID: sample.sessionID, at: date)
+        // Nothing changed on the row (Grok re-runs its status line every few
+        // hundred ms during a turn) and the evidence is still fresh: no
+        // snapshot to send. The sample is still applied, since a hook's
+        // transcript enrichment may have overwritten the same fields since.
+        if applied, before == reducer.sessions[sample.sessionID],
+           let last = lastStatusLineAt[sample.sessionID],
+           date.timeIntervalSince(last) < Self.statusLineRepeatWindow {
             return true
         }
-        let applied = reducer.applyStatusLine(sample)
-        lastStatusLine[sample.sessionID] = applied ? (sample, date) : nil
-        rememberDirectory(sample.cwd, sessionID: sample.sessionID, at: date)
+        lastStatusLineAt[sample.sessionID] = applied ? date : nil
         if applied {
             if let path = sample.transcriptPath { transcriptPaths[sample.sessionID] = path }
             reducer.recordObservation(sessionID: sample.sessionID, source: .statusline,
@@ -1105,7 +1112,7 @@ public actor SessionStore {
             cursorFollowupHandedAt[event.sessionID] = nil
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
-            lastStatusLine[event.sessionID] = nil
+            lastStatusLineAt[event.sessionID] = nil
             cursorHookLog[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
             if let directory = grokDirectories[event.sessionID] { grokReads[directory.path] = nil }

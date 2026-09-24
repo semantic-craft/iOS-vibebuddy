@@ -335,9 +335,10 @@ code, and tests — don't drift to synonyms.
   none); it never creates a session or moves the three states. A sample
   identical to the last one within 30 s is skipped.
 - **Grok session registry** — `<grok home>/active_sessions.json`, Grok's own
-  list of open `grok` processes. A session the daemon saw listed that leaves
-  it, or whose process has died, is ended at the next sweep as its
-  `SessionEnd` would have ended it; absence alone proves nothing.
+  list of open `grok` processes. A session the daemon saw listed whose process
+  has since exited is ended at the next sweep as its `SessionEnd` would have
+  ended it; absence alone proves nothing, and while a Grok leader answers
+  (sessions outlive their terminal) nothing is retired.
 - **Live usage feed** — `AccountUsageLiveFeed`: quota that arrives on its own
   (status line `rate_limits`, the Codex daemon's `account/rateLimits/*`). The
   usage coordinator treats a live sample like a fetch and holds the spawning

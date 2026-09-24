@@ -29,6 +29,10 @@ struct GrokStatusLine {
     struct Saved: Codable, Equatable {
         var section: String?
         var fileExisted: Bool?
+        /// What appending the table added around it, so removing it puts the
+        /// file back byte for byte.
+        var addedBlankLine: Bool?
+        var addedFinalNewline: Bool?
     }
 
     func isWired() -> Bool {
@@ -74,15 +78,16 @@ struct GrokStatusLine {
                 toml.set("command", to: command, in: range)
                 return try write(toml.text, original: original)
             }
-            try saveOriginal(section: toml.section(range), fileExisted: true,
+            try saveOriginal(Saved(section: toml.section(range), fileExisted: true),
                              command: GrokTOMLText.normalizedType(toml.value(of: "type", in: range)) == "command"
                                 ? toml.value(of: "command", in: range) : nil)
             var updated = range
             updated = toml.set("type", to: "command", in: updated)
             toml.set("command", to: command, in: updated)
         } else {
-            try saveOriginal(section: nil, fileExisted: existing != nil, command: nil)
-            toml.appendTable(["type = \"command\"", "command = " + GrokTOMLText.literal(command)])
+            let added = toml.appendTable(["type = \"command\"", "command = " + GrokTOMLText.literal(command)])
+            try saveOriginal(Saved(section: nil, fileExisted: existing != nil, addedBlankLine: added.blankLine,
+                                   addedFinalNewline: added.finalNewline), command: nil)
         }
         return try write(toml.text, original: original)
     }
@@ -99,7 +104,8 @@ struct GrokStatusLine {
             if let section = saved.section {
                 toml.replace(range, with: section)
             } else {
-                toml.removeTable(range)
+                toml.removeTable(range, addedBlankLine: saved.addedBlankLine ?? true,
+                                 addedFinalNewline: saved.addedFinalNewline ?? false)
                 removeFile = saved.fileExisted == false
                     && toml.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
@@ -123,8 +129,8 @@ struct GrokStatusLine {
         return changed
     }
 
-    private func saveOriginal(section: String?, fileExisted: Bool, command: String?) throws {
-        let data = try JSONEncoder().encode(Saved(section: section, fileExisted: fileExisted))
+    private func saveOriginal(_ original: Saved, command: String?) throws {
+        let data = try JSONEncoder().encode(original)
         try HookFileStore.atomicWrite(data, to: paths.grokStatusLineOriginal, permissions: 0o600)
         var saved = command ?? ""
         if saved.contains(Self.marker) { saved = "" }
@@ -158,19 +164,19 @@ struct GrokTOMLText {
     /// Where `[ui.status_line]` is. Lines inside multi-line strings are never
     /// read as headers or keys.
     func locate() -> Location {
+        // A line-level edit of a CRLF file would mix line endings; leave it.
+        if lines.contains(where: { $0.contains("\r") }) { return .foreign("the file uses CRLF line endings") }
         var table: [String] = []
         var start: Int?
         var end: Int?
         var inMultiline: String?
         for (index, raw) in lines.enumerated() {
             if let delimiter = inMultiline {
-                if raw.components(separatedBy: delimiter).count % 2 == 0 { inMultiline = nil }
+                if Self.closing(delimiter, in: Array(raw), from: 0) != nil { inMultiline = nil }
                 continue
             }
             let line = raw.trimmingCharacters(in: .whitespaces)
-            for delimiter in ["\"\"\"", "'''"] where line.components(separatedBy: delimiter).count % 2 == 0 {
-                inMultiline = delimiter
-            }
+            inMultiline = Self.openMultiline(line)
             if line.hasPrefix("[") {
                 if start != nil, end == nil { end = index }
                 guard let name = Self.headerName(line) else { continue }
@@ -194,8 +200,57 @@ struct GrokTOMLText {
                 return .foreign("[ui.status_line] uses dotted keys")
             }
         }
-        guard let start else { return .absent }
+        guard let start else {
+            // Backstop: never add a second table beside one this scan missed.
+            if lines.contains(where: Self.namesStatusLineTable) {
+                return .foreign("a [ui.status_line] header vibebuddy could not place")
+            }
+            return .absent
+        }
         return .table(start ..< (end ?? lines.count))
+    }
+
+    /// `[ui.status_line]` in any spacing or quoting, wherever it appears.
+    static func namesStatusLineTable(_ line: String) -> Bool {
+        let bare = line.filter { !$0.isWhitespace && $0 != "\"" && $0 != "'" }
+        return bare.hasPrefix("[ui.status_line]") || bare.hasPrefix("[[ui.status_line]]")
+    }
+
+    /// The multi-line string delimiter a line leaves open, reading past
+    /// single-line strings and a trailing comment.
+    static func openMultiline(_ line: String) -> String? {
+        let chars = Array(line)
+        var index = 0
+        while index < chars.count {
+            let c = chars[index]
+            if c == "#" { return nil }
+            guard c == "\"" || c == "'" else { index += 1; continue }
+            if index + 2 < chars.count, chars[index + 1] == c, chars[index + 2] == c {
+                let delimiter = String(repeating: c, count: 3)
+                guard let close = closing(delimiter, in: chars, from: index + 3) else { return delimiter }
+                index = close + 3
+                continue
+            }
+            var next = index + 1
+            while next < chars.count, chars[next] != c {
+                next += c == "\"" && chars[next] == "\\" ? 2 : 1
+            }
+            index = next + 1
+        }
+        return nil
+    }
+
+    /// Where `delimiter` next occurs in `chars` from `start`, skipping
+    /// escapes inside a basic string.
+    static func closing(_ delimiter: String, in chars: [Character], from start: Int) -> Int? {
+        let quote = delimiter.first ?? "\""
+        var index = start
+        while index + 2 < chars.count {
+            if quote == "\"", chars[index] == "\\" { index += 2; continue }
+            if chars[index] == quote, chars[index + 1] == quote, chars[index + 2] == quote { return index }
+            index += 1
+        }
+        return nil
     }
 
     /// The table's text, header included, without the blank lines that
@@ -247,21 +302,28 @@ struct GrokTOMLText {
         lines.replaceSubrange(range, with: replacement)
     }
 
-    /// Remove a table vibebuddy added. At the end of the file the blank line
-    /// put before it goes too; elsewhere the blank lines after it do, so the
-    /// tables around it keep one separation.
-    mutating func removeTable(_ range: Range<Int>) {
+    /// Remove a table vibebuddy appended, undoing what `appendTable` added
+    /// around it while it is still the last table. Elsewhere its trailing
+    /// blank lines go too, so the tables around it keep one separation.
+    mutating func removeTable(_ range: Range<Int>, addedBlankLine: Bool, addedFinalNewline: Bool) {
         var lower = range.lowerBound
-        if range.upperBound == lines.count, lower > 0, Self.isBlank(lines[lower - 1]) { lower -= 1 }
+        if range.upperBound == lines.count {
+            if addedBlankLine, lower > 0, Self.isBlank(lines[lower - 1]) { lower -= 1 }
+            if addedFinalNewline { trailingNewline = false }
+        }
         lines.removeSubrange(lower ..< range.upperBound)
     }
 
-    mutating func appendTable(_ body: [String]) {
-        if lines.allSatisfy(Self.isBlank) { lines = [] }
-        else if !Self.isBlank(lines[lines.count - 1]) { lines.append("") }
+    /// Append `[ui.status_line]` with `body`; says what it added around it.
+    @discardableResult
+    mutating func appendTable(_ body: [String]) -> (blankLine: Bool, finalNewline: Bool) {
+        let blankLine = !lines.isEmpty && !Self.isBlank(lines[lines.count - 1])
+        let finalNewline = !lines.isEmpty && !trailingNewline
+        if blankLine { lines.append("") }
         lines.append("[ui.status_line]")
         lines += body
         trailingNewline = true
+        return (blankLine, finalNewline)
     }
 
     private static func isBlank(_ line: String) -> Bool { line.trimmingCharacters(in: .whitespaces).isEmpty }
