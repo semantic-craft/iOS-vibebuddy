@@ -52,14 +52,14 @@
 | #287 | 每个 hook 事件不再把 512 条完成结果重新编码一遍（集合没变就跳过）；Cursor 转录轮询改用 URL resource values，不再读扩展属性 | 活跃时 CPU 下降；Cursor 单次扫描约 12 → 5 ms |
 | #290 | App 不再观察模型，菜单栏修饰器不会随每次发布重建（MenuBarExtraAccess 1.3.1 每次重建都会泄漏一组观察者）；新增 `tools/menubar-leak-check.sh` | 2 h 内存从一路上升（193 → 293 MB）变为 254 MB 持平 |
 | #293 | 空闲轮询先看界面、后查锁屏；Cursor 解不出的项目名缓存 60 s | 空闲 3.09% → 2.56%（目标 < 2%，转 PERF-02） |
-| #300 | **PERF-02**：Cursor 转录改由 FSEvents 唤醒（仍至少间隔 2 s，另有 30 s 兜底）；回顾只为 24 h 内最新 12 条建条目（输出不变，快照组装仍然每次都做）；数据库签名、Codex 目录检查改用 stat / lstat；漏看周标签不再每次新建 `DateFormatter` | 装机版空闲（0 个 working，10 min）2.56% → **1.50%**；隔离 A/B 2.13% → 1.71%；Cursor 状态延迟最坏从 2 s 降到 < 1 s |
+| #300 | **PERF-02**：Cursor 转录改由 FSEvents 唤醒（仍至少间隔 2 s，另有 30 s 兜底）；回顾只为 24 h 内最新 12 条建条目（输出不变，快照组装仍然每次都做）；数据库签名、Codex 目录检查改用 stat / lstat；漏看周标签不再每次新建 `DateFormatter` | 装机版空闲（0 个 working，10 min）2.56% → **1.50%**；隔离 A/B 2.13% → 1.71%；Cursor 状态各测了一次：0.77 s 变为 working、0.10 s 变为 done（原来固定 2 s 轮询一次），连续写入时仍至少间隔 2 s 处理一次 |
 
 ## 开发项
 
 | ID | 内容 | 票据 | 状态 | 依据 | 建议 |
 |---|---|---|---|---|---|
 | PERF-01 | Mac App 性能收尾 | [01](performance/issues/01-mac-cpu-and-memory.md) | **done**（#265、#281、#287、#290、#293；空闲一项转 PERF-02） | 2026-09-24 装机版三档负载 × 10 min：同负载对比只有 2–3 个 working 一档：8.7% → 6.2%（修复前 4 / 8 个 working 为 10.4% / 11.6%，修复后另两档负载不同）；#287 去掉每个 hook 事件对 512 条完成结果的重复编码，并让 Cursor 轮询不再读扩展属性；#290 修掉菜单栏观察者泄漏（每分钟约 25 组，2 h 内存 193 → 293 MB）；#293 把空闲轮询里的 WindowServer 查询从每轮 266 次降到最多 2 次。修复后 5–6 个 working **6.2%**（目标 < 10%）；2 h 内存（49552ecd，后 90 min 基本空闲）在 254 MB 持平，heap 里泄漏的对象恒为 1；空闲 **2.56%**（目标 < 2%，未达标）。证据在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/` | — |
-| PERF-02 | Mac App 空闲 CPU 降到 2% 以下 | [02](performance/issues/02-mac-idle-cpu.md) | **done**（#300） | 装机版（main 含 #300、#301），0 个 working 会话，10 min：**1.50%**（p95 2.6%）。修复前 2.56%。原因：Cursor 转录每 2 s 全量列目录并 stat；每次快照把一周约 1550 条回顾全部建成条目。证据在 `~/Projects/_shared-work/iOS-vibebuddy/perf-02-2026-09-24/` | 活跃时每个 hook 事件都整份写回日志和最近目录，可另开票 |
+| PERF-02 | Mac App 空闲 CPU 降到 2% 以下 | [02](performance/issues/02-mac-idle-cpu.md) | **done**（#300；空闲达标；负载、2 h 内存和审批延迟没有复测，按推理豁免） | 装机版（main 含 #300、#301），0 个 working 会话，10 min：**1.50%**（p95 2.6%）。修复前 2.56%。原因：Cursor 转录每 2 s 全量列目录并 stat；每次快照把一周约 1550 条回顾全部建成条目。证据在 `~/Projects/_shared-work/iOS-vibebuddy/perf-02-2026-09-24/` | 活跃时每个 hook 事件都整份写回日志和最近目录，可另开票 |
 | A-12 前置 | CloudKit 私有库提醒推送原型 | [01](public-push/issues/01-cloudkit-alert-push-prototype.md) | ready-for-agent | ADR-0013 已选方向 D，需实测延迟与按钮 | 保留，通过后 A-12 按 D 实现 |
 | C-1b | 评审留下的小尾巴 | — | done（#277） | ① 后台会话的 jobs 目录尊重 `CLAUDE_CONFIG_DIR`（诊断那半已在 #278 完成）；② `configKey` / manifest key 解析软链，#266 旧 key 下保存的状态栏原件会迁移；③ 旧 manifest / 卸载记录的裸 key 读取时迁移；④ 早期 inline-curl 标记：9876 照旧，其他端口只认当年安装器的原命令，用户自己的本地 webhook 不会被删；⑤ `vibebuddyd hooks install` 先用自身 bundle / checkout 的脚本，再用 `/Applications`，与已装 App 不同时提示；⑥ 跳转查找 3 s 总时限，`/jump` 新分支有测试；⑦ `/ledger/flush` 路由测试，`VIBEBUDDY_PORT` 非法时不发请求，`LedgerFlushRequest` 与 live status 共用无代理 / 无 cookie / 不跟随重定向的会话。全部完成，无跳过 | — |
 | T-1 | 测试不清理临时目录 | — | **done**（#276） | 9 个测试文件补 `defer` 清理（`DeviceRegistryTests`、`DevicePushFailureTests`、`EnvironmentDetectorTests`、`TokenConsumptionScanTests`、`ApprovalRoutesTests`、`RecapLedgerTests`、`AttentionTests`、`ClaudeBackgroundLauncherTests`、`CodexAppServerApprovalTests`）；Codex app-server 测试的账本不再写进 `$TMPDIR` 根目录（曾反复覆盖 `tool-ledger.json`）；生产代码无泄漏 | 全量 `swift test` 在 `$TMPDIR` 留下的测试条目 58 → 0，根目录文件不再被改写 |
