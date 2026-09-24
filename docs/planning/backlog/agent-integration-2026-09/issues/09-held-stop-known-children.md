@@ -1,6 +1,6 @@
 # 09: 挂起的 `Stop` 只按已知子代理的 `SubagentStop` 扣减
 
-**Status:** done（本 PR）
+**Status:** done（#288）
 
 **Blocked by:** None（AI-04 [票 04](04-claude-stop-background-tasks.md) 已合并并验收）
 
