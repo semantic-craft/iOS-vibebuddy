@@ -4,7 +4,7 @@
 
 **Blocked by:** None
 
-**Status:** 已实现，待合并（分支 `claude/rv03-voice-target-guard`）
+**Status:** 已合并（#297）。独立 Opus 评审两轮：第一轮不能合并，第二轮合并前小改，都已处理
 
 **依据（2026-09-24 路线图验收，D-U 合成语音，Qwen `qwen-audio-3.0-realtime-plus`，中文）：**
 - 第 1 轮用户说「拒绝 grape 项目里等待的请求」，识别成「拒绝高客项目里存在的请求」，模型发了 `deny_session(orange)`。
