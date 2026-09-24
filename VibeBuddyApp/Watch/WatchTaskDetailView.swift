@@ -92,7 +92,14 @@ struct WatchTaskDetailView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button("Back to dashboard") { dismiss() }
+                // The store closes the page, not the environment's dismiss:
+                // on the 2026-09-24 wrist round this button did nothing on a
+                // departed session (WR-10), and the sheet is driven by
+                // `taskLink`, so clearing it is the one close that cannot
+                // disagree with what the store thinks is open.
+                Button("Back to dashboard") {
+                    if !store.closeTask() { dismiss() }
+                }
                     .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
                     .padding(.top, 8)
             }

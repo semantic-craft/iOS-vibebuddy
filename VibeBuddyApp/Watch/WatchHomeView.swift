@@ -59,7 +59,8 @@ struct WatchHomeView: View {
                 ForEach(stuck) { task in
                     WatchSessionRow(state: .error,
                                     title: task.title.isEmpty ? String(localized: "Unnamed task") : task.title,
-                                    detail: task.summary ?? String(localized: "Stopped with an error"),
+                                    detail: WatchSessionRow.detail(agent: task.agent,
+                                        task.summary ?? String(localized: "Stopped with an error")),
                                     trailing: nil) {
                         store.openSession(task.sessionID)
                     }
@@ -96,7 +97,7 @@ struct WatchHomeView: View {
                 ForEach(tasks) { task in
                     WatchSessionRow(state: task.presentation,
                                     title: task.title.isEmpty ? String(localized: "Unnamed task") : task.title,
-                                    detail: task.summary,
+                                    detail: WatchSessionRow.detail(agent: task.agent, task.summary),
                                     trailing: nil) {
                         store.openTask(WatchTaskLink(sourceID: source, pairingEpoch: epoch,
                             sessionID: task.sessionID, completionID: task.completionID).url)
@@ -236,6 +237,15 @@ struct WatchSessionRow: View {
         .accessibilityLabel(Text("\(state.label), \(title)"))
         .accessibilityValue(Text([detail, trailing].compactMap { $0 }.joined(separator: ", ")))
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// Whose it is, then what it said: two tasks in the same project read the
+    /// same on a 40mm screen until the agent is named (WR-10). Waiting rows
+    /// already lead with it.
+    static func detail(agent: AgentKind?, _ text: String?) -> String? {
+        let said = text.flatMap { $0.isEmpty ? nil : $0 }
+        let parts = [agent?.shortName, said].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// The line that says what a waiting session is blocked on: the agent's

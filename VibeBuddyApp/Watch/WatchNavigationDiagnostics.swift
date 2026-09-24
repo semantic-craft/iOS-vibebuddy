@@ -20,7 +20,9 @@ final class WatchNavigationDiagnostics {
     func record(_ event: String) {
         logger.notice("\(event, privacy: .public)")
         events.append("\(Date().timeIntervalSince1970) \(event)")
-        events = Array(events.suffix(48))
+        // Enough for a whole wrist round: at 48 the minutes around the
+        // WR-10 dead button were already pushed out when the file was read.
+        events = Array(events.suffix(200))
         UserDefaults.standard.set(events, forKey: Self.key)
         onChange?()
     }

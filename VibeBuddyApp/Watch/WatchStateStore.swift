@@ -650,6 +650,20 @@ final class WatchStateStore: NSObject, ObservableObject {
         taskLink = link
     }
 
+    /// The detail page's own way out. Returns false when no link was open —
+    /// a page on screen with nothing behind it — so the caller can still ask
+    /// the presentation itself to go.
+    @discardableResult
+    func closeTask() -> Bool {
+        guard taskLink != nil else {
+            WatchNavigationDiagnostics.shared.record("detail.back-unbound")
+            return false
+        }
+        WatchNavigationDiagnostics.shared.record("detail.back")
+        taskLink = nil
+        return true
+    }
+
     /// A session the wrist was pointed at by id — a Needs-you or Results row,
     /// or the tap on a mirrored notification. The link is minted from the
     /// state on screen, so it is bound to the Mac, the pairing and (for a
