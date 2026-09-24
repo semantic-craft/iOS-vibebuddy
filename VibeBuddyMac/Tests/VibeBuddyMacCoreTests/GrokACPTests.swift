@@ -21,6 +21,9 @@ private final class FakeGrokAgent: @unchecked Sendable {
     private var promptsEnded = 0
     let sessionID: String
     var authMethods: [String] = ["cached_token", "grok.com"]
+    /// What `session/load` answers with instead of success (grok 1.0.41 says
+    /// `-32603 "Path not found."` for an id it has no directory for).
+    var loadError: String?
 
     init(sessionID: String = "grok-acp-test-1") {
         self.sessionID = sessionID
@@ -61,6 +64,16 @@ private final class FakeGrokAgent: @unchecked Sendable {
                                  "authMethods": authMethods.map { ["id": $0, "name": $0] },
                                  "_meta": ["agentVersion": "1.0.40"]])
                 case "authenticate": respond(id, ["_meta": ["email": "x@y"]])
+                case "session/load":
+                    if let loadError {
+                        write(["jsonrpc": "2.0", "id": id, "error": ["code": -32603, "message": loadError]])
+                    } else {
+                        // grok replays the history as updates before it answers.
+                        update(["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": "earlier"]])
+                        respond(id, ["models": ["currentModelId": "grok-4.6",
+                                                "availableModels": [["modelId": "grok-4.6", "name": "Grok 4.6",
+                                                                     "_meta": ["totalContextTokens": 500000]]]]])
+                    }
                 case "session/new":
                     respond(id, ["sessionId": sessionID,
                                  "models": ["currentModelId": "grok-4.6",
@@ -182,7 +195,9 @@ struct GrokACPTests {
         let monitor: GrokACPMonitor
 
         init(agent: FakeGrokAgent = FakeGrokAgent(), signedIn: Bool = true, deny: [String] = [],
-             onRulesRead: @escaping @Sendable () -> Void = {}, journalURL: URL? = nil) {
+             onRulesRead: @escaping @Sendable () -> Void = {}, journalURL: URL? = nil,
+             recoveryDirectory: URL? = nil,
+             openInTerminal: (@Sendable (String, String, String?) async -> Bool)? = nil) {
             self.agent = agent
             store = SessionStore(sourceID: "grok-test-source", journalURL: journalURL)
             let log = self.log
@@ -194,7 +209,8 @@ struct GrokACPTests {
                                      makeID: { UUID().uuidString },
                                      executable: URL(fileURLWithPath: "/usr/bin/true"),
                                      signInProbe: { signedIn },
-                                     spawn: { launch in log.record(launch); return agent.client() })
+                                     spawn: { launch in log.record(launch); return agent.client() },
+                                     recoveryDirectory: recoveryDirectory, openInTerminal: openInTerminal)
         }
 
         func session() async -> AgentSession? {
@@ -209,6 +225,89 @@ struct GrokACPTests {
         #expect(GrokACPLaunch(cwd: "/x", model: "grok-4.6").arguments == ["agent", "-m", "grok-4.6", "--no-leader", "stdio"])
         #expect(GrokACPLaunch.validModel("--yolo").isFailure)
         #expect(GrokACPLaunch.validModel("grok 4").isFailure)
+    }
+
+    // MARK: - Recovery (AI-02)
+
+    private func recoveryDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("vbgrok-acp-\(UUID().uuidString)")
+    }
+
+    @Test func aHostedSessionReloadsAfterTheHostRestarts() async throws {
+        let directory = recoveryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = Rig(recoveryDirectory: directory)
+        _ = await first.monitor.dispatch(request)
+        await eventually("prompt") { first.agent.request(named: "session/prompt") != nil }
+        first.agent.endTurn("end_turn")
+        await eventually("done") { await first.session()?.status == .done }
+        let records = GrokACPRecovery.read(in: directory)
+        #expect(records.map(\.sessionID) == [first.agent.sessionID])
+        #expect(records.first?.cwd == "/x/p")
+        #expect(records.first?.model == "grok-4.6")
+        let file = directory.appendingPathComponent(try #require(records.first).filename + ".json")
+        #expect((try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) == 0o600)
+        await first.monitor.shutdown()
+
+        // A new host: the row is back as a reloadable one, not a live channel.
+        let second = Rig(agent: FakeGrokAgent(sessionID: first.agent.sessionID), recoveryDirectory: directory)
+        await second.monitor.registerRecoverableSessions()
+        let row = try #require(await second.session())
+        #expect(row.agent == .grok)
+        #expect(row.cursorACPRecoverable == true)
+        #expect(row.controlChannel == ControlChannel.none)
+        let support = SessionActionSupport.resolve(for: row)
+        #expect(support.intent == .continue && support.isAvailable)
+        #expect(support.note?.contains("Grok Build") == true)
+        #expect(second.log.launches.isEmpty, "registering starts no process")
+
+        #expect(await second.monitor.prompt(sessionID: row.id, text: "go on"))
+        let load = try #require(second.agent.request(named: "session/load"))
+        #expect(load.params["sessionId"] as? String == row.id)
+        #expect(load.params["cwd"] as? String == "/x/p")
+        #expect(second.log.launches == [GrokACPLaunch(cwd: "/x/p", model: "grok-4.6")])
+        await eventually("prompt after load") { second.agent.request(named: "session/prompt") != nil }
+        #expect(second.agent.request(named: "session/prompt")?.params["prompt"] as? [[String: String]]
+            == [["type": "text", "text": "go on"]])
+        #expect(await second.store.isACPHosted(row.id))
+        await eventually("working") { await second.session()?.status == .working }
+        #expect(await second.session()?.controlChannel == .acp)
+        await second.monitor.shutdown()
+    }
+
+    @Test func aFailedReloadSaysWhyAndReopensInATerminal() async throws {
+        let directory = recoveryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let id = "01a0ffff-0000-7000-8000-000000000000"
+        try GrokACPRecovery(sessionID: id, cwd: "/x/gone", model: nil, createdAt: Date()).save(in: directory)
+        let agent = FakeGrokAgent(sessionID: id)
+        agent.loadError = "Path not found."
+        let opened = LaunchLog()
+        let rig = Rig(agent: agent, recoveryDirectory: directory, openInTerminal: { session, cwd, _ in
+            opened.record(GrokACPLaunch(cwd: cwd, model: session)); return true
+        })
+        await rig.monitor.registerRecoverableSessions()
+        #expect(await rig.monitor.prompt(sessionID: id, text: "go on") == false)
+        let row = try #require(await rig.session())
+        #expect(row.cursorACPRecoveryFailure?.contains("Path not found.") == true)
+        #expect(row.cursorACPRecoveryFailure?.contains("grok --resume") == true)
+        #expect(SessionActionSupport.resolve(for: row).isAvailable, "a retry stays possible")
+        #expect(await rig.store.isACPHosted(id) == false)
+
+        #expect(await rig.monitor.resumeInTerminal(sessionID: id, preferring: nil) == .attached)
+        #expect(opened.launches == [GrokACPLaunch(cwd: "/x/gone", model: id)])
+        #expect(GrokACPRecovery.read(in: directory).isEmpty)
+        #expect(await rig.session() == nil, "the terminal owns it now")
+        #expect(await rig.monitor.owns(id) == false)
+    }
+
+    @Test func theTerminalCommandIsQuotedAndTheIDChecked() {
+        let grok = URL(fileURLWithPath: "/Users/me/.grok/bin/grok")
+        #expect(GrokCLI.resumeCommand(sessionID: "01a0d2ed-aa8e-7090-b6fc-bdd78d5beab3", cwd: "/tmp/a b'c", executable: grok)
+            == "cd '/tmp/a b'\\''c' && '/Users/me/.grok/bin/grok' --resume=01a0d2ed-aa8e-7090-b6fc-bdd78d5beab3")
+        for bad in ["", "-rf", "a;b", "a b", "$(x)"] {
+            #expect(GrokCLI.resumeCommand(sessionID: bad, cwd: nil, executable: grok) == nil, "\(bad)")
+        }
     }
 
     @Test func aDispatchBecomesAWorkingSessionOnTheACPChannel() async throws {

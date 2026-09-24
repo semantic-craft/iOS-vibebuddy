@@ -201,6 +201,7 @@ public struct VibeBuddyServer: Sendable {
     /// entry offers, and hides itself behind when empty.
     public func dispatchAgents() async -> [AgentKind] {
         await cursorACP?.registerRecoverableSessions()
+        await grokACP?.registerRecoverableSessions()
         var agents: [AgentKind] = []
         if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
         if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
@@ -1128,6 +1129,11 @@ public struct VibeBuddyServer: Sendable {
                 // conversation can be opened — the Codex Desktop shape, with the
                 // URL checked before it is handed to a browser.
                 outcome = await onJumpToCursorCloud(page)
+            } else if session?.agent == .grok, let grokACP, await grokACP.isRecoverable(sid) {
+                // A hosted Grok session whose process is gone: reopen it in a
+                // terminal with `grok --resume`, where the user can go on.
+                outcome = await grokACP.resumeInTerminal(sessionID: sid,
+                                                         preferring: await store.preferredTerminalProgram())
             } else if session?.agent == .cursor {
                 // Cursor publishes no deeplink that opens a chat by id, so the
                 // honest jump is: Cursor forward, with this session's workspace
@@ -1225,7 +1231,7 @@ public struct VibeBuddyServer: Sendable {
                                           return await monitor?.steer(threadID: sessionID, text: text) ?? false
                                       },
                                       startTurn: { sessionID, text in
-                                          if let grokACP, await grokACP.hosts(sessionID) {
+                                          if let grokACP, await grokACP.owns(sessionID) {
                                               return await grokACP.prompt(sessionID: sessionID, text: text)
                                           }
                                           return await monitor?.startTurn(threadID: sessionID, text: text) ?? false

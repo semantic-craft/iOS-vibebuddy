@@ -65,3 +65,53 @@ by this decision.
 
 README, CONTEXT and setup instructions must describe ACP as supported only
 when the corresponding implementation has passed these gates and merged.
+
+## Amendment 1 (2026-09-24): restart recovery, and what a leader offers
+
+**Measured** on grok 1.0.41 in disposable homes (evidence in
+[ticket 02](../planning/backlog/agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md)
+Comments):
+
+- `session/load` in a fresh `grok agent --no-leader stdio` continues a session
+  another process created: Grok replays the history as `session/update`
+  messages, then the next `session/prompt` answers from it. An id Grok has no
+  directory for fails with `-32603 "Path not found."`. `grok --resume=<id>`
+  reopens the same session in the TUI.
+- Leader mode (`[cli] use_leader = true`; the TUI spawns `grok agent leader`
+  with its socket in the Grok home): a second client connected with `grok agent
+  --leader stdio` lists the TUI's session (`session/list` and
+  `_x.ai/sessions/list`, plus `_x.ai/sessions/changed` pushes), attaches with
+  `session/load`, and receives the TUI's own `session/request_permission` at
+  the same moment the TUI shows its prompt. Its `allow-once` answer closes the
+  TUI prompt and the tool runs; an answer in the TUI reaches the other client as
+  `_x.ai/session_notification: interaction_resolved`. Killing the TUI leaves
+  the turn running in the leader: hooks keep firing and no `SessionEnd` comes.
+- A file hook's `timeout` is honoured past the SDK's 600 s cap: a `PreToolUse`
+  gate with `timeout: 1800` was cut at 1 800 s ("timed out after 1800000ms",
+  fail-open), and one that answered `deny` after 758 s blocked the tool.
+
+**Decision.**
+
+1. Decision 6 is lifted for restart recovery. Every session this host starts
+   leaves private metadata (`GrokACPRecovery`: id, directory, model, created /
+   updated; 0600, 30 days, at most 100 records) and holds the same process
+   lease Cursor's recovery uses. After a restart the row is registered as
+   reloadable — not a live channel — and Continue starts a new `grok agent
+   --no-leader stdio` and `session/load`s it before sending. A failed load
+   keeps a retryable reason on the row and points at the terminal: opening the
+   row on the Mac (the jump action, also from the phone) runs `grok
+   --resume=<id>` in the preferred terminal, and the terminal owns the session
+   from then on (its record is removed). The lease refuses both while the old
+   process still runs.
+2. Leader attachment is viable and is the only channel found that approves a
+   terminal Grok session remotely. It is not built here: `use_leader` is off
+   by default, attaching makes vibebuddy a second approver on the user's own
+   session (first answer wins), and hosted sessions keep `--no-leader`
+   (decision 1). A follow-up ticket may add an opt-in attach for users who run
+   a leader.
+3. A blocking `PreToolUse` gate could wait for the phone as long as its
+   `timeout` (up to at least 30 min), but a hook `allow` still does not answer
+   Grok's own prompt, so this only lengthens remote *deny*; the 30 s gate is
+   unchanged.
+4. While a leader answers in the Grok home, the session registry is not used to
+   retire rows (a session outlives its terminal), see AI-03.
