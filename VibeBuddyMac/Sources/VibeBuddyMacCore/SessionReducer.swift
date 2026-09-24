@@ -349,8 +349,9 @@ public struct SessionReducer: Sendable {
     }
 
     /// Facts from Claude's status line. Never creates a session and never
-    /// touches status, wait kind, tools or summary; the status line's own
-    /// context figure outranks the transcript estimate.
+    /// touches status, wait kind, tools or summary. Its model name and context
+    /// window outrank the transcript's until the model changes (AI-10); the
+    /// token count is whichever source read last.
     public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
         guard var s = sessions[sample.sessionID] else { return false }
         if let model = sample.model {
@@ -779,7 +780,13 @@ public struct SessionReducer: Sendable {
             return
         }
         if let cwd = event.cwd { session.project = Self.projectName(cwd) }
-        if let model = event.model { session.model = model }
+        if let model = event.model {
+            session.model = model
+            // A model switch (`PostModelSwitch`) outdates the status line's
+            // name and window; the transcript may fill them until it reports.
+            statusLineModel.remove(event.sessionID)
+            statusLineWindow.remove(event.sessionID)
+        }
         // A metadata event may carry a line worth showing (Claude waiting for
         // its usage limit to reset); it replaces the summary without touching
         // progress, and the next turn clears it as usual.

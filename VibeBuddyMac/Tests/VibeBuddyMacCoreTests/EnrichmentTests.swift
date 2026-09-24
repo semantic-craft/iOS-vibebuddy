@@ -160,4 +160,27 @@ struct EnrichmentTests {
         #expect(s.contextWindow == 1_000_000)       // not the model table's 200k
         #expect(s.model == "Opus 5.5 (1M context)") // not the transcript's raw id
     }
+
+    @Test("the status line's hold on window and model ends with a model switch or the session (AI-10)")
+    func statusLineHoldEnds() throws {
+        let doc = #"{"session_id":"s","model":{"id":"claude-opus-5-5[1m]","display_name":"Opus 5.5 (1M context)"},"context_window":{"context_window_size":1000000,"used_percentage":3.0}}"#
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(doc.utf8)) as? [String: Any])
+        let sample = try #require(StatusLineSample.decode(json))
+        let transcript = TranscriptInfo(model: "claude-sonnet-5", contextTokens: 1_000)
+
+        var r = SessionReducer()
+        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", timestamp: t0))
+        _ = r.applyStatusLine(sample)
+        r.apply(HookEvent(kind: .sessionMetadataChanged, sessionID: "s", model: "claude-sonnet-5",
+                          timestamp: t0.addingTimeInterval(1)))
+        r.enrich(sessionID: "s", with: transcript)
+        #expect(r.sessions["s"]?.contextWindow == 200_000)
+
+        _ = r.applyStatusLine(sample)
+        r.apply(HookEvent(kind: .sessionEnd, sessionID: "s", timestamp: t0.addingTimeInterval(2)))
+        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", timestamp: t0.addingTimeInterval(3)))
+        r.enrich(sessionID: "s", with: transcript)
+        #expect(r.sessions["s"]?.model == "claude-sonnet-5")
+        #expect(r.sessions["s"]?.contextWindow == 200_000)
+    }
 }
