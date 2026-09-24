@@ -22,8 +22,7 @@
 # prints the JSON instead of POSTing it.
 #
 # Deliberately not `set -e`/`set -u`: a hook must never fail the session it is
-# reporting on, and `"${AUTH[@]}"` on an empty array is an error under `set -u`
-# in the bash 3.2 that ships with macOS.
+# reporting on.
 
 # --------------------------------------------------------------------- helpers
 # Everything above the library guard below reads no globals and touches nothing
@@ -303,8 +302,12 @@ PORT="${VIBEBUDDY_PORT:-9876}"
 # /terminal is bearer-token gated (daemon-security/01); read the token at runtime.
 TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
 TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
-AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
+# The header reaches curl through fd 3 (`-H @/dev/fd/3` + here-document), never
+# argv, so `ps` cannot show the token. No token → an empty file → no header.
+AUTH_HEADER=; [ -n "$TOKEN" ] && AUTH_HEADER="Authorization: Bearer $TOKEN"
 printf '%s' "$BODY" \
-  | curl -sS --max-time 3 "${AUTH[@]}" -X POST --data-binary @- \
-      "http://127.0.0.1:${PORT}/terminal" >/dev/null 2>&1 || true
+  | curl -sS --max-time 3 -H @/dev/fd/3 -X POST --data-binary @- \
+      "http://127.0.0.1:${PORT}/terminal" >/dev/null 2>&1 3<<EOF || true
+$AUTH_HEADER
+EOF
 exit 0

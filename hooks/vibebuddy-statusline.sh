@@ -28,8 +28,13 @@ FORWARD=
 if [ -n "$TOKEN" ]; then
   if [ "$AGENT" = grok ]; then ROUTE="statusline?agent=grok"; else ROUTE=statusline; fi
   # In the background: the daemon must never delay the CLI's own render.
-  ( printf '%s' "$INPUT" | curl -sS --max-time 1 -H "Authorization: Bearer $TOKEN" \
-      -X POST --data-binary @- "http://127.0.0.1:${PORT}/${ROUTE}" >/dev/null 2>&1 ) &
+  # The header reaches curl through fd 3, never argv: Grok runs this every few
+  # hundred ms, and `ps` would show the token for the whole forward.
+  ( printf '%s' "$INPUT" | curl -sS --max-time 1 -H @/dev/fd/3 \
+      -X POST --data-binary @- "http://127.0.0.1:${PORT}/${ROUTE}" >/dev/null 2>&1 3<<EOF
+Authorization: Bearer $TOKEN
+EOF
+  ) &
   FORWARD=$!
 fi
 # `$1` is the installer's key for the config this wrapper was installed into,
