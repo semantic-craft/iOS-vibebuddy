@@ -228,3 +228,7 @@
 
 /* Voice call ended at the provider's per-call limit (D-1) */
 "Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation." = "通话已结束：%@ 单次通话时长已到上限。重拨会开始新通话，不带这次的对话内容。";
+
+/* Voice task action held because the user's words did not name its target (RV-03) */
+"Not sent to %@: you said %@." = "没有发给 %@：你说的是 %@。";
+"Not sent to %@: say “%@” to confirm." = "没有发给 %@：请说出“%@”确认。";

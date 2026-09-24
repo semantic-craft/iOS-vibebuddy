@@ -1204,8 +1204,10 @@ final class DashboardStore: ObservableObject {
 
     private func match(_ project: String) -> AgentSession? {
         // Conservative resolution (exact-first, unique-substring, refuse ambiguous)
-        // so a voice approve never lands on the wrong real command target.
-        VoiceSessionMatch.match(project, in: allSessions)
+        // so a voice approve never lands on the wrong real command target. The
+        // voice scope, as on the Mac: the call's naming check resolved the target
+        // there, so resolving across every session could act on a different one.
+        VoiceSessionMatch.match(project, in: buddyContext)
     }
 
     /// Populate the dashboard with sample sessions and no network, so the app is

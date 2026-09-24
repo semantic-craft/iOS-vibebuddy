@@ -197,3 +197,7 @@
 
 /* Voice call ended at the provider's per-call limit (D-1) */
 "Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation." = "Call ended: %@ reached its per-call time limit. Redial starts a new call without this conversation.";
+
+/* Voice task action held because the user's words did not name its target (RV-03) */
+"Not sent to %@: you said %@." = "Not sent to %@: you said %@.";
+"Not sent to %@: say “%@” to confirm." = "Not sent to %@: say “%@” to confirm.";

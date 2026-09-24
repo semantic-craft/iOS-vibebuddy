@@ -54,6 +54,10 @@ public final class VoiceCallCoordinator {
     public private(set) var lastUserText = ""
     public private(set) var lastReply = ""
     public private(set) var errorText: String?
+    /// Set while the latest action tool call was held because the user's
+    /// words did not name its target (RV-03); cleared when the next action
+    /// call is evaluated, when the user starts speaking again, or on stop.
+    public private(set) var heldNotice: String?
     public var endReason: VoiceCallEndReason? {
         if case .ended(let reason) = phase { return reason }
         return nil
@@ -78,6 +82,16 @@ public final class VoiceCallCoordinator {
     private var recoveringAudio = false
     private var stopped = false
     private var closeIntentTask: Task<Void, Never>?
+    /// What the user was heard saying in the current exchange, only ever a
+    /// veto for task actions (VoiceTargetCheck), never an authorization. An
+    /// exchange starts when the user starts speaking (`speechStarted`) or
+    /// speaks again after the companion did. Final transcripts accumulate; a
+    /// partial is the provider's hypothesis for the utterance so far and
+    /// replaces the previous one. Live captions are read as their latest group.
+    private var heardFinal = ""
+    private var heardPartial = ""
+    private var companionSpokeSinceUser = false
+    private let transcriptGrace: Duration
     public private(set) var endedByExplicitVoiceCommand = false
 
     public init(
@@ -88,7 +102,8 @@ public final class VoiceCallCoordinator {
         closeSession: @escaping (VoiceToolResult?) -> Void = { _ in },
         continuousPlayback: Bool = false,
         contextProvider: (() -> [AgentSession])? = nil,
-        statusContextProvider: (@MainActor () async -> [AgentSession])? = nil
+        statusContextProvider: (@MainActor () async -> [AgentSession])? = nil,
+        transcriptGrace: Duration = .milliseconds(2500)
     ) {
         self.audio = audio
         self.actionHandler = actionHandler
@@ -98,6 +113,7 @@ public final class VoiceCallCoordinator {
         self.continuousPlayback = continuousPlayback
         self.contextProvider = contextProvider
         self.statusContextProvider = statusContextProvider
+        self.transcriptGrace = transcriptGrace
     }
 
     public func beginConnecting() {
@@ -129,6 +145,7 @@ public final class VoiceCallCoordinator {
             phase = !recoveringAudio ? .listening : .recovering
         case .userTranscript(let text, let final):
             lastUserText = text
+            heard(text, final: final)
             if final, VoiceCloseIntent.isExplicitCallEnd(text) {
                 endedByExplicitVoiceCommand = true
                 stop()
@@ -153,11 +170,13 @@ public final class VoiceCallCoordinator {
                     }
                 }
             } else {
+                companionSpokeSinceUser = true
                 assistantFragments.append(fragment)
                 assistantFragments = Array(assistantFragments.suffix(128))
                 lastReply = Self.caption(assistantFragments)
             }
         case .assistantTranscript(let text, let final):
+            companionSpokeSinceUser = true
             if final {
                 lastReply = text
                 assistantBuffer = ""
@@ -167,6 +186,9 @@ public final class VoiceCallCoordinator {
             }
         case .audioDelta(let pcm, let item):
             guard !recoveringAudio else { return }
+            // Live's output is one continuous stream, silence included; only
+            // its captions show that the companion spoke.
+            if !continuousPlayback { companionSpokeSinceUser = true }
             turnComplete = continuousPlayback
             audio.enqueue(pcm, item: item)
             guard !recoveringAudio, !stopped else { return }
@@ -178,6 +200,7 @@ public final class VoiceCallCoordinator {
         case .toolCall(let name, let arguments, let callID):
             let action = VoiceTools.action(name: name, arguments: arguments)
             guard !stopped, handledToolIDs.insert(callID).inserted else { return }
+            if action != .none { heldNotice = nil }
             let playing = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
             phase = !recoveringAudio ? (playing ? .speaking : .thinking) : .recovering
             toolTasks[callID] = Task { [weak self] in
@@ -196,11 +219,18 @@ public final class VoiceCallCoordinator {
                           let project = object?["project"] as? String,
                           VoiceSessionMatch.match(project, in: contextProvider()) == nil {
                     result = "No unique matching task in the user's selected voice scope; no action was sent."
+                } else if let project = action.taskTarget,
+                          let held = await holdUnlessNamed(project) {
+                    guard !Task.isCancelled, !stopped else { return }
+                    heldNotice = held.notice
+                    result = held.result
                 } else {
                     result = action == .none ? "Sorry, I couldn't do that." : await actionHandler(action)
                 }
                 guard !Task.isCancelled, !stopped else { return }
-                if action != .none, !continuousPlayback { lastReply = result }
+                // A held action's result is instructions for the model; the
+                // person sees `heldNotice` instead.
+                if action != .none, !continuousPlayback, !VoiceTargetCheck.isHeldResult(result) { lastReply = result }
                 sendToolResult(callID, name, result)
                 toolTasks[callID] = nil
             }
@@ -218,6 +248,11 @@ public final class VoiceCallCoordinator {
         case .closed:
             stop()
         case .speechStarted:
+            // A new utterance: earlier words no longer name anything. This also
+            // cancels an action still waiting for its transcript; the user is
+            // speaking again, as with any interrupted tool call.
+            heardFinal = ""; heardPartial = ""; companionSpokeSinceUser = false
+            heldNotice = nil
             toolTasks.values.forEach { $0.cancel() }
             toolTasks.removeAll()
             truncatePlayback(audio.flushPlayback())
@@ -231,6 +266,7 @@ public final class VoiceCallCoordinator {
         guard !stopped else { return }
         stopped = true
         closeIntentTask?.cancel(); closeIntentTask = nil
+        heldNotice = nil
         toolTasks.values.forEach { $0.cancel() }
         toolTasks.removeAll()
         audio.stop()
@@ -250,6 +286,55 @@ public final class VoiceCallCoordinator {
         let pending = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
         if turnComplete, !pending, phase == .speaking {
             phase = toolTasks.isEmpty ? .listening : .thinking
+        }
+    }
+
+    private func heard(_ text: String, final: Bool) {
+        if companionSpokeSinceUser {
+            heardFinal = ""; heardPartial = ""
+            companionSpokeSinceUser = false
+        }
+        if final {
+            heardFinal = String((heardFinal + " " + text).suffix(2000))
+            heardPartial = ""
+        } else {
+            heardPartial = String(text.suffix(2000))
+        }
+    }
+
+    private var heardWords: String {
+        [heardFinal, heardPartial, Self.caption(userFragments)].joined(separator: " ")
+    }
+
+    /// Nil when the user's words name the action's target. Otherwise the
+    /// action is held: the tool result tells the model why and what the user
+    /// must say, and the notice is shown on screen. Transcription can arrive
+    /// after the tool call (Qwen: 0.1–0.7 s), so wait briefly for it first.
+    private func holdUnlessNamed(_ project: String) async -> (result: String, notice: String)? {
+        let scope = contextProvider?()
+        let target = scope.flatMap { VoiceSessionMatch.match(project, in: $0) }
+        func check() -> VoiceTargetCheck.Verdict {
+            if let target, let scope {
+                return VoiceTargetCheck.verdict(target: target, heard: heardWords, scope: scope)
+            }
+            return VoiceTargetCheck.verdict(project: project, heard: heardWords)
+        }
+        var verdict = check()
+        let deadline = ContinuousClock.now + transcriptGrace
+        while verdict != .named, ContinuousClock.now < deadline, !Task.isCancelled, !stopped {
+            try? await Task.sleep(for: .milliseconds(100))
+            verdict = check()
+        }
+        let name = target?.displayTitle ?? project
+        switch verdict {
+        case .named:
+            return nil
+        case .namedOther(let other):
+            return (VoiceTargetCheck.heldPrefix + "the user named \(other), not \(name); nothing was sent to \(name). Tell the user, and act only on the task they name.",
+                    String(localized: "Not sent to \(name): you said \(other).", bundle: .module))
+        case .unnamed:
+            return (VoiceTargetCheck.heldPrefix + "the user's words did not name \(name), so nothing was sent. Say which task you would act on and ask the user to say its name; call the tool again only after they say it.",
+                    String(localized: "Not sent to \(name): say “\(name)” to confirm.", bundle: .module))
         }
     }
 

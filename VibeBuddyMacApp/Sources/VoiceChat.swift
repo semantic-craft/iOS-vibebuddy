@@ -23,6 +23,9 @@ final class VoiceChat: ObservableObject {
     /// Why the last call ended on its own (a provider's per-call limit), shown
     /// with a one-tap redial. Not an error; cleared when the next call starts.
     @Published private(set) var endNotice: String?
+    /// A task action held because the user's words did not name its target
+    /// (RV-03); the companion also says why. Cleared by the next sent action.
+    @Published private(set) var heldNotice: String?
     /// Drives the inline consent sheet when a disabled buddy is tapped.
     @Published var showConsent = false
 
@@ -130,8 +133,9 @@ final class VoiceChat: ObservableObject {
             sendToolResult: { [weak self] callID, name, result in
                 // Includes coordinator refusals (ambiguous/out-of-scope), not
                 // just actions which reached the application handler. Status
-                // reads and provider captions never replace this receipt.
-                if VoiceTools.all.contains(where: { $0.name == name }) {
+                // reads and provider captions never replace this receipt, and
+                // a held action's instructions to the model show as heldNotice.
+                if VoiceTools.all.contains(where: { $0.name == name }), !VoiceTargetCheck.isHeldResult(result) {
                     self?.actionReceipt = result
                 }
                 Task { await session.sendToolResult(callID: callID, name: name, result: result) }
@@ -267,6 +271,7 @@ final class VoiceChat: ObservableObject {
     private func closeRealtimeSession(completingTool: VoiceToolResult? = nil) {
         phase = .idle
         coordinator = nil
+        heldNotice = nil
         eventTask?.cancel(); eventTask = nil
         audioIO = nil
         audioStarted = false
@@ -287,6 +292,7 @@ final class VoiceChat: ObservableObject {
         lastReply = coordinator.lastReply
         errorText = coordinator.errorText
         endNotice = coordinator.endReason.map { $0.notice(provider: callProvider ?? VoiceSettings.provider) }
+        heldNotice = coordinator.heldNotice
     }
 
     private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {

@@ -38,6 +38,10 @@ struct MacVoicePanel: View {
                             Text("Buddy").font(MacTheme.font(11, .semibold))
                             Text(voice.lastReply).textSelection(.enabled)
                         }
+                        if let held = voice.heldNotice {
+                            Label(held, systemImage: "hand.raised")
+                                .foregroundStyle(MacTheme.status(.requiresInput)).textSelection(.enabled)
+                        }
                         if !voice.actionReceipt.isEmpty {
                             Text("Action receipt").font(MacTheme.font(11, .semibold))
                             Text(voice.actionReceipt).textSelection(.enabled)

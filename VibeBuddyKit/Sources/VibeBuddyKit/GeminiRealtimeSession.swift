@@ -14,6 +14,7 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
     private var ready = false   // gate audio until setupComplete
     private var goAwayReceived = false
     private var tools: [VoiceTool] = []
+    private var inputTranscript = ""
 
     public init(apiKey: String, model: String = "gemini-3.1-flash-live-preview") {
         self.apiKey = apiKey
@@ -175,16 +176,22 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
 
         guard let server = obj["serverContent"] as? [String: Any] else { return }
 
-        if let inp = server["inputTranscription"] as? [String: Any], let t = inp["text"] as? String {
-            continuation?.yield(.userTranscript(text: t, final: false))
-        }
-
         // An interrupted message may also carry final fragments of the old
         // model turn. Discard them and flush playback before accepting new audio.
-        if server["interrupted"] as? Bool == true {
+        let interrupted = server["interrupted"] as? Bool == true
+        if interrupted {
+            inputTranscript = ""
             continuation?.yield(.speechStarted)
-            return
         }
+
+        // Gemini sends the user's words in increments and never a final one;
+        // the event carries the utterance so far, like the other providers'
+        // partial hypotheses, so a caption or check sees the whole sentence.
+        if let inp = server["inputTranscription"] as? [String: Any], let t = inp["text"] as? String {
+            inputTranscript += t
+            continuation?.yield(.userTranscript(text: inputTranscript, final: false))
+        }
+        if interrupted { return }
 
         // Streamed audio + any text parts of the model's turn.
         if let modelTurn = server["modelTurn"] as? [String: Any],
@@ -203,6 +210,7 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
             continuation?.yield(.assistantTranscript(text: t, final: false))
         }
         if server["turnComplete"] as? Bool == true {
+            inputTranscript = ""
             continuation?.yield(.responseDone)
         }
     }
