@@ -83,7 +83,7 @@ public actor CursorTranscriptMonitor {
     /// `worker.log`, terminal captures and MCP state that Cursor rewrites
     /// constantly while it is open.
     static func isTranscriptPath(_ path: String) -> Bool {
-        path.contains("/agent-transcripts")
+        path.split(separator: "/").contains("agent-transcripts")
     }
 
     /// Passes run when a transcript changes, at most one per `interval` —

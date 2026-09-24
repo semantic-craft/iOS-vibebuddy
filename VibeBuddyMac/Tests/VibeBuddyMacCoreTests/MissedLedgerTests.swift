@@ -68,7 +68,7 @@ struct MissedLedgerTests {
 
     @Test("the week label matches a yyyy-MM-dd formatter in the ledger's calendar")
     func weekLabelMatchesFormatter() {
-        for id in [Calendar.Identifier.gregorian, .buddhist, .japanese] {
+        for id in [Calendar.Identifier.gregorian, .buddhist, .japanese, .hebrew, .chinese] {
             var calendar = Calendar(identifier: id)
             calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
             let formatter = DateFormatter()
@@ -76,7 +76,7 @@ struct MissedLedgerTests {
             formatter.timeZone = calendar.timeZone
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "yyyy-MM-dd"
-            for offset in stride(from: 0.0, to: 400 * 86_400, by: 7 * 86_400 + 3_601) {
+            for offset in stride(from: 0.0, to: 3 * 365 * 86_400, by: 86_400 + 3_601) {
                 let date = Date(timeIntervalSince1970: 1_790_000_000 + offset)
                 #expect(MissedLedger.weekStartString(date, calendar: calendar) == formatter.string(from: date))
             }

@@ -727,7 +727,10 @@ struct CursorTranscriptMonitorTests {
         func status() async -> SessionStatus? {
             await store.snapshot(now: Date()).sessions.first { $0.id == "c1" }?.status
         }
-        try await Task.sleep(for: .seconds(1))  // seeded, stream open
+        // Seeded (and the stream, opened before the seed, is live).
+        while await monitor.transcriptPath(for: "c1") == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
 
         #expect(CursorTranscriptMonitor.isTranscriptPath(file.path))
         #expect(!CursorTranscriptMonitor.isTranscriptPath(root.appendingPathComponent("empty-window/worker.log").path))

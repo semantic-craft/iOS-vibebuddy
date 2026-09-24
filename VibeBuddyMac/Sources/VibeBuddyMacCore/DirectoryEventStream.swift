@@ -22,6 +22,7 @@ final class DirectoryEventStream: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    private let queue = DispatchQueue(label: "vibebuddy.directory-events", qos: .utility)
     private var stream: FSEventStreamRef?
 
     /// Nil when FSEvents would not create the stream; the caller keeps polling.
@@ -58,7 +59,7 @@ final class DirectoryEventStream: @unchecked Sendable {
             handler.release()
             return nil
         }
-        FSEventStreamSetDispatchQueue(stream, DispatchQueue(label: "vibebuddy.directory-events", qos: .utility))
+        FSEventStreamSetDispatchQueue(stream, queue)
         guard FSEventStreamStart(stream) else {
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
@@ -67,14 +68,17 @@ final class DirectoryEventStream: @unchecked Sendable {
         self.stream = stream
     }
 
-    /// Stop delivering. Idempotent.
+    /// Stop delivering. Idempotent. Stopped on the stream's own queue, so no
+    /// callback is running when it returns. Never called from `onChange`.
     func stop() {
         guard let stream = lock.withLock({ () -> FSEventStreamRef? in
             defer { self.stream = nil }
             return self.stream
         }) else { return }
-        FSEventStreamStop(stream)
-        FSEventStreamInvalidate(stream)
+        queue.sync {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+        }
         FSEventStreamRelease(stream)
     }
 

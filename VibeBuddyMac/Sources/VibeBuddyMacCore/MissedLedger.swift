@@ -215,11 +215,14 @@ struct MissedLedger {
         return keys.filter { $0.statusSince >= cutoff }
     }
 
-    /// `yyyy-MM-dd` in `calendar`. Asked on every 2 s poll, so from the
-    /// calendar's own components rather than a fresh `DateFormatter`.
+    /// `yyyy-MM-dd` in `calendar`, what `parseWeek` reads back. Asked on
+    /// every 2 s poll, so a value format style instead of a fresh
+    /// `DateFormatter`; both go through ICU, so leap months (Chinese) and the
+    /// skipped month of a Hebrew common year print the same.
     static func weekStartString(_ start: Date, calendar: Calendar) -> String {
-        let day = calendar.dateComponents([.year, .month, .day], from: start)
-        return String(format: "%04d-%02d-%02d", day.year ?? 0, day.month ?? 0, day.day ?? 0)
+        start.formatted(Date.VerbatimFormatStyle(
+            format: "\(year: .padded(4))-\(month: .twoDigits)-\(day: .twoDigits)",
+            locale: Locale(identifier: "en_US_POSIX"), timeZone: calendar.timeZone, calendar: calendar))
     }
 
     private func persistBestEffort() {
