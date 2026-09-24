@@ -81,8 +81,14 @@ struct CompletionResults {
     }
 
     mutating func retain(in ledger: inout RecapLedger, now: Date) -> [String] {
-        ledger.retainResults(records, now: now)
-        records = ledger.results
+        // Runs on every ingested event. `bounded` JSON-encodes every record
+        // to size the set, and the ledger's results are always a bounded set,
+        // so an unchanged set only changes when its oldest record ages out.
+        let cutoff = now.addingTimeInterval(-RecapLedger.retention)
+        if records != ledger.results || ledger.results.values.contains(where: { $0.completedAt <= cutoff }) {
+            ledger.retainResults(records, now: now)
+            records = ledger.results
+        }
         return records.compactMap { $0.value.conflict || $0.value.invalidated ? $0.key : nil }
     }
 

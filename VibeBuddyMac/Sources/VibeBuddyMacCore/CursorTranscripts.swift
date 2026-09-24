@@ -59,11 +59,16 @@ public enum CursorTranscripts {
     ) -> [Located] {
         guard let projects = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil,
                                                          options: [.skipsHiddenFiles]) else { return [] }
+        // The monitor runs this every 2 s over every transcript. Resource
+        // values read type, date and size in one call (prefetched with the
+        // listing for flat files); `attributesOfItem` also reads every
+        // extended attribute of every file.
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
         var found: [Located] = []
         for project in projects {
             let directory = project.appendingPathComponent("agent-transcripts", isDirectory: true)
             guard let entries = try? fm.contentsOfDirectory(
-                at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+                at: directory, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]
             ) else { continue }
             let path = if let resolve { resolve(project.lastPathComponent) }
                        else { projectPath(forDirectoryName: project.lastPathComponent, fileManager: fm) }
@@ -75,13 +80,13 @@ public enum CursorTranscripts {
                 for file in candidates {
                     let id = file.deletingPathExtension().lastPathComponent
                     guard !id.isEmpty,
-                          let attributes = try? fm.attributesOfItem(atPath: file.path),
-                          (attributes[.type] as? FileAttributeType) == .typeRegular
+                          let values = try? file.resourceValues(forKeys: keys),
+                          values.isRegularFile == true
                     else { continue }
                     found.append(Located(
                         conversationID: id, url: file, project: path,
-                        modifiedAt: (attributes[.modificationDate] as? Date) ?? .distantPast,
-                        size: (attributes[.size] as? NSNumber)?.intValue ?? 0))
+                        modifiedAt: values.contentModificationDate ?? .distantPast,
+                        size: values.fileSize ?? 0))
                 }
             }
         }
