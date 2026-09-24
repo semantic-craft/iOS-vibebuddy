@@ -91,13 +91,15 @@ enum CodexRolloutDiscovery {
         return .found(files, incomplete: sawUnreadable)
     }
 
+    /// Runs for every date directory on each 30 s pass, so a bare `lstat`
+    /// (what `attributesOfItem` does, minus reading every extended attribute).
     static func isReadableDirectory(_ url: URL, fileManager fm: FileManager) -> Bool {
+        var info = stat()
         guard fm.isReadableFile(atPath: url.path),
-              let attributes = try? fm.attributesOfItem(atPath: url.path),
-              (attributes[.type] as? FileAttributeType) == .typeDirectory,
-              let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue,
-              permissions & 0o444 != 0,
-              permissions & 0o111 != 0 else { return false }
+              lstat(url.path, &info) == 0,
+              info.st_mode & S_IFMT == S_IFDIR,
+              info.st_mode & 0o444 != 0,
+              info.st_mode & 0o111 != 0 else { return false }
         return true
     }
 }

@@ -32,3 +32,15 @@ PERF-01 收尾后负载和内存都达标：5–6 个 working 会话时 CPU 均�
 - [ ] `swift test` 与 Mac App 构建通过。
 
 ## Comments
+
+- 2026-09-24（本 PR，隔离测量）：
+  - 测法：同一份 origin/main（c617a5aa）和本分支的 Release App，各做一份 E2E 副本（bundle id `com.vibebuddy.e2e.*`，独立端口与根目录，不碰 `/Applications` 和 :9876）。每份读本机真实数据的 APFS 克隆：`~/.cursor/projects`（124 个转录）、`~/.codex/sessions`（819 个 rollout）、`~/.claude/projects`、Cursor 的 `state.vscdb`，以及账本（回顾账本 3.1 MB、工具账本 3.9 MB、生命周期日志等）；快照里 129 个会话。两份**同时启动、同时测**，抵消机器负载（测量时 load 在 400–1000 之间，其他会话在编译和跑模拟器）。启动后等 170 s，`ps -o time` 每 5 s 取累计 CPU，600 s；再各 `sample` 60 s，用 dSYM 符号化。脚本和原始数据在 `~/Projects/_shared-work/iOS-vibebuddy/perf-02-2026-09-24/`。
+  - 定位（旧版 60 s `sample`，仅本 App 代码）：Cursor 转录轮询 163（每 2 s 列出并 stat 全部转录）、快照组装 215，其中回顾 97（每次快照都把一周约 1550 条账本全部建成条目，再只留 24 h 内最新 12 条）、Codex rollout 目录遍历 42、Cursor 数据库签名 `attributesOfItem`（连带读全部扩展属性）。
+  - 修复：
+    - Cursor 转录改成 FSEvents 唤醒：只有 `agent-transcripts` 下的写入会触发，一次处理后至少隔 2 s（与原来的固定节奏相同，忙时代价不增加），没有事件时 30 s 兜底一次；FSEvents 建不起来时退回原来的 2 s 轮询。项目目录里的 `worker.log`、终端输出等不会唤醒。
+    - 回顾：先按 `Recap.compose` 的 24 h 窗口和排序筛选，只为最终保留的最多 12 条建条目；输出不变，快照组装和 `recapLedger.observe` 仍然每次都跑（没有合并）。
+    - Cursor 数据库签名、Codex 日期目录检查改用 `stat` / `lstat`；漏看计数的周标签不再每 2 s 新建 `DateFormatter`。
+  - 结果（同时段 A/B，600 s）：旧版 **2.13%**（p95 3.20%），新版 **1.71%**（p95 2.80%）。`sample` 中 Cursor 转录 163 → 14，回顾 97 → 31。剩下的主要是仪表盘窗口里每 2 s 刷新的相对时间标签（SwiftUI 布局，产品行为，不改）和 2 s 主轮询里分散的小项。
+  - 时效：在新版副本里往克隆的 Cursor 转录追加一轮对话，快照 0.77 s 内变为 working，追加 `turn_ended` 后 0.10 s 内变为 done（原来固定 2 s 一次，最坏 2 s）。审批走 hook，不经过这些轮询。
+  - 验证：全量 `swift test` 通过（1252 个 Swift Testing + 57 个 XCTest，1 个照旧跳过）；新增两个测试：转录写入唤醒尾随（两个定时器都设成 600 s，只有文件事件能送达）、周标签与 `yyyy-MM-dd` 格式化器在公历 / 佛历 / 和历下一致。Release App 构建通过。
+  - 待做：合并后装机，按 PERF-01 的方法（启动后 ≥ 90 s，10 min，5 s 采样）测装机版空闲 CPU。

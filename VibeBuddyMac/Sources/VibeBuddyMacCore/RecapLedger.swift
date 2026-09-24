@@ -217,9 +217,18 @@ struct RecapLedger {
     /// surface uses; `summary` resolves a completed round's notice by its id.
     func recap(now: Date, sessions: [AgentSession], summary: (String) -> String?) -> Recap {
         let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let visible = entries.values.compactMap { stored -> RecapEntry? in
+        // The ledger keeps a week; the recap shows the newest few inside a
+        // day. Apply `Recap.compose`'s window and order first, so only the
+        // entries it would keep are built — this runs on every snapshot.
+        var floor = now.addingTimeInterval(-Recap.window)
+        if let horizon, horizon > floor { floor = horizon }
+        var visible: [RecapEntry] = []
+        for stored in entries.values.filter({ $0.endedAt > floor }).sorted(by: {
+            $0.endedAt == $1.endedAt ? $0.id > $1.id : $0.endedAt > $1.endedAt
+        }) {
+            guard visible.count < Recap.maxEntries else { break }
             let session = byID[stored.sessionID]
-            if session?.effectiveAttention == .muted { return nil }
+            if session?.effectiveAttention == .muted { continue }
             var points: [String] = []
             if stored.resultConflict != true,
                let line = (stored.kind == .completed ? summary(stored.id) : nil) ?? stored.fallbackSummary {
@@ -229,9 +238,9 @@ struct RecapLedger {
             // The session is authoritative for its current round; every earlier
             // round keeps the mark the ledger recorded while it was current.
             let read = Self.readState(of: stored, in: session) ?? stored.isRead ?? false
-            return RecapEntry(id: stored.id, kind: stored.kind, sessionID: stored.sessionID,
+            visible.append(RecapEntry(id: stored.id, kind: stored.kind, sessionID: stored.sessionID,
                               completionID: stored.completionID, agent: stored.agent, project: stored.project,
-                              title: stored.title, points: points, endedAt: stored.endedAt, isRead: read)
+                              title: stored.title, points: points, endedAt: stored.endedAt, isRead: read))
         }
         return Recap.compose(entries: visible, horizon: horizon, now: now)
     }
