@@ -74,11 +74,11 @@
 | MAS-15 Codex Desktop 等待提醒 | 维持只观察进度，不承诺等待提醒 | open-vibe-island#506 与我们实测一致；openai/codex#28833 该 hook 会误报 | [15](mac-app-store/issues/15-codex-desktop-remind-only.md) Comments |
 | G-5 截图矩阵 | 关闭；检查表并入 G-4 | demo 模式截图（`VIBEBUDDY_DEMO=1`、`tools/watch-qa-shots.sh`、`docs/app-store-screenshots/1.3.17/`）已在用；fastlane snapshot 不支持 macOS | 本表 |
 
-仍需你本人做的只剩下一节末尾的三件事。
+仍需你本人做的只剩下一节末尾的五件事。
 
 ## 验收：agent 自己确认的与只剩你做的
 
-规则（2026-09-24 起）：凡是 agent 能用测试、日志、隔离 daemon、模拟器或 computer use 确认的，都不交给你；要你动手的只留下面三件，每件一两步。
+规则（2026-09-24 起）：凡是 agent 能用测试、日志、隔离 daemon、模拟器或 computer use 确认的，都不交给你；要你动手的只留下面五件，每件一两步；第 1 件是一轮里的若干单步。
 
 **agent 在做（各自一个会话，完成后同步本表和可交互施工图）**
 
@@ -89,16 +89,24 @@
 | PERF-01 收尾 | 三档负载各 10 分钟 + 2 小时内存曲线（装机后的最终版） | 「Install the latest Mac App and run acceptance」 |
 | H-2 零漏接 | 在冻结的 1.3.33 候选（之后不再合并）上，用本机真实会话的活动看漏接台账，≥ 30 分钟无新增即算 Mac 端通过；不能用提交审核代替。手机 / 手表端由下面第 1 步那轮覆盖 | 同上（冻结前先做一次预跑） |
 | AI-04 真实会话（已完成） | **2026-09-24 通过**，经过见[票 04](agent-integration-2026-09/issues/04-claude-stop-background-tasks.md) Comments 末条：真实 `/loop 1m` 共 7 轮都落定为「已排定循环」，共享 App 的投递记录 0 条；后台 subagent 挂起期间保持 working，结束后 Mac 通知 1 条、APNs 每台手机 1 条。隔离 `vibebuddyd` 不推首次完成提醒，「响没响」只能用菜单栏 App（:9876，`d43c762b`）核对。记录表在 `~/Projects/_shared-work/iOS-vibebuddy/ai04-acceptance-2026-09-23/` | 「VibeBuddy AI-04 真机验收准备」 |
-| C-1 干净账户 | 不新建系统账户：CLI 路径用临时 HOME + 没有 python3 的 PATH；App 一键安装路径（`HookSetup` 用 `NSHomeDirectory()`，不认 `HOME`）用 E2E 运行配置；事件用样例数据触发已装 hook；前后核对真实 `~` 下配置未被改动；卸载后模拟更新不重装 | 「Check old roadmap items and run the C-1 install check without you」 |
-| 路线图旧项 A-03、B-U、M-01、M-11、D-U、E-2、H-1、H-5 | 对照历次发布门记录逐项定结论；能验证的当场验证 | 同上 |
-| iOS 1.3.28 (58) 审核状态 | 只读查看 App Store Connect（Chrome 登录若已过期，才需要你登录一次） | 同上 |
-| Hermes / 手表装新版 | AI-04 跑完后装含 #275 的开发版；能在模拟器上验的（WR-07 绑定与降级文案、ADR-0033 拒绝 / 回答、D-1 iPhone）先验完 | 「Install the new phone build, then prep the watch check」 |
+| 路线图旧项的 agent 部分 | B-U（配额 1 s、状态行、在场门控、`/jump` 接回、Desktop 跳转、steer、新任务派活、手机界面回答）、H-1 / H-5（Mirroring 手机批准、杀 App 后 APNs）、M-11（在场 / 离场、断联待定决策、跨端撤销、文案只留通过项）、D-U 合成语音 approve / deny / answer；A-03 漏接为 0 并入 H-2。明细见 [路线图核对](roadmap-audit-2026-09-24.md) | 待开（新会话） |
+| Hermes / 手表装新版 | AI-04 已通过，装含 #275 的开发版；能在模拟器上验的（WR-07 绑定与降级文案、ADR-0033 拒绝 / 回答、D-1 iPhone）先验完 | 「Install the new phone build, then prep the watch check」 |
 
-**只剩你（共三件）**
+**2026-09-24 已由 agent 确认（[路线图核对](roadmap-audit-2026-09-24.md)）**
 
-1. **手表一轮**（约 20–30 分钟，可分两次：WR-07 + ADR-0033 一次，WR-06 一次）：agent 装好新版、在 Mac 上发好每道题，一次只给你一步（「手表上点拒绝」这种）。需要你口述、把手机锁屏；触觉能不能分辨由你回一个字；其余结果 agent 在 Mac 上看。真实手腕的结果不用模拟器代替。
+| 项 | 结果 |
+|---|---|
+| C-1 干净账户 | **通过（agent 模拟）**：临时 HOME + 去掉 python 的 PATH，`vibebuddyd hooks install` 四家配置与脚本到位；每家一个事件经已装 hook 到隔离 daemon（:18771），四家 hook 诊断 `healthy`；Claude 审批门 allow 返回正常；卸载 Grok 后跑 App 启动刷新（`refreshOnLaunch`，脚本来源换成改过的新 bundle）只更新变了的脚本，Grok 不被装回；真实 `~` 下配置前后 sha256 一致。设置页按钮在 E2E 模式下被故意禁用，它与 CLI 共用 `HookInstaller.install`，且 2026-09-23 本机迁移已用过 |
+| 路线图旧项 | E-2 **图标资源层面已覆盖**（现有 PNG 小尺寸可读，E-1 之后重看）；A-03、M-01、D-U、H-1、H-5 **部分覆盖**；B-U 真机证据很少、剩余都可由 agent 做；M-11 范围已过时（M-09 延后、M-10 取消）。只能你做的部分并入下面第 1 步，语音耳测是第 3 件 |
+| iOS 1.3.28 (58) 审核状态 | **未查到**：没有配置 ASC API key，Chrome 里 App Store Connect 登录已过期（agent 不代为登录），读 Mail / Outlook 的请求被拒绝。最后记录：2026-09-23 03:40 提交、「可供审核」 |
+
+**只剩你（共五件）**
+
+1. **手表一轮**（约 20–30 分钟，可分两次：WR-07 + ADR-0033 一次，WR-06 一次）：agent 装好新版、在 Mac 上发好每道题，一次只给你一步（「手表上点拒绝」这种）。需要你口述、把手机锁屏；触觉能不能分辨由你回一个字；其余结果 agent 在 Mac 上看。真实手腕的结果不用模拟器代替。同一轮顺带做路线图旧项里只有你能做的几步（每步一个动作）：手机开专注模式时看一条问题横幅是否仍弹出、锁屏点批准时要 Face ID（A-03）；摘下手表、戴着但锁定时各看一条推送落在哪（M-01）；手表上对 Claude、Codex、Grok 各批准一次（H-1）；在 Cursor IDE 的 agent 里输入一句提示词（H-5）。
 2. **Codex 重新信任**（1 分钟）：agent 在设置里点完「修复」后，你在 Codex 里输入 `/hooks`，信任 VibeBuddy 那几条。
-3. **要不要发布**：第 1 步和 H-2 通过后再问你。Mac 1.3.33（带上 #262–#281）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。
+3. **三家语音耳测**（约 10 分钟，D-U，只能靠耳朵）：Gemini、Qwen 各打一通短电话，中英文各说一句；OpenAI 补一句英文。每通回一句「听得清吗、能打断吗」。
+4. **App Store Connect 登录一次**（1 分钟，可选）：在 Chrome 里登录 appstoreconnect.apple.com，agent 就能读 iOS 1.3.28 (58) 的审核状态。Mail / Outlook 的读取请求你已拒绝，所以也可以直接告诉 agent 状态邮件写的是什么。
+5. **要不要发布**：第 1 步和 H-2 通过后再问你。Mac 1.3.33（带上 #262–#281）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。
 
 ## 观察项（暂不动手）
 
