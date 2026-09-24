@@ -6,9 +6,9 @@
 
 ## 为什么
 
-PERF-01 收尾后（#287、#290、#293，装机 main b07b2dab），负载和内存都达标：5–6 个 working 会话时 CPU 均值 6.2%，2 h 内存曲线在 254 MB 持平。只有空闲一项没达标：本机 0 个 working 会话、10 min、启动后等待 ≥ 90 s，CPU 均值 **2.56%**、p95 4.2%，目标 < 2%。#293 修复前是 3.09%。证据在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/13-perf-final/`（`0-idle.csv`、60 s `sample-idle.txt`）。
+PERF-01 收尾后负载和内存都达标：5–6 个 working 会话时 CPU 均值 6.2%，2 h 内存曲线在 254 MB 持平（两项都在 main 49552ecd 上测）。最终装机 main b07b2dab（含 #293）。只有空闲一项没达标：本机 0 个 working 会话、10 min、启动后等待 ≥ 90 s，CPU 均值 **2.56%**、p95 4.2%，目标 < 2%。#293 修复前是 3.09%。证据在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/13-perf-final/`（`0-idle.csv`、60 s `sample-idle.txt`）。
 
-空闲时间分散在几处常驻轮询上，没有单一热点。下面是 60 s `sample` 中 App 自身的帧，约 60 000 个样本合一个核：
+空闲时间分散在几处常驻轮询上，没有单一热点。下面是 60 s `sample` 里各处的相对样本数（数字越大占时越多）：
 
 - 2 s 一次的主轮询（`MenuBarModel.startPolling`，约 470），其中快照组装 `SessionStore.currentSnapshot` 约 450：133 个会话，加上对 1549 条回顾账本的 `RecapLedger.recap`（约 180）。
 - Cursor 转录轮询，每 2 s 一次，覆盖约 124 个文件（`CursorTranscripts.discover`，约 300）。
