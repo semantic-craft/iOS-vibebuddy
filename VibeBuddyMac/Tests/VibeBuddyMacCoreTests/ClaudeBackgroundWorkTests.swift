@@ -208,15 +208,21 @@ struct ClaudeBackgroundWorkTests {
     }
 
     @Test("S1: the main agent continuing within the grace replaces the held Stop; one completion, new words")
-    func continuationReplacesHeldStop() {
+    func continuationReplacesHeldStop() throws {
         var reducer = reduce([
             (start, 0),
+            (#"{"hook_event_name":"SubagentStart","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 5),
             (stop(tasks: #"[{"id":"a","type":"subagent","status":"running"}]"#), 30),
             (#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"a","agent_type":"Explore"}"#, 200),
-            (#"{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Read"}"#, 205),
+        ])
+        #expect(reducer.heldStops["s"]?.deadline == t0.addingTimeInterval(200 + SessionReducer.heldStopReleaseGrace))
+        for (json, offset) in [
+            (#"{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Read"}"#, 205.0),
             (#"{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Read","tool_response":{}}"#, 206),
             (#"{"hook_event_name":"Stop","session_id":"s","last_assistant_message":"Both agents reported back.","background_tasks":[],"session_crons":[]}"#, 220),
-        ])
+        ] {
+            reducer.apply(try #require(parse(json, at: offset)))
+        }
         #expect(reducer.heldStops["s"] == nil)
         let nothingLeft = reducer.takeDueStops(now: t0.addingTimeInterval(1_000))
         #expect(nothingLeft.isEmpty)

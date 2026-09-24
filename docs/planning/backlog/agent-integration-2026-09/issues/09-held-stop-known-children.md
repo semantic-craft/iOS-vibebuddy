@@ -27,4 +27,5 @@ AI-04 规定：只被 subagent 挂起的主 agent `Stop`，收到与挂起时数
 
 ## Comments
 
-- 2026-09-24 实现：`SessionReducer` 的 `.childLifecycle` 分支在应用子代理事件前后各查一次拓扑，只有「之前 running、之后不再 running」的子代理 `SubagentStop` 才扣减 `awaitedSubagentStops`（`isRunningSubagent`）。新测试 `unknownChildStopDoesNotRelease`：去掉这条判断时宽限在 +145 s 提前放行（4 处断言失败），加上后通过；全量 `swift test` 1251 项（149 组）+ XCTest 57 项（1 项跳过）通过。S1 夹具里的子代理没有 `SubagentStart`，它的结束现在不再开启宽限，仍由主 agent 续跑发出的 `Stop` 取代，断言不变。
+- 2026-09-24 实现：`SessionReducer` 的 `.childLifecycle` 分支在应用子代理事件前后各查一次拓扑，只有「之前 running、之后不再 running」的子代理 `SubagentStop` 才扣减 `awaitedSubagentStops`（`isRunningSubagent`）。新测试 `unknownChildStopDoesNotRelease`：去掉这条判断时宽限在 +145 s 提前放行（4 处断言失败），加上后通过；全量 `swift test` 1251 项（149 组）+ XCTest 57 项（1 项跳过）通过。S1 夹具原先没有 `SubagentStart`，新规则下宽限不再打开，测试已不覆盖"宽限内续跑"；评审后补上 `SubagentStart` 并断言宽限确实打开（deadline = +245 s）。
+- 2026-09-24 Opus 评审（PR #288）：MERGE。用 AI-04 验收抓到的真实 hook 载荷按时间回放：内部代理的 `SubagentStop` 全部不再扣减，真正子代理的照常扣减；同一子代理重复的 `SubagentStop` 现在只扣一次。已知取舍：daemon 重启会清空子代理拓扑，重启前启动的子代理结束时不再开启宽限，改由主 agent 续跑或 10 分钟兜底释放。残留（不修）：真正子代理 A 的 `SubagentStart` 丢失、而 A 派出的嵌套子代理 B 可见时，B 结束会打开宽限；Claude 子代理通常不能再派子代理。
