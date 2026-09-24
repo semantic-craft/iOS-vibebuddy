@@ -22,19 +22,26 @@ INPUT=""
 
 TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
 TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
-AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
+# The header reaches curl through fd 3 (`-H @/dev/fd/3` + here-document), never
+# argv, so `ps` cannot show the token. No token → an empty file → no header.
+AUTH_HEADER=; [ -n "$TOKEN" ] && AUTH_HEADER="Authorization: Bearer $TOKEN"
 
 # Both requests are sequential: keep their combined network budget at 3 s,
 # inside the installed 5 s stop deadline, with room for shell/JSON overhead.
 # 1. Report the ending before collecting; discard its response body.
 printf '%s' "$INPUT" | curl -sS --connect-timeout 0.5 --max-time 1 -o /dev/null \
-  "${AUTH[@]}" -X POST --data-binary @- \
-  "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null || true
+  -H @/dev/fd/3 -X POST --data-binary @- \
+  "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null 3<<EOF || true
+$AUTH_HEADER
+EOF
 
 # 2. The queued follow-up, printed verbatim. An empty body prints nothing.
 RESP=$(printf '%s' "$INPUT" | curl -fsS --connect-timeout 0.5 --max-time 2 \
-  "${AUTH[@]}" -X POST --data-binary @- \
-  "http://127.0.0.1:${PORT}/cursor-followup" 2>/dev/null) || RESP=""
+  -H @/dev/fd/3 -X POST --data-binary @- \
+  "http://127.0.0.1:${PORT}/cursor-followup" 2>/dev/null 3<<EOF
+$AUTH_HEADER
+EOF
+) || RESP=""
 case "$RESP" in
   *followup_message*) printf '%s' "$RESP" ;;
 esac

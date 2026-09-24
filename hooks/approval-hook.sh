@@ -16,11 +16,13 @@ URL="http://127.0.0.1:${PORT}/approval"
 # No token → 401 → empty RESP → the agent proceeds with its normal flow (fail-open).
 TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
 TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
-if [ -n "$TOKEN" ]; then
-  RESP=$(curl -sS --max-time 30 -H "Authorization: Bearer $TOKEN" \
-    -X POST --data-binary @- "$URL" 2>/dev/null)
-else
-  RESP=$(curl -sS --max-time 30 -X POST --data-binary @- "$URL" 2>/dev/null)
-fi
+# The header reaches curl through fd 3 (`-H @/dev/fd/3` + here-document), never
+# argv, so `ps` cannot show the token. No token → an empty file → no header.
+AUTH_HEADER=; [ -n "$TOKEN" ] && AUTH_HEADER="Authorization: Bearer $TOKEN"
+RESP=$(curl -sS --max-time 30 -H @/dev/fd/3 \
+  -X POST --data-binary @- "$URL" 2>/dev/null 3<<EOF
+$AUTH_HEADER
+EOF
+)
 [ -n "$RESP" ] && printf '%s' "$RESP"
 exit 0

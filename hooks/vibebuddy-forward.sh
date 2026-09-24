@@ -31,11 +31,15 @@ fi
 # request 401s and is swallowed (fail-open).
 TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
 TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
-AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
+# The header reaches curl through fd 3 (`-H @/dev/fd/3` + here-document), never
+# argv, so `ps` cannot show the token. No token → an empty file → no header.
+AUTH_HEADER=; [ -n "$TOKEN" ] && AUTH_HEADER="Authorization: Bearer $TOKEN"
 
 # Fire-and-forget: discard the response body (-o /dev/null) so a blocking hook
 # (e.g. Grok PreToolUse) never mistakes our stdout for an allow/deny decision.
 curl -sS --connect-timeout "$CONNECT_TIME" --max-time "$MAX_TIME" -o /dev/null \
-  "${AUTH[@]}" -X POST --data-binary @- \
-  "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null || true
+  -H @/dev/fd/3 -X POST --data-binary @- \
+  "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null 3<<EOF || true
+$AUTH_HEADER
+EOF
 exit 0
