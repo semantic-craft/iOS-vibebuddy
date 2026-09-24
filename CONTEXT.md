@@ -435,8 +435,11 @@ code, and tests — don't drift to synonyms.
   task-list entries (`TaskCreated`) never do, and an interrupted or failed main
   turn marks its running subagents unknown. A turn held only by subagents moves
   to a 45-second grace once as many `SubagentStop`s as it awaited have arrived
-  and none still runs; the main agent usually continues within it and its own
-  `Stop` replaces the held one. Workflows and teammates report no end, so only
+  and none still runs. Only a stop that ends a subagent seen starting counts:
+  the CLI's internal agents stop without a `SubagentStart`, and a real
+  subagent whose start was lost keeps the turn until a newer `Stop` or the
+  backstop (AI-09). The main agent usually continues within the grace and its
+  own `Stop` replaces the held one. Workflows and teammates report no end, so only
   a newer `Stop` or the ten-minute backstop releases them. The sweep settles a
   due `Stop` through the normal path, stamped with the release time; a new
   turn, a wait or a new session discards it. Claude sessions restored as

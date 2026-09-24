@@ -116,6 +116,22 @@ struct CompletionRecoveryTests {
         #expect(RecapLedger(url: ledger.url, now: now.addingTimeInterval(RecapLedger.retention + 1)).results.isEmpty)
         #expect(ledger.entries.isEmpty)
     }
+
+    @Test func unchangedResultsStillAgeOutOfTheLedger() {
+        let now = Date()
+        let old = CompletionResults.Record(sourceID: "source", sessionID: "old", completionID: "c",
+            agent: .claudeCode, turnID: nil, title: "Old", startedAt: now, completedAt: now)
+        let new = CompletionResults.Record(sourceID: "source", sessionID: "new", completionID: "c",
+            agent: .claudeCode, turnID: nil, title: "New", startedAt: now, completedAt: now.addingTimeInterval(86_400))
+        var ledger = RecapLedger(url: nil)
+        ledger.retainResults([old.id: old, new.id: new], now: now)
+        var results = CompletionResults(restoring: ledger)
+        _ = results.retain(in: &ledger, now: now.addingTimeInterval(60))   // unchanged: nothing to do
+        #expect(ledger.results.count == 2)
+        _ = results.retain(in: &ledger, now: now.addingTimeInterval(RecapLedger.retention + 1))
+        #expect(ledger.results.keys.sorted() == [new.id])
+    }
+
     @Test func recoveredEvidenceRequiresItsOriginalSourceAndRecordBoundary() throws {
         let now = Date()
         func record(turn: String = "turn", start: Date? = nil, end: Date? = nil) -> CompletionResults.Record {
