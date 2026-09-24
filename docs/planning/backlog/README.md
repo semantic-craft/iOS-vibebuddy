@@ -41,7 +41,7 @@
 | #280 | **D-1 / D-2**：语音供应商单次通话上限到顶时结束通话并说明原因，一键重拨；ADR-0001 与文档同步 | 不再静默断线（待真实通话验收） |
 | #281 | **PERF-01 启动突发**：首次 token 用量扫描只解析可能计数的行 | 同输入 0–60 s CPU 均值 76% → 8.8% |
 
-仓库状态（2026-09-24，#282 合并后）：没有开放 PR；远端只剩 `main` 与 `gh-pages`；worktree 只剩本协调会话和「AI-04 真机验收准备」会话（agent 执行中）；「验收」节表里另外三个会话以任务卡片形式待你点开。已完成的会话都已归档。2026-09-23 已删除测试残留：`$TMPDIR` 下约 6500 个 `vb-*` / `recap-*` 等测试临时目录、约 40 个 QA / E2E 用的 `com.vibebuddy.*` 偏好域（保留正式的 `com.vibebuddy.mac`）。
+仓库状态（2026-09-24，#282 合并后）：没有开放 PR；远端只剩 `main` 与 `gh-pages`；worktree 只剩本协调会话和「AI-04 真机验收准备」会话（AI-04 已于 2026-09-24 验收通过，#284）；「验收」节表里另外三个会话以任务卡片形式待你点开。已完成的会话都已归档。2026-09-23 已删除测试残留：`$TMPDIR` 下约 6500 个 `vb-*` / `recap-*` 等测试临时目录、约 40 个 QA / E2E 用的 `com.vibebuddy.*` 偏好域（保留正式的 `com.vibebuddy.mac`）。
 
 ## 开发项
 
@@ -88,7 +88,7 @@
 | D-1 真实通话 | Mac 上用 computer use 打一通 Gemini，等约 10 分钟到上限，截图结束提示并点重拨；iPhone 路径在模拟器上同样走一遍（key 用已导出的 `GEMINI_API_KEY` 经启动环境注入，不在界面里输入） | 同上 + 「Install the new phone build, then prep the watch check」 |
 | PERF-01 收尾 | 三档负载各 10 分钟 + 2 小时内存曲线（装机后的最终版） | 「Install the latest Mac App and run acceptance」 |
 | H-2 零漏接 | 在冻结的 1.3.33 候选（之后不再合并）上，用本机真实会话的活动看漏接台账，≥ 30 分钟无新增即算 Mac 端通过；不能用提交审核代替。手机 / 手表端由下面第 1 步那轮覆盖 | 同上（冻结前先做一次预跑） |
-| AI-04 真实会话 | **2026-09-24 通过**，经过见[票 04](agent-integration-2026-09/issues/04-claude-stop-background-tasks.md) Comments 末条：真实 `/loop 1m` 共 6 轮都落定为「已排定循环」，共享 App 的投递记录 0 条；后台 subagent 挂起期间保持 working，结束后 Mac 通知 1 条、APNs 每台手机 1 条。隔离 `vibebuddyd` 不推完成提醒，「响没响」只能用菜单栏 App（:9876，`d43c762b`）核对。记录表在 `~/Projects/_shared-work/iOS-vibebuddy/ai04-acceptance-2026-09-23/` | 「VibeBuddy AI-04 真机验收准备」 |
+| AI-04 真实会话（已完成） | **2026-09-24 通过**，经过见[票 04](agent-integration-2026-09/issues/04-claude-stop-background-tasks.md) Comments 末条：真实 `/loop 1m` 共 7 轮都落定为「已排定循环」，共享 App 的投递记录 0 条；后台 subagent 挂起期间保持 working，结束后 Mac 通知 1 条、APNs 每台手机 1 条。隔离 `vibebuddyd` 不推首次完成提醒，「响没响」只能用菜单栏 App（:9876，`d43c762b`）核对。记录表在 `~/Projects/_shared-work/iOS-vibebuddy/ai04-acceptance-2026-09-23/` | 「VibeBuddy AI-04 真机验收准备」 |
 | C-1 干净账户 | 不新建系统账户：CLI 路径用临时 HOME + 没有 python3 的 PATH；App 一键安装路径（`HookSetup` 用 `NSHomeDirectory()`，不认 `HOME`）用 E2E 运行配置；事件用样例数据触发已装 hook；前后核对真实 `~` 下配置未被改动；卸载后模拟更新不重装 | 「Check old roadmap items and run the C-1 install check without you」 |
 | 路线图旧项 A-03、B-U、M-01、M-11、D-U、E-2、H-1、H-5 | 对照历次发布门记录逐项定结论；能验证的当场验证 | 同上 |
 | iOS 1.3.28 (58) 审核状态 | 只读查看 App Store Connect（Chrome 登录若已过期，才需要你登录一次） | 同上 |
@@ -104,7 +104,7 @@
 
 - **AI-07**：Codex 从 rollout 文件迁到 SQLite 后的降级预案。0.153.4 仍在写 rollout。见 [07](agent-integration-2026-09/issues/07-codex-rollout-degradation.md)。
 - **Antigravity hooks**：上游有 bug，已记录在 `docs/multi-cli-hook-setup.md`。
-- **Claude `Stop` 里后台任务的类型**：子代理起的后台 shell 与 monitor 都报 `type:"shell"`（TUI 显示「1 shell, 1 monitor」），目前只影响「还有 N 项后台任务」的计数口径，不影响落定规则。三类任务都只见过 `status:"running"`，结束后直接从数组消失；CLI 内部代理的 `SubagentStop` 没有对应的 `SubagentStart`，会先扣减挂起 `Stop` 的等待计数，目前靠「仍有 running 子代理」这条检查兜住（AI-04 验收发现）。
+- **Claude `Stop` 里后台任务的类型**：子代理起的后台 shell 与 monitor 都报 `type:"shell"`（TUI 显示「1 shell, 1 monitor」），目前只影响「还有 N 项后台任务」的计数口径，不影响落定规则。三类任务都只见过 `status:"running"`，结束后直接从数组消失；CLI 内部代理的 `SubagentStop` 没有对应的 `SubagentStart`，会先扣减挂起 `Stop` 的等待计数，目前靠「仍有 running 子代理」这条检查兜住；若真正子代理的 `SubagentStart` 丢失会提前进入 45 s 宽限，可改为只对已知 running 子代理的 `SubagentStop` 扣减（AI-04 验收发现）。
 
 ## Mac App Store：代码已丢失
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** None
 
-**Status:** done（#264 已合并；2026-09-24 真实会话验收通过，见 Comments 末条）
+**Status:** done（#264 已合并；2026-09-24 真实会话验收通过，见 Comments 末条）。保留作验收记录，不按完成即删的惯例删除。
 
 **Executor:** Claude · branch `claude/ai-04-stop-background-tasks` · 2026-09-23
 
@@ -40,12 +40,12 @@
     - 后台 shell：`{"id","type":"shell","status":"running","description","command"}`。子代理用 Monitor 起的等待任务也报 `shell`（TUI 显示为「1 shell, 1 monitor」）。
     - `session_crons`：`{"id","schedule":"*/1 * * * *","recurring":true,"prompt"}`。
     - 只见过 `status:"running"`：任务结束后直接从数组消失，没有出现结束态字符串。每个主 agent 的 `Stop` 都带这两个数组，没有任务时为 `[]`（`claude -p` 也一样）。
-  - **/loop 1m：通过**。第 1 轮用隔离 `vibebuddyd`（:9877，02:17–02:19）；第 2 轮用共享菜单栏 App（:9876，main `d43c762b`，PID 86865，09:21:31 / 09:22:19 / 09:23:19）。每一轮都落定为 `done` + `loopScheduled: true`，没有未读，也没有完成标识。共享 App 的投递日志里，这个会话 0 条记录，而且它当时因为刚输入过提示词是自动「已关注」（完成本应横幅加声），仍然没响。
+  - **/loop 1m：通过**。第 1 轮用隔离 `vibebuddyd`（:9877，02:17–02:19）；第 2 轮用共享菜单栏 App（:9876，main `d43c762b`，PID 86865，09:21:31 / 09:22:19 / 09:23:19 / 09:24:24），共 7 轮。每一轮都落定为 `done` + `loopScheduled: true`，没有未读，也没有完成标识。共享 App 的投递日志里，这个会话 0 条记录，而且它当时因为刚输入过提示词是自动「已关注」（完成本应横幅加声），仍然没响。
   - **后台 subagent：通过**。09:37:55 发出；09:38:02 的 `Stop` 带一个 running 的 subagent，会话保持 `working`（`backgroundTaskCount 1`）；09:40:03 收到 `SubagentStop`；09:40:03 与 09:40:04 连续两个空数组的 `Stop`，只生成一个完成标识。09:40:09 投递日志记下 Mac 本机通知 1 条、APNs 2 条（已登记的两台 iPhone 各 1 条，均 accepted），之后 2 分钟内没有第二条。第 1 轮无界面 daemon 上的状态变化也一样（02:19:48 挂起，02:21:39 落定，一个完成标识）。
   - **发现**：
     - `vibebuddyd` 只推「需要你回应」和已关注会话的完成重提醒，第一次完成提醒（agentDone）由菜单栏 App 发（`MenuBarModel` 的 `PushFanout`）。所以隔离 daemon 只能验证状态，「响没响」要走菜单栏 App。
     - 一次结束常带两个相隔约 1 s 的 `Stop`（同一条最后回复），第二个没有生成新标识，行为正确。
-    - 每轮都有几条没有对应 `SubagentStart` 的 `SubagentStop`（CLI 内部代理，`agent_type` 为空）。它们会先把挂起 `Stop` 的 `awaitedSubagentStops` 扣到 0，目前靠「仍有 running 子代理」这条检查兜住，没有提前放行。
+    - 多数轮次有 1 条或以上没有对应 `SubagentStart` 的 `SubagentStop`（CLI 内部代理，`agent_type` 为空；第 2 轮每次 `Stop` 后约 1 s 出现一条，后台子代理那轮有 4 条）。它们会先把挂起 `Stop` 的 `awaitedSubagentStops` 扣到 0，目前靠「仍有 running 子代理」这条检查兜住，没有提前放行；但如果真正子代理的 `SubagentStart` 丢了，这条检查兜不住，会提前进入 45 s 宽限（可改为只对已知 running 子代理的 `SubagentStop` 扣减）。
     - 输入提示词会让会话自动「已关注」10 分钟。未读的完成会在 +5 分钟重提醒（09:30:14 一个中途作废的测试会话就收到了一次），这是设计行为，不是重复提醒。
     - 与产品无关的测试坑：2.1.281 的 Bash 会拦截单独前台运行的 `sleep N`（改用 `python3 -c "import time; time.sleep(90)"`）；`/loop 1m … Do not call any tools.` 在 2.1.281 上有一次连 `CronCreate` 都没调用。
   - **没覆盖**：手机 App 在前台时自己的 `SoundPolicy`。Hermes 上的 1.3.28 (58) 开发版早于 #264，本轮手机只接收 Mac 发来的 APNs。
