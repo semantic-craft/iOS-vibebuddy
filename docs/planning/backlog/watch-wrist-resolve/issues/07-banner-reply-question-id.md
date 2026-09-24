@@ -4,9 +4,9 @@
 
 **What to build:** 在通知的 `userInfo` 里像 `approvalId` 一样带上待答问题的 id，让手表从横幅「回答」发出的听写直接绑定到它本来要回答的那个问题，而不是靠第一份中继状态去推断。涉及 APNs 负载与两侧通知构造（`APNs.swift`、Mac 侧 notifier、iPhone 侧 `LocalNotifier`），手表侧读出后塞进 `WatchNotificationResponseRoute.resolve`，`WatchBannerAction` 在持有那一刻就完成绑定。
 
-**Blocked by:** PR #249（ADR-0033，横幅动作在点击设备上执行）
+**Blocked by:** PR #249（ADR-0033，横幅动作在点击设备上执行，已合并）；09（横幅「回复」在真机上不带文字）
 
-**Status:** ready-for-human（代码已完成；剩真机验收，归 owner）
+**Status:** needs-triage（代码已完成，模拟器已验；真机上横幅口述走不到，等 [09](09-banner-reply-opens-app.md) 定方案）
 
 ## 为什么
 
@@ -39,3 +39,4 @@ PR #249 的做法是：取第一份**中继**状态里该会话正在问的问�
   3. 多段问题：让 agent 问两题以上的问题，横幅 Reply 口述一句。预期：不发送，卡片说「只能在 iPhone 或 Mac 上处理」（或走逐题流程），口述内容仍显示在卡片上。
   4. 可选：诊断里点 Reply 那一刻应记为 `notification.action-answer`（不是 `-unbound`），证明通知带了 `questionId`。
 - 2026-09-24 模拟器验收（成对的 iPhone 17 Pro iOS 27.0 + Watch Series 11 watchOS 27.0，隔离 daemon :18777，开发版 `main` 9137f92f）：带 `questionId` 的横幅回答在持有时绑定，送达后 agent 收到的正是那一题；在 Mac 上答掉 A 并问 B 之后，横幅回答等约 8.6 s 被拒（`banner.action-fallback.noLongerWaiting`），卡片显示 “The banner's button wasn't sent: this is no longer waiting on you.” / “Not sent: …”，B 没被回答；两段问题拒绝（`notDecidableHere`），口述留在卡片；不带 id 的旧通知记为 `notification.action-answer-unbound`，在首份中继状态绑定后送达；手表发往手机失败的回答同样把文字放回卡片。限制：手表 App 不申请通知权限，`simctl push` 到手表模拟器会被拒；Xcode 27 的 Device Hub 也没有可操作的窗口。所以点击由本地临时注入代替（未提交），注入调用的就是 `WatchNotificationResponseRoute.resolve` → `WatchNotificationRouter.route`，之后全是正式代码。「Use my reply」模拟器上没点，设备这一轮也不点，照实记为未验。hook 等待只有 25 s（`approvalTimeout`），而手表发出后到 Mac 还要约 11–13 s（2026-09-23 那一轮），所以腕上每步要在横幅到后 10 s 内做完。记录：`~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md`。剩下的真机勾选项并入 backlog README「只剩你」第 1 件（第 2、3 步）：「留下句子」由你在第 3 步回答有 / 没有，拒绝由诊断里的 `banner.action-fallback.noLongerWaiting` 和 B 没被回答来确认。
+- 2026-09-24 腕上验收（Hermes 开发版 1.3.28 (58)，`main` 9137f92f；手表 Series 10，watchOS 27；Mac 1.3.32 开发版，:9876）：**横幅口述这条路径在这块表上走不到。** 三次点横幅「回复」，推送后 5–10 s 诊断都记为 `notification.action-opens`（没带到文字），打开的是 App 自己的卡片，不是系统输入框。什么都没发出去，是安全的，但上面 owner 步骤的第 1–4 步都依赖横幅口述，全都无法按原设计验收。转到 [09](09-banner-reply-opens-app.md) 定方案。走卡片回答正常：点横幅文字 → 卡片 → 预设「Yes」+ 双指互点两下，agent 收到的正是那一题（推送后 20 s）。绑定逻辑本身已在模拟器上验过（见上一条）。

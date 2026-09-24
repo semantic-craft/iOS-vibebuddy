@@ -382,3 +382,12 @@ A banner already sitting in Notification Center keeps the category actions it
 was delivered with. After installing a build with this change, an older pending
 cue still routes its buttons to the phone and will look exactly as though
 nothing was fixed. The run must use a freshly posted notification.
+
+## Note — first device acceptance (2026-09-24)
+
+Hermes on a development build of main 9137f92f, Apple Watch Series 10 on watchOS 27, phone locked (face up until 11:25, face down after), fresh notifications.
+
+- **Deny from the wrist banner: passed.** `notification.action-decide` → `banner.action-held` → `banner.action-sent` (+1 ms). The Mac hook returned `deny` 5 s after the push.
+- **Approve from the wrist banner: passed three times.** The Mac hook returned `allow` 9 s after the push on two fake waits. A hosted Cursor approval passed too.
+- **Reply from the wrist banner: never reached the watch with text.** Three times, watchOS opened the app with no text (`notification.action-opens`), 5–10 s after the push. Decision 5's binding is proven in the simulator only. What the button should become is ticket watch-wrist-resolve 09.
+- The eight-second patience was not tested against a cold launch that needed it: every held action went out within 2 s.
