@@ -61,10 +61,16 @@ public actor CursorTranscriptMonitor {
             == path.split(separator: "/", omittingEmptySubsequences: false).dropFirst().count
     }
 
+    /// How often a pass runs with no file-system event at all: the safety net
+    /// under the event stream. Without a stream, passes run every `interval`.
+    private let quietInterval: Duration
+
     public init(root: URL = CursorTranscripts.projectsRoot(),
-                interval: Duration = .seconds(2)) {
+                interval: Duration = .seconds(2),
+                quietInterval: Duration = .seconds(30)) {
         self.root = root
         self.interval = interval
+        self.quietInterval = quietInterval
     }
 
     /// The transcript vibebuddy is tailing for this conversation, for
@@ -73,15 +79,45 @@ public actor CursorTranscriptMonitor {
         pathsBySession[sessionID]
     }
 
+    /// Only transcript writes wake the tail. Project directories also hold
+    /// `worker.log`, terminal captures and MCP state that Cursor rewrites
+    /// constantly while it is open.
+    static func isTranscriptPath(_ path: String) -> Bool {
+        path.contains("/agent-transcripts")
+    }
+
+    /// Passes run when a transcript changes, at most one per `interval` —
+    /// the old fixed cadence, so a busy conversation costs no more than it
+    /// did and the first line after a quiet spell is seen at once. With
+    /// nothing changing, a pass runs every `quietInterval` only.
     public func run(store: SessionStore) async {
+        let (wakes, wake) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let events = DirectoryEventStream(root: root, relevant: Self.isTranscriptPath) { wake.yield() }
+        let ticker = events.map { _ in
+            Task { [quietInterval] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: quietInterval) } catch { return }
+                    wake.yield()
+                }
+            }
+        }
+        defer {
+            ticker?.cancel()
+            events?.stop()
+            wake.finish()
+        }
         // Establish cursors without emitting: everything already on disk is
-        // history, and history is the composer store's job.
+        // history, and history is the composer store's job. The stream is
+        // already open, so a line written meanwhile wakes the first pass.
         _ = seed(now: Date())
+        var pending = wakes.makeAsyncIterator()
         while !Task.isCancelled {
-            do { try await Task.sleep(for: interval) } catch { return }
+            // Without the stream, every `interval` as before.
+            if events != nil, await pending.next() == nil { return }
             for event in poll(now: Date()) {
                 await store.ingest(event)
             }
+            do { try await Task.sleep(for: interval) } catch { return }
         }
     }
 

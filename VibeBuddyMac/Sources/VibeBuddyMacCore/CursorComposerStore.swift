@@ -383,14 +383,14 @@ public struct CursorComposerStore: Sendable {
         return value
     }
 
+    /// Size and modification time of the database and its WAL. Checked every
+    /// 5 s, so a bare `stat`: `attributesOfItem` also reads every extended
+    /// attribute, and Cursor's database carries several.
     private func signature() -> [String] {
         ["", "-wal"].map { suffix in
-            guard let attributes = try? FileManager.default
-                .attributesOfItem(atPath: database.path + suffix) else { return "missing" }
-            let size = (attributes[.size] as? NSNumber)?.stringValue ?? "?"
-            let modified = (attributes[.modificationDate] as? Date)?
-                .timeIntervalSince1970.description ?? "?"
-            return "\(size)/\(modified)"
+            var info = stat()
+            guard stat(database.path + suffix, &info) == 0 else { return "missing" }
+            return "\(info.st_size)/\(info.st_mtimespec.tv_sec).\(info.st_mtimespec.tv_nsec)"
         }
     }
 }

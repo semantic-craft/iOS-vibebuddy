@@ -710,6 +710,36 @@ struct CursorTranscriptMonitorTests {
         #expect(await monitor.poll(now: Date()).isEmpty)
     }
 
+    /// Idle cost (PERF-02): passes are woken by transcript writes, not a 2 s
+    /// clock. With both timers far out, only the file event can deliver this
+    /// turn; Cursor's other project files (`worker.log`) do not wake it.
+    @Test func aTranscriptWriteWakesTheTail() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vbcursor-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = try project(root, "c1")
+        try append("", to: file)
+        let store = SessionStore()
+        let monitor = CursorTranscriptMonitor(root: root, interval: .seconds(600),
+                                              quietInterval: .seconds(600))
+        let running = Task { await monitor.run(store: store) }
+        defer { running.cancel() }
+        func status() async -> SessionStatus? {
+            await store.snapshot(now: Date()).sessions.first { $0.id == "c1" }?.status
+        }
+        try await Task.sleep(for: .seconds(1))  // seeded, stream open
+
+        #expect(CursorTranscriptMonitor.isTranscriptPath(file.path))
+        #expect(!CursorTranscriptMonitor.isTranscriptPath(root.appendingPathComponent("empty-window/worker.log").path))
+
+        try append(#"{"role":"user","message":{"content":[{"type":"text","text":"<user_query>go</user_query>"}]}}"#, to: file)
+        let deadline = Date().addingTimeInterval(20)
+        while await status() != .working, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(await status() == .working)
+    }
+
     @Test func aHalfWrittenLineIsReadWholeOnTheNextPass() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("vbcursor-\(UUID().uuidString)")
