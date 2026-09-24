@@ -36,7 +36,7 @@ public enum GrokCLI {
     /// reaches a shell.
     static func isSessionID(_ value: String) -> Bool {
         !value.isEmpty && value.count <= 128 && !value.hasPrefix("-")
-            && value.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" }
+            && value.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_") }
     }
 
     /// `cd <cwd> && grok --resume=<id>`, the command a terminal runs. The

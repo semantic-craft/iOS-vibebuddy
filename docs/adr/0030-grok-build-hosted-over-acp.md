@@ -93,16 +93,19 @@ Comments):
 **Decision.**
 
 1. Decision 6 is lifted for restart recovery. Every session this host starts
-   leaves private metadata (`GrokACPRecovery`: id, directory, model, created /
-   updated; 0600, 30 days, at most 100 records) and holds the same process
+   leaves private metadata (`GrokACPRecovery`: id, directory, the model the
+   user asked for if any, created / updated; 0600, 30 days, at most 100 records) and holds the same process
    lease Cursor's recovery uses. After a restart the row is registered as
    reloadable — not a live channel — and Continue starts a new `grok agent
    --no-leader stdio` and `session/load`s it before sending. A failed load
-   keeps a retryable reason on the row and points at the terminal: opening the
-   row on the Mac (the jump action, also from the phone) runs `grok
-   --resume=<id>` in the preferred terminal, and the terminal owns the session
-   from then on (its record is removed). The lease refuses both while the old
-   process still runs.
+   keeps a retryable reason on the row and points at the terminal: the row's
+   jump (Mac dashboard, and the phone from the first iOS build with this Kit;
+   1.3.28 and older only say "use the terminal") runs `grok --resume=<id>` in
+   the preferred terminal, and the terminal owns the session from then on (its
+   record is removed). The lease refuses both while the old process still runs
+   or another host holds it, and a session Grok's registry shows open in some
+   `grok` process (someone ran `grok --resume` themselves) is handed to it
+   rather than loaded a second time.
 2. Leader attachment is viable and is the only channel found that approves a
    terminal Grok session remotely. It is not built here: `use_leader` is off
    by default, attaching makes vibebuddy a second approver on the user's own

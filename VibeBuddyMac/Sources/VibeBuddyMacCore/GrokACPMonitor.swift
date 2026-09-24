@@ -103,6 +103,8 @@ public actor GrokACPMonitor {
     private var loading: Set<String> = []
     private var recoveryRegistered = false
     private let openInTerminal: @Sendable (_ sessionID: String, _ cwd: String, _ terminal: String?) async -> Bool
+    /// Whether a live `grok` process has this session open (Grok's registry).
+    private let openInGrok: @Sendable (_ sessionID: String) -> Bool
 
     public static var defaultRecoveryDirectory: URL { GrokACPRecovery.directory }
 
@@ -119,8 +121,13 @@ public actor GrokACPMonitor {
                 signInProbe: (@Sendable () -> Bool)? = nil,
                 spawn: (@Sendable (GrokACPLaunch) throws -> CursorACPClient)? = nil,
                 recoveryDirectory: URL? = nil,
-                openInTerminal: (@Sendable (_ sessionID: String, _ cwd: String, _ terminal: String?) async -> Bool)? = nil) {
+                openInTerminal: (@Sendable (_ sessionID: String, _ cwd: String, _ terminal: String?) async -> Bool)? = nil,
+                openInGrok: (@Sendable (_ sessionID: String) -> Bool)? = nil) {
         self.recoveryDirectory = recoveryDirectory
+        self.openInGrok = openInGrok ?? { sessionID in
+            var registry = GrokActiveSessions(grokHome: GrokHome.url)
+            return registry.liveEntries()?[sessionID] != nil
+        }
         self.openInTerminal = openInTerminal ?? { sessionID, cwd, terminal in
             await GrokCLI.resume(sessionID: sessionID, cwd: cwd, executable: executable, preferring: terminal)
         }
@@ -191,11 +198,21 @@ public actor GrokACPMonitor {
         loading.insert(sessionID)
         let preparationID = UUID().uuidString
         defer { loading.remove(sessionID); preparing[preparationID] = nil }
+        // A reason from an earlier attempt no longer applies to this one.
+        await store.registerACPRecovery(sessionID: sessionID, agent: .grok, cwd: record.cwd, model: record.model,
+                                        unavailable: nil, updatedAt: record.updatedAt ?? record.createdAt)
         var client: CursorACPClient?
         do {
             // Refuses while the previous grok process of this session still runs.
             let lease = try CursorACPLease(directory: recoveryDirectory, record: record, agent: "Grok")
-            let connection = try spawn(GrokACPLaunch(cwd: record.cwd, model: record.model))
+            // With our own old process gone (the lease), a live grok on this
+            // session is someone's `grok --resume`: the terminal owns it now.
+            if openInGrok(sessionID) { throw OpenInTerminal() }
+            // The record is a file on disk: its model is checked again before argv.
+            guard case .success(let model) = GrokACPLaunch.validModel(record.model) else {
+                throw RestoreFailure(message: "the saved model is not a plain model id")
+            }
+            let connection = try spawn(GrokACPLaunch(cwd: record.cwd, model: model))
             client = connection
             preparing[preparationID] = connection
             try connection.retainLease(lease)
@@ -223,6 +240,11 @@ public actor GrokACPMonitor {
             await store.setACPHosted(sessionID: sessionID, true)
             await store.recordSourceSignal(agent: .grok, source: .acp, health: .healthy, at: Date())
             return true
+        } catch is OpenInTerminal {
+            recoveries[sessionID] = nil
+            GrokACPRecovery.remove(sessionID, in: recoveryDirectory)
+            await store.forgetACPRecovery(sessionID: sessionID)
+            return false
         } catch {
             client?.close()
             await store.registerACPRecovery(sessionID: sessionID, agent: .grok, cwd: record.cwd, model: record.model,
@@ -232,12 +254,19 @@ public actor GrokACPMonitor {
         }
     }
 
+    private struct OpenInTerminal: Error {}
+
     struct RestoreFailure: LocalizedError {
         let message: String
         var errorDescription: String? { message }
     }
 
     static func restoreFailureMessage(_ error: Error) -> String {
+        // The lease: the session's old grok process has not exited yet, or
+        // another VibeBuddy host holds it. A terminal would be a second writer.
+        if (error as NSError).domain == "CursorACP", [1, 3].contains((error as NSError).code) {
+            return "Couldn't reload this Grok session: \(error.localizedDescription). Try again in a moment."
+        }
         let reason: String
         switch error {
         case CursorACPClient.ClientError.rpc(_, let message): reason = message
@@ -250,14 +279,20 @@ public actor GrokACPMonitor {
     /// The way back when a session can no longer be reloaded: `grok
     /// --resume=<id>` in the preferred terminal. The terminal owns the session
     /// from then on (its hooks observe it), so the recovery record goes.
+    /// Counts as loading while the terminal opens, and holds the lease until
+    /// it has, so a Continue arriving meanwhile cannot load it as well.
     public func resumeInTerminal(sessionID: String, preferring terminal: String?) async -> JumpOutcome {
-        guard isRecoverable(sessionID), !loading.contains(sessionID), let record = recoveries[sessionID],
-              let recoveryDirectory else { return .noTerminal }
+        guard isRecoverable(sessionID), let record = recoveries[sessionID], let recoveryDirectory else { return .noTerminal }
+        guard !loading.contains(sessionID) else { return .unsupported }
+        loading.insert(sessionID)
+        defer { loading.remove(sessionID) }
         // Two writers on one session is what the lease exists to prevent.
-        guard (try? CursorACPLease(directory: recoveryDirectory, record: record, agent: "Grok")) != nil else {
+        guard let lease = try? CursorACPLease(directory: recoveryDirectory, record: record, agent: "Grok") else {
             return .unsupported
         }
-        guard await openInTerminal(sessionID, record.cwd, terminal) else { return .noTerminal }
+        let opened = await openInTerminal(sessionID, record.cwd, terminal)
+        withExtendedLifetime(lease) {}
+        guard opened, hosted[sessionID] == nil else { return opened ? .unsupported : .noTerminal }
         recoveries[sessionID] = nil
         GrokACPRecovery.remove(sessionID, in: recoveryDirectory)
         await store.forgetACPRecovery(sessionID: sessionID)
@@ -325,7 +360,9 @@ public actor GrokACPMonitor {
             if let recoveryDirectory {
                 // Best effort: without the record the session still runs, it
                 // just cannot be reloaded after this host is gone.
-                let record = GrokACPRecovery(sessionID: sessionID, cwd: request.cwd, model: entry.model, createdAt: Date())
+                // Only the model the user asked for: a default recorded here would
+                // pin every reload to it after Grok's default moves on.
+                let record = GrokACPRecovery(sessionID: sessionID, cwd: request.cwd, model: model, createdAt: Date())
                 if let lease = try? CursorACPLease(directory: recoveryDirectory, record: record, agent: "Grok"),
                    (try? client.retainLease(lease)) != nil, (try? record.save(in: recoveryDirectory)) != nil {
                     recoveries[sessionID] = record
@@ -425,8 +462,9 @@ public actor GrokACPMonitor {
         Task { [weak self] in
             guard let self else { return }
             let now = Date()
+            // The model rides along: a reloaded session's row starts without one.
             await self.store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: sessionID, agent: .grok,
-                                              cwd: entry.cwd, message: String(text.prefix(220)),
+                                              cwd: entry.cwd, message: String(text.prefix(220)), model: entry.model,
                                               observationSource: .acp, timestamp: now, turnID: entry.turnID.uuidString))
             var stopReason = "error"
             var failure: String?

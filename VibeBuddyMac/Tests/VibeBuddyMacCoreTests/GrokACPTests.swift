@@ -70,6 +70,8 @@ private final class FakeGrokAgent: @unchecked Sendable {
                     } else {
                         // grok replays the history as updates before it answers.
                         update(["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": "earlier"]])
+                        update(["sessionUpdate": "tool_call", "toolCallId": "replayed-call", "title": "Run ls",
+                                "kind": "execute", "status": "completed", "rawInput": ["command": "ls"]])
                         respond(id, ["models": ["currentModelId": "grok-4.6",
                                                 "availableModels": [["modelId": "grok-4.6", "name": "Grok 4.6",
                                                                      "_meta": ["totalContextTokens": 500000]]]]])
@@ -197,7 +199,8 @@ struct GrokACPTests {
         init(agent: FakeGrokAgent = FakeGrokAgent(), signedIn: Bool = true, deny: [String] = [],
              onRulesRead: @escaping @Sendable () -> Void = {}, journalURL: URL? = nil,
              recoveryDirectory: URL? = nil,
-             openInTerminal: (@Sendable (String, String, String?) async -> Bool)? = nil) {
+             openInTerminal: (@Sendable (String, String, String?) async -> Bool)? = nil,
+             openInGrok: @escaping @Sendable (String) -> Bool = { _ in false }) {
             self.agent = agent
             store = SessionStore(sourceID: "grok-test-source", journalURL: journalURL)
             let log = self.log
@@ -210,7 +213,8 @@ struct GrokACPTests {
                                      executable: URL(fileURLWithPath: "/usr/bin/true"),
                                      signInProbe: { signedIn },
                                      spawn: { launch in log.record(launch); return agent.client() },
-                                     recoveryDirectory: recoveryDirectory, openInTerminal: openInTerminal)
+                                     recoveryDirectory: recoveryDirectory, openInTerminal: openInTerminal,
+                                     openInGrok: openInGrok)
         }
 
         func session() async -> AgentSession? {
@@ -244,7 +248,7 @@ struct GrokACPTests {
         let records = GrokACPRecovery.read(in: directory)
         #expect(records.map(\.sessionID) == [first.agent.sessionID])
         #expect(records.first?.cwd == "/x/p")
-        #expect(records.first?.model == "grok-4.6")
+        #expect(records.first?.model == nil, "only a model the user asked for is pinned")
         let file = directory.appendingPathComponent(try #require(records.first).filename + ".json")
         #expect((try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) == 0o600)
         await first.monitor.shutdown()
@@ -265,13 +269,16 @@ struct GrokACPTests {
         let load = try #require(second.agent.request(named: "session/load"))
         #expect(load.params["sessionId"] as? String == row.id)
         #expect(load.params["cwd"] as? String == "/x/p")
-        #expect(second.log.launches == [GrokACPLaunch(cwd: "/x/p", model: "grok-4.6")])
+        #expect(second.log.launches == [GrokACPLaunch(cwd: "/x/p", model: nil)])
         await eventually("prompt after load") { second.agent.request(named: "session/prompt") != nil }
         #expect(second.agent.request(named: "session/prompt")?.params["prompt"] as? [[String: String]]
             == [["type": "text", "text": "go on"]])
         #expect(await second.store.isACPHosted(row.id))
         await eventually("working") { await second.session()?.status == .working }
         #expect(await second.session()?.controlChannel == .acp)
+        #expect(await second.session()?.model == "grok-4.6", "shown from session/load")
+        // The history grok replays while loading is not observed again.
+        #expect(await second.session()?.ledger?.contains { $0.id == "replayed-call" } != true)
         await second.monitor.shutdown()
     }
 
@@ -301,11 +308,42 @@ struct GrokACPTests {
         #expect(await rig.monitor.owns(id) == false)
     }
 
+    @Test func aSessionAlreadyOpenInATerminalIsLeftToIt() async throws {
+        let directory = recoveryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let id = "01a0ffff-0000-7000-8000-000000000001"
+        try GrokACPRecovery(sessionID: id, cwd: "/x/p", model: nil, createdAt: Date()).save(in: directory)
+        let rig = Rig(agent: FakeGrokAgent(sessionID: id), recoveryDirectory: directory, openInGrok: { $0 == id })
+        await rig.monitor.registerRecoverableSessions()
+        #expect(await rig.monitor.prompt(sessionID: id, text: "go on") == false)
+        #expect(rig.log.launches.isEmpty, "no second writer")
+        #expect(GrokACPRecovery.read(in: directory).isEmpty)
+        #expect(await rig.monitor.owns(id) == false)
+    }
+
+    @Test func aHeldLeaseRefusesBothReloadAndTerminal() async throws {
+        let directory = recoveryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let record = GrokACPRecovery(sessionID: "01a0ffff-0000-7000-8000-000000000002", cwd: "/x/p", model: nil,
+                                     createdAt: Date())
+        try record.save(in: directory)
+        let held = try CursorACPLease(directory: directory, record: record, agent: "Grok")
+        let rig = Rig(agent: FakeGrokAgent(sessionID: record.sessionID), recoveryDirectory: directory,
+                      openInTerminal: { _, _, _ in Issue.record("terminal opened under a held lease"); return true })
+        await rig.monitor.registerRecoverableSessions()
+        #expect(await rig.monitor.prompt(sessionID: record.sessionID, text: "go on") == false)
+        let failure = try #require(await rig.session()?.cursorACPRecoveryFailure)
+        #expect(failure.contains("Try again in a moment") && !failure.contains("grok --resume"))
+        #expect(rig.log.launches.isEmpty)
+        #expect(await rig.monitor.resumeInTerminal(sessionID: record.sessionID, preferring: nil) == .unsupported)
+        withExtendedLifetime(held) {}
+    }
+
     @Test func theTerminalCommandIsQuotedAndTheIDChecked() {
         let grok = URL(fileURLWithPath: "/Users/me/.grok/bin/grok")
         #expect(GrokCLI.resumeCommand(sessionID: "01a0d2ed-aa8e-7090-b6fc-bdd78d5beab3", cwd: "/tmp/a b'c", executable: grok)
             == "cd '/tmp/a b'\\''c' && '/Users/me/.grok/bin/grok' --resume=01a0d2ed-aa8e-7090-b6fc-bdd78d5beab3")
-        for bad in ["", "-rf", "a;b", "a b", "$(x)"] {
+        for bad in ["", "-rf", "a;b", "a b", "$(x)", "ａｂ", "e\u{301}"] {
             #expect(GrokCLI.resumeCommand(sessionID: bad, cwd: nil, executable: grok) == nil, "\(bad)")
         }
     }

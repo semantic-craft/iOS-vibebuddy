@@ -677,11 +677,17 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.updatedAt = updatedAt
     }
 
-    /// Whether a jump has anywhere to land: a terminal to raise, or a Codex
-    /// Desktop thread to open. The one thing every jump control is gated on, so
-    /// a Desktop session's button is live for the same reason a terminal
-    /// session's is — there is a real target behind it.
-    public var canJump: Bool { terminalRef != nil || desktopThreadID != nil }
+    /// Whether a jump has anywhere to land: a terminal to raise, a Codex
+    /// Desktop thread to open, or a Grok session to resume in a new terminal.
+    /// The one thing every jump control is gated on, so each button is live
+    /// for the same reason — there is a real target behind it.
+    public var canJump: Bool { terminalRef != nil || desktopThreadID != nil || resumesInTerminal }
+
+    /// A Grok Build session a lost ACP host started: the jump runs `grok
+    /// --resume` in a new terminal on the Mac (ADR-0030, amendment 1).
+    public var resumesInTerminal: Bool {
+        agent == .grok && cursorACPRecoverable == true && controlChannel != .acp
+    }
 
     /// A jump to this session lands in ChatGPT.app's thread view, not a
     /// terminal. Drives the wording and the symbol of every jump control.

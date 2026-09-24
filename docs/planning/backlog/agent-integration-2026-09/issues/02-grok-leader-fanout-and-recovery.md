@@ -33,6 +33,6 @@
 **(c) 托管会话恢复**（隔离 `vibebuddyd` :18795，真实 grok）
 - `/dispatch` 起 Grok 会话（回复 "one"）→ `<support>/grok-acp/<id>.json`（0600）+ `.lock` 租约。
 - `SIGTERM` 重启 daemon（同一 HOME）：旧的 `grok agent` 子进程随 stdin 关闭退出；新 daemon 的快照里该行是「可恢复」（`controlChannel: none`、`cursorACPRecoverable: true`）。
-- `/answer intent=continue`「上次你回复的是哪个词？说两遍」→ 起新的 `grok agent -m grok-4.7 --no-leader stdio` 并 `session/load` → 行回到 `acp`，回答 "one one"（记得重启前的对话）。
+- `/answer intent=continue`「上次你回复的是哪个词？说两遍」→ 起新的 `grok agent -m grok-4.7 --no-leader stdio` 并 `session/load`（评审后改为只记用户点名的模型，没点名就不带 `-m`，跟随 Grok 当时的默认） → 行回到 `acp`，回答 "one one"（记得重启前的对话）。
 - 失败路径：再重启、把会话目录挪走 → `/answer` 返回 `failed`，理由 `Couldn't reload this Grok session (Path not found.). Open it on the Mac to continue it in a terminal (grok --resume).`，行上保留可重试的原因，没有残留 grok 进程；把目录放回后再发一次，成功（"three"）。
-- 终端续接：Mac 上「打开」这一行（跳转动作，手机上的跳转也走这里）在偏好终端运行 `cd <dir> && grok --resume=<id>`，成功后删掉恢复记录，会话交给终端（hook 观察）。命令拼接与 id 校验、打开后删记录由单元测试覆盖；**没有在真机上弹终端窗口**（会在你的桌面上开窗）。`grok --resume=<id>` 本身在 tmux 里实测能带历史打开会话。
+- 终端续接：这一行的跳转（Mac 仪表盘；手机要等带这版 Kit 的下一个 iOS 版本，1.3.28 及更早只会说「用终端」）在偏好终端运行 `cd <dir> && grok --resume=<id>`，成功后删掉恢复记录，会话交给终端（hook 观察）。命令拼接与 id 校验、打开后删记录由单元测试覆盖；**没有在真机上弹终端窗口**（会在你的桌面上开窗）。`grok --resume=<id>` 本身在 tmux 里实测能带历史打开会话。

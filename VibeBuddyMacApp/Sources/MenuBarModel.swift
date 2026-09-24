@@ -1328,7 +1328,14 @@ final class MenuBarModel: ObservableObject {
             return
         }
         Task { [store] in await store.recordInteraction(sessionID: session.id) }
-        if let ref = session.terminalRef {
+        if session.resumesInTerminal {
+            // A hosted Grok session whose process is gone: `grok --resume` in a terminal.
+            Task { [weak self, store, grokACP] in
+                let outcome = await grokACP.resumeInTerminal(sessionID: session.id,
+                                                             preferring: await store.preferredTerminalProgram())
+                self?.showJumpFeedback(outcome, for: session.id)
+            }
+        } else if let ref = session.terminalRef {
             Task { [weak self] in
                 let outcome = await TerminalJumper.jump(ref)
                 self?.showJumpFeedback(outcome, for: session.id)
@@ -1336,13 +1343,6 @@ final class MenuBarModel: ObservableObject {
         } else if let thread = session.desktopThreadID {
             Task { [weak self] in
                 let outcome = await CodexDesktopJumper.jump(threadID: thread)
-                self?.showJumpFeedback(outcome, for: session.id)
-            }
-        } else if session.agent == .grok, session.cursorACPRecoverable == true {
-            // A hosted Grok session whose process is gone: `grok --resume` in a terminal.
-            Task { [weak self, store, grokACP] in
-                let outcome = await grokACP.resumeInTerminal(sessionID: session.id,
-                                                             preferring: await store.preferredTerminalProgram())
                 self?.showJumpFeedback(outcome, for: session.id)
             }
         } else if session.agent == .claudeCode {

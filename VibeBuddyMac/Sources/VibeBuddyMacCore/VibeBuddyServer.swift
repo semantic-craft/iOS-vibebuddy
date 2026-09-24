@@ -1117,7 +1117,13 @@ public struct VibeBuddyServer: Sendable {
             // pane/tab really came forward — not merely that a command existed.
             let outcome: JumpOutcome
             let session = await store.snapshot(now: Date()).sessions.first { $0.id == sid }
-            if let ref = await store.terminalRef(for: sid) {
+            if session?.agent == .grok, let grokACP, await grokACP.isRecoverable(sid) {
+                // A hosted Grok session whose process is gone: reopen it in a
+                // terminal with `grok --resume`, where the user can go on. First:
+                // a ref here may be the pane the daemon itself was started in.
+                outcome = await grokACP.resumeInTerminal(sessionID: sid,
+                                                         preferring: await store.preferredTerminalProgram())
+            } else if let ref = await store.terminalRef(for: sid) {
                 outcome = await onJump(ref)
             } else if let thread = await store.desktopThreadID(for: sid) {
                 // Codex Desktop runs no hook, so this session will never have a
@@ -1129,11 +1135,6 @@ public struct VibeBuddyServer: Sendable {
                 // conversation can be opened — the Codex Desktop shape, with the
                 // URL checked before it is handed to a browser.
                 outcome = await onJumpToCursorCloud(page)
-            } else if session?.agent == .grok, let grokACP, await grokACP.isRecoverable(sid) {
-                // A hosted Grok session whose process is gone: reopen it in a
-                // terminal with `grok --resume`, where the user can go on.
-                outcome = await grokACP.resumeInTerminal(sessionID: sid,
-                                                         preferring: await store.preferredTerminalProgram())
             } else if session?.agent == .cursor {
                 // Cursor publishes no deeplink that opens a chat by id, so the
                 // honest jump is: Cursor forward, with this session's workspace
