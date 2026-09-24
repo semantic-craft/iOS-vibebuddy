@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import os
 
 /// Repairs the saved placement of the app's single SwiftUI MenuBarExtra.
 /// AppKit's preference key is an implementation detail, isolated here: if it
@@ -55,6 +56,9 @@ public final class MenuBarPlacementRecovery: NSObject, ObservableObject {
         statusItem = item
         repairSavedPosition()
         item.autosaveName = Self.autosaveName
+        // MenuBarExtraAccess gives this one 2 s window at launch; the line
+        // is how an installed build shows the attach happened.
+        Logger(subsystem: "com.vibebuddy.app", category: "menu-bar").notice("placement recovery attached to the status item")
     }
 
     @objc private func displaysChanged() {

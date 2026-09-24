@@ -8,9 +8,14 @@ import VibeBuddyMacCore
 @main
 struct VibeBuddyMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var model: MenuBarModel
+    /// Deliberately not observed here. Every `@Published` change would
+    /// re-evaluate this scene body and re-create `.menuBarExtraAccess`, and
+    /// MenuBarExtraAccess 1.3.1 then registers a new status-item KVO observer
+    /// and two window-notification sinks that are never released (~25 a
+    /// minute on a busy Mac). The label and menu observe the model themselves.
+    private let model: MenuBarModel
     @State private var isMenuPresented = false
-    @StateObject private var placementRecovery: MenuBarPlacementRecovery
+    private let placementRecovery: MenuBarPlacementRecovery
     private let role: AppRuntime.Role
     // Visibility affects only the icon; app-level commands stay available.
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
@@ -18,12 +23,12 @@ struct VibeBuddyMenuBarApp: App {
     init() {
         let role = AppRuntime.role
         self.role = role
-        _placementRecovery = StateObject(wrappedValue: MenuBarPlacementRecovery(enabled: role == .primary))
+        placementRecovery = MenuBarPlacementRecovery(enabled: role == .primary)
         // Read-aloud used to be Qwen-only; move its saved model and voice onto the
         // per-provider keys before any view reads them. Idempotent.
         VoiceSettings.migrateLegacyReadAloudKeys()
         let model = MenuBarModel(runtimeEnabled: role == .primary)
-        _model = StateObject(wrappedValue: model)
+        self.model = model
         delegate.model = model
     }
 
