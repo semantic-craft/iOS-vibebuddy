@@ -31,25 +31,27 @@ public actor CursorTranscriptMonitor {
     private var pathsBySession: [String: String] = [:]
     /// Flattened directory name → resolved checkout, remembered for a while.
     /// Resolving probes the file system once per `-` in the name, for every
-    /// project directory, on every 2 s pass. Only an answer that read every
-    /// `-` as a path separator is kept: it is the preferred reading and can
-    /// only stop being true by deletion, which `resolveTTL` bounds. A miss,
-    /// and a path that folded a hyphen into a component (which a directory
-    /// created later would outrank), are resolved again on every pass.
-    private var projectPaths: [String: (path: String, at: Date)] = [:]
+    /// project directory, on every 2 s pass. An answer that read every `-` as
+    /// a path separator is the preferred reading and can only stop being true
+    /// by deletion, which `resolveTTL` bounds. A miss, and a path that folded
+    /// a hyphen into a component (which a directory created later would
+    /// outrank), are kept for `unsettledTTL` only.
+    private var projectPaths: [String: (path: String?, at: Date, settled: Bool)] = [:]
     static let resolveTTL: TimeInterval = 600
+    static let unsettledTTL: TimeInterval = 60
 
     private func discover(now: Date) -> [CursorTranscripts.Located] {
-        var fresh: [String: String] = [:]
+        var fresh: [String: (path: String?, settled: Bool)] = [:]
         let located = CursorTranscripts.discover(root: root) { [projectPaths] name in
-            if let cached = projectPaths[name], now.timeIntervalSince(cached.at) < Self.resolveTTL {
+            if let cached = projectPaths[name],
+               now.timeIntervalSince(cached.at) < (cached.settled ? Self.resolveTTL : Self.unsettledTTL) {
                 return cached.path
             }
             let path = CursorTranscripts.projectPath(forDirectoryName: name)
-            if let path, Self.isSeparatorOnly(name: name, path: path) { fresh[name] = path }
+            fresh[name] = (path, path.map { Self.isSeparatorOnly(name: name, path: $0) } ?? false)
             return path
         }
-        for (name, path) in fresh { projectPaths[name] = (path, now) }
+        for (name, answer) in fresh { projectPaths[name] = (answer.path, now, answer.settled) }
         return located
     }
 

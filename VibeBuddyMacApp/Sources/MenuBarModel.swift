@@ -347,10 +347,13 @@ final class MenuBarModel: ObservableObject {
     var dashboardViewedSessionID: String?
     var glanceViewedSessionID: String?
     func isViewing(_ sessionID: String) -> Bool {
-        guard !Presence.screenIsLocked(), Presence.idleSeconds() < 120 else { return false }
-        if glanceExpanded && glanceViewedSessionID == sessionID { return true }
-        return NSApp.isActive && NSApp.keyWindow?.identifier?.rawValue == "com.vibebuddy.dashboard"
-            && dashboardViewedSessionID == sessionID
+        let shown = (glanceExpanded && glanceViewedSessionID == sessionID)
+            || (NSApp.isActive && NSApp.keyWindow?.identifier?.rawValue == "com.vibebuddy.dashboard"
+                && dashboardViewedSessionID == sessionID)
+        // Presence last: the poll asks this for every session every 2 s, and
+        // the lock check is a WindowServer round trip. At most two sessions
+        // are ever on screen.
+        return shown && !Presence.screenIsLocked() && Presence.idleSeconds() < 120
     }
     private let deliveryRecorder: NotificationDeliveryRecorder
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
