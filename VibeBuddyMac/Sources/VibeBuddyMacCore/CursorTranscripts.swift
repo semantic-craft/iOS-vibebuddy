@@ -60,9 +60,10 @@ public enum CursorTranscripts {
         guard let projects = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil,
                                                          options: [.skipsHiddenFiles]) else { return [] }
         // The monitor runs this every 2 s over every transcript. Resource
-        // values read type, date and size in one call (prefetched with the
-        // listing for flat files); `attributesOfItem` also reads every
-        // extended attribute of every file.
+        // values read type, date and size in one call; `attributesOfItem`
+        // also reads every extended attribute of every file. The listing's
+        // prefetch only covers the older flat layout; 3.x's nested files
+        // still cost one call each.
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
         var found: [Located] = []
         for project in projects {

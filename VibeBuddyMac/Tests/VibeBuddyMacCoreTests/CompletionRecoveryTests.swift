@@ -116,6 +116,7 @@ struct CompletionRecoveryTests {
         #expect(RecapLedger(url: ledger.url, now: now.addingTimeInterval(RecapLedger.retention + 1)).results.isEmpty)
         #expect(ledger.entries.isEmpty)
     }
+
     @Test func unchangedResultsStillAgeOutOfTheLedger() {
         let now = Date()
         let old = CompletionResults.Record(sourceID: "source", sessionID: "old", completionID: "c",
