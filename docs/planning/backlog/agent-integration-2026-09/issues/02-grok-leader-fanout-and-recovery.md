@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** done（PR 见 README 行）
+**Status:** done（#299）
 
 - [x] leader 实测记录（连接方式、`initialize` 能力、TUI 会话是否可见、权限请求是否扇出、答后另一端的表现）写进 Comments；结论进 ADR-0030 修正案或 wontfix。
 - [x] hook timeout 实测：`~/.grok/hooks/*.json` 里 `timeout: 1800` 的 PreToolUse 是否被截断；记录。
