@@ -132,6 +132,12 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var lifecycleJournalClearFailed = false
     @Published private(set) var missedThisWeek = MissedCounts.empty
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
+    /// The CloudKit cue channel a Mac without an APNs key uses (ADR-0013 D);
+    /// `.notEntitled` when this build cannot use it or a `.p8` is configured.
+    @Published private(set) var cloudKitStatus = CloudKitCueStatus.notEntitled
+    /// Registered phones signed into this Mac's Apple Account — the ones a
+    /// CloudKit cue can reach.
+    @Published private(set) var cloudKitPhones = 0
     @Published private(set) var contentPresentationRevision: String?
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
     /// How many phones the Mac can push to right now, and when the newest of
@@ -359,6 +365,10 @@ final class MenuBarModel: ObservableObject {
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
+    /// Closed-app cues through the user's own iCloud private database, for a
+    /// Mac with no APNs key (ADR-0013 direction D). One channel per Mac: with
+    /// a `.p8` this stays nil, so a phone never gets the same cue twice.
+    private let cloudKit: CloudKitCueSender?
     private let deviceTokens: DeviceTokens
     /// What each phone said it posted itself (`POST /notified`); the pusher
     /// stands its own push down for those (ADR-0012).
@@ -496,6 +506,11 @@ final class MenuBarModel: ObservableObject {
         let receipts = PhoneReceipts(recorder: recorder)
         phoneReceipts = receipts
         pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder, receipts: receipts) }
+        // Demo and E2E instances never reach the real user's iCloud.
+        let isolatedInstance = E2ERunConfiguration.current != nil
+            || ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+        cloudKit = pusher == nil && !isolatedInstance
+            ? CloudKitCueSender.makeIfEntitled(recorder: recorder, receipts: receipts) : nil
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // The APNs registry outlives this process. Without the file, every Mac
         // restart emptied it and no push reached a closed phone until the phone
@@ -869,7 +884,8 @@ final class MenuBarModel: ObservableObject {
         let focused: Set<String> = !alwaysAskPhone && isViewing(current.id) ? [current.id] : []
         guard !focused.contains(current.id) else { return false }
         if let deviceToken {
-            return PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
+            let targets = pushTargets(devices)
+            return PushFanout.plan(alert, devices: targets.devices, apnsConfigured: targets.configured,
                 focusedSessionIDs: focused).recipients.contains { $0.device.token == deviceToken }
         }
         return NotificationCategoryPrefs.loadMac().isEnabled(NotificationSound.agentDone)
@@ -884,8 +900,8 @@ final class MenuBarModel: ObservableObject {
         guard !focused.contains(session.id) else { log.notice("Skipped: source is focused"); return nil }
         let alert = SoundAlert(session: session, sound: .agentDone,
                                delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))
-        let devices = await deviceTokens.devices()
-        let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil, focusedSessionIDs: focused)
+        let targets = pushTargets(await deviceTokens.devices())
+        let fanout = PushFanout.plan(alert, devices: targets.devices, apnsConfigured: targets.configured, focusedSessionIDs: focused)
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         let local = (UserDefaults.standard.object(forKey: "notifyOnNeedsResponse") as? Bool ?? true)
             && NotificationCategoryPrefs.loadMac().isEnabled(NotificationSound.agentDone)
@@ -902,7 +918,25 @@ final class MenuBarModel: ObservableObject {
         return summary.text
     }
 
+    /// The phones the closed-app channel reaches, and whether there is a
+    /// channel at all. With an APNs key: every registered phone. With CloudKit:
+    /// the phones that reported this Mac's own iCloud user — a phone on another
+    /// Apple Account would never see the record.
+    private func pushTargets(_ devices: [DeviceRegistrationPayload]) -> (devices: [DeviceRegistrationPayload], configured: Bool) {
+        if pusher != nil { return (devices, true) }
+        guard cloudKit != nil, cloudKitStatus.state == .available, let user = cloudKitStatus.userRecordName else {
+            return (devices, false)
+        }
+        return (devices.filter { $0.cloudKitUser == user }, true)
+    }
+
     func refreshNotificationDeliveryHealth() async {
+        if let cloudKit {
+            let status = await cloudKit.refreshStatus()
+            if cloudKitStatus != status { cloudKitStatus = status }
+            let phones = pushTargets(await deviceTokens.devices()).devices.filter(\.hasPushToken).count
+            if cloudKitPhones != phones { cloudKitPhones = phones }
+        }
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
         let authorization: NotificationAuthorization
         switch status {
@@ -1036,11 +1070,17 @@ final class MenuBarModel: ObservableObject {
     private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload],
                       focused: Set<String> = [], recordSkips: Bool = true,
                       standDownForPhone: Bool = true) async -> Bool {
-        let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
+        let targets = pushTargets(devices)
+        let fanout = PushFanout.plan(alert, devices: targets.devices, apnsConfigured: targets.configured,
                                      focusedSessionIDs: focused)
-        guard let pusher, !fanout.recipients.isEmpty else {
+        guard !fanout.recipients.isEmpty else {
             if recordSkips { await recordPushSkip(alert, reason: fanout.skip) }
             return false
+        }
+        guard let pusher else {
+            guard let cloudKit else { return false }
+            return await pushThroughCloudKit(alert, fanout: fanout, via: cloudKit,
+                                             standDownForPhone: standDownForPhone)
         }
         // A phone with a live stream may be posting this cue itself right now:
         // hold each push briefly for its receipt (ADR-0012), all devices side
@@ -1091,10 +1131,50 @@ final class MenuBarModel: ObservableObject {
         return sent
     }
 
+    /// One record for the whole Apple Account: every phone signed into it gets
+    /// the same push, so the loudest recipient decides the sound, and each
+    /// phone's extension quiets it again for its own Quiet mode. A completion
+    /// notice is claimed once for the account, not per phone.
+    private func pushThroughCloudKit(_ alert: SoundAlert, fanout: PushFanout, via cloudKit: CloudKitCueSender,
+                                     standDownForPhone: Bool) async -> Bool {
+        guard let level = fanout.recipients.map(\.level).max() else { return false }
+        if standDownForPhone, alert.sound == .agentDone, let notice = alert.session.completionNotice,
+           !(await CompletionNoticeAttempts.shared.claim(notice, recipient: "cloudkit")) { return false }
+        var session = alert.session
+        if alert.sound == .agentDone, alert.session.completionNotice != nil,
+           !fanout.recipients.allSatisfy({ $0.device.supportsCompletionNotices == true }) {
+            let live = await store.snapshot(now: Date()).sessions.first { $0.id == alert.sessionID }
+            session.summary = live?.summary
+            session.completionNotice = nil
+        }
+        let sent = SoundAlert(session: session, sound: alert.sound, delivery: level, isReminder: alert.isReminder)
+        let copy = PushCopy.copy(for: alert.sound, session: session)
+        let wantsSound = level.makesSound && fanout.recipients.contains { $0.device.playSound != false }
+        let category = alert.actionCategory
+        let cue = CloudKitCueOutgoing(
+            kind: CloudKitCue.Kind(category: category), notificationID: sent.notificationID,
+            sessionID: alert.sessionID,
+            requestID: category == .approval ? session.pendingApproval?.id
+                : category == .question ? session.pendingQuestion?.id : nil,
+            title: copy.title, body: copy.body, localization: PushLocalization(copy),
+            sound: wantsSound ? alert.sound.fileName : "",
+            timeSensitive: alert.isTimeSensitive && level == .bannerSound,
+            soundCategory: alert.sound.rawValue)
+        let hold: Bool = if standDownForPhone { await store.subscriberCount > 0 } else { false }
+        let result = await cloudKit.send(
+            cue, tokens: fanout.recipients.compactMap(\.device.token),
+            waitSince: standDownForPhone ? alert.session.statusSince : nil, holdForPhone: hold,
+            validate: { [weak self] in
+                guard let self else { return false }
+                return await self.isCurrentCompletion(alert, deviceToken: fanout.recipients.first?.device.token)
+            })
+        return result.outcome == .accepted
+    }
+
     private func recordPushSkip(_ alert: SoundAlert, reason: CueSkipReason?) async {
         guard let reason else { return }
         await deliveryRecorder.record(NotificationDeliveryRecord(
-            channel: .apns, outcome: .skipped, sessionID: alert.sessionID,
+            channel: pusher == nil && cloudKit != nil ? .cloudkit : .apns, outcome: .skipped, sessionID: alert.sessionID,
             sound: alert.sound.rawValue, failureReason: reason.rawValue, timestamp: Date()))
     }
 
