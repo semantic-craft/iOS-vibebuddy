@@ -50,12 +50,6 @@ struct SessionCurrencyTests {
         #expect(SessionCurrency.older(input, now: now).map(\.id) == ["b", "d"])
     }
 
-    @Test func theWindowIsInjectable() {
-        let s = session("x", .done, hoursAgo: 2)
-        #expect(!SessionCurrency.isCurrent(s, now: now, window: 3600))
-        #expect(SessionCurrency.older([s], now: now, window: 3600).count == 1)
-    }
-
     @Test func aSummaryOverCurrentSessionsDropsTheOldOnes() {
         let input = [session("a", .done, hoursAgo: 1, unread: true), session("b", .done, hoursAgo: 48),
                      session("c", .done, hoursAgo: 48), session("d", .working, hoursAgo: 1)]

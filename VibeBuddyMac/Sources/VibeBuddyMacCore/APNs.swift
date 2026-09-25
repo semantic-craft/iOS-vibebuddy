@@ -147,9 +147,6 @@ public actor DeviceTokens {
     }
 
     public func endPairing() { pairingAllowedUntil = nil }
-
-    /// Drop every device without blocking re-registration (tests, demo reset).
-    public func removeAll() { registry.removeAll() }
 }
 
 /// The phone's string-table keys for a push, so the banner reads in the

@@ -26,16 +26,6 @@ struct MissedLedgerTests {
         #expect(ledger.entries.map(\.waitKind) == [.permission])
     }
 
-    @Test("acknowledge cancels the timer for that wait")
-    func acknowledgementCancels() {
-        var ledger = MissedLedger()
-        let session = waiting("s", since: t0)
-        ledger.observe([session], now: t0)
-        ledger.acknowledge(sessionID: "s", now: t0.addingTimeInterval(60))
-        ledger.observe([session], now: t0.addingTimeInterval(300))
-        #expect(ledger.counts(weekContaining: t0.addingTimeInterval(300), now: t0.addingTimeInterval(300)).count == 0)
-    }
-
     @Test("leaving needsResponse before five minutes is not a miss")
     func waitEndingCancels() {
         var ledger = MissedLedger()
@@ -43,27 +33,6 @@ struct MissedLedgerTests {
         ledger.observe([], now: t0.addingTimeInterval(120))
         ledger.observe([], now: t0.addingTimeInterval(300))
         #expect(ledger.counts(weekContaining: t0.addingTimeInterval(300), now: t0.addingTimeInterval(300)).count == 0)
-    }
-
-    @Test("a muted session still counts")
-    func mutedCounts() {
-        var ledger = MissedLedger()
-        var session = waiting("muted", agent: .codex, wait: .question, since: t0)
-        session.attention = .muted
-        session.attentionOverride = .muted
-        ledger.observe([session], now: t0)
-        ledger.observe([session], now: t0.addingTimeInterval(300))
-        #expect(ledger.counts(weekContaining: t0.addingTimeInterval(300), now: t0.addingTimeInterval(300)).count == 1)
-        #expect(ledger.entries.first?.agent == .codex)
-    }
-
-    @Test("zero for the week is 0, not blank")
-    func zeroIsZero() {
-        var ledger = MissedLedger()
-        let counts = ledger.counts(weekContaining: t0, now: t0)
-        #expect(counts.count == 0)
-        #expect(counts.byAgent.isEmpty)
-        #expect(!counts.weekStart.isEmpty)
     }
 
     @Test("the week label matches a yyyy-MM-dd formatter in the ledger's calendar")

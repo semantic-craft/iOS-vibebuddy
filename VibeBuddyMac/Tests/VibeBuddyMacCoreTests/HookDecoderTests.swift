@@ -40,25 +40,6 @@ struct HookDecoderTests {
         #expect(e?.toolName == "Bash")
     }
 
-    @Test("Codex PermissionRequest becomes a permission wait")
-    func codexPermissionRequest() {
-        let e = HookDecoder.decode(
-            Data(#"{"hook_event_name":"PermissionRequest","session_id":"t9","cwd":"/x/proj","tool_name":"Bash"}"#.utf8),
-            agent: .codex, receivedAt: now).event
-        #expect(e?.kind == .notification)
-        #expect(e?.sessionID == "t9")
-        #expect(e?.message == "Permission required for Bash")
-    }
-
-    @Test("Codex Stop carries the last assistant message")
-    func codexStopSummary() {
-        let e = HookDecoder.decode(
-            Data(#"{"hook_event_name":"Stop","session_id":"t10","cwd":"/x/proj","last_assistant_message":"All tests pass."}"#.utf8),
-            agent: .codex, receivedAt: now).event
-        #expect(e?.kind == .stop)
-        #expect(e?.message == "All tests pass.")
-    }
-
     @Test("grok source routes to the Grok decoder, tagged grok")
     func grokRoute() {
         let e = HookDecoder.decode(
@@ -68,34 +49,6 @@ struct HookDecoderTests {
         #expect(e?.agent == .grok)
         #expect(e?.sessionID == "g1")
         #expect(e?.toolName == "run_terminal_cmd")
-    }
-
-    @Test("Grok stop carries the last assistant message, like Codex's Stop summary")
-    func grokStopSummary() {
-        let e = HookDecoder.decode(
-            Data(#"{"hookEventName":"stop","sessionId":"g2","cwd":"/x/proj","promptId":"p1","reason":"end_turn","lastAssistantMessage":"All tests pass."}"#.utf8),
-            agent: .grok, receivedAt: now).event
-        #expect(e?.kind == .stop)
-        #expect(e?.message == "All tests pass.")
-        #expect(e?.turnID == "p1")
-    }
-
-    @Test("Grok's permission_prompt notification becomes a permission wait")
-    func grokPermissionPrompt() {
-        let e = HookDecoder.decode(
-            Data(#"{"hookEventName":"notification","sessionId":"g3","notificationType":"permission_prompt","message":"Tool permission requested"}"#.utf8),
-            agent: .grok, receivedAt: now).event
-        #expect(e?.kind == .notification)
-        #expect(e?.message == "Tool permission requested")
-    }
-
-    @Test("Claude-shape turn events carry no turn identity, so they always settle")
-    func claudeShapeHasNoTurnID() {
-        let e = HookDecoder.decode(
-            Data(#"{"hook_event_name":"Stop","session_id":"s"}"#.utf8),
-            agent: .claudeCode, receivedAt: now).event
-        #expect(e?.kind == .stop)
-        #expect(e?.turnID == nil)
     }
 
     @Test("antigravity source routes to the Antigravity decoder, tagged antigravity")

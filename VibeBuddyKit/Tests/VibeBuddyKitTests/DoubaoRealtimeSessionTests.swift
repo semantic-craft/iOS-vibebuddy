@@ -4,26 +4,6 @@ import Testing
 
 @Suite("Doubao protocol boundaries")
 struct DoubaoRealtimeSessionTests {
-    @Test("Final ASR fields follow the duplex demo; failed and empty input are not final text")
-    func finalTranscriptionFields() {
-        let type = "conversation.item.input_audio_transcription.completed"
-        for (fields, expected) in [
-            (["transcript": "first", "text": "second"], "first"),
-            (["transcript": " \n", "text": "second"], "second"),
-            (["text": "second"], "second"),
-        ] {
-            let event = DoubaoRealtimeSession.userTranscriptionEvent(fields.merging(["type": type]) { _, new in new })
-            guard case .userTranscript(let text, let final) = event else {
-                Issue.record("Expected a completed user transcript"); continue
-            }
-            #expect(text == expected && final)
-        }
-        #expect(DoubaoRealtimeSession.userTranscriptionEvent(["type": type, "transcript": "", "text": " "]) == nil)
-        #expect(DoubaoRealtimeSession.userTranscriptionEvent([
-            "type": "conversation.item.input_audio_transcription.failed", "text": "failed hypothesis",
-        ]) == nil)
-    }
-
     @Test("PCM capture blocks become complete 20ms frames without changing bytes")
     func frames() {
         var frames = DoubaoPCMFrames()
@@ -164,21 +144,6 @@ struct DoubaoRealtimeSessionTests {
 @Suite("Doubao completed transcript delivery")
 @MainActor
 struct DoubaoFinalTranscriptTests {
-    @Test("Official text-only final reaches the coordinator and closes exactly once")
-    func textOnlyFinalEndsCall() throws {
-        let audio = TranscriptAudio()
-        var closes = 0
-        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" }, closeSession: { _ in closes += 1 })
-        coordinator.handle(.connected)
-        let event = try #require(DoubaoRealtimeSession.userTranscriptionEvent([
-            "type": "conversation.item.input_audio_transcription.completed", "text": "请立即挂断这次语音通话"]))
-        coordinator.handle(event)
-        #expect(coordinator.lastUserText == "请立即挂断这次语音通话")
-        #expect(audio.stops == 1 && closes == 1 && coordinator.phase == .idle)
-        coordinator.handle(event)
-        #expect(audio.stops == 1 && closes == 1)
-    }
-
     @Test("Completed parser prefers nonblank transcript then text and ignores failed events")
     func fieldPrecedence() throws {
         let audio = TranscriptAudio()

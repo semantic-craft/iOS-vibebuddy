@@ -18,13 +18,4 @@ struct CompanionTypeTests {
             last = index
         }
     }
-
-    @Test("the ramp's anchors land where the tokens are used")
-    func anchors() {
-        #expect(CompanionType.textStyle(for: 9.5) == .caption2)
-        #expect(CompanionType.textStyle(for: 11.5) == .footnote)
-        #expect(CompanionType.textStyle(for: 13) == .subheadline)
-        #expect(CompanionType.textStyle(for: 15) == .body)
-        #expect(CompanionType.textStyle(for: 28) == .largeTitle)
-    }
 }

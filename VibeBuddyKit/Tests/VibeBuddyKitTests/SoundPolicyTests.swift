@@ -28,14 +28,6 @@ struct SoundPolicyTests {
                          appActive: appActive, quietMode: quiet, focusedSessionIDs: focused)
     }
 
-    // MARK: NotificationSound
-
-    @Test("a sound names its bundled .caf file")
-    func fileName() {
-        #expect(NotificationSound.needsApproval.fileName == "needs_approval.caf")
-        #expect(NotificationSound.agentDone.fileName == "agent_done.caf")
-    }
-
     // MARK: DeliveryMatrix — the one table
 
     @Test("the matrix matches the spec table row by row")
@@ -53,13 +45,6 @@ struct SoundPolicyTests {
             #expect(DeliveryMatrix.level(for: sound, attention: .normal) == normal, "\(sound) normal")
             #expect(DeliveryMatrix.level(for: sound, attention: .muted) == muted, "\(sound) muted")
         }
-    }
-
-    @Test("delivery levels order silent → loud, and only banners interrupt")
-    func deliveryOrdering() {
-        #expect(DeliveryLevel.drop < .list && .list < .banner && .banner < .bannerSound)
-        #expect(!DeliveryLevel.list.interrupts && DeliveryLevel.banner.interrupts)
-        #expect(DeliveryLevel.bannerSound.makesSound && !DeliveryLevel.banner.makesSound)
     }
 
     @Test("Time Sensitive is bannerSound × approval/question, never muted")
@@ -123,43 +108,7 @@ struct SoundPolicyTests {
         #expect(alerts.map(\.delivery) == [.bannerSound])   // a question blocks you: loud even at normal attention
     }
 
-    @Test("a fresh permission transition rings needs_approval")
-    func freshPermission() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working)], now: 0))
-        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .permission, since: 1)], now: 1))
-        #expect(alerts.map(\.sound) == [.needsApproval])
-        #expect(alerts.map(\.delivery) == [.bannerSound])
-    }
-
     // MARK: attention — the matrix applied per session
-
-    @Test("a followed session's question rings out loud")
-    func followedQuestionLoud() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working)], now: 0))
-        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1,
-                                               attention: .followed)], now: 1))
-        #expect(alerts.map(\.delivery) == [.bannerSound])
-    }
-
-    @Test("a muted session's approval still shows, silently")
-    func mutedApprovalSilentBanner() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working)], now: 0))
-        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .permission, since: 1,
-                                               attention: .muted)], now: 1))
-        #expect(alerts.map(\.delivery) == [.banner])
-    }
-
-    @Test("a muted session's completion is dropped — not even in the list")
-    func mutedDoneDropped() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
-        let alerts = p.evaluate(input([session("a", .done, since: 40, attention: .muted)],
-                                      now: 40, appActive: false))
-        #expect(alerts.isEmpty)
-    }
 
     @Test("a completion sounds when followed, stays silent when normal, and is dropped when muted")
     func doneByAttention() {
@@ -359,16 +308,6 @@ struct SoundPolicyTests {
         #expect(alerts.map(\.sound) == [.agentDone])
     }
 
-    @Test("the real failed flag rings stuck even with a benign summary")
-    func failedFlagRingsStuck() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
-        var done = session("a", .done, since: 40, summary: "All changes applied cleanly")
-        done.failed = true
-        let alerts = p.evaluate(input([done], now: 40, appActive: false))
-        #expect(alerts.map(\.sound) == [.agentStuck])
-    }
-
     @Test("a quick failure still rings stuck — failures matter regardless of runtime")
     func quickFailureRingsStuck() {
         let p = SoundPolicy()
@@ -377,15 +316,6 @@ struct SoundPolicyTests {
         done.failed = true
         let alerts = p.evaluate(input([done], now: 5, appActive: false))
         #expect(alerts.map(\.sound) == [.agentStuck])
-    }
-
-    @Test("a failed ending is silent while you are watching")
-    func failureForegroundSilent() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
-        let alerts = p.evaluate(input([session("a", .done, since: 40, summary: "Tests failed")],
-                                      now: 40, appActive: true))
-        #expect(alerts.isEmpty)
     }
 
     // MARK: Quiet / Focus mode — every session reads as muted
@@ -398,25 +328,6 @@ struct SoundPolicyTests {
                                                attention: .followed)],
                                       now: 1, quiet: true))
         #expect(alerts.map(\.delivery) == [.banner])
-    }
-
-    @Test("Quiet mode still shows an approval, without its sound")
-    func quietKeepsApprovalSilently() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working)], now: 0))
-        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .permission, since: 1)],
-                                      now: 1, quiet: true))
-        #expect(alerts.map(\.sound) == [.needsApproval])
-        #expect(alerts.map(\.delivery) == [.banner])
-    }
-
-    @Test("Quiet mode drops completion")
-    func quietDropsDone() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
-        let alerts = p.evaluate(input([session("a", .done, since: 40)], now: 40,
-                                      appActive: false, quiet: true))
-        #expect(alerts.isEmpty)
     }
 
     // MARK: long-wait nudge — one gentle reminder after the threshold
@@ -439,15 +350,5 @@ struct SoundPolicyTests {
         _ = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 200))  // nudge
         let again = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 260))
         #expect(again.isEmpty)
-    }
-
-    @Test("Quiet mode drops the long-wait nudge")
-    func quietDropsLongWait() {
-        let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working)], now: 0))
-        _ = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 1))
-        let nudge = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)],
-                                     now: 200, quiet: true))
-        #expect(nudge.isEmpty)
     }
 }

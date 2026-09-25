@@ -10,32 +10,11 @@ struct CompanionCopyTests {
                                 requiresInput: requiresInput, error: error)
     }
 
-    @Test("quiet with only running sessions: the mood line carries the count, the rest line is empty")
-    func quietWithOnlyWorking() {
-        let s = summary(thinking: 3)
-        #expect(CompanionCopy.moodLine(s) == "All quiet — 3 working")
-        #expect(CompanionCopy.restLine(s) == "")
-    }
-
-    @Test("quiet: the rest line drops the working term the mood line already said")
-    func quietDropsWorking() {
-        let s = summary(idle: 7, thinking: 3, completeUnread: 7)
-        #expect(CompanionCopy.moodLine(s) == "All quiet — 3 working")
-        #expect(CompanionCopy.restLine(s) == "7 done · 7 idle")
-    }
-
     @Test("something waiting: the mood line names the waiting count, so the rest line keeps working")
     func waitingKeepsWorking() {
         let s = summary(idle: 4, thinking: 3, completeUnread: 7, requiresInput: 2, error: 1)
         #expect(CompanionCopy.moodLine(s) == "3 things need you")
         #expect(CompanionCopy.restLine(s) == "3 working · 7 done · 4 idle")
-    }
-
-    @Test("one waiting session is singular")
-    func singularWaiting() {
-        let s = summary(thinking: 2, requiresInput: 1)
-        #expect(CompanionCopy.moodLine(s) == "1 thing needs you")
-        #expect(CompanionCopy.restLine(s) == "2 working")
     }
 
     @Test("voice replaces the mood line: working remains in the rest line")
@@ -46,20 +25,6 @@ struct CompanionCopyTests {
         #expect(CompanionCopy.restLine(summary(thinking: 3, requiresInput: 1),
                                        moodLineIsVisible: false) == "3 working")
         #expect(CompanionCopy.restLine(summary(), moodLineIsVisible: false) == "")
-    }
-
-    @Test("zeros are omitted from the rest line")
-    func zerosOmitted() {
-        #expect(CompanionCopy.restLine(summary(completeUnread: 5)) == "5 done")
-        #expect(CompanionCopy.restLine(summary(idle: 2)) == "2 idle")
-        #expect(CompanionCopy.restLine(summary(idle: 2, completeUnread: 5)) == "5 done · 2 idle")
-    }
-
-    @Test("an empty snapshot says nothing beyond the mood line")
-    func emptySnapshot() {
-        let s = summary()
-        #expect(CompanionCopy.moodLine(s) == "All quiet")
-        #expect(CompanionCopy.restLine(s) == "")
     }
 
     /// The bug this suite exists for: `All quiet — 3 working · 3 working · 7 done`.

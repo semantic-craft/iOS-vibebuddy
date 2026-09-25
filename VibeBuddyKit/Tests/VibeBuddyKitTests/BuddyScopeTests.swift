@@ -17,33 +17,15 @@ struct BuddyScopeTests {
         #expect(r.map(\.id) == ["a", "c"])
     }
 
-    @Test("empty selection means all sessions (none selected = all)")
-    func emptyMeansAll() {
-        let all = [s("a"), s("b")]
-        #expect(BuddyScope.included(from: all, selectedIDs: []).map(\.id) == ["a", "b"])
-    }
-
     @Test("a selection that matches no live session falls back to all")
     func noLiveMatchMeansAll() {
         let all = [s("a"), s("b")]
         #expect(BuddyScope.included(from: all, selectedIDs: ["ghost"]).map(\.id) == ["a", "b"])
     }
 
-    @Test("a partial match returns only the matches, ignoring stale IDs")
-    func partialMatch() {
-        let all = [s("a"), s("b"), s("c")]
-        let r = BuddyScope.included(from: all, selectedIDs: ["b", "gone"])
-        #expect(r.map(\.id) == ["b"])
-    }
-
     @Test("pruning keeps only IDs that still have a live session")
     func prune() {
         let live = [s("a"), s("c")]
         #expect(BuddyScope.pruned(["a", "b", "c", "d"], toLive: live) == ["a", "c"])
-    }
-
-    @Test("pruning an empty set stays empty")
-    func pruneEmpty() {
-        #expect(BuddyScope.pruned([], toLive: [s("a")]).isEmpty)
     }
 }

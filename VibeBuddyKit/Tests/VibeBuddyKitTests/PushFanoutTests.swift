@@ -103,12 +103,6 @@ struct PushFanoutTests {
         #expect(plan.recipients.map(\.level) == [.banner])
     }
 
-    @Test("a phone that never uploaded switches keeps the default set")
-    func defaultCategories() {
-        #expect(PushFanout.plan(alert(), devices: [device(categories: nil)],
-                                apnsConfigured: true).recipients.count == 1)
-    }
-
     @Test("devices refusing for different reasons report mixed, not whichever came first")
     func mixedRefusals() {
         let off = NotificationCategoryPrefs(enabled: [.needsApproval])

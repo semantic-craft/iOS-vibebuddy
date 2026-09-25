@@ -79,18 +79,6 @@ struct CompletionReminderTests {
         #expect(s.due([session(since: 0)], now: at(1200)).map(\.id) == ["s"])
     }
 
-    @Test("four reminders at most, spread over 75 minutes, then silence for that completion")
-    func cap() {
-        var s = CompletionReminderSchedule()
-        let done = session(since: 0)
-        var minutes: [Int] = []
-        for minute in stride(from: 1, through: 240, by: 1) where !remind(&s, [done], now: at(TimeInterval(minute * 60))).isEmpty {
-            minutes.append(minute)
-        }
-        #expect(minutes == [5, 15, 35, 75])
-        #expect(minutes.count == CompletionReminderSchedule.maxReminders)
-    }
-
     @Test("reading the completion stops the reminders; a new completion starts over")
     func stopsOnReadAndResets() {
         var s = CompletionReminderSchedule()

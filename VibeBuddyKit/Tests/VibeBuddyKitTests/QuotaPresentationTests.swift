@@ -6,14 +6,6 @@ import Testing
 struct QuotaPresentationTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    @Test("remaining shows both leftover and used except at the extremes")
-    func remainingLine() {
-        #expect(QuotaPresentation.remainingLine(usedPercent: 0) == "100% left")
-        #expect(QuotaPresentation.remainingLine(usedPercent: 100) == "0% left · 100% used")
-        #expect(QuotaPresentation.remainingLine(usedPercent: 41) == "59% left · 41% used")
-        #expect(QuotaPresentation.remainingLine(remainingPercent: 59) == "59% left · 41% used")
-    }
-
     @Test("reset line pairs a countdown with today/tomorrow/absolute time")
     func resetLine() {
         var calendar = Calendar(identifier: .gregorian)

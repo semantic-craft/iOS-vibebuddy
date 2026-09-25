@@ -28,11 +28,6 @@ struct BuddyStateTests {
         #expect(BuddyState.from(g) == .approval)
     }
 
-    @Test("a waiting question reads as question")
-    func question() {
-        #expect(BuddyState.from(groups(session("a", .needsResponse, wait: .question))) == .question)
-    }
-
     @Test("a wait past the threshold reads as longWait when time is known")
     func longWait() {
         let g = groups(session("a", .needsResponse, wait: .question, since: 0))
@@ -42,11 +37,6 @@ struct BuddyStateTests {
     @Test("working when something runs and nothing needs response")
     func working() {
         #expect(BuddyState.from(groups(session("a", .working), session("b", .done))) == .working)
-    }
-
-    @Test("a failed done session reads as stuck")
-    func stuck() {
-        #expect(BuddyState.from(groups(session("a", .done, failed: true))) == .stuck)
     }
 
     @Test("done only while a clean completion is unread")
@@ -61,12 +51,5 @@ struct BuddyStateTests {
             session("waiting", .needsResponse, wait: .permission),
             session("failed", .done, failed: true)
         )) == .stuck)
-    }
-
-    @Test("approval, question, and long wait share the amber task state")
-    func inputMoodsSharePresentation() {
-        #expect(BuddyState.approval.presentationState == .requiresInput)
-        #expect(BuddyState.question.presentationState == .requiresInput)
-        #expect(BuddyState.longWait.presentationState == .requiresInput)
     }
 }

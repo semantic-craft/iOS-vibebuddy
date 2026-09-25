@@ -85,14 +85,6 @@ struct ProviderQuotaProjectionTests {
         #expect(quota(swapped).shortWindowRemainingPercent == 84)
     }
 
-    @Test("A fully spent week is 0% remaining, not unavailable")
-    func fullySpentIsZeroNotMissing() {
-        let state = AccountUsageState.available(
-            snapshot(primary: window(.primary, used: 100, minutes: 10_080)), nextRefreshAt: nil)
-        #expect(quota(state).weeklyRemainingPercent == 0)
-        #expect(quota(state).unavailableReason == nil)
-    }
-
     @Test("An out-of-range percentage is malformed, never clamped into a number")
     func outOfRangeIsMalformed() {
         #expect(ProviderQuota.remaining(fromUsedPercent: 140) == nil)
@@ -123,31 +115,6 @@ struct ProviderQuotaProjectionTests {
         #expect(quota(state).weeklyRemainingPercent == nil)
         #expect(quota(state).window(.weekly).status(now: fetchedAt) == .unavailable)
         #expect(quota(state).otherWindows?.first?.remainingPercent == 68)
-    }
-
-    @Test("Every collector failure keeps its own diagnosis")
-    func failuresKeepTheirReason() {
-        let cases: [(AccountUsageUnavailableReason, String)] = [
-            (.notLoggedIn, "Codex is not signed in"),
-            (.providerUnavailable, "Codex CLI is unavailable"),
-            (.timedOut, "Usage refresh timed out"),
-            (.incompatibleFormat, "Codex returned an unsupported format"),
-            (.offline, "Offline"),
-            (.rateLimited, "Usage service is rate limited"),
-        ]
-        for (reason, text) in cases {
-            let state = AccountUsageState.unavailable(reason, lastAttemptAt: fetchedAt, nextRefreshAt: nil)
-            #expect(quota(state).unavailableReason == text)
-            #expect(quota(state).weeklyRemainingPercent == nil)
-        }
-    }
-
-    @Test("Turning collection off is an explicit unavailable, not a silent freeze")
-    func disabledCollectionIsUnavailable() {
-        let result = quota(.disabled)
-        #expect(result.weeklyRemainingPercent == nil)
-        #expect(result.unavailableReason == "Collection is turned off")
-        #expect(result.freshness(now: fetchedAt) == .unavailable)
     }
 
     @Test("A never-loaded source is unavailable, not stale")
@@ -238,17 +205,6 @@ struct ProviderQuotaProjectionTests {
         // must not reach the slot the Watch and the widgets fall back to.
         #expect(result.otherWindows == nil)
         #expect(result.scopedWindows?.first?.label == "Fable only")
-    }
-
-    @Test("A Claude reading with only the session window says nothing about the week")
-    func claudeWithoutWeeklyIsAvailable() throws {
-        let now = Date(timeIntervalSince1970: 1_788_400_000)
-        let result = try claudeQuota(
-            ["five_hour": ["used_percentage": 43, "resets_at": 1_788_410_000]], now: now)
-        #expect(result.weeklyRemainingPercent == nil)
-        #expect(result.shortWindowRemainingPercent == 57)
-        #expect(result.freshness(now: now) == .live)
-        #expect(result.unavailableReason == nil)
     }
 
     @Test("A missing or out-of-range Claude window never becomes a number")

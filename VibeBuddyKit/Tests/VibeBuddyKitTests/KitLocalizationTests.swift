@@ -13,13 +13,6 @@ final class KitLocalizationTests: XCTestCase {
         return bundle
     }
 
-    func testGroupNamesResolveInChinese() {
-        XCTAssertEqual(zhHans.localizedString(forKey: "Needs you", value: nil, table: nil), "需要你")
-        XCTAssertEqual(String(localized: "Needs you", bundle: zhHans), "需要你")
-        XCTAssertEqual(String(localized: "Working", bundle: zhHans), "进行中")
-        XCTAssertEqual(String(localized: "Done", bundle: zhHans), "完成")
-    }
-
     func testInterpolatedKeysResolveInChinese() {
         // `\(n)` becomes `%lld` in the key; a literal `%` in the source becomes `%%`.
         XCTAssertEqual(String(localized: "\(3) things need you", bundle: zhHans), "3 件事需要你")

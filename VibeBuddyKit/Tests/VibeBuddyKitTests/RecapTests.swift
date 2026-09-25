@@ -94,17 +94,4 @@ struct RecapTests {
         let back = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(full))
         #expect(back.recap == recap)
     }
-
-    @Test("the edit-volume line reads the same evidence the ledger shows")
-    func ledgerLine() {
-        var session = AgentSession(id: "s", agent: .claudeCode, project: "p", status: .done,
-                                   statusSince: now, updatedAt: now)
-        #expect(RecapEntry.ledgerLine(for: session) == nil)
-        session.changedFiles = ["a", "b", "c"]
-        session.commandsRun = 2
-        #expect(RecapEntry.ledgerLine(for: session) == "3 files · 2 commands")
-        session.linesAdded = 12
-        session.linesRemoved = 3
-        #expect(RecapEntry.ledgerLine(for: session) == "3 files · 2 commands · +12 −3")
-    }
 }

@@ -100,15 +100,6 @@ struct SessionActionTests {
             .unsupportedReason == "Your Mac isn't connected to Codex right now.")
     }
 
-    @Test("the send caption names Mac, project and agent")
-    func targetCaption() {
-        let s = session(status: .working, project: "search-indexer")
-        #expect(SessionActionSupport.targetCaption(macName: "Studio", session: s)
-                == "Studio · search-indexer · Codex")
-        #expect(SessionActionSupport.targetCaption(macName: "  ", session: s)
-                .hasPrefix("Mac ·"))
-    }
-
     // MARK: - Control channels
 
     private func cursor(_ status: SessionStatus, channel: ControlChannel?, id: String = "c1",

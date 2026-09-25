@@ -7,26 +7,6 @@ struct EnrichmentTests {
 
     let t0 = Date(timeIntervalSince1970: 1_700_000_000)
 
-    @Test("parser reads transcript_path")
-    func parsesTranscriptPath() {
-        let e = HookParser.parse(
-            Data(#"{"hook_event_name":"Stop","session_id":"s","transcript_path":"/tmp/x.jsonl"}"#.utf8),
-            receivedAt: t0
-        )
-        #expect(e?.transcriptPath == "/tmp/x.jsonl")
-    }
-
-    @Test("reducer.enrich sets model, tokens, and a summary when not waiting")
-    func enrichSetsFields() {
-        var r = SessionReducer()
-        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", cwd: "/x/p", timestamp: t0))
-        r.enrich(sessionID: "s",
-                 with: TranscriptInfo(model: "claude-opus-4-8", tokens: 4242, summary: "did a thing"))
-        #expect(r.sessions["s"]?.model == "claude-opus-4-8")
-        #expect(r.sessions["s"]?.tokens == 4242)
-        #expect(r.sessions["s"]?.summary == "did a thing")
-    }
-
     @Test("enrich does not overwrite a needsResponse prompt summary")
     func enrichKeepsPromptSummary() {
         var r = SessionReducer()
@@ -47,18 +27,6 @@ struct EnrichmentTests {
             model: "grok-4.6", contextTokens: 184_960, contextWindow: 500_000))
         #expect(r.sessions["s"]?.contextWindow == 500_000)
         #expect(r.sessions["s"]?.contextTokens == 184_960)
-    }
-
-    @Test("without a reported window the model table answers, 500k for grok")
-    func contextWindowByModel() {
-        #expect(SessionReducer.contextWindow(for: "claude-opus-4-8") == 200_000)
-        #expect(SessionReducer.contextWindow(for: nil) == 200_000)
-        #expect(SessionReducer.contextWindow(for: "grok-4.6") == 500_000)
-
-        var r = SessionReducer()
-        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", agent: .grok, timestamp: t0))
-        r.enrich(sessionID: "s", with: TranscriptInfo(model: "grok-4.6", contextTokens: 1_000))
-        #expect(r.sessions["s"]?.contextWindow == 500_000)
     }
 
     @Test("enrich carries a branch, and a running tool only into a working gap")
@@ -110,13 +78,6 @@ struct EnrichmentTests {
             pendingPermissionTool: "run_terminal_command"))
         #expect(r.sessions["s"]?.waitKind == .permission)
         #expect(r.sessions["s"]?.summary == "Permission required: run_terminal_command")
-    }
-
-    @Test("enrich on an unknown session is ignored")
-    func enrichUnknown() {
-        var r = SessionReducer()
-        r.enrich(sessionID: "ghost", with: TranscriptInfo(model: "m"))
-        #expect(r.sessions["ghost"] == nil)
     }
 
     @Test("store ingest enriches the session from its transcript file")

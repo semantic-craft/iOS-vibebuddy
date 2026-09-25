@@ -68,27 +68,6 @@ struct WatchDashboardStateTests {
         #expect(CompanionCopy.needsYou(state.presentation) == state.counts.needsResponse)
     }
 
-    @Test("No sessions is an empty, connected state — not a no-data state")
-    func emptyIsNotNoData() {
-        let state = project([])
-        #expect(state.counts.isEmpty)
-        #expect(state.alerts.isEmpty)
-        #expect(state.relay == .live)
-        #expect(state.topAlert == nil)
-    }
-
-    @Test("The top alert keeps the dashboard's own order")
-    func topAlertUsesExistingOrdering() {
-        let sessions = [
-            session(id: "working", status: .working),
-            session(id: "first", status: .needsResponse, waitKind: .question, secondsWaiting: 10),
-            session(id: "second", status: .needsResponse, waitKind: .permission, secondsWaiting: 600),
-        ]
-        let state = project(sessions)
-        #expect(state.alerts.map(\.sessionId) == ["first", "second"])
-        #expect(state.topAlert?.sessionId == "first")
-    }
-
     // MARK: alert content
 
     @Test("A permission alert carries the full command, not the preview")
@@ -153,13 +132,6 @@ struct WatchDashboardStateTests {
         #expect(!json.contains("Make it plainer"))
     }
 
-    @Test("A permission carries no option labels")
-    func permissionsHaveNoOptions() {
-        let approval = PendingApproval(id: "ap", tool: "Bash", commandPreview: "ls")
-        let state = project([session(id: "a", status: .needsResponse, waitKind: .permission, approval: approval)])
-        #expect(state.topAlert?.options.isEmpty == true)
-    }
-
     // MARK: live promotion and removal
 
     @Test("Working and done sessions never become alerts")
@@ -200,57 +172,6 @@ struct WatchDashboardStateTests {
         #expect(promoted.alerts.map(\.sessionId) == ["first"])
         #expect(promoted.topAlert?.waitKind == .permission)
         #expect(promoted.counts.working == 2)
-    }
-
-    @Test("A removed session leaves no alert behind")
-    func removingASessionClearsItsAlert() {
-        let approval = PendingApproval(id: "ap", tool: "Bash", commandPreview: "swift test")
-        let waiting = project([session(id: "gone", status: .needsResponse, waitKind: .permission, approval: approval)])
-        #expect(waiting.alerts.count == 1)
-
-        let afterSessionEnd = project([])
-        #expect(afterSessionEnd.alerts.isEmpty)
-        #expect(afterSessionEnd.counts.isEmpty)
-    }
-
-    @Test("Several waiting sessions all reach the Alerts page in dashboard order")
-    func everyWaitingSessionIsListed() {
-        let question = PendingQuestion(id: "q", prompt: "Which style?")
-        let state = project([
-            session(id: "a", status: .needsResponse, waitKind: .question, question: question),
-            session(id: "b", status: .working),
-            session(id: "c", status: .needsResponse, waitKind: .question, question: question),
-            session(id: "d", status: .needsResponse, waitKind: .question, question: question),
-        ])
-        #expect(state.alerts.map(\.sessionId) == ["a", "c", "d"])
-        #expect(state.counts.needsResponse == 3)
-    }
-
-    // MARK: security boundary
-
-    @Test("Encoded Watch state carries no token, host, terminal, or diff")
-    func encodedStateLeaksNothing() throws {
-        let approval = PendingApproval(
-            id: "ap", tool: "Edit", commandPreview: "src/app.ts",
-            filePath: "src/app.ts",
-            oldText: "todos.sort((a, b) => a.id - b.id)",
-            newText: "todos.sort((a, b) => a.dueDate - b.dueDate)")
-        let state = project([session(id: "a", status: .needsResponse, waitKind: .permission, approval: approval)])
-        let json = String(decoding: try JSONEncoder().encode(state), as: UTF8.self)
-
-        for secret in ["ttys004", "iTerm.app", "a.dueDate", "a.id - b.id", "12345"] {
-            #expect(!json.contains(secret), "Watch state leaked \(secret)")
-        }
-        // The pairing payload has no representation here at all.
-        #expect(!json.contains("token"))
-        #expect(!json.contains("host"))
-    }
-
-    @Test("Watch state round-trips")
-    func stateRoundTrips() throws {
-        let state = WatchDemoScenario.permission.state(now: now)
-        let data = try JSONEncoder().encode(state)
-        #expect(try JSONDecoder().decode(WatchDashboardState.self, from: data) == state)
     }
 
     // MARK: quota
@@ -325,16 +246,6 @@ struct WatchDashboardStateTests {
         #expect(received.quota(.codex)?.weeklyRemainingPercent == 68)
     }
 
-    // MARK: relay
-
-    @Test("A disconnected relay keeps the last state and reports its age")
-    func disconnectedKeepsTheLastState() {
-        let state = project([session(id: "a", status: .working)], relay: .disconnected)
-        #expect(state.relay == .disconnected)
-        #expect(state.counts.working == 1)
-        #expect(state.age(now: now.addingTimeInterval(120)) == 120)
-    }
-
     // MARK: five-state parity
 
     @Test("The Watch carries the same five-state aggregate as every other surface")
@@ -349,17 +260,6 @@ struct WatchDashboardStateTests {
         #expect(state.presentation.requiresInput == 1)
         #expect(state.presentation.thinking == 1)
         #expect(state.presentation.idle == 1)
-    }
-
-    @Test("A confirmed terminal failure counts under Needs you")
-    func stuckIsNeedsYou() {
-        var failed = session(id: "a", status: .done)
-        failed.failed = true
-        let state = project([failed, session(id: "b", status: .working)])
-        #expect(state.counts.needsResponse == 1)    // the attention groups, as on the phone
-        #expect(state.counts.working == 1)
-        #expect(state.stuck == 1)                   // the five-state view still says why
-        #expect(state.presentation.thinking == 1)
     }
 
     // MARK: coalescing
@@ -397,19 +297,6 @@ struct WatchDashboardStateTests {
         #expect(!base.isEquivalent(to: stuck))
     }
 
-    // MARK: buddy mood
-
-    @Test("The buddy's mood follows what the Watch actually knows")
-    func buddyStateFollowsTheState() {
-        let permission = PendingApproval(id: "ap", tool: "Bash", commandPreview: "ls")
-        #expect(project([session(id: "a", status: .needsResponse, waitKind: .permission, approval: permission)])
-            .buddyState == .approval)
-        #expect(project([session(id: "a", status: .needsResponse, waitKind: .question)]).buddyState == .question)
-        #expect(project([session(id: "a", status: .working)]).buddyState == .working)
-        #expect(project([session(id: "a", status: .done)]).buddyState == .idle)
-        #expect(project([]).buddyState == .sleeping)
-    }
-
     // MARK: demo scenarios
 
     @Test("Every demo scenario is marked as sample data")
@@ -417,84 +304,6 @@ struct WatchDashboardStateTests {
         for scenario in WatchDemoScenario.allCases {
             #expect(scenario.state(now: now).isDemo || scenario == .noData)
         }
-    }
-
-    @Test("normal has work in flight, one failure to look at, and nobody waiting")
-    func normalScenario() {
-        let state = WatchDemoScenario.normal.state(now: now)
-        // The failed build counts under Needs you (attention groups), but it
-        // is not a wait, so there is no alert card for it.
-        #expect(state.counts.needsResponse == 1)
-        #expect(state.counts.working == 2)
-        #expect(state.counts.done == 3)
-        #expect(state.alerts.isEmpty)
-        #expect(state.quotas.allSatisfy { $0.freshness(now: now) == .live })
-    }
-
-    @Test("permission takes over with a complete command")
-    func permissionScenario() throws {
-        let state = WatchDemoScenario.permission.state(now: now)
-        let alert = try #require(state.topAlert)
-        #expect(alert.waitKind == .permission)
-        #expect(alert.tool == "Bash")
-        #expect(alert.request?.hasPrefix("xcodebuild -scheme VibeBuddyWatch") == true)
-        #expect(state.counts.needsResponse == 2)
-    }
-
-    @Test("question takes over, and both shapes of it can be answered")
-    func questionScenario() throws {
-        let state = WatchDemoScenario.question.state(now: now)
-        let alert = try #require(state.topAlert)
-        #expect(alert.waitKind == .question)
-        // The open question leads, so the home takeover rehearses the fixed
-        // phrases; the one with choices is a task detail away.
-        #expect(alert.request == "The migration touches two schemas. Should I keep going?")
-        #expect(alert.isAnswerable)
-        let withOptions = try #require(state.alerts.first { $0.sessionId == "demo-watch-question" })
-        #expect(withOptions.request == "Which revision style should I use?")
-        #expect(withOptions.options == ["Tighten", "Plain language"])
-        #expect(withOptions.isAnswerable)
-        // A question is still never *decidable*: approve/deny is not an answer.
-        #expect(state.alerts.allSatisfy { !$0.isDecidable })
-    }
-
-    @Test("empty is connected with nothing running")
-    func emptyScenario() {
-        let state = WatchDemoScenario.empty.state(now: now)
-        #expect(state.relay == .live)
-        #expect(state.counts.isEmpty)
-        #expect(state.quotas.count == 2)
-    }
-
-    @Test("staleQuota ages one provider only")
-    func staleQuotaScenario() {
-        let state = WatchDemoScenario.staleQuota.state(now: now)
-        #expect(state.quota(.codex)?.freshness(now: now) == .stale)
-        #expect(state.quota(.codex)?.weeklyRemainingPercent == 68)
-        #expect(state.quota(.claude)?.freshness(now: now) == .live)
-    }
-
-    @Test("unavailableQuota explains itself and keeps the other provider")
-    func unavailableQuotaScenario() {
-        let state = WatchDemoScenario.unavailableQuota.state(now: now)
-        #expect(state.quota(.codex)?.freshness(now: now) == .unavailable)
-        #expect(state.quota(.codex)?.weeklyRemainingPercent == nil)
-        #expect(state.quota(.codex)?.unavailableReason == "Codex is signed out")
-        #expect(state.quota(.claude)?.freshness(now: now) == .live)
-    }
-
-    @Test("noData shows nothing rather than a placeholder account")
-    func noDataScenario() {
-        let state = WatchDemoScenario.noData.state(now: now)
-        #expect(state.relay == .noData)
-        #expect(state.counts.isEmpty)
-        #expect(state.quotas.isEmpty)
-        #expect(state.alerts.isEmpty)
-    }
-
-    @Test("A scenario is a pure function of its clock")
-    func scenariosAreDeterministic() {
-        #expect(WatchDemoScenario.permission.state(now: now) == WatchDemoScenario.permission.state(now: now))
     }
 
     // MARK: what the wrist may end

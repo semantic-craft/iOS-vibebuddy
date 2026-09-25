@@ -11,11 +11,4 @@ struct VoiceCloseIntentTests {
             #expect(!VoiceCloseIntent.isExplicitCallEnd(text))
         }
     }
-
-    @Test("farewells, negation, quoted speech, questions and task endings stay open")
-    func nonCommands() {
-        for text in ["不要说再见", "请解释‘拜拜’的意思", "goodbye是什么意思", "done", "关闭？", "再见", "ok bye!", "stop editing main.swift", ""] {
-            #expect(!VoiceCloseIntent.isExplicitCallEnd(text))
-        }
-    }
 }

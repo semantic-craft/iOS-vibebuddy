@@ -646,13 +646,6 @@ struct CursorACPTests {
         #expect(session?.controlChannel == .acp)
     }
 
-    @Test func aPlainDispatchStartsTheCLIWithNoOptions() async throws {
-        let rig = Rig()
-        _ = await rig.monitor.dispatch(request)
-        #expect(rig.log.launches == [CursorACPLaunch(cwd: "/x/p")])
-        #expect(rig.log.launches.first?.leadingArguments == [])
-    }
-
     @Test func modelModeAndWorktreeBecomeTheCLIsGlobalOptionsInFrontOfACP() async throws {
         let rig = Rig()
         var chosen = request

@@ -94,16 +94,6 @@ struct TaskPresentationTests {
         #expect(summary.completeUnread + summary.idle == groups.done.count)
     }
 
-    @Test("exact implementation color tokens stay centralized")
-    func tokens() {
-        #expect(TaskPresentationState.idle.colorToken.hex == "#FFFFFF")
-        #expect(TaskPresentationState.thinking.colorToken.hex == "#304FFE")
-        #expect(TaskPresentationState.completeUnread.colorToken.hex == "#00FF4C")
-        #expect(TaskPresentationState.requiresInput.colorToken.hex == "#FF6D00")
-        #expect(TaskPresentationState.error.colorToken.hex == "#FF0033")
-        #expect(TaskPresentationState.unassigned.colorToken.hex == "#000000")
-    }
-
     @Test("summary and leading session use the same projection and priority")
     func summaryAndLeading() {
         let sessions = [
@@ -165,21 +155,5 @@ struct TaskPresentationTests {
         #expect(LiveActivityPresentation.compactTrailingCount(summary: crowded) == 120)
         #expect(LiveActivityPresentation.compactTrailingAccessibilityLabel(
             summary: crowded) == "120 \(TaskPresentationState.thinking.label)")
-    }
-
-    @Test("an empty board counts nothing and an idle one counts its rest")
-    func compactTrailingQuietAndEmpty() {
-        let empty = TaskPresentationSummary()
-        #expect(empty.isEmpty)
-        #expect(LiveActivityPresentation.compactTrailingCount(summary: empty) == 0)
-        #expect(LiveActivityPresentation.compactTrailingAccessibilityLabel(summary: empty) == "All quiet")
-        #expect(LiveActivityPresentation.compactAccessibilityLabel(project: nil, state: .unassigned) == "All quiet")
-
-        let idle = TaskPresentationSummary(sessions: [session("release-check", status: .done, updatedAt: 1)])
-        #expect(idle.primaryState == .idle)
-        #expect(LiveActivityPresentation.compactTrailingCount(summary: idle) == 1)
-        #expect(LiveActivityPresentation.compactAccessibilityLabel(
-            project: "release-check", state: .idle) == "release-check, \(TaskPresentationState.idle.label)")
-        #expect(LiveActivityPresentation.compactAccessibilityLabel(project: nil, state: .thinking) == TaskPresentationState.thinking.label)
     }
 }

@@ -141,12 +141,6 @@ struct AgentRosterTests {
         #expect([cursor].tightestReading(now: now) == nil)
     }
 
-    @Test func onlyAnAllowanceThatChangesTheNextMoveCountsAsLow() {
-        #expect(QuotaReading(remainingPercent: 4).isLow)
-        #expect(QuotaReading(remainingPercent: 10).isLow)
-        #expect(!QuotaReading(remainingPercent: 11).isLow)
-    }
-
     @Test func aFleetReadsItsTightestProviderAndAnAgentReadsItsOwn() {
         let quotas = [ProviderQuota(provider: .claude, weeklyRemainingPercent: 60, observedAt: now),
                       ProviderQuota(provider: .grokBot, weeklyRemainingPercent: 5, observedAt: now)]

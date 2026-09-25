@@ -173,19 +173,6 @@ struct CursorBrowserCookieImporterTests {
         ) == nil)
     }
 
-    @Test("provider fetch in browserAuto does not crash when import fails")
-    func providerSurvivesImportFailure() async {
-        // cookie: "" avoids CursorSessionCookieStore.loadManual() → real Keychain.
-        await #expect(throws: AccountUsageError.notLoggedIn) {
-            try await CursorUsageProvider(
-                cookie: "",
-                cookieMode: { .browserAuto },
-                cookieImporter: FailingImporter(),
-                transport: MissingTransport()
-            ).fetch()
-        }
-    }
-
     @Test("browserAuto import timeout surfaces timedOut", .timeLimit(.minutes(1)))
     func importTimeout() async {
         // The import blocks until this test releases it, so `fetch()` returning

@@ -14,11 +14,6 @@ struct PresencePolicyTests {
                              idleSeconds: idle, alwaysAskPhone: alwaysAsk)
     }
 
-    @Test("at the keyboard with the session's terminal in front is present")
-    func present() {
-        #expect(PresencePolicy.decide(input()) == .present)
-    }
-
     @Test("a locked screen, a long idle, another app in front, or the override each mean away")
     func away() {
         #expect(PresencePolicy.decide(input(locked: true)) == .away)

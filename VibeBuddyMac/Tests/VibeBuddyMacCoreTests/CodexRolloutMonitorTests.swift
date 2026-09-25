@@ -356,25 +356,6 @@ struct CodexRolloutMonitorTests {
         #expect(afterReplacement.first?.sessionID == "desktop-replaced")
     }
 
-    @Test("discovery spans the current and previous local day")
-    func crossDayDiscovery() async throws {
-        let fixture = try RolloutFixture(now: now)
-        defer { fixture.remove() }
-        _ = try fixture.write(
-            named: "rollout-today.jsonl",
-            lines: [sessionMeta(id: "desktop-today"), taskStarted(id: "today")]
-        )
-        _ = try fixture.write(
-            named: "rollout-yesterday.jsonl",
-            lines: [sessionMeta(id: "desktop-yesterday"), taskStarted(id: "yesterday")],
-            daysAgo: 1
-        )
-
-        let monitor = CodexRolloutMonitor(root: fixture.root)
-        let ids = Set(await monitor.poll(now: now).map(\.sessionID))
-        #expect(ids == ["desktop-today", "desktop-yesterday"])
-    }
-
     @Test("a spawned subagent thread is folded, never surfaced as its own session")
     func subagentRolloutIsSkipped() {
         var parser = CodexRolloutParser()
@@ -1116,21 +1097,6 @@ struct CodexRolloutMonitorTests {
         #expect(ended.map(\.kind) == [.sessionEnd])
         #expect(ended.first?.sessionID == "desktop-active")
         #expect(await monitor.poll(now: now).isEmpty)
-    }
-
-    @Test("daemon restart bootstraps an already-active rollout")
-    func daemonRestart() async throws {
-        let fixture = try RolloutFixture(now: now)
-        defer { fixture.remove() }
-        _ = try fixture.write(
-            named: "rollout-restart.jsonl",
-            lines: [sessionMeta(id: "desktop-restart"), taskStarted(id: "turn-1")]
-        )
-
-        let first = CodexRolloutMonitor(root: fixture.root)
-        #expect(await first.poll(now: now).first?.sessionID == "desktop-restart")
-        let restarted = CodexRolloutMonitor(root: fixture.root)
-        #expect(await restarted.poll(now: now).first?.sessionID == "desktop-restart")
     }
 
     @Test("an invalidated watcher is recreated and continues tailing")

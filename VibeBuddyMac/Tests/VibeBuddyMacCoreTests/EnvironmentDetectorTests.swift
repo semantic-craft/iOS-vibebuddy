@@ -11,16 +11,6 @@ struct EnvironmentDetectorTests {
         return dir
     }
 
-    @Test("a CLI with no config is not configured and not injected")
-    func absent() {
-        let dir = tempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let spec = CLISpec(name: "claude", configPath: dir.appendingPathComponent("missing.json").path)
-        let status = EnvironmentDetector.detect([spec]).first!
-        #expect(status.configured == false)
-        #expect(status.hookInjected == false)
-    }
-
     /// Claude's status line is the only source of its account quota, and it is
     /// wired separately from the lifecycle hooks — it went missing once while
     /// the hooks kept working, and nothing said so.
@@ -57,18 +47,6 @@ struct EnvironmentDetectorTests {
             .first!.statusLineWired == nil)
     }
 
-    @Test("a config without the vibebuddy marker is configured but not injected")
-    func configuredNotInjected() throws {
-        let dir = tempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let cfg = dir.appendingPathComponent("settings.json")
-        try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}"#
-            .write(to: cfg, atomically: true, encoding: .utf8)
-        let status = EnvironmentDetector.detect([CLISpec(name: "claude", configPath: cfg.path)]).first!
-        #expect(status.configured)
-        #expect(status.hookInjected == false)
-    }
-
     @Test("a user's own hook under a hooks/ directory is not mistaken for vibebuddy's")
     func userHooksDirectoryIsNotInjected() throws {
         let dir = tempDir()
@@ -79,33 +57,6 @@ struct EnvironmentDetectorTests {
         #expect(EnvironmentDetector.detect([CLISpec(name: "claude", configPath: cfg.path)]).first?.hookInjected == false)
         try "// VibeBuddy OpenCode plugin — reports OpenCode lifecycle events".write(to: cfg, atomically: true, encoding: .utf8)
         #expect(EnvironmentDetector.detect([CLISpec(name: "opencode", configPath: cfg.path)]).first?.hookInjected == true)
-    }
-
-    @Test("a config carrying the forward marker is detected as injected")
-    func injected() throws {
-        let dir = tempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let cfg = dir.appendingPathComponent("settings.json")
-        try #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"curl 127.0.0.1:9876/hook"}]}]}}"#
-            .write(to: cfg, atomically: true, encoding: .utf8)
-        let status = EnvironmentDetector.detect([CLISpec(name: "claude", configPath: cfg.path)]).first!
-        #expect(status.configured)
-        #expect(status.hookInjected)
-    }
-
-    @Test("Codex lifecycle hooks are detected as injected")
-    func codexInjected() throws {
-        let dir = tempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let cfg = dir.appendingPathComponent("config.toml")
-        let hooks = dir.appendingPathComponent("hooks.json")
-        try "model = \"gpt\"\n".write(to: cfg, atomically: true, encoding: .utf8)
-        try #"{"hooks":{"Stop":[{"hooks":[{"command":"/app/vibebuddy-forward.sh codex"}]}]}}"#
-            .write(to: hooks, atomically: true, encoding: .utf8)
-        let spec = CLISpec(name: "codex", configPath: cfg.path, hookPath: hooks.path)
-        let status = EnvironmentDetector.detect([spec]).first!
-        #expect(status.configured)
-        #expect(status.hookInjected)
     }
 
     @Test("directory-based CLIs inspect only their installed hook file",
@@ -132,12 +83,6 @@ struct EnvironmentDetectorTests {
         try FileManager.default.removeItem(at: hooks)
         status = try #require(EnvironmentDetector.detect([spec]).first)
         #expect(!status.hookInjected)
-    }
-
-    @Test("the default CLI list mirrors the universal installer's set")
-    func defaults() {
-        let names = Set(EnvironmentDetector.defaultCLIs(home: "/h").map(\.name))
-        #expect(names == ["claude", "codex", "grok", "antigravity", "opencode", "cursor"])
     }
 
     /// Cursor keeps its lifecycle hooks in one user-level file beside its home

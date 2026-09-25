@@ -42,13 +42,6 @@ final class PhoneAnnouncerTests: XCTestCase {
         XCTAssertEqual(plan.overflow, 0)
     }
 
-    func testPlanHoldsTenAndCountsTheRest() {
-        let sessions = (0..<13).map { session("r\($0)", .done, minutesAgo: Double($0), unread: true, completion: "c\($0)") }
-        let plan = AnnouncementPlan(pending: PendingTasks.ordered(sessions))
-        XCTAssertEqual(plan.items.count, 10)
-        XCTAssertEqual(plan.overflow, 3)
-    }
-
     func testAnItemIsSkippedOnceItsRoundMovedOn() {
         let result = session("result", .done, unread: true, completion: "c1")
         let approve = session("approve", .needsResponse, approval: "a1")

@@ -86,23 +86,6 @@ public enum TranscriptReader {
         return Array(entries.suffix(limit))
     }
 
-    /// Read the last `maxBytes` of a transcript file and parse its recent entries.
-    /// nil if unreadable (no transcript / missing file).
-    public static func recentEntries(path: String, maxBytes: Int = 262_144,
-                                     limit: Int = 12, perEntryLimit: Int = 600) -> [TranscriptEntry]? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? handle.close() }
-        do {
-            let end = try handle.seekToEnd()
-            let start = end > UInt64(maxBytes) ? end - UInt64(maxBytes) : 0
-            try handle.seek(toOffset: start)
-            let data = try handle.readToEnd() ?? Data()
-            return recentEntries(tail: data, limit: limit, perEntryLimit: perEntryLimit)
-        } catch {
-            return nil
-        }
-    }
-
     /// Parse already-read transcript bytes (the tail). Pure, no I/O.
     public static func parse(tail data: Data, summaryLimit: Int = 220) -> TranscriptInfo {
         let text = String(decoding: data, as: UTF8.self)

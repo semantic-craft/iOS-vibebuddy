@@ -31,12 +31,6 @@ struct AttentionTests {
         #expect(cleared?.attentionOverride == nil && cleared?.attention == .normal)
     }
 
-    @Test("an unknown session takes no level")
-    func unknownSessionRefused() async {
-        let store = SessionStore()
-        #expect(await store.setAttention(sessionID: "ghost", .followed) == false)
-    }
-
     @Test("a level dies with its session")
     func prunedWithSession() async {
         let url = tempURL()

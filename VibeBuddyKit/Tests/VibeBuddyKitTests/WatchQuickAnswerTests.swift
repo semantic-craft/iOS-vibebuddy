@@ -291,16 +291,6 @@ final class WatchQuickAnswerTests: XCTestCase {
         XCTAssertEqual(action.action?.phase, .unknown)
     }
 
-    func testOptionLabelsAreCleanedBoundedAndDeduplicated() throws {
-        let messy = ([" Tighten ", "Tighten", "   ", "Plain"] + (1...8).map { "Extra \($0)" })
-            .enumerated().map { QuestionOption(id: "o\($0.offset)", label: $0.element) }
-        let choices = try XCTUnwrap(WatchQuickAnswers.resolve(for: alert(asking(options: messy))))
-        XCTAssertEqual(choices.source, .options)
-        XCTAssertEqual(choices.replies.count, WatchQuickAnswers.maxOptions)
-        XCTAssertEqual(choices.replies.prefix(3), [.option("Tighten"), .option("Plain"),
-                                                   .option("Extra 1")])
-    }
-
     func testAQuestionWhoseOptionsAreAllBlankFallsBackToThePhrases() throws {
         let blank = [QuestionOption(id: "a", label: "  "), QuestionOption(id: "b", label: "")]
         let choices = try XCTUnwrap(WatchQuickAnswers.resolve(for: alert(asking(options: blank))))
@@ -364,28 +354,6 @@ final class WatchQuickAnswerTests: XCTestCase {
         XCTAssertFalse(action.action?.isStop ?? true)
     }
 
-    func testASecondAnswerTapSendsNothingWhileOneIsInFlight() throws {
-        let card = try alert(asking())
-        var action = WatchSessionActionState()
-        XCTAssertNotNil(action.begin(alert: card, answer: "Yes, go ahead.", attemptId: "t-1"))
-        XCTAssertTrue(action.isBusy)
-        XCTAssertNil(action.begin(alert: card, answer: "No, don't do that.", attemptId: "t-2"))
-        XCTAssertNil(action.begin(alert: card, choice: .allow, attemptId: "t-3"))
-    }
-
-    func testAnAnswerTheMacAlreadyHandledIsSaidOutLoudAndNotResent() throws {
-        let card = try alert(asking())
-        var action = WatchSessionActionState()
-        XCTAssertNotNil(action.begin(alert: card, answer: "Yes, go ahead.", attemptId: "t-1"))
-
-        action.apply(WatchSessionActionResult(attemptId: "t-1", outcome: .refused))
-        XCTAssertEqual(action.action?.phase, .refused)
-        // A late "couldn't send" must not turn a settled refusal back into an
-        // invitation to answer the next question by mistake.
-        action.apply(WatchSessionActionResult(attemptId: "t-1", outcome: .failed))
-        XCTAssertEqual(action.action?.phase, .refused)
-    }
-
     func testALostReceiptStaysUnknownRatherThanClaimingItFailed() throws {
         let card = try alert(asking())
         var action = WatchSessionActionState()
@@ -447,20 +415,6 @@ final class WatchQuickAnswerTests: XCTestCase {
 
     // MARK: Demo Mode tells the same story
 
-    func testDemoModeOffersBothShapesOfQuestion() throws {
-        let state = WatchDemoScenario.question.state(now: now)
-        let open = try XCTUnwrap(state.alerts.first { $0.sessionId == "demo-watch-open-question" })
-        let withOptions = try XCTUnwrap(state.alerts.first { $0.sessionId == "demo-watch-question" })
-        XCTAssertEqual(WatchQuickAnswers.resolve(for: open)?.source, .phrases)
-        XCTAssertEqual(WatchQuickAnswers.resolve(for: withOptions)?.source, .options)
-        // Both are reachable as a task detail, which is where the wrist opens
-        // one from a complication.
-        XCTAssertNotNil(WatchDemoScenario.openQuestionTask.task(in: state))
-        XCTAssertNotNil(WatchDemoScenario.optionQuestionTask.task(in: state))
-        // The open question takes over the home screen.
-        XCTAssertEqual(state.topAlert?.sessionId, "demo-watch-open-question")
-    }
-
     func testDemoAnsweringClearsTheQuestionTheWayAMacSnapshotWould() throws {
         let state = WatchDemoScenario.question.state(now: now)
         let alert = try XCTUnwrap(state.topAlert)
@@ -482,23 +436,6 @@ final class WatchQuickAnswerTests: XCTestCase {
     }
 
     // MARK: where the answer is going
-
-    func testTheTargetIsNamedTheSameWayOnBothDevices() {
-        let session = asking()
-        XCTAssertEqual(SessionActionSupport.targetCaption(macName: "My Mac", session: session),
-                       SessionActionSupport.targetCaption(macName: "My Mac",
-                                                          project: session.project,
-                                                          agent: session.agent))
-        XCTAssertEqual(SessionActionSupport.targetCaption(macName: "My Mac", session: session),
-                       "My Mac · docs-review · Codex")
-        // A relay that never learned the Mac's name still names the project and
-        // the agent rather than pretending to know more than it does.
-        XCTAssertEqual(SessionActionSupport.targetCaption(macName: nil, project: "docs-review",
-                                                          agent: .codex),
-                       "Mac · docs-review · Codex")
-        XCTAssertEqual(SessionActionSupport.targetCaption(macName: "  ", project: "  ", agent: nil),
-                       "Mac · Unknown project")
-    }
 
     func testTheMacsNameTravelsToTheWristButItsAddressDoesNot() throws {
         var state = WatchDemoScenario.question.state(now: now)

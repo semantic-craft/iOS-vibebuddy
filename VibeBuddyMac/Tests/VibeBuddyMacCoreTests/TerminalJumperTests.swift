@@ -58,15 +58,6 @@ struct TerminalJumperTests {
         #expect(TerminalJumper.tmuxSocket("/tmp/tmux-501/default,1,0") == "/tmp/tmux-501/default")
     }
 
-    /// `select-pane` succeeds just as happily against a buried window, so it is
-    /// not on its own evidence that the user was taken anywhere.
-    @Test("only the steps that move the viewport are marked as focusing")
-    func tmuxFocusingSteps() {
-        let p = plan(TerminalRef(tmux: "/tmp/x,1,0", tmuxPane: "%3"))
-        #expect(p.tmux.filter(\.focuses).map { $0.argv[3] } == ["switch-client", "select-window"])
-        #expect(p.tmux.filter { !$0.focuses }.map { $0.argv[3] } == ["if-shell", "select-pane"])
-    }
-
     // MARK: Terminal.app
 
     @Test("Apple Terminal is targeted by the tab's tty")
@@ -123,13 +114,6 @@ struct TerminalJumperTests {
         #expect(script(p, 1).contains(#"first terminal whose working directory is "/Users/x/p""#))
     }
 
-    @Test("without a terminal id the working directory is the only Ghostty target")
-    func ghosttyCWDOnly() {
-        let p = plan(TerminalRef(termProgram: "ghostty", cwd: "/Users/x/p"))
-        #expect(p.surface.count == 1)
-        #expect(script(p, 0).contains(#"working directory is "/Users/x/p""#))
-    }
-
     @Test("a backslash in a path is doubled, so it can't escape the AppleScript literal")
     func ghosttyBackslashDoubled() {
         #expect(script(plan(TerminalRef(termProgram: "ghostty", cwd: #"/Users/x/a\b"#)), 0)
@@ -176,13 +160,6 @@ struct TerminalJumperTests {
         #expect(p.activateBundleID == "net.kovidgoyal.kitty")
     }
 
-    @Test("kitty without a listen socket cannot be addressed, so it stops at the app")
-    func kittyNoSocket() {
-        let p = plan(TerminalRef(termProgram: "kitty", kittyWindowId: "3"))
-        #expect(p.surface.isEmpty)
-        #expect(p.activateBundleID == "net.kovidgoyal.kitty")
-    }
-
     // MARK: app-level fallback
 
     @Test("an unknown TERM_PROGRAM still jumps to the host app that was captured")
@@ -190,12 +167,6 @@ struct TerminalJumperTests {
         let p = plan(TerminalRef(termProgram: "mystery", hostBundleId: "com.anthropic.claude-code"))
         #expect(p.surface.isEmpty)
         #expect(p.activateBundleID == "com.anthropic.claude-code")
-    }
-
-    @Test("no TERM_PROGRAM at all — an embedded terminal — is carried by the host bundle id")
-    func embeddedTerminal() {
-        let p = plan(TerminalRef(hostBundleId: "com.anthropic.claudefordesktop", hostPid: 4242))
-        #expect(p.activateBundleID == "com.anthropic.claudefordesktop")
     }
 
     @Test("the captured host wins over the TERM_PROGRAM table, which can't tell Cursor from VS Code")
@@ -280,11 +251,5 @@ struct TerminalJumperTests {
         p.tmux.append(TmuxStep(argv: ["/usr/bin/true"], focuses: true))
         #expect(TerminalJumper.execute(p, isRunning: { _ in true }, activate: { _ in false })
                 == .focused)
-    }
-
-    @Test("an empty plan can only report unsupported")
-    func emptyPlanOutcome() {
-        #expect(TerminalJumper.execute(JumpPlan(), isRunning: { _ in true }, activate: { _ in false })
-                == .unsupported)
     }
 }

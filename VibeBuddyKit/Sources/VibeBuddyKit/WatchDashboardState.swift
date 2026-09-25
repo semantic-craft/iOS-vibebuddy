@@ -445,17 +445,6 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         mine.relayRevision = other.relayRevision
         return mine == other
     }
-
-    /// The companion's mood, from what the Watch actually knows. It deliberately
-    /// never claims `.done`: unread-completion truth stays on the Mac and does
-    /// not reach the wrist.
-    public var buddyState: BuddyState {
-        if let alert = topAlert {
-            return alert.waitKind == .permission ? .approval : .question
-        }
-        if counts.working > 0 { return .working }
-        return counts.isEmpty ? .sleeping : .idle
-    }
 }
 
 // MARK: - Projection

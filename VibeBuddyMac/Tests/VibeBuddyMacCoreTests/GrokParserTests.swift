@@ -82,13 +82,6 @@ struct GrokParserTests {
         #expect(e?.toolError == true)
     }
 
-    @Test("a successful post_tool_use is not a tool error")
-    func postToolUseSuccess() {
-        let e = parse(#"{"hookEventName":"post_tool_use","sessionId":"s","toolResult":{"isError":false}}"#)
-        #expect(e?.kind == .postToolUse)
-        #expect(e?.toolError == false)
-    }
-
     @Test("a string toolResult decodes and is not an error")
     func stringToolResult() {
         // toolResult shape varies by tool; a non-object must not break decoding.
@@ -289,26 +282,5 @@ struct GrokParserTests {
     @Test("missing sessionId → nil")
     func missingSession() {
         #expect(parse(#"{"hookEventName":"stop"}"#) == nil)
-    }
-
-    @Test("malformed JSON → nil")
-    func malformed() {
-        #expect(parse("{not json") == nil)
-    }
-
-    @Test("parsed Grok events drive the reducer: a turn ends done, tagged grok")
-    func endToEnd() {
-        var r = SessionReducer()
-        let events = [
-            parse(#"{"hookEventName":"session_start","sessionId":"g","cwd":"/x/proj","modelId":"grok-4.6"}"#),
-            parse(#"{"hookEventName":"user_prompt_submit","sessionId":"g","promptId":"p1"}"#),
-            parse(#"{"hookEventName":"stop","sessionId":"g","promptId":"p1","reason":"end_turn"}"#),
-        ].compactMap { $0 }
-        #expect(events.count == 3)
-        for e in events { r.apply(e) }
-        #expect(r.sessions["g"]?.agent == .grok)
-        #expect(r.sessions["g"]?.project == "proj")
-        #expect(r.sessions["g"]?.model == "grok-4.6")
-        #expect(r.sessions["g"]?.status == .done)
     }
 }

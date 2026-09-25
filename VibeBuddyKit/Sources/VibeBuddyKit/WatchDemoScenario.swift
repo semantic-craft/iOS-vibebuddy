@@ -149,18 +149,6 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             statusSince: now.addingTimeInterval(-3 * 60), updatedAt: now.addingTimeInterval(-3 * 60))
     }
 
-    /// The sample question with no choices attached: the fixed phrases are the
-    /// only quick answers, and dictation is the way past them.
-    public static let openQuestionTask = WatchTaskLink(
-        sourceID: sourceID, pairingEpoch: pairingEpoch,
-        sessionID: "demo-watch-open-question", completionID: nil)
-
-    /// The sample question the agent offered choices for: the choices replace
-    /// the phrases, and "Something else" is the way past them.
-    public static let optionQuestionTask = WatchTaskLink(
-        sourceID: sourceID, pairingEpoch: pairingEpoch,
-        sessionID: "demo-watch-question", completionID: nil)
-
     private static func openQuestionSession(now: Date) -> AgentSession {
         AgentSession(
             id: "demo-watch-open-question", agent: .codex, project: "ios-vibebuddy",

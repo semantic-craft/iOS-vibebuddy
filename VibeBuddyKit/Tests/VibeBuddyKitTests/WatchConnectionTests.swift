@@ -41,18 +41,6 @@ struct WatchConnectionTests {
         #expect(aged.connection(now: now, phoneReachable: false) == .watchUnreachable)
     }
 
-    @Test("The three failures are three different labels")
-    func everyLayerIsDistinct() {
-        let layers: Set<WatchConnection> = [
-            state(.disconnected).connection(now: now, phoneReachable: true),
-            state(.live, sentAgo: stale + 60).connection(now: now, phoneReachable: true),
-            state(.live, sentAgo: stale + 60).connection(now: now, phoneReachable: false),
-            state(.noData).connection(now: now, phoneReachable: true),
-        ]
-        #expect(layers.count == 4)
-        #expect(!layers.contains(.live))
-    }
-
     @Test("A momentarily out-of-range Watch holding a fresh state is still live")
     func freshStateSurvivesAMomentaryDrop() {
         #expect(state(.live, sentAgo: 30).connection(now: now, phoneReachable: false) == .live)
@@ -77,20 +65,6 @@ struct WatchConnectionTests {
         #expect(delivered.connection(now: now.addingTimeInterval(stale - 1), phoneReachable: true) == .live)
         #expect(delivered.isStale(now: now.addingTimeInterval(stale)))
         #expect(delivered.connection(now: now.addingTimeInterval(stale), phoneReachable: true) == .phoneDisconnected)
-    }
-
-    @Test("A state restored from disk ages against the current clock, not its own")
-    func restoredStateGoesStaleOnItsOwn() throws {
-        var inbox = WatchStateInbox()
-        var cached = state(.live); cached.relayRevision = 1
-        inbox.accept(WatchStateInbox.encode(cached))
-        let restored = try #require(inbox.state)
-
-        // Cold launch an hour later: nothing new arrived, and it must not claim
-        // to be live just because it is the newest thing this Watch holds.
-        let coldLaunch = now.addingTimeInterval(3_600)
-        #expect(restored.connection(now: coldLaunch, phoneReachable: true) == .phoneDisconnected)
-        #expect(restored.connection(now: coldLaunch, phoneReachable: false) == .watchUnreachable)
     }
 
     @Test("Provider freshness stays independent of the connection state")

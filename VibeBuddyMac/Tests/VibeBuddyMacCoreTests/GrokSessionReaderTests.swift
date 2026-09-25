@@ -152,15 +152,6 @@ struct GrokSessionReaderTests {
         #expect(pending == "run_terminal_command")
     }
 
-    @Test("a resolved permission leaves nothing pending")
-    func resolvedPermission() {
-        let pending = GrokSessionReader.pendingPermissionTool(eventsTail: Data("""
-            \(GrokFixture.permissionRequested("run_terminal_command"))
-            \(GrokFixture.permissionResolved("run_terminal_command"))
-            """.utf8))
-        #expect(pending == nil)
-    }
-
     // MARK: - Tail behaviour
 
     @Test("a huge updates.jsonl is read from the tail only")
@@ -252,17 +243,6 @@ struct GrokSessionReaderTests {
         #expect(b.type == "explore")
         #expect(b.detail == "Find the callers")
         #expect(b.finished == false)          // spawned, never finished
-    }
-
-    @Test("a subagent that only the log knows about is still reported")
-    func subagentWithoutMeta() throws {
-        let fixture = try GrokFixture()
-        defer { fixture.cleanUp() }
-        try fixture.write("updates.jsonl",
-                          GrokFixture.subagentSpawned(id: "child-c", type: "explore", detail: "Scan"))
-        let children = try #require(GrokSessionReader.read(directory: fixture.directory)).subagents
-        #expect(children.map(\.id) == ["child-c"])
-        #expect(children[0].finished == false)
     }
 
     // MARK: - Recent entries

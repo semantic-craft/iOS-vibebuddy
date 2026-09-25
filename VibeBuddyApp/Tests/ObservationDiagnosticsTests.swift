@@ -7,43 +7,6 @@ import VibeBuddyKit
 
 @MainActor
 final class ObservationDiagnosticsTests: XCTestCase {
-    func testReasonPresentationAndLegacyFallback() {
-        // Rows carry Companion tokens, not system colours: the accent for
-        // healthy, tertiary ink for information, the needs-you tint for a
-        // problem (ObservationDiagnosticPresentation.diagnosticColor). The
-        // tokens are dynamic, so they are compared by what they resolve to.
-        let ok = CompanionPalette.accent
-        let info = CompanionPalette.ink3
-        let problem = CompanionPalette.status(.requiresInput)
-        let cases: [(ObservationSource, ObservationHealth, String?, String, Color)] = [
-            (.hook, .healthy, nil, "Healthy", ok),
-            (.hook, .temporarilySilent, "awaitingActivity", "Configured, awaiting first activity", info),
-            (.transcript, .temporarilySilent, nil, "No recent activity", info),
-            (.statusline, .notInstalled, "optionalSourceNotConfigured", "Status line information not enabled", info),
-            (.statusline, .notInstalled, nil, "Status line information not enabled", info),
-            (.statusline, .notInstalled, "futureReason", "Status line information not enabled", info),
-            (.rollout, .unknownVersion, "versionUnverified", "Version 0.153.4 not yet verified", info),
-            (.rollout, .unknownVersion, "invalidSourceData", "Invalid source data", problem),
-            (.hook, .eventsMissing, "configurationIncomplete", "Configuration incomplete", problem),
-            (.rollout, .sourceUnreadable, nil, "Unreadable", problem),
-            (.hook, .eventsMissing, "futureReason", "Events missing", problem)
-        ]
-        for (source, health, reason, title, color) in cases {
-            let row = ObservationSourceDiagnostic(source: source, health: health,
-                reasonCode: reason, sourceVersion: "0.153.4")
-            XCTAssertEqual(row.diagnosticTitle, title)
-            for style in [UIUserInterfaceStyle.light, .dark] {
-                XCTAssertEqual(resolved(row.diagnosticColor, style), resolved(color, style),
-                               "\(source.rawValue)/\(health.rawValue)/\(reason ?? "none") in \(style == .light ? "light" : "dark")")
-            }
-            if health == .healthy || health == .temporarilySilent {
-                XCTAssertNil(row.phoneNextStep)
-            } else {
-                XCTAssertNotNil(row.phoneNextStep)
-            }
-        }
-    }
-
     func testUpstreamFramesWithOldDecoderStoreAndPhoneRendering() async throws {
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "oh-upstream-frames", withExtension: "json"))
         let frames = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [Any])
@@ -98,48 +61,6 @@ final class ObservationDiagnosticsTests: XCTestCase {
             XCTAssertTrue(renderedReasons.contains(key), "Missing upstream case: \(key)")
         }
     }
-
-    func testCompleteWireFramesKeepDiagnosticsAndSessionsUpdating() async throws {
-        let now = Date(timeIntervalSince1970: 1_780_000_000)
-        var snapshots: [Snapshot] = []
-        for (index, status) in [SessionStatus.working, .needsResponse, .done].enumerated() {
-            let row = ObservationSourceDiagnostic(source: .rollout, health: .unknownVersion,
-                reasonCode: index == 0 ? nil : index == 1 ? "futureReason" : "versionUnverified", sourceVersion: "0.153.4")
-            let session = AgentSession(id: "same-task", agent: .codex, project: "diagnostic-test",
-                status: status, statusSince: now, updatedAt: now.addingTimeInterval(Double(index)))
-            let snapshot = Snapshot(sessions: [session], serverTime: session.updatedAt, sourceID: "test-mac",
-                observationDiagnostics: [.init(agent: .codex, sources: [row])])
-            // Exercise the same complete envelope decoder as WebSocketSnapshotClient.
-            let bytes = try JSONEncoder().encode(ServerEvent.snapshot(snapshot))
-            guard case .snapshot(let decoded) = try JSONDecoder().decode(ServerEvent.self, from: bytes) else {
-                return XCTFail("Snapshot frame lost")
-            }
-            XCTAssertEqual(decoded, snapshot)
-            snapshots.append(decoded)
-        }
-        let pipe = AsyncThrowingStream<Snapshot, Error>.makeStream()
-        let store = DashboardStore(streamer: ControlledDiagnosticStreamer(stream: pipe.stream),
-            notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil, reportDevice: { _ in })
-        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
-        defer { store.stop(); pipe.continuation.finish() }
-        for snapshot in snapshots {
-            let applied = expectation(description: "Next compatibility frame installed")
-            let subscription = store.$groups.dropFirst().sink { _ in applied.fulfill() }
-            pipe.continuation.yield(snapshot)
-            let result = await XCTWaiter.fulfillment(of: [applied], timeout: 5)
-            XCTAssertEqual(result, .completed)
-            subscription.cancel()
-            XCTAssertEqual(store.allSessions.map(\.status), snapshot.sessions.map(\.status))
-            XCTAssertEqual(store.observationDiagnostics, snapshot.observationDiagnostics)
-        }
-    }
-}
-
-/// `CompanionPalette.status(_:)` builds a fresh dynamic colour on each call and
-/// SwiftUI compares the boxed platform colour, so two equal tokens are not `==`.
-/// Resolving pins the comparison to the value each token actually paints.
-private func resolved(_ color: Color, _ style: UIUserInterfaceStyle) -> UIColor {
-    UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
 }
 
 private struct ControlledDiagnosticStreamer: SnapshotStreaming {

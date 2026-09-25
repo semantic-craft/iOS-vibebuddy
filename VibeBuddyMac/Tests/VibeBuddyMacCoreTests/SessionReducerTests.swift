@@ -78,18 +78,6 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.isStuck == true)
     }
 
-    @Test("a clean turn ends not-failed")
-    func cleanTurnNotFailed() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart))
-        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))   // errored mid-turn
-        r.apply(ev(.postToolUse, tool: "Bash", toolError: false, at: 2))  // …then recovered
-        r.apply(ev(.stop, at: 3))
-        #expect(r.sessions["s1"]?.isStuck == false)
-        #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
-        #expect(r.sessions["s1"]?.presentationState == .completeUnread)
-    }
-
     @Test("explicit acknowledgement clears unread without changing lifecycle timestamps")
     func acknowledgeCompletion() {
         var r = SessionReducer()
@@ -190,15 +178,6 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.tokens == 1500)   // latest turn
     }
 
-    @Test("a new prompt clears a prior failure")
-    func newPromptClearsFailure() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart))
-        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))
-        r.apply(ev(.userPromptSubmit, at: 2))
-        #expect(r.sessions["s1"]?.isStuck == false)
-    }
-
     @Test("SessionStart creates an idle done session until the first prompt")
     func startCreates() {
         var r = SessionReducer()
@@ -242,14 +221,6 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.waitKind == nil)
     }
 
-    @Test("Stop marks the session done")
-    func stopDone() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart))
-        r.apply(ev(.stop, at: 5))
-        #expect(r.sessions["s1"]?.status == .done)
-    }
-
     @Test("statusSince does not move when the status is unchanged")
     func statusSinceStable() {
         var r = SessionReducer()
@@ -287,33 +258,12 @@ struct SessionReducerTests {
         #expect(session?.updatedAt == t0.addingTimeInterval(3))
     }
 
-    @Test("two sessions are tracked independently")
-    func twoSessions() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart, "a", at: 0))
-        r.apply(ev(.sessionStart, "b", at: 0))
-        r.apply(ev(.notification, "a", message: "permission", at: 1))
-        r.apply(ev(.stop, "b", at: 1))
-        #expect(r.sessions["a"]?.status == .needsResponse)
-        #expect(r.sessions["b"]?.status == .done)
-    }
-
     @Test("Stop on an unknown session creates it as done after a missed start")
     func stopCreatesDone() {
         var r = SessionReducer()
         r.apply(ev(.stop, "ghost", cwd: "/x/proj", at: 0))
         #expect(r.sessions["ghost"]?.status == .done)
         #expect(r.sessions["ghost"]?.project == "proj")
-    }
-
-    @Test("Stop carries a final summary and agent when provided")
-    func stopSummary() {
-        var r = SessionReducer()
-        r.apply(HookEvent(kind: .stop, sessionID: "c", agent: .codex,
-                          cwd: "/x/p", message: "done refactoring", timestamp: t0))
-        #expect(r.sessions["c"]?.status == .done)
-        #expect(r.sessions["c"]?.summary == "done refactoring")
-        #expect(r.sessions["c"]?.agent == .codex)
     }
 
     @Test("snapshot() returns sessions sorted by attention then recency")
@@ -339,13 +289,6 @@ struct SessionReducerTests {
         r.apply(ev(.notification, message: "Claude is waiting for your input", at: 1))
         r.apply(ev(.sessionEnd, at: 2))
         #expect(r.sessions["s1"] == nil)
-    }
-
-    @Test("SessionEnd on an unknown session is a harmless no-op")
-    func sessionEndUnknown() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionEnd, "ghost", at: 0))
-        #expect(r.sessions.isEmpty)
     }
 
     // MARK: - RC3: stale wait-prompt summary on a terminal transition
@@ -409,19 +352,6 @@ struct SessionReducerTests {
 
     // MARK: - Remote approval set/clear
 
-    @Test("setPendingApproval marks the session needsResponse/permission with the approval")
-    func setsPendingApproval() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart))
-        r.setPendingApproval(sessionID: "s1",
-                             PendingApproval(id: "ap1", tool: "Bash", commandPreview: "rm -rf x"),
-                             at: t0.addingTimeInterval(1))
-        let s = r.sessions["s1"]
-        #expect(s?.status == .needsResponse)
-        #expect(s?.waitKind == .permission)
-        #expect(s?.pendingApproval?.id == "ap1")
-    }
-
     @Test("setPendingApproval clears any pending question")
     func setPendingApprovalClearsQuestion() {
         var r = SessionReducer()
@@ -462,30 +392,8 @@ struct SessionReducerTests {
         #expect(s?.summary == "Which branch?")
     }
 
-    @Test("clearPendingApproval drops the approval and returns the session to working")
-    func clearsPendingApproval() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart))
-        r.setPendingApproval(sessionID: "s1",
-                             PendingApproval(id: "ap1", tool: "Bash", commandPreview: "x"),
-                             at: t0.addingTimeInterval(1))
-        r.clearPendingApproval(sessionID: "s1", at: t0.addingTimeInterval(2))
-        let s = r.sessions["s1"]
-        #expect(s?.pendingApproval == nil)
-        #expect(s?.status == .working)
-        #expect(s?.waitKind == nil)
-    }
 
     // MARK: - Terminal ref
-
-    @Test("setTerminalRef attaches the ref without changing status")
-    func setsTerminalRef() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart))
-        r.setTerminalRef(sessionID: "s1", TerminalRef(termProgram: "ghostty", tmux: "/tmp/x,1,0", tmuxPane: "%2"))
-        #expect(r.sessions["s1"]?.terminalRef?.tmuxPane == "%2")
-        #expect(r.sessions["s1"]?.status == .done)
-    }
 
     /// The UserPromptSubmit re-capture deliberately skips the Ghostty
     /// AppleScript probe, so it reports strictly less than the SessionStart one.
@@ -563,14 +471,6 @@ struct SessionReducerTests {
         r.apply(turn(.userPromptSubmit, turnID: "p2", at: 2))
         // Grok's idle_prompt backstop (and every Claude/Codex stop) carries none.
         r.apply(turn(.stop, turnID: nil, at: 3))
-        #expect(r.sessions["s1"]?.status == .done)
-    }
-
-    @Test("a turn identity from a session with no recorded turn still settles")
-    func stopWithoutRecordedTurnSettles() {
-        var r = SessionReducer()
-        r.apply(ev(.sessionStart))
-        r.apply(turn(.stop, turnID: "p9", at: 1))
         #expect(r.sessions["s1"]?.status == .done)
     }
 

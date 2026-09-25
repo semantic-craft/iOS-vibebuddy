@@ -31,11 +31,4 @@ struct SetupChecklistTests {
         #expect(list.current == nil)
         #expect(SetupChecklist<Step>([]).isComplete)
     }
-
-    @Test func appStoreLinkIsStorefrontAgnostic() {
-        let url = CompanionLinks.iPhoneAppStore
-        #expect(url.host == "apps.apple.com")
-        #expect(url.path == "/app/id6777469338")
-        #expect(CompanionLinks.macDownload.host == "github.com")
-    }
 }

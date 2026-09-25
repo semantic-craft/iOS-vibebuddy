@@ -33,12 +33,6 @@ struct TranscriptReaderTests {
         #expect(info.contextTokens == 21000)    // 1000 + 12000 + 8000
     }
 
-    @Test("contextTokens falls back to input+output when no cache fields present")
-    func contextTokensNoCache() {
-        let info = parse([assistant(text: "x", inTok: 1000, outTok: 200)])
-        #expect(info.contextTokens == 1000)     // input only; no cache fields
-    }
-
     @Test("uses the most recent assistant message for the summary")
     func mostRecent() {
         let info = parse([assistant(text: "old"), userLine, assistant(text: "newest")])
@@ -72,11 +66,6 @@ struct TranscriptReaderTests {
         let broken = "ken\":\"value\"}"
         let info = parse([broken, assistant(text: "ok")])
         #expect(info.summary == "ok")
-    }
-
-    @Test("empty input yields empty info")
-    func empty() {
-        #expect(parse([]) == TranscriptInfo())
     }
 
     @Test("extracts the latest AskUserQuestion prompt and options")

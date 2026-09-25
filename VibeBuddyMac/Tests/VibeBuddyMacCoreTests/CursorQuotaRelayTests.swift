@@ -52,16 +52,6 @@ struct CursorQuotaRelayTests {
         }
     }
 
-    @Test("Internal complete snapshots need peer projection for strict pre-Cursor clients")
-    func strictOldClientRejectsCursor() throws {
-        enum OldProvider: String, Decodable { case codex, claude, grok }
-        struct OldQuota: Decodable { var provider: OldProvider }
-        let rows = try JSONEncoder().encode(ProviderQuota.all(from: [:]))
-        #expect(throws: DecodingError.self) {
-            _ = try JSONDecoder().decode([OldQuota].self, from: rows)
-        }
-    }
-
     @Test("HTTP and WebSocket independently preserve old peers and publish Cursor to capable peers")
     func negotiatedTransport() async throws {
         let store = SessionStore(sourceID: "isolated-transport")

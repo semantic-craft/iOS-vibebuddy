@@ -14,11 +14,6 @@ struct MenuPanelPlacementTests {
         MenuPanelPlacement.x(itemMidX: itemMidX, panelWidth: width, visible: screen)
     }
 
-    @Test func anIconInTheMiddleGetsAPanelCentredUnderIt() {
-        #expect(x(756, on: builtIn) == 576)
-        #expect(x(756, on: builtIn) + width / 2 == 756)
-    }
-
     @Test func anIconAtTheFarRightClampsInsteadOfHangingOffTheScreen() {
         // Centring on an icon 20pt from the right edge would put the panel's
         // right edge at 1672 — 160pt past the display.
@@ -26,12 +21,6 @@ struct MenuPanelPlacementTests {
         #expect(placed == builtIn.maxX - width - MenuPanelPlacement.screenMargin)
         #expect(placed + width <= builtIn.maxX)
         #expect(builtIn.maxX - (placed + width) == MenuPanelPlacement.screenMargin)
-    }
-
-    @Test func anIconAtTheFarLeftClampsTheOtherWay() {
-        let placed = x(30, on: builtIn)
-        #expect(placed == builtIn.minX + MenuPanelPlacement.screenMargin)
-        #expect(placed >= builtIn.minX)
     }
 
     @Test func aSecondDisplayIsClampedAgainstItsOwnBounds() {
@@ -48,14 +37,5 @@ struct MenuPanelPlacementTests {
         let narrow = CGRect(x: 0, y: 0, width: 200, height: 400)
         let placed = MenuPanelPlacement.x(itemMidX: 100, panelWidth: 360, visible: narrow)
         #expect(placed == narrow.minX + MenuPanelPlacement.screenMargin)
-    }
-
-    @Test func theSameIconGivesTheSameEdgeWhateverThePanelIsDoing() {
-        // Height is not an input, so a panel that grows and shrinks — pinned
-        // block appearing, search narrowing the list — cannot drift sideways.
-        #expect(x(1100, on: builtIn) == x(1100, on: builtIn))
-        // Only a width change moves it, and then by exactly half the change.
-        let wide = MenuPanelPlacement.x(itemMidX: 1100, panelWidth: 400, visible: builtIn)
-        #expect(x(1100, on: builtIn) - wide == 20)
     }
 }

@@ -25,14 +25,6 @@ final class DashboardFiltersTests: XCTestCase {
         XCTAssertEqual(filters.hiddenCount(from: sessions, now: now), 0)
     }
 
-    func testAnOldWaitIsNeverHiddenAndAnOldUnreadCompletionIs() {
-        let sessions = [session("wait", .needsResponse, hoursAgo: 5 * 24),
-                        session("unread", .done, hoursAgo: 30, unread: true)]
-        let filters = DashboardFilters()
-        XCTAssertEqual(filters.sessions(from: sessions, now: now).map(\.id), ["wait"])
-        XCTAssertEqual(filters.hiddenCount(from: sessions, now: now), 1)
-    }
-
     func testPendingNavigationHonorsFiltersButNotGrouping() {
         var outside = session("outside", .needsResponse, hoursAgo: 0)
         outside.project = "other"

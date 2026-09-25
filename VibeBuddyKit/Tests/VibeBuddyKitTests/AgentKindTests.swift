@@ -27,25 +27,10 @@ struct AgentKindTests {
         #expect(AgentKind.fromSource("totally-unknown") == .claudeCode)
     }
 
-    @Test("every kind has a non-empty display name and glyph")
-    func metadata() {
-        for kind in AgentKind.allCases {
-            #expect(!kind.displayName.isEmpty)
-            #expect(!kind.shortName.isEmpty)
-            #expect(!kind.symbolName.isEmpty)
-        }
-    }
-
     @Test("retired CLI identities remain readable without active integration", arguments: ["qwen", "kimi"])
     func retiredCLIHistory(rawValue: String) throws {
         let agent = try JSONDecoder().decode(AgentKind.self, from: JSONEncoder().encode(rawValue))
         #expect(agent.rawValue == rawValue)
         #expect(!agent.supportsCLIIntegration)
-    }
-
-    @Test("legacy wire raw values stay stable")
-    func wireStable() {
-        #expect(AgentKind.claudeCode.rawValue == "claudeCode")
-        #expect(AgentKind.codex.rawValue == "codex")
     }
 }

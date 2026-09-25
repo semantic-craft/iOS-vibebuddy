@@ -316,12 +316,6 @@ struct DeviceRegistry {
         return DevicePushFailure(reason: reason, status: status, firstAt: now, lastAt: now, count: 1)
     }
 
-    mutating func removeAll() {
-        guard !entries.isEmpty else { return }
-        entries = []
-        persistBestEffort()
-    }
-
     /// Forget every device *and* refuse their tokens until `acceptNewRegistrations`.
     mutating func forgetAll() {
         blocked.formUnion(entries.compactMap(\.device.token))
