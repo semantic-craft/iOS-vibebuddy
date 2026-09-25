@@ -151,7 +151,7 @@
 
 - **AI-07**：Codex 从 rollout 文件迁到 SQLite 后的降级预案。0.153.4 仍在写 rollout（2026-09-25 共享 daemon 已换成 0.156.1，待核实）。见 [07](agent-integration-2026-09/issues/07-codex-rollout-degradation.md)。
 - **Antigravity hooks**：上游有 bug，已记录在 `docs/multi-cli-hook-setup.md`。
-- **Claude `Stop` 里后台任务的类型**：子代理起的后台 shell 与 monitor 都报 `type:"shell"`（TUI 显示「1 shell, 1 monitor」），目前只影响「还有 N 项后台任务」的计数口径，不影响落定规则。三类任务都只见过 `status:"running"`，结束后直接从数组消失；CLI 内部代理的 `SubagentStop` 没有对应的 `SubagentStart`，它们扣减挂起 `Stop` 等待计数的问题已由 AI-09 修复（#288，[#288](https://github.com/semantic-craft/iOS-vibebuddy/pull/288)）。
+- **Claude `Stop` 里后台任务的类型**：子代理起的后台 shell 与 monitor 都报 `type:"shell"`（TUI 显示「1 shell, 1 monitor」），目前只影响「还有 N 项后台任务」的计数口径，不影响落定规则。三类任务都只见过 `status:"running"`，结束后直接从数组消失；CLI 内部代理的 `SubagentStop` 没有对应的 `SubagentStart`，它们扣减挂起 `Stop` 等待计数的问题已由 AI-09 修复（[#288](https://github.com/semantic-craft/iOS-vibebuddy/pull/288)）。
 
 ## Mac App Store：代码已丢失
 
