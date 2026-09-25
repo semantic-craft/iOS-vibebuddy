@@ -207,7 +207,10 @@ copies arrive in the Claude shape without `?agent=grok`, so nothing depends on
 them — but grok resolves an argument-less quoted `command` as a literal path
 (`~/.claude/"/…/capture-terminal.sh"`, command not found), which is why the
 Claude capture hook is installed as `"…/capture-terminal.sh" claude`: with an
-argument both CLIs shell-parse it, and the script ignores `$1`.
+argument both CLIs shell-parse it, and the script ignores `$1`. The Claude
+approval gate has arguments too since WR-11 (`claude 60`), so Grok runs it as
+well; `approval-hook.sh` exits at once when `GROK_SESSION_ID` is set and its
+source is not `grok`, leaving Grok's own gate the only one that asks.
 
 ### Grok status line
 

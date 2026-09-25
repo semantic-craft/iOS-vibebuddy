@@ -129,9 +129,11 @@ matcher `*`). Claude fires `PermissionRequest` only when it would stop and ask �
 in default mode, an uncertain classifier in auto mode — and honours the hook's
 `hookSpecificOutput.decision.behavior` (`allow` / `deny` + `message`); Claude Code
 2.1.261 validates exactly that shape. Every other tool call never reaches the
-phone. Silence leaves Claude's own prompt in place: after 60 s when nobody is at
-the Mac (the `60` is the hold the command passes; WR-11), at once when someone
-is, and after 25 s for a gate installed before the hold existed;
+phone. Silence leaves Claude's own prompt in place: at once when the session's
+terminal is in front and in use, otherwise after up to 60 s (the `60` is the hold
+the command passes; WR-11) — presence is read again every second during that
+wait, so coming back to the terminal hands the prompt back within a second — and
+after 25 s for a gate installed before the hold existed;
 `bypassPermissions` fires the event but ignores the answer. The `PreToolUse`
 status forwarder stays asynchronous. An older gate on `PreToolUse` (every call
 held) is migrated by a plain install; on a Claude Code older than 2.1.257 (which
@@ -255,6 +257,9 @@ Grok-specific decoding rules (`GrokParser`):
 - Grok also imports `~/.claude/settings.json` hooks via `[compat.claude]`. Those
   entries deliver the Claude shape without `?agent=grok` and currently fail fail-open
   with `required env var(s) not set: ${PPID}` — harmless noise, never relied on.
+  The Claude approval gate (`approval-hook.sh claude 60` since WR-11) has arguments,
+  so Grok would run it; the script exits at once when `GROK_SESSION_ID` is set and
+  its source is not `grok`, so only Grok's own gate asks for a Grok session.
 
 #### Remote approval (`--approval`)
 

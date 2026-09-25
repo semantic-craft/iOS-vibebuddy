@@ -209,6 +209,28 @@ struct QuestionRoutesTests {
         }
     }
 
+    @Test("a gate's hold keeps a question answerable past the default wait (WR-11)")
+    func holdStretchesQuestion() async throws {
+        let store = SessionStore()
+        let srv = server(store: store, timeout: .milliseconds(300))
+        try await srv.buildApplication().test(.router) { client in
+            async let held = client.execute(uri: "/approval?agent=claude&hold=10", method: .post,
+                headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: askPayload)) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForQuestion(store, srv.questionRegistry)
+            try await Task.sleep(for: .milliseconds(800))
+            try await client.execute(uri: "/answer", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"sessionId":"qs","answer":"Detailed"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            let updated = decode(try await held)["hookSpecificOutput"].flatMap { ($0 as? [String: Any])?["updatedInput"] as? [String: Any] }
+            let byText = try #require(updated?["answers"] as? [String: Any])
+            #expect(byText["How should I format the output?"] as? String == "Detailed")
+        }
+    }
+
     @Test("after the hook times out an Answer is refused and is not typed as an instruction")
     func timeoutDoesNotTurnAnswerIntoInstruction() async throws {
         let store = SessionStore()
