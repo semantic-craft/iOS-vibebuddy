@@ -121,7 +121,9 @@ struct LocalNotifier: AttentionNotifier {
     /// runs where it was tapped: on the Watch it goes through the Watch app's
     /// own send path with its own sentence and tap; here it opens this app on
     /// the session, where the outcome is on screen. The Watch registers the
-    /// same set (`WatchAppDelegate.categories`).
+    /// same set (`WatchAppDelegate.categories`). One exception on the wrist:
+    /// watchOS 27 opens the app for Reply without its words, so there Reply
+    /// lands on the answer card (ADR-0033, WR-09 amendment).
     static func registerCategories() {
         let approve = UNNotificationAction(
             identifier: NotificationActionID.approve.rawValue,

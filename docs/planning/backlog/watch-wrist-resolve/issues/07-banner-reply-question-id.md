@@ -6,7 +6,7 @@
 
 **Blocked by:** PR #249（ADR-0033，横幅动作在点击设备上执行，已合并）；09（横幅「回复」在真机上不带文字）
 
-**Status:** needs-triage（代码已完成，模拟器已验；真机上横幅口述走不到，等 [09](09-banner-reply-opens-app.md) 定方案）
+**Status:** done（代码已合并，模拟器已验。watchOS 27 上横幅口述走不到，[09](09-banner-reply-opens-app.md) 已定：手表上「回复」打开回答卡片。绑定代码保留，只在某个 watchOS 真把文字带过来时才生效；横幅口述那部分的真机验收不再追）
 
 ## 为什么
 

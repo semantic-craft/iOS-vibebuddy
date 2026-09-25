@@ -192,7 +192,8 @@ banner: a background POST that fails leaves no trace.
   diagnostic that says a vanished tap was sent.
 - `WatchNavigationDiagnostics` records `notification.action-decide`,
   `notification.action-answer` (or `notification.action-answer-unbound` for a
-  cue with no `questionId`), `banner.action-held`, `banner.action-sent` and
+  cue with no `questionId`; since WR-09 a Reply with no words records
+  `notification.action-reply-card.no-text-response` or `.empty-text`), `banner.action-held`, `banner.action-sent` and
   `banner.action-fallback.<reason>`, so the next device round can prove which
   path a tap took without reading its content.
 - What a simulator cannot prove stays listed for a paired device: that
@@ -391,3 +392,11 @@ Hermes on a development build of main 9137f92f, Apple Watch Series 10 on watchOS
 - **Approve from the wrist banner: passed three times.** The Mac hook returned `allow` 9 s after the push on two fake waits. A hosted Cursor approval passed too.
 - **Reply from the wrist banner: never reached the watch with text.** Three times, watchOS opened the app with no text (`notification.action-opens`), 5–10 s after the push. Decision 5's binding is proven in the simulator only. What the button should become is ticket watch-wrist-resolve 09.
 - The eight-second patience was not tested against a cold launch that needed it: every held action went out within 2 s.
+
+## Amendment — Reply on the wrist opens the card (2026-09-25, WR-09)
+
+On watchOS 27 a mirrored `.foreground` `UNTextInputNotificationAction` opened the Watch app with no input sheet, and no text reached the delegate (three device taps; whether the response carried nil or an empty string was not distinguished). Both the iPhone and the Watch register the same category (decision 4), so the observation cannot say which registration drew the button. Apple documents text input actions on watchOS but says nothing about mirrored foreground ones. Home Assistant hit a related but different failure ([home-assistant/iOS#5778](https://github.com/home-assistant/iOS/pull/5778)): there the input sheet appeared but the delegate was never called, with actions set per notification; here the delegate is called but no sheet appears.
+
+Decision: on the wrist, Reply *is* "open the answer card". The phone keeps drawing its text field (not re-verified in this round). `resolve` already maps a Reply without words to `.open`; the Watch now records that tap as `notification.action-reply-card.no-text-response` or `.empty-text`, so the next device round both proves the path and settles the nil-versus-empty question. Decision 5's binding stays in place for any watchOS that does deliver text.
+
+Rejected: a background text action (it runs on the iPhone, where a failure in a locked phone is invisible from the wrist — the reason for decision 1); Home Assistant's fix, a text button drawn by the long-look controller with its own send path (it would save the tap into the card, but the long look has no live store or relay behind it, the send would need its own WCSession path and failure sentence, and Home Assistant reports no paired-device evidence either — too large for this ticket, and the card path already works on the device); per-question option buttons on the banner (options differ per notification, so the actions would have to be set per notification — re-registered categories or the long look's `notificationActions` — and the push payload would have to carry the options).
