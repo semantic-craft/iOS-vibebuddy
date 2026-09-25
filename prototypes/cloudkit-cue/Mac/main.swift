@@ -98,29 +98,54 @@ final class Listener: @unchecked Sendable {
 
     private func serve(_ connection: NWConnection) {
         connection.start(queue: .global())
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, _ in
-            guard let self, let data, let text = String(data: data, encoding: .utf8) else { connection.cancel(); return }
-            let head = text.components(separatedBy: "\r\n\r\n").first ?? ""
-            let body = text.components(separatedBy: "\r\n\r\n").dropFirst().joined(separator: "\r\n\r\n")
-            let requestLine = head.components(separatedBy: "\r\n").first ?? ""
-            let authorized = head.range(of: "Authorization: Bearer \(self.token)", options: .caseInsensitive) != nil && !self.token.isEmpty
-            var status = "200 OK"
-            var reply = "{}"
-            if !authorized {
-                status = "401 Unauthorized"
-                self.log.write(["event": "http-unauthorized", "request": requestLine])
-            } else if requestLine.hasPrefix("GET /time") {
-                reply = "{\"now\":\(Date().timeIntervalSince1970)}"
-            } else if requestLine.hasPrefix("POST /action") {
-                var fields = (try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any]) ?? [:]
-                fields["event"] = "action-http"
-                self.log.write(fields)
-            } else {
-                status = "404 Not Found"
+        read(connection, buffer: Data())
+    }
+
+    /// URLSession may send the head and the body in separate segments: keep
+    /// reading until the whole `Content-Length` body is in.
+    private func read(_ connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+            guard let self else { connection.cancel(); return }
+            var buffer = buffer
+            if let data { buffer.append(data) }
+            let separator = Data("\r\n\r\n".utf8)
+            if let split = buffer.range(of: separator) {
+                let head = String(decoding: buffer[..<split.lowerBound], as: UTF8.self)
+                let body = buffer[split.upperBound...]
+                let length = head.components(separatedBy: "\r\n")
+                    .first { $0.lowercased().hasPrefix("content-length:") }
+                    .flatMap { Int($0.split(separator: ":")[1].trimmingCharacters(in: .whitespaces)) } ?? 0
+                if body.count >= length || isComplete || error != nil {
+                    self.respond(connection, head: head, body: Data(body.prefix(length)))
+                    return
+                }
+            } else if isComplete || error != nil {
+                connection.cancel(); return
             }
-            let response = "HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(reply.utf8.count)\r\nConnection: close\r\n\r\n\(reply)"
-            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            self.read(connection, buffer: buffer)
         }
+    }
+
+    private func respond(_ connection: NWConnection, head: String, body: Data) {
+        let lines = head.components(separatedBy: "\r\n")
+        let requestLine = lines.first ?? ""
+        let authorized = !token.isEmpty && lines.contains { $0.caseInsensitiveCompare("Authorization: Bearer \(token)") == .orderedSame }
+        var status = "200 OK"
+        var reply = "{}"
+        if !authorized {
+            status = "401 Unauthorized"
+            log.write(["event": "http-unauthorized", "request": requestLine])
+        } else if requestLine.hasPrefix("GET /time") {
+            reply = "{\"now\":\(Date().timeIntervalSince1970)}"
+        } else if requestLine.hasPrefix("POST /action") {
+            var fields = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? ["bodyBytes": body.count]
+            fields["event"] = "action-http"
+            log.write(fields)
+        } else {
+            status = "404 Not Found"
+        }
+        let response = "HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(reply.utf8.count)\r\nConnection: close\r\n\r\n\(reply)"
+        connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
     }
 }
 
@@ -309,27 +334,32 @@ func report(_ opts: Options) {
     var receipts: [String: [[String: Any]]] = [:]
     for e in events where e["event"] as? String == "receipt" { receipts[e["cueID"] as! String, default: []].append(e) }
 
+    // Latency runs from the moment the Mac starts saving (when it decides to
+    // cue) to the moment the extension hands the content to the system. A
+    // missing receipt counts as +∞ so it can only raise the percentiles.
     var toStart: [Double] = [], toBanner: [Double] = [], saveMs: [Double] = [], serverBound: [Double] = []
-    print("cueID\tsave_ms\tpush→NSE_s\tbanner_s\tlocked\tdetail\tfetch_ms")
+    print("cueID\tsave_ms\tstart→NSE_s\tstart→handoff_s\tlocked\tdetail\tfetch_ms")
     for (cueID, cue) in saved.sorted(by: { ($0.value["savedAt"] as! Double) < ($1.value["savedAt"] as! Double) }) {
         let savedAt = cue["savedAt"] as! Double
         let save = (savedAt - (cue["saveStart"] as! Double)) * 1000
         saveMs.append(save)
+        let saveStart = cue["saveStart"] as! Double
         guard let r = receipts[cueID]?.first else {
             print("\(cueID)\t\(Int(save))\tMISSING")
+            toStart.append(.infinity); toBanner.append(.infinity)
             continue
         }
-        let start = (r["startedAt"] as! Double) + offset - savedAt
-        let banner = (r["handedAt"] as! Double) + offset - savedAt
+        let start = (r["startedAt"] as! Double) + offset - saveStart
+        let banner = (r["handedAt"] as! Double) + offset - saveStart
         toStart.append(start); toBanner.append(banner)
         if let a = cue["serverCreated"] as? Double, let b = r["serverCreated"] as? Double, a > 0, b > 0 { serverBound.append(b - a) }
         print(String(format: "%@\t%d\t%.2f\t%.2f\t%d\t%d\t%d", cueID, Int(save), start, banner, r["locked"] as? Int ?? -1, r["detailOK"] as? Int ?? -1, Int(r["fetchMs"] as? Double ?? -1)))
     }
-    let missing = saved.count - toBanner.count
-    print(String(format: "\ncues=%d received=%d missing=%d duplicates=%d", saved.count, toBanner.count, missing, receipts.values.reduce(0) { $0 + max(0, $1.count - 1) }))
-    print(String(format: "save→banner  p50=%.2f s  p95=%.2f s  max=%.2f s", percentile(toBanner, 0.5), percentile(toBanner, 0.95), toBanner.max() ?? .nan))
+    let missing = toBanner.filter(\.isInfinite).count
+    print(String(format: "\ncues=%d received=%d missing=%d duplicates=%d", saved.count, saved.count - missing, missing, receipts.values.reduce(0) { $0 + max(0, $1.count - 1) }))
+    print(String(format: "save start→handoff  p50=%.2f s  p95=%.2f s  max=%.2f s", percentile(toBanner, 0.5), percentile(toBanner, 0.95), toBanner.max() ?? .nan))
     print(String(format: "server cue→receipt (skew-free upper bound) p50=%.2f s  p95=%.2f s  max=%.2f s", percentile(serverBound, 0.5), percentile(serverBound, 0.95), serverBound.max() ?? .nan))
-    print(String(format: "save→NSE     p50=%.2f s  p95=%.2f s", percentile(toStart, 0.5), percentile(toStart, 0.95)))
+    print(String(format: "save start→NSE     p50=%.2f s  p95=%.2f s", percentile(toStart, 0.5), percentile(toStart, 0.95)))
     print(String(format: "Mac save     p50=%.0f ms p95=%.0f ms", percentile(saveMs, 0.5), percentile(saveMs, 0.95)))
     for e in events where (e["event"] as? String)?.hasPrefix("action") == true { print("action: \(e)") }
     if let delivered = events.last(where: { $0["event"] as? String == "delivered" }), let rows = delivered["rows"] as? String {

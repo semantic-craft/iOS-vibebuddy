@@ -2,7 +2,7 @@
 
 **Status:** Accepted direction D for the public path (2026-09-23); prototype gate passed 2026-09-26 (`docs/planning/backlog/public-push/issues/01-cloudkit-alert-push-prototype.md`); C rejected (2026-09-06); A rejected (2026-09-23); B stays the owner's path
 
-**Ticket:** DEC-APNS decided 2026-09-23 (direction D); A-12 waits on the CloudKit prototype ticket
+**Ticket:** DEC-APNS decided 2026-09-23 (direction D); CloudKit prototype gate passed 2026-09-26; A-12 is next
 
 **Executor:** cursor-grok-4.6 · 分支 claude/a-11-apns-key-delivery · 2026-09-06 04:12 +0800
 
@@ -178,7 +178,7 @@ The owner delegated this decision after a survey of comparable projects. D is th
 
 ### 2026-09-26 — prototype gate passed
 
-On Hermes, phone locked and the app not running, 20 of 20 cues arrived; Mac save start → banner p50 2.0 s, p95 3.4 s (gate 30 s). Approve on a lock-screen banner reached the Mac over the bearer route. The Notification Service Extension ran for every push while locked, fetched `encryptedValues` detail and set Time Sensitive. A-12 implements D. Conditions found by the prototype, detailed in the ticket's Comments: a Developer ID Mac build is forced to the Production CloudKit environment, so the schema must be deployed before release and a dev-installed iPhone paired with a notarized Mac must also use Production; both devices must be on the same Apple Account (compare `userRecordID.recordName` over the pairing channel); alert text stays generic because Apple sees it; one phone takes either the `.p8` push or the CloudKit push, not both.
+On Hermes, phone locked and the app process ended (by `devicectl`, not a user swipe), 20 of 20 cues arrived; Mac save start → extension hand-off p50 2.0 s, p95 3.4 s (gate 30 s). Approve on a banner received while locked reached the Mac over the bearer route; the cold-launch path was shown by a default tap. The latency run used an Apple Development Mac build; the Developer ID build could not complete a save because the Production schema is not deployed. The Notification Service Extension ran for every push while locked, fetched `encryptedValues` detail and set Time Sensitive. A-12 implements D. Conditions found by the prototype, detailed in the ticket's Comments: a Developer ID Mac build is forced to the Production CloudKit environment, so the schema must be deployed before release and a dev-installed iPhone paired with a notarized Mac must also use Production; both devices must be on the same Apple Account (compare `userRecordID.recordName` over the pairing channel); alert text stays generic because Apple sees it; a subscription push reaches every device on the account, so records expire by TTL and the `.p8`-or-CloudKit choice is made per Mac, not per phone; the extension must map the `ck` payload onto the userInfo keys the shipping handlers read.
 
 ## Comments
 

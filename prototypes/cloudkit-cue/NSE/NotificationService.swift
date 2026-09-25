@@ -19,7 +19,9 @@ final class NotificationService: UNNotificationServiceExtension {
         let fields = notification?.recordFields
         let cueID = fields?["cueID"] as? String ?? "?"
         let sentAt = fields?["sentAt"] as? Date
-        let locked = (try? Data(contentsOf: CueProto.lockProbeURL)) == nil
+        // A probe that exists but cannot be read means data protection is on.
+        let probeExists = FileManager.default.fileExists(atPath: CueProto.lockProbeURL.path)
+        let locked = probeExists && (try? Data(contentsOf: CueProto.lockProbeURL)) == nil
         content.interruptionLevel = .timeSensitive
         if let session = fields?["sessionKey"] as? String { content.threadIdentifier = session }
 
