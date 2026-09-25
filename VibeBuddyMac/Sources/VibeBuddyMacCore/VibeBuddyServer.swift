@@ -756,6 +756,10 @@ public struct VibeBuddyServer: Sendable {
         hookAuthed.post("approval") { request, _ -> Response in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             guard agent.supportsCLIIntegration else { return Response(status: .ok) }
+            // Longer only past a presence check that said nobody is at the
+            // Mac, and only when the gate asked for it (WR-11).
+            let awayTimeout = Self.awayWait(hold: request.uri.queryParameters["hold"].map(String.init),
+                                            default: timeout)
             let buffer = try await request.body.collect(upTo: 1 << 20)
             let data = Data(buffer: buffer)
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
@@ -789,7 +793,7 @@ public struct VibeBuddyServer: Sendable {
                     return Response(status: .ok)
                 }
                 await store.beginQuestion(sessionID: sessionID, question, at: Date())
-                guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: timeout) else {
+                guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: awayTimeout) else {
                     await store.makeQuestionReadOnly(sessionID: sessionID, questionID: question.id)
                     return Response(status: .ok)
                 }
@@ -919,7 +923,9 @@ public struct VibeBuddyServer: Sendable {
                                     oldText: d.oldText, newText: d.newText,
                                     permissionMode: call.permissionMode,
                                     suggestedRule: PermissionSuggestion.describe(suggestions)), at: Date())
-                let outcome = await registry.wait(id: id, timeout: timeout)
+                // A PreToolUse gate fires with nobody asked about presence, so
+                // it keeps the short wait whatever the hook allows.
+                let outcome = await registry.wait(id: id, timeout: call.event == .permissionRequest ? awayTimeout : timeout)
                 await store.endApproval(sessionID: sessionID, approvalID: id, at: Date())
                 switch outcome {
                 case .allow:
@@ -1323,6 +1329,16 @@ public struct VibeBuddyServer: Sendable {
 
     /// A PreToolUse reply that answers `AskUserQuestion` on the user's behalf:
     /// allow, with the tool's input replaced by the questions plus `answers`.
+    /// The wait a gate asked for (`approval-hook.sh`'s `hold`), used only
+    /// once the presence check has said nobody is at the Mac. Never shorter
+    /// than the default, never longer than two minutes. Absent or unreadable
+    /// keeps the default, which is what every hook config written before WR-11
+    /// gets: its own timeout is 30 s and would kill a longer wait.
+    static func awayWait(hold: String?, default base: Duration) -> Duration {
+        guard let seconds = hold.flatMap(Int.init), seconds > 0 else { return base }
+        return max(base, .seconds(min(seconds, 120)))
+    }
+
     static func questionResponse(updatedInput: [String: Any]) -> Response {
         let body: [String: Any] = ["hookSpecificOutput": [
             "hookEventName": "PreToolUse",

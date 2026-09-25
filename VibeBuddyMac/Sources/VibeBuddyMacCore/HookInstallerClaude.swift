@@ -62,7 +62,14 @@ struct ClaudeHooks {
     static let permissionRequestMinimum = ClaudeCodeVersion(2, 1, 257)
     static let toolEvents: Set<String> = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]
     static let captureEvents = ["SessionStart", "UserPromptSubmit"]
-    static let approvalTimeout = 30
+    /// How long the daemon may hold a Claude approval or question for the
+    /// phone while nobody is at the Mac (the gate returns at once when someone
+    /// is). 25 s lapsed most answers made on the wrist: the card path measured
+    /// 16–25 s from the buzz to the Mac on 2026-09-24 (WR-11). The hook's own
+    /// timeout sits above it, so Claude never kills a hook the phone can still
+    /// answer.
+    static let awayHold = 60
+    static let approvalTimeout = awayHold + 15
     static let questionMatcher = "AskUserQuestion"
     static let statusLineMarker = "vibebuddy-statusline.sh"
 
@@ -79,7 +86,10 @@ struct ClaudeHooks {
     /// path contains a space ("Application Support"). Quoted, it parses the
     /// same everywhere.
     var forwarderCommand: String { ShellWords.quoted(paths.script("vibebuddy-forward.sh").path) + " claude" }
-    var approvalCommand: String { ShellWords.quoted(paths.script("approval-hook.sh").path) }
+    /// Names its source and passes the hold it is allowed (`approval-hook.sh`).
+    var approvalCommand: String {
+        ShellWords.quoted(paths.script("approval-hook.sh").path) + " claude \(Self.awayHold)"
+    }
     /// The inert `claude` argument keeps Grok's `[compat.claude]` bridge from
     /// resolving a quoted, argument-less command as a literal path.
     var captureCommand: String { ShellWords.quoted(paths.script("capture-terminal.sh").path) + " claude" }

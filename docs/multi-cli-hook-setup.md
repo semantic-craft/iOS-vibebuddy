@@ -124,12 +124,14 @@ this is a bounded dashboard integration.
 #### Remote approval (`--approval`)
 
 `--approval` replaces the asynchronous `PermissionRequest`
-status group with a blocking `hooks/approval-hook.sh` (`timeout: 30`, matcher
-`*`). Claude fires `PermissionRequest` only when it would stop and ask — a prompt
+status group with a blocking `hooks/approval-hook.sh claude 60` (`timeout: 75`,
+matcher `*`). Claude fires `PermissionRequest` only when it would stop and ask — a prompt
 in default mode, an uncertain classifier in auto mode — and honours the hook's
 `hookSpecificOutput.decision.behavior` (`allow` / `deny` + `message`); Claude Code
 2.1.261 validates exactly that shape. Every other tool call never reaches the
-phone. Silence (no phone answer in 25s) leaves Claude's own prompt in place;
+phone. Silence leaves Claude's own prompt in place: after 60 s when nobody is at
+the Mac (the `60` is the hold the command passes; WR-11), at once when someone
+is, and after 25 s for a gate installed before the hold existed;
 `bypassPermissions` fires the event but ignores the answer. The `PreToolUse`
 status forwarder stays asynchronous. An older gate on `PreToolUse` (every call
 held) is migrated by a plain install; on a Claude Code older than 2.1.257 (which
@@ -146,8 +148,8 @@ as `decision.updatedPermissions`, so Claude Code writes the rule itself
 #### Questions (`AskUserQuestion`)
 
 `--approval` also adds a blocking `PreToolUse` group with matcher
-`AskUserQuestion` (same `approval-hook.sh`, `timeout: 30`). The daemon shows the
-questions on the phone and Mac cards; an answer within 25s goes back as
+`AskUserQuestion` (same `approval-hook.sh claude 60`, `timeout: 75`). The daemon shows the
+questions on the phone and Mac cards; an answer within the same wait goes back as
 `hookSpecificOutput.updatedInput` — the original `questions` plus `answers`
 keyed by question text (an array for a multi-select, the typed text for
 "Other") — so Claude continues without its own prompt. Silence prints nothing:

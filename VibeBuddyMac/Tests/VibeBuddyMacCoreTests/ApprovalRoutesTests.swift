@@ -340,6 +340,49 @@ struct ApprovalRoutesTests {
         }
     }
 
+    @Test("a gate's hold stretches a PermissionRequest wait, never a PreToolUse one (WR-11)")
+    func awayHoldOnlyForPermissionRequest() async throws {
+        let store = SessionStore()
+        let srv = server(store: store, approvalTimeout: .milliseconds(300))
+        try await srv.buildApplication().test(.router) { client in
+            // Asked about presence and nobody is there: a decision made after
+            // the default wait still reaches the agent.
+            async let held = client.execute(uri: "/approval?agent=claude&hold=2", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequest("ls -la"))) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForPendingApproval(store, session: "ps")
+            try await Task.sleep(for: .milliseconds(700))
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"allow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held.contains(#""behavior":"allow""#))
+        }
+        // A PreToolUse gate never asked about presence, so the same hold is
+        // ignored and the default wait lapses into the CLI's own prompt.
+        let preStore = SessionStore()
+        let pre = server(store: preStore, approvalTimeout: .milliseconds(300))
+        try await pre.buildApplication().test(.router) { client in
+            let started = ContinuousClock.now
+            try await client.execute(uri: "/approval?hold=2", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: bash("make deploy"))) { res in
+                #expect(String(buffer: res.body).isEmpty)
+            }
+            #expect(ContinuousClock.now - started < .milliseconds(1500))
+        }
+    }
+
+    @Test("the away wait honours only a sane hold", arguments: [
+        (nil, 25), ("", 25), ("abc", 25), ("0", 25), ("10", 25), ("60", 60), ("999", 120),
+    ] as [(String?, Int)])
+    func awayWaitBounds(hold: String?, seconds: Int) {
+        #expect(VibeBuddyServer.awayWait(hold: hold, default: .seconds(25)) == .seconds(seconds))
+    }
+
     @Test("a native deny rule still wins over a PermissionRequest")
     func permissionRequestNativeDeny() async throws {
         try await server(deny: ["Bash(rm:*)"]).buildApplication().test(.router) { client in
