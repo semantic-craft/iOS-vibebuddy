@@ -69,10 +69,11 @@
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok --resume` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | done（#299） | 实测：leader 模式下第二个客户端能看到 TUI 会话、同时收到它的权限请求，且它的回答能直接放行 TUI 的提示；关掉 TUI 后回合在 leader 里继续、不发 `SessionEnd`；文件 hook `timeout` 没有 600 s 上限（1 800 s 才被截断）。恢复：daemon 重启后托管会话显示为可恢复，继续时 `session/load` 接上（真实 grok 记得重启前的对话）；失败给出原因，在 Mac 上打开这一行会在终端 `grok --resume` 续接 | leader 挂接（远程批准终端里的 Grok）可行但没做，要做另开票 |
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | done（#298） | 安装时包装 `[ui.status_line]`（卸载按字节还原）；Grok 行显示上下文与成本（真实 TUI：21.5k / 500k、$0.038）；`kill -9` 关掉 TUI 后 16 s 由名册兜底移出 working，正常关闭由 `SessionEnd` 约 1 s 移除 | 新会话生效；你的 `~/.grok/config.toml` 要在 App 里点 Install / repair 后才会改 |
 | WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | done（#275） | 绑定逻辑在模拟器上已验过：送达、换题拒绝、多段拒绝、旧通知降级。watchOS 27 上点横幅「回复」直接打开 App、不带文字，横幅口述走不到；09 已定为打开回答卡片 | 绑定代码保留，只在某个 watchOS 带来文字时生效；横幅口述的真机验收不再追 |
-| WR-08 | 手机锁屏时，手表上的「停下」发不出去 | [08](watch-wrist-resolve/issues/08-locked-phone-stop.md) | 代码已完成，待真机：锁屏时停下一次 | 2026-09-24 腕上验收：锁屏时停下没到 Mac，解锁后通过。手表只因中继状态为 `macDisconnected` 就拒绝发送；手机在流断时也不试。#260 已为审批和回答修过同一个误判 | **优先**，修复在分支 `claude/wr08-locked-phone-stop` |
+| WR-08 | 手机锁屏时，手表上的「停下」发不出去 | [08](watch-wrist-resolve/issues/08-locked-phone-stop.md) | **done**（#292；2026-09-25 腕上通过） | 2026-09-25 15:45:50 手机锁屏，你从手表停下托管 Cursor 任务 7aedadf2，Mac 同一秒记为 `userStopped: true`，`sleep 900` 随即结束。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-round-2026-09-25/RESULTS.md` | — |
 | WR-09 | 手表横幅「回复」直接打开 App，不收文字 | [09](watch-wrist-resolve/issues/09-banner-reply-opens-app.md) | ready-for-human（#305） | 定案：手表上「回复」就是打开回答卡片（卡片路径 2026-09-24 已在真机跑通）；手机照旧内联回复。诊断记为 `notification.action-reply-card.*`，顺带分清系统给的是 nil 还是空文字 | 下一轮腕上：点一次「回复」，在卡片上答 |
 | WR-10 | 任务详情页「返回总览」点了没反应 | [10](watch-wrist-resolve/issues/10-back-to-dashboard-dead.md) | ready-for-agent | 打开一个已离开列表的会话后出现，只能强制退出；另外列表行上不标 agent | 保留 |
 | WR-11 | Mac 只等 25 秒，手表上的操作常常来不及 | [11](watch-wrist-resolve/issues/11-hook-wait-vs-wrist.md) | needs-triage | 这一轮 9 次过期；卡片上还要多点一下「回复」 | 先量时间分布再定 |
+| WR-12 | 手机锁屏后才开始的任务，手表列表里一直没有 | [12](watch-wrist-resolve/issues/12-new-task-while-phone-locked.md) | 修复中（分支 `claude/wr12-active-refresh`） | 2026-09-25 14:57–15:27 打开手表 App 4 次都没看到新任务，没法停下。手表回到前台时只重读旧的 context，从不向手机要新状态；锁屏手机的流已断、不写新 context。手表的 `sendMessage` 能唤醒锁屏手机（详情页刷新 14:56、15:45 都成功） | 回到前台时节流刷新一次；下一轮腕上验 |
 | D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | **代码完成**；Gemini 路径 2026-09-25 由你取消，iPhone 的 D-1 检查不再需要；Mac / iPhone 上的到顶提示和重拨按钮没截图验证过，等自然出现的长通话再看 | 2026-09-25 你决定移除 Gemini 集成（ADR-0001 修订），唯一能在约 10 分钟内到顶的供应商随之移除；结束通话 + 重拨保留给 Qwen / OpenAI（按单元测试，真实到顶要 60–120 分钟，碰上长通话时再看）。历史：2026-09-24 用 Kit 里 App 共用的 Gemini 会话与通话状态机打真实 API：第 591.9 s 服务端结束通话（按代码只有先收到 `goAway` 才会判为上限），进入「已到上限」且没有报错，重拨 0.8 s 接通。界面上的提示和重拨按钮没截图（computer use 未获授权）；iPhone 路径未验 | — |
 | RV-03 | 语音动作不要落到用户没点名的另一个等待中的任务 | [03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md) | 已合并（#297） | 2026-09-24 定案：批准、拒绝、回答、指示这四种动作，只有用户这一句话里说出了目标的名字才会发出；没说就扣住，请用户说出名字（ADR-0008「Named target」）。单元测试复现了 grape→orange；修复后用 Qwen、Gemini 合成语音重跑，点名的动作都落对了，没有落到别的任务上；Gemini 把「橘子」转写成日文，误扣过一次（安全方向）。已知缺口：Gemini 或 Live 的工具调用如果比新一句的转写先到，上一句的词还算数 | 真机语音时留意有没有误扣；不装机 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
@@ -121,7 +122,7 @@
 
 **只剩你（共六件）**
 
-1. **手表一轮：2026-09-24 已做（11:14–12:05），没有全部通过；以后只剩一步：WR-08 修好后，锁屏时从手表停下一次。** 通过的：手机锁屏时，横幅「拒绝」和「批准」；卡片上的快捷回答 + 双指互点两下发送；手机解锁时，从手表「停下」。发现 4 个问题，开了 WR-08 到 WR-11：锁屏时「停下」发不出去（正在修，手表重启后一直显示连不上 Mac 也是这个原因）、横幅「回复」直接打开 App、「返回总览」点了没反应、Mac 只等 25 秒。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md`。
+1. **手表一轮：WR-08 已于 2026-09-25 15:45 通过**（手机锁屏时从手表停下，Mac 同一秒记为 `userStopped`）。2026-09-24 那一轮（11:14–12:05）通过的：手机锁屏时，横幅「拒绝」和「批准」；卡片上的快捷回答 + 双指互点两下发送；手机解锁时，从手表「停下」。那一轮开出的 WR-08 到 WR-11 已全部合并；2026-09-25 又发现 WR-12（锁屏后才开始的任务不出现在手表上）。下一轮腕上一次做完：WR-12、WR-10「返回总览」、WR-09「回复」开卡片、一次真实 Codex 横幅批准。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md` 和 `watch-round-2026-09-25/RESULTS.md`。
 2. **路线图旧项里只有你能做的几步**（手表一轮之后）：
    1. 手机开专注模式，看一条问题横幅还弹不弹（A-03）。
    2. 手机锁屏时在横幅上点批准，看要不要 Face ID（A-03）。

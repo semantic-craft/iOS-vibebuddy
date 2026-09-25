@@ -22,3 +22,45 @@ public struct WatchRefreshReply: Codable, Sendable {
         return state
     }
 }
+
+/// When the wrist asks the iPhone for a snapshot on its own, rather than from a
+/// task detail's refresh (WR-12).
+///
+/// The application context only moves when the iPhone writes it, and a locked
+/// iPhone has no stream to the Mac, so it writes nothing: a task started after
+/// the lock never reached the wrist, however often the app was opened. A
+/// `sendMessage` from the Watch does wake the locked iPhone, which then reads
+/// the Mac over HTTP. That wakes the phone and costs a request to the Mac, so it
+/// is paced: one at a time, at most every `interval` after one that came back,
+/// and every `retryInterval` after one that did not — so a link that comes up a
+/// moment after the window does still gets its try.
+public struct WatchActivationRefreshPolicy: Sendable, Equatable {
+    public static let interval: TimeInterval = 15
+    public static let retryInterval: TimeInterval = 3
+    public private(set) var inFlight: UUID?
+    private var lastSent: Date?
+    private var lastSucceeded = false
+
+    public init() {}
+
+    /// Claims the slot for `id` when a request may go out now.
+    public mutating func begin(_ id: UUID, now: Date) -> Bool {
+        guard inFlight == nil else { return false }
+        if let lastSent {
+            let floor = lastSucceeded ? Self.interval : Self.retryInterval
+            guard now.timeIntervalSince(lastSent) >= floor else { return false }
+        }
+        inFlight = id
+        lastSent = now
+        return true
+    }
+
+    /// Releases the slot. False for a reply to an attempt that is no longer the
+    /// one in flight, which the caller then ignores.
+    public mutating func finish(_ id: UUID, succeeded: Bool) -> Bool {
+        guard inFlight == id else { return false }
+        inFlight = nil
+        lastSucceeded = succeeded
+        return true
+    }
+}
