@@ -5,7 +5,7 @@
 - 打开「减少动态效果」后，刘海的弹簧动画和循环动效会停下。
 - 发到手机和手表的审批提醒，160 字以内的命令会完整显示，更长的加「…」（原来只显示前 120 字，而且不带省略号）。
 
-Mac build 52。配套的 iPhone / Apple Watch 版本为 iOS 1.3.29（60）。
+Mac build 52。配套的 iPhone / Apple Watch 版本为 iOS 1.3.29（61）。
 
 ## English
 
@@ -14,4 +14,4 @@ Mac build 52。配套的 iPhone / Apple Watch 版本为 iOS 1.3.29（60）。
 - With Reduce Motion on, the notch's spring animation and looping effects stop.
 - Approval alerts sent to the phone and Watch show commands of up to 160 characters in full and add "…" to longer ones (they used to cut at 120 with no ellipsis).
 
-Mac build 52. The accompanying iPhone / Apple Watch release is iOS 1.3.29 (60).
+Mac build 52. The accompanying iPhone / Apple Watch release is iOS 1.3.29 (61).
