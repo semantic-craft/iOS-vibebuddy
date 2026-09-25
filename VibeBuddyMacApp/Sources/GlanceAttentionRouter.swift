@@ -2,14 +2,12 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// Routes each cue the `SoundPolicy` earns to the glance first: while the glance
-/// is on screen the cue becomes a card under the notch (with the pack's sound),
-/// and the system banner is not posted — the card is the banner. When the
-/// glance is hidden the cue falls through to `UserNotificationsNotifier`
-/// unchanged, so nothing is lost with the glance off.
-final class GlanceAttentionRouter: AttentionNotifier, @unchecked Sendable {
+/// The app's `AttentionSurfaces`: Notification Center through
+/// `UserNotificationsNotifier`, the glance card through the model, VoiceOver
+/// through an announcement. The routing itself is `AttentionRouting`.
+final class GlanceAttentionRouter: AttentionNotifier, AttentionSurfaces, @unchecked Sendable {
     private let banners: UserNotificationsNotifier
-    /// `nil` when the glance can't take the cue right now (hidden / not built).
+    /// `false` when the glance can't take the cue right now (hidden / not built).
     private let presentOnGlance: @MainActor (SoundAlert) -> Bool
 
     init(banners: UserNotificationsNotifier, presentOnGlance: @escaping @MainActor (SoundAlert) -> Bool) {
@@ -18,22 +16,39 @@ final class GlanceAttentionRouter: AttentionNotifier, @unchecked Sendable {
     }
 
     func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt {
-        // The user's "notify" switch governs cards the same way it governs
-        // banners: off means no ping of either kind (the banner path skips too).
-        guard Self.notificationsEnabled else { return await banners.notify(alert) }
-        guard await banners.validateCompletion?(alert) != false else { return .skipped }
-        // With VoiceOver running the banner goes first: VoiceOver reads it and
-        // Notification Center keeps it, while a card is never announced and
-        // folds away. The card is still the fallback when the banner cannot be
-        // posted (notifications denied), so the cue is never lost.
-        if await MainActor.run(body: { NSWorkspace.shared.isVoiceOverEnabled }) {
-            let banner = await banners.notify(alert)
-            guard banner.outcome == .failed else { return banner }
-        }
-        let shown = await MainActor.run { presentOnGlance(alert) }
-        guard shown else { return await banners.notify(alert) }
+        await AttentionRouting.route(alert, via: self)
+    }
+
+    var notificationsEnabled: Bool { Self.flag("notifyOnNeedsResponse") }
+
+    func voiceOverRunning() async -> Bool {
+        await MainActor.run { NSWorkspace.shared.isVoiceOverEnabled }
+    }
+
+    func bannerAppears() async -> Bool { await banners.bannerAppears() }
+
+    func isStillCurrent(_ alert: SoundAlert) async -> Bool {
+        await banners.validateCompletion?(alert) != false
+    }
+
+    func postBanner(_ alert: SoundAlert) async -> LocalNotificationAttempt { await banners.notify(alert) }
+
+    func presentCard(_ alert: SoundAlert) async -> Bool { await MainActor.run { presentOnGlance(alert) } }
+
+    func playCue(_ alert: SoundAlert) async {
         if Self.soundEnabled { CuePlayer.play(alert.sound) }
-        return .scheduled()
+    }
+
+    /// The banner's own words, spoken at high priority: an agent is waiting.
+    func announce(_ alert: SoundAlert) async {
+        await MainActor.run {
+            let (title, body) = UserNotificationsNotifier.copy(for: alert)
+            let text = body.isEmpty ? title : "\(title). \(body)"
+            NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+                .announcement: text,
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+        }
     }
 
     /// A withdrawal names Notification Center identifiers. A card under the
@@ -43,7 +58,6 @@ final class GlanceAttentionRouter: AttentionNotifier, @unchecked Sendable {
         await banners.withdraw(identifiers)
     }
 
-    private static var notificationsEnabled: Bool { flag("notifyOnNeedsResponse") }
     private static var soundEnabled: Bool { flag("playNotificationSound") }
 
     /// A Bool default that treats an absent key as `true` (on by default).

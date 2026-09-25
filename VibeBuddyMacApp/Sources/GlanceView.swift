@@ -697,7 +697,7 @@ struct GlanceButtonStyle: ButtonStyle {
         configuration.label
             // Fixed size: a 24pt key on the glance card (ADR-0017 §8).
             .font(CompanionType.fixedFont(12 * scale, .semibold))
-            // White on the tinted keys is 2.5:1 on the mint; `onAccent` is ink there.
+            // White on the tinted keys is 2.06:1 on the mint; `onAccent` is ink there.
             .foregroundStyle(tint == nil ? Color.white : Color.onAccent)
             .lineLimit(1)
             .padding(.horizontal, 12 * scale)
