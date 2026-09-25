@@ -506,10 +506,11 @@ final class MenuBarModel: ObservableObject {
         let receipts = PhoneReceipts(recorder: recorder)
         phoneReceipts = receipts
         pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder, receipts: receipts) }
-        // Demo and E2E instances never reach the real user's iCloud.
-        let isolatedInstance = E2ERunConfiguration.current != nil
-            || ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
-        cloudKit = pusher == nil && !isolatedInstance
+        // A demo instance never reaches the real user's iCloud; an E2E run
+        // only when it opted into notifications, as it must for APNs.
+        let cloudKitAllowed = E2ERunConfiguration.current.map(\.notificationsEnabled)
+            ?? (ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] != "1")
+        cloudKit = pusher == nil && cloudKitAllowed
             ? CloudKitCueSender.makeIfEntitled(recorder: recorder, receipts: receipts) : nil
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // The APNs registry outlives this process. Without the file, every Mac

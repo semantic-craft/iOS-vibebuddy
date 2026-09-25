@@ -56,6 +56,20 @@ IDENTITY="$(pick_identity || true)"
 if [[ -n "${IDENTITY:-}" ]]; then
   echo "▸ re-signing with stable identity ${IDENTITY}…"
   codesign --force --deep --sign "$IDENTITY" "$BUILD_PROD"
+  # iCloud cues (ADR-0013 D) only with a profile that allows them for this
+  # certificate; without one the app is signed exactly as before.
+  source "$REPO/tools/mac-cloudkit-signing.sh"
+  CK_PROFILE="$(cloudkit_profile_for "$IDENTITY")"
+  if [[ -n "$CK_PROFILE" ]]; then
+    CK_ENT="$(mktemp "${TMPDIR:-/tmp}/vb-entitlements.XXXXXX")"
+    cp "$CK_PROFILE" "$BUILD_PROD/Contents/embedded.provisionprofile"
+    CK_ENV="$(cloudkit_entitlements "$CK_PROFILE" "$REPO/tools/vibebuddy-mac.entitlements" "$CK_ENT")"
+    codesign --force --sign "$IDENTITY" --entitlements "$CK_ENT" "$BUILD_PROD"
+    rm -f "$CK_ENT"
+    echo "▸ iCloud cues: on (${CK_ENV})"
+  else
+    echo "▸ iCloud cues: off — no CloudKit profile for this certificate (tools/fetch-mac-cloudkit-profiles.sh)"
+  fi
 else
   echo "⚠ no stable codesigning identity found — staying ad-hoc."
   echo "  The keychain will keep re-prompting after each rebuild."
