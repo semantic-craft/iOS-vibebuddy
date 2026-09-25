@@ -533,8 +533,9 @@ public actor SessionStore {
             }
             await self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: nil)
         }
-        // The deadline is read on `resultClock`, like the loop above, so a
-        // pinned test clock decides when it has passed, not a loaded host.
+        // The deadline is read on `resultClock`, like the loop above: sleep the
+        // remaining time measured on it, then re-check, so a pinned test clock
+        // decides when it has passed, not a loaded host.
         Task {
             while self.noticeLedger?.notices[id]?.state == .pending {
                 let remaining = notice.deadline.timeIntervalSince(self.resultClock())

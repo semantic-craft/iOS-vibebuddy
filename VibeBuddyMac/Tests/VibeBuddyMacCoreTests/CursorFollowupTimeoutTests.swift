@@ -82,7 +82,7 @@ struct CursorFollowupTimeoutTests {
         }
     }
 
-    @Test("fails open, silently, within the installed stop timeout", arguments: [false, true])
+    @Test("fails open, silently, on a network budget that fits the installed stop timeout", arguments: [false, true])
     func hungDaemon(partial: Bool) async throws {
         // The deadline is whatever the installer writes for `stop`.
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("vb-cursor-\(UUID().uuidString)")
@@ -110,6 +110,12 @@ struct CursorFollowupTimeoutTests {
         #expect(budgets.count == 2 && budgets.allSatisfy { $0 != nil }, "every curl carries --max-time: \(budgets)")
         let budget = budgets.compactMap { $0 }.reduce(0, +)
         #expect(budget <= deadline - 2, "network budget \(budget)s leaves under 2 s of a \(deadline)s deadline")
+        // Nothing else in the script may wait: the budget is the whole story
+        // only while the two capped requests are the only blocking calls.
+        let blocking = script.split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+            .filter { $0.range(of: #"\b(sleep|wait|nc|python3?|ruby|node|perl|osascript)\b"#, options: .regularExpression) != nil }
+        #expect(blocking.isEmpty, "blocking commands outside the capped requests: \(blocking)")
 
         let server = try HungServer(partialFollowup: partial)
         defer { server.stop() }

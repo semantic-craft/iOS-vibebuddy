@@ -25,7 +25,8 @@ struct SnapshotBroadcastTests {
             for await snapshot in subscription.stream { seen.append(snapshot.dispatchAgents) }
             return seen
         }
-        for agents in [[AgentKind.cursor], [.grok], [.claudeCode], [.codex], [.cursor]] {
+        // The burst starts elsewhere, so a final `[.cursor]` can only be the trailer.
+        for agents in [[AgentKind.grok], [.cursor], [.claudeCode], [.codex], [.cursor]] {
             await store.setDispatchAgents(agents)
         }
         let afterBurst = await store.broadcastCount
