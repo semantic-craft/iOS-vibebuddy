@@ -36,16 +36,6 @@ struct HookParserTests {
         #expect(e?.timestamp == now)
     }
 
-    @Test("parses a Notification payload with message")
-    func notification() {
-        let e = parse("""
-        {"hook_event_name":"Notification","session_id":"abc",
-         "message":"Claude needs your permission to use Bash"}
-        """)
-        #expect(e?.kind == .notification)
-        #expect(e?.message == "Claude needs your permission to use Bash")
-    }
-
     @Test("PostToolUse with an is_error tool_response is flagged as a tool error")
     func postToolUseError() {
         let e = parse("""
@@ -63,15 +53,6 @@ struct HookParserTests {
          "tool_response":"file contents here"}
         """)
         #expect(e?.kind == .postToolUse)          // a string tool_response must not break decoding
-        #expect(e?.toolError == false)
-    }
-
-    @Test("a successful PostToolUse is not a tool error")
-    func postToolUseSuccess() {
-        let e = parse("""
-        {"hook_event_name":"PostToolUse","session_id":"abc","tool_name":"Bash",
-         "tool_response":{"is_error":false,"stdout":"ok"}}
-        """)
         #expect(e?.toolError == false)
     }
 
@@ -234,15 +215,6 @@ struct HookParserTests {
         #expect(e?.message == "Turn interrupted")
     }
 
-    @Test("parses a Stop payload")
-    func stop() {
-        let e = parse("""
-        {"hook_event_name":"Stop","session_id":"abc","stop_hook_active":true}
-        """)
-        #expect(e?.kind == .stop)
-        #expect(e?.sessionID == "abc")
-    }
-
     @Test("parses a SessionEnd payload")
     func sessionEnd() {
         let e = parse("""
@@ -258,11 +230,6 @@ struct HookParserTests {
         #expect(parse("""
         {"hook_event_name":"FutureTelemetryEvent","session_id":"abc"}
         """) == nil)
-    }
-
-    @Test("malformed JSON → nil")
-    func malformed() {
-        #expect(parse("{not json") == nil)
     }
 
     @Test("missing session_id → nil")

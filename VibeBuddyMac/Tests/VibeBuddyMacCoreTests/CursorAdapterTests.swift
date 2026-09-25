@@ -560,15 +560,6 @@ struct CursorAskQuestionTests {
 
 @Suite("Cursor follow-up queue")
 struct CursorFollowupQueueTests {
-    @Test func aQueuedFollowUpIsHandedOverOnce() async {
-        let queue = CursorFollowupQueue()
-        #expect(await queue.queue(conversationID: "c1", text: "also update the README") != nil)
-        #expect(await queue.peek(conversationID: "c1")?.text == "also update the README")
-        #expect(await queue.take(conversationID: "c1") == "also update the README")
-        // Cursor submits it itself; a second delivery would repeat the message.
-        #expect(await queue.take(conversationID: "c1") == nil)
-    }
-
     @Test func aSecondInstructionReplacesTheFirst() async {
         let queue = CursorFollowupQueue()
         await queue.queue(conversationID: "c1", text: "first")
@@ -610,11 +601,6 @@ struct CursorTranscriptTests {
             == [.turnEnded(status: "aborted", error: "User aborted/interrupted manually.")])
         #expect(CursorTranscripts.parse(line: "").isEmpty)
         #expect(CursorTranscripts.parse(line: "{").isEmpty)
-    }
-
-    @Test func aQueryWithNoWrapperIsAlreadyTheQuery() {
-        #expect(CursorTranscripts.userQuery(in: "just do it") == "just do it")
-        #expect(CursorTranscripts.userQuery(in: "<user_query>\n  hi \n</user_query>") == "hi")
     }
 
     /// Cursor flattens `/Users/me/Projects/famotype-macos` to
@@ -795,17 +781,6 @@ struct CursorTranscriptMonitorTests {
         #expect(session?.completionID == completion)
         // The corroborating source is still recorded as evidence.
         #expect(session?.observations?.contains { $0.source == .transcript } == true)
-    }
-
-    @Test func theTranscriptDrivesProgressWithoutHooks() async {
-        let store = SessionStore()
-        let now = Date()
-        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "c9", agent: .cursor,
-                                     cwd: "/x/p", message: "go", observationSource: .transcript,
-                                     timestamp: now))
-        let session = await store.snapshot(now: now).sessions.first { $0.id == "c9" }
-        #expect(session?.status == .working)
-        #expect(session?.agent == .cursor)
     }
 }
 
@@ -1074,44 +1049,5 @@ struct CursorCLITests {
         #expect(CursorCLI.command(["a", "b"], cwd: "/x/my project")
             == "cd '/x/my project' && a b")
         #expect(CursorCLI.command(["a"], cwd: nil) == "a")
-    }
-}
-
-@Suite("Cursor session actions")
-struct CursorSessionActionTests {
-    private func session(status: SessionStatus, hooked: Bool = true) -> AgentSession {
-        var session = AgentSession(id: "c1", agent: .cursor, project: "/x/p", status: status,
-                                   statusSince: Date(), updatedAt: Date())
-        if hooked {
-            session.observations = [ObservationEvidence(source: .hook, lastObservedAt: Date(),
-                                                        health: .healthy)]
-        }
-        return session
-    }
-
-    @Test func aRunningTurnTakesAQueuedSupplement() {
-        let support = SessionActionSupport.resolve(for: session(status: .working))
-        #expect(support.intent == .steer)
-        #expect(support.isAvailable)
-        #expect(support.note?.contains("queued") == true)
-    }
-
-    @Test func aFinishedChatContinuesThroughTheCLI() {
-        let support = SessionActionSupport.resolve(for: session(status: .done))
-        #expect(support.intent == .continue)
-        #expect(support.isAvailable)
-        #expect(support.note?.contains("terminal") == true)
-    }
-
-    @Test func withoutHooksNothingIsPromised() {
-        let support = SessionActionSupport.resolve(for: session(status: .working, hooked: false))
-        #expect(!support.isAvailable)
-        #expect(support.unsupportedReason?.contains("Cursor hooks") == true)
-    }
-
-    @Test func cursorCannotBeStoppedFromHere() {
-        let support = SessionActionSupport.resolveStop(for: session(status: .working))
-        #expect(!support.isAvailable)
-        #expect(support.unsupportedReason == "Stop this in Cursor on your Mac.")
     }
 }

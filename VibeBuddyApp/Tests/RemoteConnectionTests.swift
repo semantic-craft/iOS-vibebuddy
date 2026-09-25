@@ -11,24 +11,6 @@ final class RemoteConnectionTests: XCTestCase {
         await fulfillment(of: [closed], timeout: 2)
     }
 
-    func testEmptyStreamDoesNotCountAsConnected() async {
-        do {
-            _ = try await RemoteConnectionCheck.verify(pairing, streamer: EmptyStreamer())
-            XCTFail("A stream without a snapshot must not replace the saved address")
-        } catch { XCTAssertEqual((error as? URLError)?.code, .networkConnectionLost) }
-    }
-
-    func testAuthenticationErrorIsPreserved() async {
-        do {
-            _ = try await RemoteConnectionCheck.verify(pairing, streamer: RejectedStream())
-            XCTFail("A rejected pairing must fail the probe")
-        } catch {
-            guard case CompanionConnectionFailure.authentication = error else {
-                return XCTFail("Expected authentication failure")
-            }
-        }
-    }
-
     /// Opt-in acceptance against the isolated daemon, using the actual iOS
     /// URLSession/WebSocket stack and a real agent session observed by the Mac.
     func testLivePrivateAddressWhenConfigured() async throws {

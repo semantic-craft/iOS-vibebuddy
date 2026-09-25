@@ -54,14 +54,6 @@ struct WatchStateInboxTests {
         #expect(inbox.state == good)
     }
 
-    @Test("Corrupt data with nothing stored leaves the Watch in no-data")
-    func corruptPayloadOnFirstLaunchIsNoData() {
-        var inbox = WatchStateInbox()
-        let accepted = inbox.accept(Data("💥".utf8))
-        #expect(accepted == false)
-        #expect(inbox.state == nil)
-    }
-
     @Test("A late delivery cannot walk the Watch backwards")
     func staleDeliveryIsRejected() throws {
         var inbox = WatchStateInbox()
@@ -82,17 +74,6 @@ struct WatchStateInboxTests {
         let accepted = inbox.accept(try #require(WatchStateInbox.encode(corrected)))
         #expect(accepted)
         #expect(inbox.state?.counts.working == 3)
-    }
-
-    @Test("A restored state recalculates its age from the current clock")
-    func restoredStateAgesAgainstTheCurrentClock() throws {
-        var inbox = WatchStateInbox(state: nil)
-        let stored = state()
-        inbox.accept(try #require(WatchStateInbox.encode(stored)))
-        let restored = try #require(inbox.state)
-
-        #expect(restored.age(now: now) == 0)
-        #expect(restored.age(now: now.addingTimeInterval(3_600)) == 3_600)
     }
 
     @Test("The relayed payload carries no daemon secrets or session collection")

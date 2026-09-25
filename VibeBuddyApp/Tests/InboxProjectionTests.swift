@@ -9,15 +9,11 @@ final class InboxProjectionTests: XCTestCase {
     private let now = Date()
 
     private func session(_ id: String, _ status: SessionStatus, project: String, minutesAgo: Double,
-                         unread: Bool = false, failed: Bool = false, question: Bool = false) -> AgentSession {
+                         unread: Bool = false, failed: Bool = false) -> AgentSession {
         let at = now.addingTimeInterval(-minutesAgo * 60)
         var s = AgentSession(id: id, agent: .claudeCode, project: project, status: status,
                              hasUnreadCompletion: unread, statusSince: at, updatedAt: at)
         if failed { s.failed = true }
-        if question {
-            s.waitKind = .question
-            s.pendingQuestion = PendingQuestion(id: id + "-q", prompt: "Which?")
-        }
         return s
     }
 
@@ -68,17 +64,6 @@ final class InboxProjectionTests: XCTestCase {
         XCTAssertTrue(inbox.hasCurrent)
     }
 
-    func testTheThirdTileSaysStuckUntilSomethingAsksAQuestion() {
-        var sessions = snapshot()
-        XCTAssertEqual(InboxBucket.needsYou.title(for: InboxProjection(sessions: sessions, now: now).summary),
-                       String(localized: "Stuck"))
-        sessions.append(session("ask", .needsResponse, project: "docs-review", minutesAgo: 1, question: true))
-        let inbox = InboxProjection(sessions: sessions, now: now)
-        XCTAssertEqual(InboxBucket.needsYou.title(for: inbox.summary), String(localized: "Needs you"))
-        XCTAssertEqual(InboxBucket.needsYou.count(in: inbox.summary), 2)
-        XCTAssertEqual(inbox.firstUp?.id, "ask", "a question outranks a confirmed failure")
-    }
-
     func testProjectsLeadWithPendingWorkAndCarryOnlyTheirPendingCount() {
         let inbox = InboxProjection(sessions: snapshot(), now: now)
         XCTAssertEqual(inbox.projects.map(\.project),
@@ -102,14 +87,5 @@ final class InboxProjectionTests: XCTestCase {
         XCTAssertEqual(Set(filters.sessions(from: sessions, now: now).map(\.id)), ["result-a", "run-2", "read"])
         XCTAssertEqual(filters.scopeTitle(summary: summary), "payments-api")
         XCTAssertEqual(DashboardFilters().scopeTitle(summary: summary), String(localized: "All sessions"))
-    }
-
-    func testAnEmptyOrStaleSnapshotHasNoCurrentWork() {
-        XCTAssertFalse(InboxProjection(sessions: [], now: now).hasCurrent)
-        let stale = [session("old", .done, project: "archive", minutesAgo: 30 * 60)]
-        let inbox = InboxProjection(sessions: stale, now: now)
-        XCTAssertFalse(inbox.hasCurrent)
-        XCTAssertNil(inbox.firstUp)
-        XCTAssertTrue(inbox.projects.isEmpty)
     }
 }

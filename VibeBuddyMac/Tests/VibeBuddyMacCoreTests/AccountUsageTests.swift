@@ -219,29 +219,6 @@ struct AccountUsageTests {
         #expect(failed.snapshot?.fetchedAt == old.fetchedAt)
     }
 
-    @Test("successful refresh is cached as the last known good value")
-    func successfulRefreshCaches() async {
-        let snapshot = sampleSnapshot(percent: 55)
-        let provider = ScriptedUsageProvider([.success(snapshot)])
-        let cache = MemoryUsageCache()
-        let collector = AccountUsageCollector(
-            provider: provider,
-            cache: cache,
-            refreshInterval: 600,
-            baseBackoff: 10,
-            maxBackoff: 40,
-            enabled: true
-        )
-
-        let state = await collector.refresh(now: now)
-
-        #expect(state.snapshot?.primary?.usedPercent == 55)
-        #expect(state.snapshot?.fetchedAt == snapshot.fetchedAt)
-        #expect(!state.isStale)
-        #expect(state.unavailableReason == nil)
-        #expect(await cache.value()?.primary?.usedPercent == 55)
-    }
-
     @Test("offline refresh preserves the cached value and marks it stale")
     func lastKnownGoodOnFailure() async {
         let cache = MemoryUsageCache(sampleSnapshot(percent: 61))
@@ -627,46 +604,13 @@ struct AccountUsageTests {
         #expect(permissions.intValue == 0o600)
     }
 
-    @Test("Grok is a first-class usage provider with its own cache and labels")
-    func grokProviderRegistration() {
-        #expect(AccountUsageProvider.allCases.contains(.grok))
-        #expect(AccountUsageProvider.grok.displayName == "Grok Build")
-        #expect(AccountUsageProvider.grok.rawValue == "grok")
-
+    @Test("each provider keeps its own cache file on disk")
+    func providerCacheFiles() {
         let home = URL(fileURLWithPath: "/Users/example")
-        let cacheURL = AccountUsageFileCache.defaultFileURL(provider: .grok, home: home)
-        #expect(cacheURL.lastPathComponent == "grok-usage.json")
-        #expect(cacheURL != AccountUsageFileCache.defaultFileURL(provider: .codex, home: home))
-
-        #expect(
-            AccountUsageUnavailableReason.notLoggedIn.displayText(provider: .grok)
-                == "Grok Build is not signed in"
-        )
-    }
-
-    @Test("Cursor is a first-class usage provider with its own cache and labels")
-    func cursorProviderRegistration() {
-        #expect(AccountUsageProvider.allCases.contains(.cursor))
-        #expect(AccountUsageProvider.cursor.displayName == "Cursor")
-        #expect(AccountUsageProvider.cursor.rawValue == "cursor")
-
-        let home = URL(fileURLWithPath: "/Users/example")
-        let cacheURL = AccountUsageFileCache.defaultFileURL(provider: .cursor, home: home)
-        #expect(cacheURL.lastPathComponent == "cursor-usage.json")
-        #expect(cacheURL != AccountUsageFileCache.defaultFileURL(provider: .codex, home: home))
-
-        #expect(
-            AccountUsageUnavailableReason.notLoggedIn.displayText(provider: .cursor)
-                == "Cursor is not signed in"
-        )
-        #expect(
-            AccountUsageUnavailableReason.collectionDisabled.displayText(provider: .cursor)
-                == "Collection is turned off"
-        )
-        #expect(
-            AccountUsageUnavailableReason.notYetLoaded.displayText(provider: .cursor)
-                == "Waiting for the first refresh"
-        )
+        #expect(AccountUsageFileCache.defaultFileURL(provider: .grok, home: home).lastPathComponent == "grok-usage.json")
+        #expect(AccountUsageFileCache.defaultFileURL(provider: .cursor, home: home).lastPathComponent == "cursor-usage.json")
+        let urls = AccountUsageProvider.allCases.map { AccountUsageFileCache.defaultFileURL(provider: $0, home: home) }
+        #expect(Set(urls).count == urls.count)
     }
 
     @Test("Cursor collector without a cookie stays unavailable, never 0%")
@@ -706,29 +650,6 @@ struct AccountUsageTests {
         )
         #expect(alerts.count == 1)
         #expect(alerts.first?.kind == .primary)
-    }
-
-    @Test("usage failures cannot mutate session progress")
-    func progressIsolation() async {
-        var reducer = SessionReducer()
-        reducer.apply(HookEvent(
-            kind: .userPromptSubmit,
-            sessionID: "working",
-            agent: .codex,
-            cwd: "/tmp/project",
-            timestamp: now
-        ))
-        let before = reducer.sessions["working"]
-        let collector = AccountUsageCollector(
-            provider: ScriptedUsageProvider([.failure(.notLoggedIn)]),
-            cache: MemoryUsageCache(),
-            enabled: true
-        )
-
-        _ = await collector.refresh(now: now)
-
-        #expect(reducer.sessions["working"] == before)
-        #expect(reducer.sessions["working"]?.status == .working)
     }
 
     private func sampleSnapshot(

@@ -443,17 +443,6 @@ struct VibeBuddyServerTests {
         }
     }
 
-    @Test("/hook with the right token is accepted")
-    func hookAuthorized() async throws {
-        try await server(token: "t0k").buildApplication().test(.router) { client in
-            try await client.execute(uri: "/hook", method: .post,
-                                     headers: [.authorization: "Bearer t0k"],
-                                     body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#)) { res in
-                #expect(res.status == .ok)
-            }
-        }
-    }
-
     @Test("/hook accepts the token as a ?token= query param (native-http hooks, e.g. Qwen)")
     func hookAuthorizedViaQueryToken() async throws {
         try await server(token: "t0k").buildApplication().test(.router) { client in

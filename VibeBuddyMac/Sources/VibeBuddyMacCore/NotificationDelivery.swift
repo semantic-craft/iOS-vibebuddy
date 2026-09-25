@@ -253,8 +253,4 @@ public struct NotificationDeliveryHealth: Equatable, Sendable {
         self.lastAttempt = lastAttempt
         self.latchedFailure = latchedFailure
     }
-
-    public static func summary(for outcome: NotificationDeliveryOutcome) -> String {
-        "Last attempt: \(outcome.rawValue)"
-    }
 }

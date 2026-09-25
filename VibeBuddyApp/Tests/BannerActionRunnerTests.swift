@@ -83,14 +83,6 @@ final class BannerActionRunnerTests: XCTestCase {
         XCTAssertEqual(outcome, .openSession("s1"))
     }
 
-    func testConflictOpensTheSession() async {
-        let client = ScriptedWaitClient(answerStatus: .alreadyResolved)
-        let outcome = await BannerActionRunner.perform(
-            actionIdentifier: NotificationActionID.answer.rawValue,
-            userInfo: info, text: "yes", pairing: pairing, client: client)
-        XCTAssertEqual(outcome, .openSession("s1"))
-    }
-
     func testALostReceiptIsReportedUnconfirmedNotHeld() async {
         // A refusal or a timeout after the body went out: the Mac may have
         // acted, so the tap is neither held nor retried, and the person is

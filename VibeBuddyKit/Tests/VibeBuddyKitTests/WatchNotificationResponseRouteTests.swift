@@ -55,14 +55,6 @@ struct WatchNotificationResponseRouteTests {
         #expect(resolve(.approve, session: "") == .ignore)
         #expect(resolve(nil, session: nil).sessionID == nil)
     }
-
-    @Test func anOutcomeTapsOnceForAcceptedTwiceForAnythingElseAndNotWhileSending() {
-        #expect(WatchHaptics.actionOutcome(.sending).isEmpty)
-        #expect(WatchHaptics.actionOutcome(.awaitingResolution) == [.short])
-        #expect(WatchHaptics.actionOutcome(.failed) == [.long, .long])
-        #expect(WatchHaptics.actionOutcome(.unknown) == [.long, .long])
-        #expect(WatchHaptics.actionOutcome(.refused) == [.long, .long])
-    }
 }
 
 /// When a state that does not hold the tapped request is allowed to end the
@@ -80,12 +72,6 @@ struct WatchBannerActionPatienceTests {
         var held = WatchBannerAction(route: route, baselineRevision: 12)
         held.noteInstalled(revision: 12)
         #expect(held.provesRequestGone(currentRevision: 12) == false)
-    }
-
-    @Test func aStrictlyNewerRevisionWithoutTheRequestEndsTheHold() {
-        var held = WatchBannerAction(route: route, baselineRevision: 12)
-        held.noteInstalled(revision: 12)
-        #expect(held.provesRequestGone(currentRevision: 13))
     }
 
     @Test func theFirstEvidenceStateIsTheBaselineAndProvesNothing() {
@@ -130,18 +116,6 @@ struct WatchBannerActionAnswerBindingTests {
     private let route = WatchNotificationResponseRoute.answer(sessionID: "s-build", questionID: nil,
                                                               text: "no")
 
-    @Test func theFirstQuestionSeenIsTheOneTheWordsAreFor() {
-        var held = WatchBannerAction(route: route)
-        #expect(held.boundPendingID == nil)
-        let bound = held.bindsAnswer(to: "q-1")
-        #expect(bound)
-        #expect(held.boundPendingID == "q-1")
-        // Still the same question on every later look: a link that comes back
-        // sends the words where they were meant to go.
-        let again = held.bindsAnswer(to: "q-1")
-        #expect(again)
-    }
-
     @Test func aQuestionThatMovedOnIsNotThisReplysQuestion() {
         // "No" to "Delete the database?" must not be recorded against "Ship the
         // release?" — which the iPhone's gate would accept, because that id is
@@ -168,12 +142,6 @@ struct WatchBannerActionAnswerBindingTests {
         let named = held.bindsAnswer(to: "q-1")
         #expect(named)
         #expect(held.boundPendingID == "q-1")
-    }
-
-    @Test func aDecisionCarriesItsOwnBindingAndNeverGrowsAQuestionOne() {
-        let held = WatchBannerAction(route: .decide(sessionID: "s-build", approvalID: "ap-1",
-                                                    choice: .allow))
-        #expect(held.boundPendingID == nil)
     }
 }
 

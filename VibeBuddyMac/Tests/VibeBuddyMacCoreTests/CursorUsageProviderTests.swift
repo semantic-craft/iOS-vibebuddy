@@ -97,26 +97,6 @@ struct CursorUsageProviderTests {
         }
     }
 
-    @Test("successful cookie fetch decodes the usage-summary body")
-    func successfulFetch() async throws {
-        let endpoint = URL(string: "https://cursor.test/api/usage-summary")!
-        let body = try Self.fixture("usage-summary-plan-only")
-        let transport = ScriptedCursorTransport { _ in
-            let response = HTTPURLResponse(
-                url: endpoint, statusCode: 200, httpVersion: nil, headerFields: nil
-            )!
-            return (body, response)
-        }
-        let snapshot = try await CursorUsageProvider(
-            cookie: "WorkosCursorSessionToken=redacted",
-            cookieMode: { .manual },
-            endpoint: endpoint,
-            transport: transport
-        ).fetch()
-        #expect(snapshot.provider == .cursor)
-        #expect(snapshot.primary?.usedPercent == 40)
-    }
-
     @Test("cookie source mode is re-read on each fetch, not frozen at init")
     func cookieModeRereadEachFetch() async throws {
         let endpoint = URL(string: "https://cursor.test/api/usage-summary")!

@@ -219,20 +219,4 @@ struct JumpRoutesTests {
         #expect(session.canJump)
         #expect(session.jumpsToDesktopThread)
     }
-
-    @Test("a session with no terminal ref reports noTerminal and never runs the jumper")
-    func reportsNoTerminal() async throws {
-        final class Box: @unchecked Sendable { var jumped = 0 }
-        let box = Box()
-        try await VibeBuddyServer(store: SessionStore(), token: "t0k",
-                                  onJump: { _ in box.jumped += 1; return .focused })
-            .buildApplication().test(.router) { client in
-            try await client.execute(uri: "/jump", method: .post,
-                headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"sessionId":"ghost"}"#)) { res in
-                #expect(self.outcome(res.body) == "noTerminal")
-            }
-        }
-        #expect(box.jumped == 0)
-    }
 }

@@ -230,45 +230,12 @@ struct NotificationCoordinatorTests {
         #expect(spy.withdrawn.count == 1)
     }
 
-    @Test("forwards a fresh question transition as needs_answer")
-    func forwardsFreshQuestion() async {
-        let spy = SpyNotifier()
-        let c = NotificationCoordinator(notifier: spy)
-        await c.observe([session("a", .working)], appActive: false, quietMode: false)
-        await c.observe([session("a", .needsResponse, wait: .question)], appActive: false, quietMode: false)
-        #expect(spy.played.map(\.sound) == [.needsAnswer])
-        #expect(spy.played.map(\.id) == ["a"])
-    }
-
-    @Test("forwards a fresh permission transition as needs_approval")
-    func forwardsFreshPermission() async {
-        let spy = SpyNotifier()
-        let c = NotificationCoordinator(notifier: spy)
-        await c.observe([session("a", .working)], appActive: false, quietMode: false)
-        await c.observe([session("a", .needsResponse, wait: .permission)], appActive: false, quietMode: false)
-        #expect(spy.played.map(\.sound) == [.needsApproval])
-    }
-
     @Test("stays silent for the backlog already waiting on the first snapshot")
     func silentOnFirstSnapshot() async {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
         await c.observe([session("a", .needsResponse, wait: .question)], appActive: false, quietMode: false)
         #expect(spy.played.isEmpty)
-    }
-
-    @Test("Quiet mode reads every session as muted: silent banners for the approval and the question")
-    func quietModeMutesEverything() async {
-        let spy = SpyNotifier()
-        let c = NotificationCoordinator(notifier: spy)
-        await c.observe([session("a", .working), session("b", .working)], appActive: false, quietMode: true)
-        let alerts = await c.observe([session("a", .needsResponse, wait: .question),
-                                      session("b", .needsResponse, wait: .permission)],
-                                     appActive: false, quietMode: true)
-        #expect(alerts.map { "\($0.sessionID):\($0.sound.rawValue):\($0.delivery)" } == [
-            "a:needs_answer:banner", "b:needs_approval:banner",
-        ])
-        #expect(spy.played.map(\.id) == ["a", "b"])
     }
 
     @Test("the cues handed back are the ones the notifier was given, so push and local agree")

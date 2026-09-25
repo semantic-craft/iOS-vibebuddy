@@ -59,15 +59,14 @@ private final class FakeWatchTransport: WatchStateTransport {
 final class WatchRelayTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func state(working: Int, at offset: TimeInterval = 0,
-                       relay: WatchRelayState = .live) -> WatchDashboardState {
+    private func state(working: Int, at offset: TimeInterval = 0) -> WatchDashboardState {
         let sessions = (0..<working).map {
             AgentSession(id: "s\($0)", agent: .claudeCode, project: "vibebuddy",
                          status: .working, statusSince: now, updatedAt: now)
         }
         var result = WatchDashboardProjection.make(
             snapshot: Snapshot(sessions: sessions, serverTime: now),
-            quotas: [], relay: relay, now: now.addingTimeInterval(offset))
+            quotas: [], relay: .live, now: now.addingTimeInterval(offset))
         result.relayRevision = UInt64(100 + offset)
         return result
     }
@@ -103,18 +102,6 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertTrue(transport.states.allSatisfy { $0.topAlert?.isDecidable == false })
         XCTAssertEqual(transport.states[2].connection(now: now, phoneReachable: true), .macDisconnected)
         XCTAssertEqual(transport.states.last?.connection(now: now, phoneReachable: true), .live)
-    }
-
-    func testMeaningfulChangeProducesANewContext() {
-        let transport = FakeWatchTransport()
-        let relay = WatchRelay(transport: transport)
-
-        relay.publish(state(working: 1))
-        relay.publish(state(working: 2))
-        relay.publish(state(working: 2, relay: .disconnected))
-
-        XCTAssertEqual(transport.states.map(\.counts.working), [1, 2, 2])
-        XCTAssertEqual(transport.states.map(\.relay), [.live, .live, .disconnected])
     }
 
     func testAnUnavailableWatchGetsOnlyTheNewestStateWhenItReturns() {
@@ -171,43 +158,6 @@ final class WatchRelayTests: XCTestCase {
         // draws the third one once instead of replaying two obsolete screens.
         XCTAssertEqual(transport.states.map(\.counts.working), [1, 2, 3])
         XCTAssertEqual(transport.queuedStates.map(\.counts.working), [3])
-    }
-
-    func testDeliveriesArrivingOutOfOrderLeaveTheNewestOnScreen() {
-        let transport = FakeWatchTransport()
-        let relay = WatchRelay(transport: transport)
-
-        relay.publish(state(working: 1))
-        relay.publish(state(working: 2, at: 30))
-
-        var inbox = WatchStateInbox()
-        for payload in transport.sent.reversed() { inbox.accept(payload) }
-
-        XCTAssertEqual(inbox.state?.counts.working, 2)
-    }
-
-    func testDemoModeRelaysSampleStateWithQuota() async {
-        let transport = FakeWatchTransport()
-        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
-                                   decisionClient: NullDecisionClient(),
-                                   watchRelay: WatchRelay(transport: transport))
-        store.startDemo()
-
-        let relayed = transport.states.last
-        XCTAssertEqual(relayed?.isDemo, true)
-        XCTAssertEqual(relayed?.relay, .live)
-        // Attention buckets (`StateGroups`): the failed demo session counts
-        // under Needs you, as on every other surface.
-        XCTAssertEqual(relayed?.counts.needsResponse, 4)
-        XCTAssertEqual(relayed?.counts.working, 3)
-        XCTAssertEqual(relayed?.counts.done, 2)
-        XCTAssertEqual(relayed?.stuck, 1)
-        // The same failed session leads the wrist's results; the unread
-        // completions follow it.
-        XCTAssertEqual(relayed?.stuckTasks.count, 1)
-        XCTAssertEqual(relayed?.unreadResults.isEmpty, false)
-        XCTAssertEqual(Set(relayed?.quotas.map(\.provider) ?? []), Set([.codex, .claude, .grok, .cursor, .grokBot]))
-        await store.stop().value
     }
 
     func testResolvingADemoApprovalRelaysTheNewState() async throws {

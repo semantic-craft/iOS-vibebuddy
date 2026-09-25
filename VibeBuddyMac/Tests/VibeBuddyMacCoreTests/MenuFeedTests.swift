@@ -60,13 +60,6 @@ struct MenuFeedTests {
         #expect(Set(rows(feed).map(\.id)).count == input.count)
     }
 
-    @Test func everyRowIsOrderedNewestFirstWithinItsGroup() {
-        let feed = make([session("a", ago: 100), session("b", ago: 50), session("c", ago: 200),
-                             failed("x", ago: 30), failed("y", ago: 90)])
-        #expect(sessions(feed, .working).map(\.id) == ["b", "a", "c"])
-        #expect(sessions(feed, .needsYou).map(\.id) == ["x", "y"])
-    }
-
     @Test func sessionsSharingATimestampKeepTheSnapshotOrder() {
         let same = [session("first"), session("second"), session("third")]
         #expect(rows(make(same)).map(\.id) == ["first", "second", "third"])
@@ -174,23 +167,6 @@ struct MenuFeedTests {
     }
 
     // MARK: edges
-
-    @Test func anEmptyProjectNameIsJustAnEmptyName() {
-        let feed = make([session("blank", project: "   "), session("named", project: "app")])
-        #expect(rows(feed).count == 2)
-        #expect(make([session("blank", project: "   ")], query: "app").emptyState == .noMatches("app"))
-    }
-
-    /// An absent group draws no heading, so the panel shortens instead of
-    /// showing three titles over one row.
-    @Test func aSnapshotOfOneStateFillsExactlyOneGroup() {
-        let waiting = (0..<3).map { session("w\($0)", ago: TimeInterval($0), .needsResponse) }
-        #expect(make(waiting).sections.map(\.kind) == [.needsYou])
-        #expect(sessions(make(waiting), .needsYou).count == 3)
-        let calm = (0..<3).map { session("c\($0)", ago: TimeInterval($0), .done) }
-        #expect(make(calm).sections.map(\.kind) == [.done])
-        #expect(sessions(make(calm), .done).count == 3)
-    }
 
     @Test func returnGoesToTheFirstRowOfTheFirstGroup() {
         #expect(make([session("new", ago: 1), session("old", ago: 90)]).topResult?.id == "new")

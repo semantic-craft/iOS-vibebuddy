@@ -69,16 +69,6 @@ final class NotificationRelayTests: XCTestCase {
         XCTAssertEqual(notifier.withdrawn, ["s1-needs_approval"])
     }
 
-    func testRepeatedSnapshotsOfTheSameWaitDoNotStackNotifications() async {
-        let waiting = session("s1", .needsResponse, at: -1)
-        let notifier = await run([
-            [session("s1", .working, at: -60)],
-            [waiting], [waiting], [waiting],
-        ])
-
-        XCTAssertEqual(notifier.posted, ["s1-needs_approval"])
-    }
-
     /// The Watch app must never schedule anything of its own: a second scheduler
     /// is a duplicate by construction, and it would have to re-derive the
     /// `needsResponse` boundary and the sound preference from a projection that

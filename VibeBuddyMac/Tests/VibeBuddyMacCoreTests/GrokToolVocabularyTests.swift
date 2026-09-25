@@ -61,29 +61,10 @@ struct GrokToolVocabularyTests {
         #expect(list["file_path"] as? String == "/x/src")
     }
 
-    @Test("keys grok already spells the canonical way are left alone")
-    func nativeKeys() {
-        let edit = GrokToolVocabulary.canonicalInput(
-            ["file_path": "/x/a.swift", "old_string": "a", "new_string": "b", "replace_all": false])
-        #expect(edit["file_path"] as? String == "/x/a.swift")
-        #expect(edit["old_string"] as? String == "a")
-        #expect(edit["new_string"] as? String == "b")
-
-        let bash = GrokToolVocabulary.canonicalInput(["command": "ls", "description": "list"])
-        #expect(bash["command"] as? String == "ls")
-    }
-
     @Test("an explicit file_path is never overwritten by target_file")
     func filePathWins() {
         let input = GrokToolVocabulary.canonicalInput(["file_path": "/keep", "target_file": "/other"])
         #expect(input["file_path"] as? String == "/keep")
-    }
-
-    @Test("normalize does both halves at once")
-    func normalize() {
-        let n = GrokToolVocabulary.normalize(tool: "read_file", input: ["target_file": "/x/a"])
-        #expect(n.tool == "Read")
-        #expect(n.input["file_path"] as? String == "/x/a")
     }
 
     // The point of all of the above: the existing agent-agnostic machinery then

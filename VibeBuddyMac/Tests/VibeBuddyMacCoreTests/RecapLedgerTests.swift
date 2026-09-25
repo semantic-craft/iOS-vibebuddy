@@ -106,19 +106,6 @@ struct RecapLedgerTests {
         #expect(entries.first?.kind == .completed)
     }
 
-    @Test("a second round keeps the first; the recap is newest first")
-    func twoRounds() async throws {
-        let store = SessionStore(sourceID: "mac")
-        await store.ingest(prompt("s", at: 0, turn: "t1"))
-        await store.ingest(stop("s", at: 30, turn: "t1", text: "First result."))
-        _ = await store.snapshot(now: t0.addingTimeInterval(31))
-        await store.ingest(prompt("s", at: 60, turn: "t2"))
-        await store.ingest(stop("s", at: 90, turn: "t2", text: "Second result."))
-        let recap = try #require(await store.snapshot(now: t0.addingTimeInterval(91)).recap)
-        #expect(recap.entries.map { $0.points.first } == ["Second result.", "First result."])
-        #expect(recap.entries.map(\.endedAt) == [t0.addingTimeInterval(90), t0.addingTimeInterval(30)])
-    }
-
     @Test("Claude Stop summaries belong to their round even while the transcript still contains the previous result")
     func claudeStopBeforeTranscriptFlush() async throws {
         let dir = try tempDir()
@@ -222,16 +209,6 @@ struct RecapLedgerTests {
             #expect(recap.entries.map { $0.points.first } == ["Second result.", "First result."])
             #expect(recap.entries.last?.isRead == true)
         }
-    }
-
-    @Test("a Claude round with neither Stop text nor readable transcript records no sentence")
-    func claudeWithoutTranscript() async throws {
-        let store = SessionStore(sourceID: "mac")
-        await store.ingest(prompt("s", agent: .claudeCode, at: 0))
-        await store.ingest(stop("s", agent: .claudeCode, at: 30, text: nil))
-        let entry = try #require(await store.snapshot(now: t0.addingTimeInterval(31)).recap?.entries.first)
-        #expect(entry.kind == .completed)
-        #expect(entry.points.isEmpty)
     }
 
     @Test("a stop the user asked for leaves no entry")

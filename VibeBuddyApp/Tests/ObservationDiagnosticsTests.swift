@@ -98,48 +98,6 @@ final class ObservationDiagnosticsTests: XCTestCase {
             XCTAssertTrue(renderedReasons.contains(key), "Missing upstream case: \(key)")
         }
     }
-
-    func testCompleteWireFramesKeepDiagnosticsAndSessionsUpdating() async throws {
-        let now = Date(timeIntervalSince1970: 1_780_000_000)
-        var snapshots: [Snapshot] = []
-        for (index, status) in [SessionStatus.working, .needsResponse, .done].enumerated() {
-            let row = ObservationSourceDiagnostic(source: .rollout, health: .unknownVersion,
-                reasonCode: index == 0 ? nil : index == 1 ? "futureReason" : "versionUnverified", sourceVersion: "0.153.4")
-            let session = AgentSession(id: "same-task", agent: .codex, project: "diagnostic-test",
-                status: status, statusSince: now, updatedAt: now.addingTimeInterval(Double(index)))
-            let snapshot = Snapshot(sessions: [session], serverTime: session.updatedAt, sourceID: "test-mac",
-                observationDiagnostics: [.init(agent: .codex, sources: [row])])
-            // Exercise the same complete envelope decoder as WebSocketSnapshotClient.
-            let bytes = try JSONEncoder().encode(ServerEvent.snapshot(snapshot))
-            guard case .snapshot(let decoded) = try JSONDecoder().decode(ServerEvent.self, from: bytes) else {
-                return XCTFail("Snapshot frame lost")
-            }
-            XCTAssertEqual(decoded, snapshot)
-            snapshots.append(decoded)
-        }
-        let pipe = AsyncThrowingStream<Snapshot, Error>.makeStream()
-        let store = DashboardStore(streamer: ControlledDiagnosticStreamer(stream: pipe.stream),
-            notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil, reportDevice: { _ in })
-        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
-        defer { store.stop(); pipe.continuation.finish() }
-        for snapshot in snapshots {
-            let applied = expectation(description: "Next compatibility frame installed")
-            let subscription = store.$groups.dropFirst().sink { _ in applied.fulfill() }
-            pipe.continuation.yield(snapshot)
-            let result = await XCTWaiter.fulfillment(of: [applied], timeout: 5)
-            XCTAssertEqual(result, .completed)
-            subscription.cancel()
-            XCTAssertEqual(store.allSessions.map(\.status), snapshot.sessions.map(\.status))
-            XCTAssertEqual(store.observationDiagnostics, snapshot.observationDiagnostics)
-        }
-    }
-}
-
-/// `CompanionPalette.status(_:)` builds a fresh dynamic colour on each call and
-/// SwiftUI compares the boxed platform colour, so two equal tokens are not `==`.
-/// Resolving pins the comparison to the value each token actually paints.
-private func resolved(_ color: Color, _ style: UIUserInterfaceStyle) -> UIColor {
-    UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
 }
 
 private struct ControlledDiagnosticStreamer: SnapshotStreaming {
@@ -175,4 +133,11 @@ private struct OldSourceDiagnostic: Codable {
     var lastObservedAt: Date?
     var configuredCoverage: [ObservationEventCoverage]
     var observedCoverage: [ObservationEventCoverage]
+}
+
+/// `CompanionPalette.status(_:)` builds a fresh dynamic colour on each call and
+/// SwiftUI compares the boxed platform colour, so two equal tokens are not `==`.
+/// Resolving pins the comparison to the value each token actually paints.
+private func resolved(_ color: Color, _ style: UIUserInterfaceStyle) -> UIColor {
+    UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
 }

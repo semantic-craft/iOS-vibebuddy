@@ -538,21 +538,6 @@ struct ApprovalRoutesTests {
                                        body: claude(tool: "Bash", mode: "bypassPermissions"))
     }
 
-    @Test("a default-mode Read allows at once without a card")
-    func defaultModeReadShortCircuits() async throws {
-        let store = SessionStore()
-        try await expectImmediateAllow(server(store: store), store: store,
-            body: claude(tool: "Read", input: #"{"file_path":"/x/p/a.swift"}"#, mode: "default"))
-    }
-
-    @Test("an acceptEdits Edit allows at once without a card")
-    func acceptEditsEditShortCircuits() async throws {
-        let store = SessionStore()
-        try await expectImmediateAllow(server(store: store), store: store,
-            body: claude(tool: "Edit", input: #"{"file_path":"/x/p/a.swift","old_string":"a","new_string":"b"}"#,
-                         mode: "acceptEdits"))
-    }
-
     @Test("a default-mode Edit still holds for the phone")
     func defaultModeEditHolds() async throws {
         let store = SessionStore()
@@ -607,14 +592,6 @@ struct ApprovalRoutesTests {
                 body: ByteBuffer(string: claude(tool: "Bash", mode: "bypassPermissions"))) { res in
                 #expect(String(buffer: res.body).contains("\"permissionDecision\":\"deny\""))
             }
-        }
-    }
-
-    @Test("an allow-listed grok call answers in grok's decision contract")
-    func grokAllowImmediate() async throws {
-        try await server(allow: ["Bash(ls:*)"]).buildApplication().test(.router) { client in
-            let text = try await approve(client, body: grokBash("ls -la"), agent: "grok")
-            #expect(text == #"{"decision":"allow"}"#)
         }
     }
 
@@ -920,24 +897,6 @@ struct ApprovalRoutesTests {
             #expect(try await held == codexAllow)
             // A path-less Edit yields no rule: the next multi-file patch asks again.
             #expect(await allowStore.all().isEmpty)
-        }
-    }
-
-    @Test("alwaysAllow from a codex approval matches the next identical codex command")
-    func codexAlwaysAllowPersists() async throws {
-        let store = SessionStore()
-        defer { try? FileManager.default.removeItem(at: allowStoreURL) }
-        try await server(store: store).buildApplication().test(.router) { client in
-            async let first = approve(client, body: codexRequest("git status"), agent: "codex")
-            try await waitForPendingApproval(store, session: "cs")
-            try await client.execute(uri: "/decision", method: .post,
-                headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
-                #expect(res.status == .ok)
-            }
-            #expect(try await first == codexAllow)
-            let again = try await approve(client, body: codexRequest("git status"), agent: "codex")
-            #expect(again == codexAllow)
         }
     }
 

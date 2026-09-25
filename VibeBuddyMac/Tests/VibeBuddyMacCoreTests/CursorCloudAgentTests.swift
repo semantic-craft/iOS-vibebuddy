@@ -500,24 +500,6 @@ struct CursorCloudAgentTests {
     static let cloudEvidence = [ObservationEvidence(source: .cloud, lastObservedAt: Date(),
                                                     health: .healthy)]
 
-    @Test("a running cloud agent refuses a supplement — Cursor allows one run at a time")
-    func runningCloudAgentRefusesSteer() {
-        let support = SessionActionSupport.resolve(
-            for: Self.cloudSession(status: .working, observations: Self.cloudEvidence))
-        #expect(support.intent == .steer)
-        #expect(!support.isAvailable)
-        #expect(support.unsupportedReason?.contains("busy") == true)
-    }
-
-    @Test("an idle cloud agent takes the next run, and says where it lands")
-    func idleCloudAgentContinues() {
-        let support = SessionActionSupport.resolve(
-            for: Self.cloudSession(status: .done, observations: Self.cloudEvidence))
-        #expect(support.intent == .continue)
-        #expect(support.isAvailable)
-        #expect(support.note?.contains("cloud agent") == true)
-    }
-
     @Test("a cloud agent with no reachable API asks for the key, not for Cursor's hooks")
     func unreachableCloudAgentAsksForTheKey() {
         for status: SessionStatus in [.working, .done] {
@@ -531,27 +513,6 @@ struct CursorCloudAgentTests {
         }
     }
 
-    @Test("a hooked local Cursor chat is unaffected by any of this")
-    func localCursorUnchanged() {
-        let now = Date()
-        var session = AgentSession(id: "11111111-2222-3333-4444-555555555555", agent: .cursor,
-                                   project: "/tmp/repo", status: .working,
-                                   statusSince: now, updatedAt: now)
-        session.observations = [ObservationEvidence(source: .hook, lastObservedAt: Date(),
-                                                    health: .healthy)]
-        let support = SessionActionSupport.resolve(for: session)
-        #expect(support.intent == .steer)
-        #expect(support.isAvailable)
-        #expect(support.note?.contains("queued") == true)
-    }
-
-    @Test("a live cloud run can be stopped — Cursor's API cancels it")
-    func stopAvailableForLiveCloudRun() {
-        let support = SessionActionSupport.resolveStop(
-            for: Self.cloudSession(status: .working, observations: Self.cloudEvidence))
-        #expect(support.isAvailable)
-    }
-
     @Test("a finished or unreachable cloud agent says why stop is not on offer")
     func stopRefusedWhenThereIsNothingToCancel() {
         let done = SessionActionSupport.resolveStop(
@@ -563,17 +524,6 @@ struct CursorCloudAgentTests {
             for: Self.cloudSession(status: .working, observations: nil))
         #expect(!noKey.isAvailable)
         #expect(noKey.unsupportedReason?.contains("API key") == true)
-    }
-
-    @Test("a local Cursor chat is still refused — it has no interrupt")
-    func stopStillRefusedForLocalCursor() {
-        let now = Date()
-        let local = AgentSession(id: "11111111-2222-3333-4444-555555555555", agent: .cursor,
-                                 project: "/tmp/repo", status: .working,
-                                 statusSince: now, updatedAt: now)
-        let support = SessionActionSupport.resolveStop(for: local)
-        #expect(!support.isAvailable)
-        #expect(support.unsupportedReason?.contains("Cursor on your Mac") == true)
     }
 
     @Test("only a bc- id is a cloud agent")

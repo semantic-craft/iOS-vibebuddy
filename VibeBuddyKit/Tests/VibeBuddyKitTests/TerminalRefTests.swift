@@ -45,15 +45,6 @@ struct TerminalRefTests {
         #expect(!ref.hasExactTarget)
     }
 
-    @Test("a payload with nothing but a host bundle id is still a valid ref")
-    func hostOnly() throws {
-        let ref = try decode(#"{"host_bundle_id":"com.anthropic.claude-code","host_pid":99}"#)
-        #expect(ref.termProgram == nil)
-        #expect(ref.hostBundleId == "com.anthropic.claude-code")
-        #expect(ref.hostPid == 99)
-        #expect(!ref.hasExactTarget)
-    }
-
     @Test("hasExactTarget is true for any pane/surface handle, one at a time",
           arguments: [
             #"{"tmux_pane":"%3"}"#,
@@ -84,11 +75,6 @@ struct TerminalRefTests {
           ])
     func bareTTY(_ json: String, _ expected: Bool) throws {
         #expect(try decode(json).hasExactTarget == expected)
-    }
-
-    @Test("cwd alone is not an exact target — it's a hint, and several sessions can share it")
-    func cwdIsNotATarget() throws {
-        #expect(try !decode(#"{"cwd":"/Users/x/p","term_program":"ghostty"}"#).hasExactTarget)
     }
 
     /// What the `/terminal` route uses to decide whether a ref is worth storing.

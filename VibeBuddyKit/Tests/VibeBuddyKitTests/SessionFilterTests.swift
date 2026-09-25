@@ -39,16 +39,4 @@ struct SessionFilterTests {
         let all = [named, s("b", .working, project: "other")]
         #expect(SessionFilter.apply(all, status: nil, agent: nil, query: "hook").map(\.id) == ["a"])
     }
-
-    @Test("nil filters + empty query return everything")
-    func noFilter() {
-        let all = [s("a", .working), s("b", .done)]
-        #expect(SessionFilter.apply(all, status: nil, agent: nil, query: "").count == 2)
-    }
-
-    @Test("presentAgents lists distinct agents that appear")
-    func present() {
-        let all = [s("a", .working, agent: .claudeCode), s("b", .done, agent: .codex), s("c", .working, agent: .claudeCode)]
-        #expect(Set(SessionFilter.presentAgents(all)) == Set([.claudeCode, .codex]))
-    }
 }

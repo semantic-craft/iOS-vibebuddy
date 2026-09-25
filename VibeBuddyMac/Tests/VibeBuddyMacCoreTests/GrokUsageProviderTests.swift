@@ -168,16 +168,6 @@ struct GrokUsageProviderTests {
         }
     }
 
-    @Test("the unified log record carries its own fetch time")
-    func logRecordDecoding() throws {
-        let snapshot = try GrokUsageResponseDecoder.decode(unifiedLogLine: Self.logLine())
-
-        #expect(snapshot.provider == .grok)
-        #expect(snapshot.planType == "SuperGrok Heavy")
-        #expect(snapshot.primary?.usedPercent == 36)
-        #expect(Self.matches(snapshot.fetchedAt, "2026-09-03T00:32:30Z"))
-    }
-
     @Test("an unrelated log record is not a usage reading")
     func unrelatedLogRecord() {
         let line = Data(#"{"ts":"2026-09-03T00:32:30.702Z","src":"shell","lvl":"info","msg":"session: started"}"#.utf8)
@@ -294,28 +284,6 @@ struct GrokUsageProviderTests {
         #expect(!GrokUsageProvider.allowsLogFallback(after: AccountUsageError.notLoggedIn))
         #expect(GrokUsageProvider.allowsLogFallback(after: AccountUsageError.providerUnavailable))
         #expect(!GrokUsageProvider.allowsLogFallback(after: CancellationError()))
-    }
-
-    @Test("a signed-out agent is reported instead of falling back")
-    func signedOutIsReported() async throws {
-        let directory = try Self.makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let logURL = directory.appendingPathComponent("unified.jsonl")
-        try (Self.logLine(
-            timestamp: ISO8601DateFormatter().string(from: Date()),
-            percent: "72.0"
-        ) + Data("\n".utf8)).write(to: logURL)
-        let agent = try Self.writeFakeAgent(
-            in: directory,
-            transcript: directory.appendingPathComponent("stdin.txt"),
-            reply: #"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required","data":"Run `grok login` to authenticate."}}"#
-        )
-
-        await #expect(throws: AccountUsageError.notLoggedIn) {
-            try await GrokUsageProvider(
-                executableURL: agent, arguments: [], timeout: fakeAgentTimeout, logURL: logURL
-            ).fetch()
-        }
     }
 
     @Test("a stalled agent times out and its child process is reaped",

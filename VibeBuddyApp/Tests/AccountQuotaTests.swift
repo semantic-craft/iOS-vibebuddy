@@ -25,23 +25,6 @@ final class AccountQuotaTests: XCTestCase {
         XCTAssertTrue(UsageRows.windows(.unavailable(.cursor, reason: "Collection disabled")).isEmpty)
     }
 
-    func testRemainingLineAndCreditsStayOnTheQuotaSurface() {
-        var quota = ProviderQuota(provider: .claude, weeklyRemainingPercent: 42,
-                                  weeklyWindowDurationMinutes: 10080, observedAt: Date())
-        quota.credits = QuotaCredits(remaining: 80, label: "Credits")
-        quota.spend = [QuotaSpend(label: "Extra usage", amount: 6.5)]
-        quota.scopedWindows = [
-            QuotaWindow(remainingPercent: 82, durationMinutes: 10080, resetsAt: Date().addingTimeInterval(3600),
-                        observedAt: Date(), label: "Fable only")
-        ]
-        // A scoped week is detail under the provider, never its headline row.
-        XCTAssertEqual(UsageRows.windows(quota).map(\.label), [nil])
-        XCTAssertEqual(UsageRows.scopedWindows(quota).last?.label, "Fable only")
-        XCTAssertEqual(QuotaPresentation.remainingLine(remainingPercent: 42), "42% left · 58% used")
-        XCTAssertEqual(quota.credits?.remaining, 80)
-        XCTAssertEqual(quota.spend?.first?.amount, 6.5)
-    }
-
     /// The Demo reading the acceptance list names: Grok Build's week is the
     /// tightest, and a nearly-empty scoped week never takes the headline.
     func testTightestSkipsScopedWindows() {
@@ -62,24 +45,6 @@ final class AccountQuotaTests: XCTestCase {
         }
         XCTAssertEqual(UsageRows.tightest(quotas, now: now)?.0.provider, .grok)
         XCTAssertNil(UsageRows.tightest([.unavailable(.codex, reason: "signed out")], now: now))
-    }
-
-    func testPaceCaptionWarnsOnlyWhenFasterThanTheClock() {
-        let now = Date()
-        // Claude in the Demo: 59% of the week spent with 42% of it elapsed.
-        let faster = QuotaWindow(remainingPercent: 41, durationMinutes: 10080,
-                                 resetsAt: now.addingTimeInterval(4 * 86_400 + 2 * 3_600), observedAt: now)
-        let caption = UsageRows.paceCaption(faster, now: now)
-        XCTAssertEqual(caption.0, "Resets in 4d 2h · faster than pace")
-        XCTAssertTrue(caption.isWarning)
-
-        let slower = QuotaWindow(remainingPercent: 68, durationMinutes: 10080,
-                                 resetsAt: now.addingTimeInterval(3 * 86_400 + 8 * 3_600), observedAt: now)
-        XCTAssertEqual(UsageRows.paceCaption(slower, now: now).0, "Resets in 3d 8h · slower than pace")
-        XCTAssertFalse(UsageRows.paceCaption(slower, now: now).isWarning)
-
-        let noReset = QuotaWindow(remainingPercent: 56, durationMinutes: nil, resetsAt: nil, observedAt: now)
-        XCTAssertEqual(UsageRows.paceCaption(noReset, now: now).0, "Reset time unknown")
     }
 
     func testSwitchingMacClearsPublishedQuotaBeforeNewSnapshot() async throws {

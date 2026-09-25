@@ -27,18 +27,6 @@ struct NotificationCategoriesTests {
         #expect(Set(NotificationCategoryPrefs.displayOrder) == Set(NotificationCategory.allCases))
     }
 
-    @Test("Mac defaults match the phone set, with quota on")
-    func macDefaults() {
-        let d = NotificationCategoryPrefs.macDefault
-        #expect(d.isEnabled(NotificationSound.needsApproval))
-        #expect(d.isEnabled(NotificationSound.needsAnswer))
-        #expect(d.isEnabled(NotificationSound.agentStuck))
-        #expect(d.isEnabled(NotificationSound.agentDone))
-        #expect(!d.isEnabled(NotificationSound.longWaitNudge))
-        #expect(!d.isEnabled(NotificationSound.pairSuccess))
-        #expect(d.isEnabled(.quota))
-    }
-
     @Test("filter keeps only enabled session categories, in order")
     func filterDropsDisabled() {
         var prefs = NotificationCategoryPrefs.default

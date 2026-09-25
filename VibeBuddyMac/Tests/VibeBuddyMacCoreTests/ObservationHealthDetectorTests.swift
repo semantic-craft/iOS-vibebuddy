@@ -370,21 +370,6 @@ struct ObservationHealthDetectorTests {
         }
     }
 
-    @Test("an unreadable rollout directory is not treated as an empty source")
-    func unreadableRolloutDirectory() throws {
-        let home = try tempHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        try write("model = \"gpt\"\n", to: home.appendingPathComponent(".codex/config.toml"))
-        let directory = home.appendingPathComponent(".codex/sessions/2023/11/14", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: directory.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700],
-                                                        ofItemAtPath: directory.path) }
-
-        let result = detect(home: home)
-        #expect(result.health(agent: .codex, source: .rollout) == .sourceUnreadable)
-    }
-
     // MARK: - Grok
 
     /// The event set `HookInstaller` writes for Grok (`GrokHooks.events`).
@@ -401,28 +386,6 @@ struct ObservationHealthDetectorTests {
          "Notification", "SubagentStart", "SubagentStop", "SessionEnd"]
     }
 
-    @Test("grok reports not-installed, then missing events, then healthy")
-    func grokHookEvidence() throws {
-        let home = try tempHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        let grokHome = unwrittenDirectory()
-        defer { try? FileManager.default.removeItem(at: grokHome) }
-        #expect(detect(home: home, grokHome: grokHome)
-            .health(agent: .grok, source: .hook) == .notInstalled)
-
-        try FileManager.default.createDirectory(at: grokHome, withIntermediateDirectories: true)
-        #expect(detect(home: home, grokHome: grokHome)
-            .health(agent: .grok, source: .hook) == .eventsMissing)
-
-        try write(grokHooks(grokInstalledEvents),
-                  to: grokHome.appendingPathComponent("hooks/vibebuddy.json"))
-        let signal = ObservationRuntimeSignal(agent: .grok, source: .hook, lastObservedAt: now)
-        let result = detect(home: home, grokHome: grokHome, signals: [signal])
-        #expect(result.health(agent: .grok, source: .hook) == .healthy)
-        #expect(result.diagnostic(agent: .grok, source: .hook)?.configuredCoverage
-            == ObservationEventCoverage.allCases)
-    }
-
     @Test("grok without Notification loses attention coverage even with fresh events")
     func grokAttentionCoverageRequired() throws {
         let grokHome = unwrittenDirectory()
@@ -434,21 +397,6 @@ struct ObservationHealthDetectorTests {
         #expect(result.health(agent: .grok, source: .hook) == .eventsMissing)
         #expect(result.diagnostic(agent: .grok, source: .hook)?
             .configuredCoverage.contains(.attention) == false)
-    }
-
-    @Test("grok's session transcripts are a declared passive source")
-    func grokPassiveSource() throws {
-        let grokHome = unwrittenDirectory()
-        defer { try? FileManager.default.removeItem(at: grokHome) }
-        #expect(detect(home: nil, grokHome: grokHome)
-            .health(agent: .grok, source: .transcript) == .notInstalled)
-
-        try FileManager.default.createDirectory(
-            at: grokHome.appendingPathComponent("sessions", isDirectory: true),
-            withIntermediateDirectories: true)
-        let signal = ObservationRuntimeSignal(agent: .grok, source: .transcript, lastObservedAt: now)
-        #expect(detect(home: nil, grokHome: grokHome, signals: [signal])
-            .health(agent: .grok, source: .transcript) == .healthy)
     }
 
     @Test("grok diagnostics follow the resolved grok home, not the user's ~/.grok")

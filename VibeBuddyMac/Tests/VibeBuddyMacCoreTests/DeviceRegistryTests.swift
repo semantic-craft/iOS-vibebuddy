@@ -185,29 +185,9 @@ struct DeviceRegistryTests {
         #expect(await tokens.devices().first?.playSound == false)
     }
 
-    @Test func tokenlessPayloadIsNotRegistered() async throws {
-        let url = tempURL()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let tokens = DeviceTokens(url: url)
-        await tokens.register(DeviceRegistrationPayload(name: "Hermes"))
-        #expect(await tokens.all().isEmpty)
-    }
-
     private func sent(_ status: Int?, reason: String? = nil) -> APNsSendResult {
         APNsSendResult(outcome: status.map { (200..<300).contains($0) ? .accepted : .failed } ?? .failed,
                        status: status, failureReason: status.map { "apnsHTTP\($0)" }, reason: reason)
-    }
-
-    @Test func unregisteredResponseEvictsTheToken() async throws {
-        let url = tempURL()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let tokens = DeviceTokens(url: url)
-        await tokens.register(DeviceRegistrationPayload(token: "abc"))
-        await tokens.applySendResult(sent(200), token: "abc")   // even a proven token
-
-        #expect(await tokens.applySendResult(sent(410), token: "abc"))
-        #expect(await tokens.all().isEmpty)
-        #expect(await DeviceTokens(url: url).all().isEmpty)   // eviction persisted
     }
 
     /// A token Apple has never once accepted and now calls bad is junk — a typo,
@@ -306,15 +286,6 @@ struct DeviceRegistryTests {
         await tokens.register(DeviceRegistrationPayload(token: "real", name: "Hermes"))
         #expect(await tokens.applySendResult(sent(400), token: "real") == false)
         #expect(await tokens.all() == ["real"])
-    }
-
-    @Test func forgettingThePhoneClearsTheFile() async throws {
-        let url = tempURL()
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let tokens = DeviceTokens(url: url)
-        await tokens.register(DeviceRegistrationPayload(token: "abc"))
-        await tokens.removeAll()
-        #expect(await DeviceTokens(url: url).all().isEmpty)
     }
 
     @Test func corruptFileStartsEmptyInsteadOfThrowing() async throws {

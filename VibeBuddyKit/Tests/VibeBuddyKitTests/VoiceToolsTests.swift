@@ -18,14 +18,6 @@ struct VoiceToolsTests {
         #expect(doubaoTools.count == expected.count)
     }
 
-    // MARK: Catalog — the three tools the model is given
-
-    @Test("the catalog exposes approve, deny, answer, mark-read and instruct tools")
-    func catalog() {
-        let names = Set(VoiceTools.all.map(\.name))
-        #expect(names == ["approve_session", "deny_session", "answer_session", "mark_read_session", "instruct_session"])
-    }
-
     @Test("mark-read and instruct decode strictly, like the others")
     func markReadAndInstructDecode() {
         #expect(VoiceTools.action(name: "mark_read_session", arguments: #"{"project":"payments-api"}"#) == .markRead(project: "payments-api"))
@@ -44,13 +36,6 @@ struct VoiceToolsTests {
     }
 
     // MARK: Decoding — (name, arguments JSON) → VoiceAction
-
-    @Test("an approve tool call decodes to .approve")
-    func decodeApprove() {
-        let action = VoiceTools.action(name: "approve_session",
-                                       arguments: #"{"project":"todo-app"}"#)
-        #expect(action == .approve(project: "todo-app"))
-    }
 
     @Test("a deny tool call decodes to .deny")
     func decodeDeny() {

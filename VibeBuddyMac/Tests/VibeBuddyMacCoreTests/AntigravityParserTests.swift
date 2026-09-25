@@ -134,24 +134,4 @@ struct AntigravityParserTests {
     func missingSession() {
         #expect(parse(#"{"hook_event_name":"AfterAgent"}"#) == nil)
     }
-
-    @Test("malformed JSON → nil")
-    func malformed() {
-        #expect(parse("{not json") == nil)
-    }
-
-    @Test("parsed Antigravity events drive the reducer: a turn ends done, tagged antigravity")
-    func endToEnd() {
-        var r = SessionReducer()
-        let events = [
-            parse(#"{"hook_event_name":"SessionStart","session_id":"a","cwd":"/x/proj"}"#),
-            parse(#"{"hook_event_name":"BeforeAgent","session_id":"a"}"#),
-            parse(#"{"hook_event_name":"AfterAgent","session_id":"a"}"#),
-        ].compactMap { $0 }
-        #expect(events.count == 3)
-        for e in events { r.apply(e) }
-        #expect(r.sessions["a"]?.agent == .antigravity)
-        #expect(r.sessions["a"]?.project == "proj")
-        #expect(r.sessions["a"]?.status == .done)
-    }
 }

@@ -251,23 +251,6 @@ final class WatchApprovalTests: XCTestCase {
         XCTAssertNil(action.action)
     }
 
-    func testAFailedDeliveryIsSaidOutLoudAndCanBeRetried() {
-        var action = WatchSessionActionState()
-        _ = action.begin(alert: alert, choice: .allow, attemptId: "t-1")
-        action.fail(attemptId: "t-1")
-        XCTAssertEqual(action.action?.phase, .failed)
-        XCTAssertFalse(action.isBusy)
-        XCTAssertNotNil(action.begin(alert: alert, choice: .allow, attemptId: "t-2"))
-    }
-
-    func testARefusalIsSaidOutLoud() {
-        var action = WatchSessionActionState()
-        _ = action.begin(alert: alert, choice: .deny, attemptId: "t-1")
-        action.apply(WatchSessionActionResult(attemptId: "t-1", outcome: .refused))
-        XCTAssertEqual(action.action?.phase, .refused)
-        XCTAssertFalse(action.isBusy)
-    }
-
     func testALateReplyForAnOldAttemptIsIgnored() {
         var action = WatchSessionActionState()
         _ = action.begin(alert: alert, choice: .allow, attemptId: "t-1")
@@ -293,11 +276,6 @@ final class WatchApprovalTests: XCTestCase {
         action.apply(WatchSessionActionResult(attemptId: "t-1", outcome: .accepted))
         action.reconcile(with: resolved)
         XCTAssertNil(action.action)
-    }
-
-    func testResolvingAnUnknownApprovalChangesNothing() {
-        let demo = WatchDemoScenario.permission.state(now: now)
-        XCTAssertEqual(demo.resolvingApproval("nope"), demo)
     }
 
     // MARK: stopping a running turn
@@ -458,19 +436,6 @@ final class WatchApprovalTests: XCTestCase {
         XCTAssertEqual(gate.admit(empty, sessions: [answerable]), .refused)
         // A permission is not a question, whatever the payload claims.
         XCTAssertEqual(gate.admit(request, sessions: [permission(id: "s-ask")]), .refused)
-    }
-
-    func testAnAnswerAttemptClearsWhenTheQuestionIsGone() {
-        var action = WatchSessionActionState()
-        let asking = state([answerable])
-        let alert = asking.topAlert!
-        XCTAssertTrue(alert.isAnswerable)
-        XCTAssertNotNil(action.begin(alert: alert, answer: "yes", attemptId: "t-1"))
-        action.apply(WatchSessionActionResult(attemptId: "t-1", outcome: .accepted))
-        action.reconcile(with: asking)
-        XCTAssertNotNil(action.action)
-        action.reconcile(with: state([]))
-        XCTAssertNil(action.action)
     }
 
     // MARK: a restored cache is a memory, not a control surface

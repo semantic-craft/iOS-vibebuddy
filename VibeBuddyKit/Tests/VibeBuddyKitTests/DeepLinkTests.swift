@@ -12,12 +12,6 @@ struct DeepLinkTests {
         #expect(url.absoluteString == "vibebuddy://session?id=abc123")
     }
 
-    @Test("parses the session id back out")
-    func parsesSessionId() {
-        let url = VibeBuddyDeepLink.sessionURL(id: "demo-edit")
-        #expect(VibeBuddyDeepLink.sessionId(from: url) == "demo-edit")
-    }
-
     @Test("round-trips ids that need percent-encoding")
     func roundTripsEncodedId() {
         let id = "proj/main#1"

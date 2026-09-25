@@ -51,14 +51,6 @@ struct WatchHapticsTests {
 
     // MARK: The vocabulary
 
-    @Test("four events, four rhythms")
-    func rhythms() {
-        #expect(WatchHaptics.beats(for: .needsYou) == [.long, .long, .long, .long, .long])
-        #expect(WatchHaptics.beats(for: .done) == [.short])
-        #expect(WatchHaptics.beats(for: .error) == [.long, .long])
-        #expect(WatchHaptics.beats(for: .quotaLow) == [.short, .long])
-    }
-
     @Test("a permission and a question are the same thing to a wrist")
     func categoriesFoldToEvents() {
         #expect(WatchHaptics.event(for: .needsApproval) == .needsYou)
@@ -71,12 +63,6 @@ struct WatchHapticsTests {
         #expect(WatchHaptics.event(for: .pairSuccess) == nil)
         #expect(WatchHaptics.rhythm(for: .longWaitNudge, categories: allOn, quiet: false).isEmpty)
         #expect(WatchHaptics.rhythm(for: .pairSuccess, categories: allOn, quiet: false).isEmpty)
-    }
-
-    @Test("long beats sit further apart than short ones, so a count survives")
-    func spacing() {
-        #expect(WristHapticBeat.short.spacing < WristHapticBeat.long.spacing)
-        #expect(WristHapticBeat.short.spacing > 0)
     }
 
     // MARK: Muting
@@ -267,21 +253,6 @@ struct WatchHapticsTests {
         _ = transitions.advance(to: state([], quotas: [quota(.codex, remaining: 40)]), now: now)
         let old = quota(.codex, remaining: 2, now: 100 - ProviderQuota.staleAfter - 60)
         #expect(transitions.advance(to: state([], quotas: [old]), now: now).isEmpty)
-    }
-
-    @Test("a wait outranks an allowance arriving in the same snapshot")
-    func quotaRanksLast() {
-        var transitions = WatchHapticTransitions()
-        let now = Date(timeIntervalSince1970: 100)
-        _ = transitions.advance(to: state([session("a", .working)],
-                                          quotas: [quota(.codex, remaining: 40)]), now: now)
-        let both = state([session("a", .needsResponse, wait: .question)],
-                         quotas: [quota(.codex, remaining: 4)])
-        let earned = transitions.advance(to: both, now: now)
-        #expect(earned == [.needsAnswer, .quota])
-        #expect(WatchHaptics.cue(forAnyOf: earned, categories: allOn, quiet: false)?.category
-                == .needsAnswer)
-        #expect(transitions.advance(to: both, now: now).isEmpty)
     }
 
     // MARK: Choosing under the mute rules

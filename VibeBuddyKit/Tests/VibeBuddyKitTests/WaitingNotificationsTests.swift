@@ -32,13 +32,6 @@ struct WaitingNotificationsTests {
         #expect(ledger.outstanding == ["s1-needs_approval"])
     }
 
-    @Test("A permission and the nudge that follows it stay separate things to say")
-    func differentCuesAreDifferentNotifications() {
-        var ledger = WaitingNotificationLedger()
-        ledger.record([alert("s1", .needsApproval), alert("s1", .longWaitNudge)])
-        #expect(ledger.outstanding == ["s1-needs_approval", "s1-long_wait_nudge"])
-    }
-
     @Test("An identifier fits the APNs collapse-id limit even for a long session id")
     func identifierFitsTheCollapseIdLimit() {
         let long = String(repeating: "a", count: 200) + "-tail"

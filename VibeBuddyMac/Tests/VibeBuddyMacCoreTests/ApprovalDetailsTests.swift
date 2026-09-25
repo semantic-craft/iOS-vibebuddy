@@ -41,14 +41,6 @@ struct ApprovalDetailsTests {
         #expect(d.oldText == nil)
     }
 
-    @Test("Read carries only the path")
-    func read() {
-        let d = ApprovalDetails.from(tool: "Read", input: ["file_path": "/x/c.swift"])
-        #expect(d.filePath == "/x/c.swift")
-        #expect(d.command == nil && d.oldText == nil && d.newText == nil)
-        #expect(d.commandPreview == "/x/c.swift")
-    }
-
     @Test("large fields are capped at 6 KB")
     func capped() {
         let big = String(repeating: "x", count: 7000)

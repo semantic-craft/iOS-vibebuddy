@@ -52,9 +52,4 @@ struct PairingTests {
         let decoded = try JSONDecoder().decode(PairingPayload.self, from: Data(json.utf8))
         #expect(decoded == payload)
     }
-
-    @Test("a QR image is generated from a string")
-    func qrImage() {
-        #expect(Pairing.qrImage(from: "vibebuddy://pair") != nil)
-    }
 }

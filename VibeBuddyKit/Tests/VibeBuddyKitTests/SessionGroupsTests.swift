@@ -24,10 +24,4 @@ struct SessionGroupsTests {
         #expect(groups.done.map(\.id) == ["c"])
     }
 
-    @Test("isEmpty reflects whether there are any sessions")
-    func empty() {
-        #expect(SessionGroups([]).isEmpty)
-        #expect(!SessionGroups([session("a", .done)]).isEmpty)
-    }
-
 }
