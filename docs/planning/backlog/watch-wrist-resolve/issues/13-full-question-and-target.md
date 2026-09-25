@@ -34,7 +34,8 @@
 5. **结果片段**：`WatchFollowedTask` 新增可选字段 `resultExcerpt`，取 Mac 已发给手机的 `completionText`（只取已完成、有 `completionID` 的这一轮；不进 WidgetKit / 表盘）。详情页依次显示「Mac 生成的完成摘要」和「agent 回复的开头」，各自一段，超过约 4 行（`resultLimit` = 110）就给「展开」。都没有时回落到原来的状态摘要 / 「结果请在手机上看」。
 6. **保留 160 字符的批准门槛**（不采纳调研里「放开长度」的建议）：这条规则同时是 iPhone 的放行闸（`WatchSessionActionGate`），放宽属于安全取舍，不是 M-07 的范围；目前没有真实使用里「长命令只能去手机批」的反馈。真用中常碰到再改。
 7. **工具输入**：非 Bash / 非文件的工具，Mac 只转发 ≤ 120 字的预览（`ApprovalDetails.commandPreview`），手机卡片显示的也是它。手表整段显示这段预览，与手机一致；要看更多得改 Mac 的转发，不在本票。
-8. **不做**：腕上朗读；把完整结果正文拉到手表（要手机每次打开都去 Mac 取正文，完整结果仍在手机上看）。
+8. **通知正文同样给全文**：批准通知（手机本地通知与 Mac 的 APNs，镜像到手表 long look）原来放的是 Mac 截到 120 字、不带省略号的预览，而横幅上的「批准」对 160 字以内都有效。现在共用 `PendingApproval.notificationBody`：160 字以内给完整命令 / 路径；更长的给预览并加「…」；只有预览的工具（URL 等）照旧。Mac 端要等下一次装机 / 发布才生效。
+9. **不做**：腕上朗读；把完整结果正文拉到手表（要手机每次打开都去 Mac 取正文，完整结果仍在手机上看）。
 
 ## 验收
 
@@ -46,6 +47,9 @@
 - [ ] 真机（并入下一轮手表检查，不单独约）：在你的手表上看一条长问题和一条能批准的长命令：表冠滚到底能读完，点「批准」正常；再点一次结果的「展开」。
 
 ## Comments
+
+- 2026-09-25 Opus 评审（MERGE WITH FIXES），已修：宽度改按字符（字形）计，与批准门槛 `String.count` 一致（NFD 韩文路径、ZWJ emoji 原来会被算成 4 倍而折叠在「批准」上方，已加回归）；卡片上可批准的命令在界面层也不折叠；折叠留一成余量、纯空白不折叠；折叠状态按文本记，换题第一帧即收起；「展开」点按高度 38 pt；逐题确认页的问题也走折叠；`resultExcerpt` 本地再限 280 字、注释改为"不进表盘快照"（App Group 里的完整状态本就含 `detailSummary`，不是新暴露面）；通知正文见决定 8。
+- 已知、未改：前台卡片一直占着 Double Tap（`primaryAction` = 批准）。命令整段显示后，40 mm 上「批准」常在第一屏以下，双指互点两下仍可批准。这是改前就有的行为（截成 4 行时同样如此），而且卡片最上面就是命令。真用中出现误批再改为「滚到按钮可见才启用」。
 
 - 2026-09-25 实现：Kit `WatchReadingFold`（折叠规则，纯函数）+ `WatchFollowedTask.resultExcerpt`；Watch `WatchFoldedText`（整段显示，超限给「展开 / 收起」，VoiceOver 始终读全文），用在提醒卡的问题与命令、答复确认页、逐页作答页，以及任务详情的结果片段。新增演示场景 `longText`，`tools/watch-qa-shots.sh` 增加 18–22 号截图与 `WATCH_QA_SETTLE`（机器负载高时启动 3 s 不够）。
 - 验证：`VibeBuddyKit swift test` 493 项通过；`VibeBuddyWatch`（watchOS Simulator）与 `VibeBuddyApp`（generic iOS Simulator，含 Watch）构建通过。40 mm 模拟器改前 / 改后截图（含滚动与点「展开」）在 `~/Projects/_shared-work/iOS-vibebuddy/m07-watch-full-text-2026-09-25/`，对照图 `m07-before-after.png`。

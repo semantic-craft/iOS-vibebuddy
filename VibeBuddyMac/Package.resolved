@@ -1,5 +1,5 @@
 {
-  "originHash" : "ca1c9eaafe03dbf1b827ddee445fc076e156ae9424c8ad726c9e962946178bbb",
+  "originHash" : "a0e5c716d8929dab451357719ed4f3f620424df92adbdc1c82e24c9092db7502",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -35,24 +35,6 @@
       "state" : {
         "revision" : "89c66b8d6655209268c44f619afcf771d8d83ec9",
         "version" : "2.7.0"
-      }
-    },
-    {
-      "identity" : "menubarextraaccess",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/orchetect/MenuBarExtraAccess",
-      "state" : {
-        "revision" : "e93e3a5b814714bf4d4cea67bf63a6b6a8323968",
-        "version" : "1.3.1"
-      }
-    },
-    {
-      "identity" : "sparkle",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sparkle-project/Sparkle",
-      "state" : {
-        "revision" : "ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a",
-        "version" : "2.9.6"
       }
     },
     {

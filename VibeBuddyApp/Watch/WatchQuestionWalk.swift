@@ -289,10 +289,8 @@ struct WatchQuestionReviewPage: View {
     /// wearer read — labels, never the values that travel.
     private func answer(_ item: WatchQuestionItem) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(item.text)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            WatchFoldedText(text: item.text, limit: WatchReadingFold.requestLimit,
+                            font: .caption2, color: .secondary)
             Text(labels(for: item))
                 .font(CompanionType.font(13, .heavy))
                 .fixedSize(horizontal: false, vertical: true)

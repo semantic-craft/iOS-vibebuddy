@@ -104,7 +104,8 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     /// The start of the agent's own reply for this round — the Mac's bounded
     /// first sentence of the final result (`completionText`, at most 280
     /// characters), for the detail screen's expandable snippet (M-07). Like
-    /// `detailSummary` it never reaches WidgetKit. Absent in older relays.
+    /// `detailSummary` it is stripped from the complication snapshot
+    /// (`complicationTask`). Absent in older relays.
     public var resultExcerpt: String? = nil
     public var presentation: TaskPresentationState
     public var waitKind: WaitKind?
@@ -129,7 +130,7 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         // `completionID`, and a running or waiting session has no result yet.
         let excerpt = session.completionText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         resultExcerpt = session.status == .done && session.completionID != nil && !excerpt.isEmpty
-            ? excerpt : nil
+            ? String(excerpt.prefix(280)) : nil
         summary = text.flatMap { raw in
             let line = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
             // Conservative: do not place path/command-shaped summaries on a face.

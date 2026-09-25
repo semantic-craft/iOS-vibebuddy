@@ -101,7 +101,10 @@ struct WatchAlertCard: View {
             // enough never to fold (`WatchReadingFold.requestLimit`); only one
             // too long to decide here can, and its full text is a tap away.
             if alert.waitKind == .permission, let request = alert.request {
-                WatchFoldedText(text: request, limit: WatchReadingFold.requestLimit,
+                // Belt and braces: a command with Approve under it is never
+                // folded, whatever the fold rule says.
+                WatchFoldedText(text: request,
+                                limit: alert.isDecidable ? .max : WatchReadingFold.requestLimit,
                                 font: CompanionType.mono(10))
                     .padding(6)
                     .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: 6, style: .continuous))

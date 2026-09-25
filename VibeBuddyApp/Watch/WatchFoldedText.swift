@@ -11,12 +11,14 @@ struct WatchFoldedText: View {
     var font: Font = CompanionType.font(12)
     var color: Color = CompanionPalette.ink
 
-    @State private var expanded = false
-
-    private var fold: WatchReadingFold { WatchReadingFold(text, limit: limit) }
+    /// The text that was expanded, not a flag: a new request under the same
+    /// card is folded from its first frame, with no stale expanded render.
+    @State private var expandedText: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        let fold = WatchReadingFold(text, limit: limit)
+        let expanded = expandedText == text
+        return VStack(alignment: .leading, spacing: 2) {
             Text(expanded ? fold.full : fold.preview)
                 .font(font)
                 .foregroundStyle(color)
@@ -25,19 +27,17 @@ struct WatchFoldedText: View {
                 .accessibilityLabel(fold.full)
             if fold.isFolded {
                 Button {
-                    expanded.toggle()
+                    expandedText = expanded ? nil : text
                 } label: {
                     Text(expanded ? "Show less" : "Show more")
                         .font(CompanionType.font(11, .semibold))
                         .foregroundStyle(CompanionPalette.accent)
-                        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityHidden(true)
             }
         }
-        // A new request or a new round starts folded again.
-        .onChange(of: text) { expanded = false }
     }
 }

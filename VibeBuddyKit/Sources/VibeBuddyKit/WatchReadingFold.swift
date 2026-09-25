@@ -40,20 +40,31 @@ public struct WatchReadingFold: Equatable, Sendable {
         preview = Self.cut(text, limit: limit)
     }
 
-    /// Width units of `text` on the wrist: 2 for an East Asian wide character,
-    /// 1 for anything else.
+    /// Width units of `text` on the wrist, per character (grapheme): 2 for an
+    /// East Asian wide one, 1 for anything else. Per character, not per
+    /// scalar, because that is what the approval gate counts
+    /// (`maxDetailLength` is `String.count`): a decomposed Hangul path or a
+    /// ZWJ emoji is one character on screen and must not weigh four.
     public static func width(_ text: String) -> Int {
-        text.unicodeScalars.reduce(0) { $0 + (isWide($1) ? 2 : 1) }
+        text.reduce(0) { $0 + units($1) }
+    }
+
+    private static func units(_ character: Character) -> Int {
+        character.unicodeScalars.contains(where: isWide) ? 2 : 1
     }
 
     private static func cut(_ text: String, limit: Int) -> String {
-        guard width(text) > limit else { return text }
+        // A tenth of slack, so Show more never hides a word or two, and a
+        // text with nothing to show but whitespace is never folded into "…".
+        // (Written as a difference so `limit: .max` cannot overflow.)
+        guard width(text) - limit > limit / 10,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return text }
         var used = 0
         var end = text.startIndex
         for index in text.indices {
-            let units = text[index].unicodeScalars.reduce(0) { $0 + (isWide($1) ? 2 : 1) }
-            if used + units > limit { break }
-            used += units
+            let step = units(text[index])
+            if used + step > limit { break }
+            used += step
             end = text.index(after: index)
         }
         var head = text[..<end]
