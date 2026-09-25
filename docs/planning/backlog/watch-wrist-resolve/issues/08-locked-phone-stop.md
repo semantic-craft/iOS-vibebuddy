@@ -2,7 +2,7 @@
 
 **What to build:** 手机锁屏时，从手表发出的「停下」也能送到 Mac。手表不再只因中继状态显示「iPhone 没连上 Mac」就拒绝发送；手机收到时，用保存的配对立刻试一次（学 #260 的「流断不等于 Mac 不在」，但不走它的持有队列），结果照实告诉手表。
 
-**Status:** done（#292 已合并；2026-09-25 15:45:50 腕上通过：手机锁屏，从手表停下托管 Cursor 任务，Mac 记为 `userStopped`，见 `~/Projects/_shared-work/iOS-vibebuddy/watch-round-2026-09-25/RESULTS.md`；待你确认当时手机锁屏）
+**Status:** done（#292 已合并；2026-09-25 15:45:50 腕上通过：手机到 Mac 的连接断开时，从手表停下托管 Cursor 任务，Mac 记为 `userStopped`，见 `~/Projects/_shared-work/iOS-vibebuddy/watch-round-2026-09-25/RESULTS.md`；锁屏按操作步骤推断，未经你确认）
 
 ## 为什么
 
@@ -43,3 +43,4 @@
   - 重复的点击先判重，再读快照。
   - 补了 Mac 来源不一致的测试。42 项测试通过。
 - 后续（不在本票范围）：App 里提醒卡的 `connectionMessage`（`WatchAlertCard.swift` 顶部）仍用默认 `sendsWhileMacAway: false`。所以 `.macDisconnected` 时卡片会写「can't be sent」并收起批准按钮，与 #260（审批照常发送、由手机持有）矛盾。留给后续一并处理中继状态。
+- 2026-09-25 晚：连接断开的证据来自 Mac 投递记录：15:42–15:48 的提醒全部经 APNs，没有一条经手机连接投递。手表诊断里的 `activity.phone-unavailable` / `refresh.failed` 在手表刚醒时也常出现，不能证明锁屏。

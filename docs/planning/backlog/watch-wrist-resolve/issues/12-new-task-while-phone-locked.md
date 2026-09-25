@@ -2,7 +2,7 @@
 
 **What to build:** 手表 App 回到前台时，自己向手机要一次 Mac 的最新状态（节流），这样手机锁屏后才开始的任务也能出现在手表列表上，不用先打开某个任务详情。
 
-**Status:** ready-for-human（已实现，PR #309；剩真机：手机锁屏后开一个任务，打开手表 App 看它出现）
+**Status:** done（#309；2026-09-25 18:56 腕上通过）
 
 ## 为什么
 
@@ -32,6 +32,7 @@
   - 冷启动：16:41:45 `window.active` 时手机还不可达，记 `refresh.active.skip.unreachable`；16:41:49 手机变可达，自动 `refresh.active.request`，16:41:54 `received`，列表出现 wr12-before。
   - 场景：手机 App 退到后台，16:43:26 在 Mac 上开始 wr12-after，此后 15 s 手机 App 没有任何日志。16:43:44 手表 App 回到前台 → `refresh.active.request`；手机 16:43:50 被这条消息唤醒（机器负载约 450，唤醒慢），重连流、取 `/snapshot` 并写 context；手表 16:43:52 起收到，截图里 wr12-after 在列表上，未打开详情。这次回复没赶上 12 s 超时（记 `refresh.active.failed`），新状态走的是 context，按积压装入。真机锁屏时流不一定重连，那时靠回复本身（锁屏下的详情刷新已证明能回来）。
   - 顺带：16:43:45 窗口又一次 active 时刷新在途，记 `refresh.active.skip.paced`，没重复唤醒手机。
+- 2026-09-25 腕上：手机锁屏后在 Mac 上开 Grok 任务；第一次抬腕 2 s 内请求失败（手机还不可达），第二次抬腕请求后 1.3 s `refresh.active.received`，手机同步给手表的状态里有这条任务。
 
 ## 不在本票
 

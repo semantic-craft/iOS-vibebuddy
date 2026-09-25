@@ -2,7 +2,7 @@
 
 **What to build:** 任务已经不在当前列表里时，详情页的「返回总览」按钮要能回到首页。
 
-**Status:** ready-for-human（已修；剩真机：详情页的任务离开列表后点「返回总览」一次）
+**Status:** done（#303；2026-09-25 腕上测的是列表内任务，任务离开列表的原故障场景只在模拟器测过）
 
 ## 为什么
 
@@ -21,3 +21,4 @@
 - 列表行：任务行、报错行的第二行以 agent 开头（如「Codex · usage limit」「Claude」），等待行本来就有。模拟器截图已核对。
 - 读下一轮真机日志：只有「`detail.back` 之后没有 `detail.dismissed`」才是按钮失效（`detail.dismissed` 在切换任务、打开额度页、用表冠关页时也会出现）。如果出现 `detail.back-unbound` 却没有 `detail.dismissed`，说明页面卡在屏幕上、背后已没有 link，下一步要让呈现层重建，而不是再调一次 `dismiss()`。
 - 评审（Opus，MERGE WITH FIXES）：取消了过早打的勾、改正了上面那句推断，补了 `openTask` 的分记和空 summary 的回退。
+- 2026-09-25 腕上：19:00:55.357 `detail.back` → 55.983 `detail.dismissed`。打开的是列表里还在的 Codex 结果行，没覆盖「任务已离开列表」的原场景。
