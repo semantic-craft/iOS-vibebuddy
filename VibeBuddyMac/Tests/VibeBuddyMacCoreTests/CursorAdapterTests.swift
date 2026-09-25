@@ -697,8 +697,17 @@ struct CursorTranscriptMonitorTests {
     }
 
     /// Idle cost (PERF-02): passes are woken by transcript writes, not a 2 s
-    /// clock. With both timers far out, only the file event can deliver this
-    /// turn; Cursor's other project files (`worker.log`) do not wake it.
+    /// clock. The fallback is far out and the stream is open, so only a file
+    /// event can deliver this turn; Cursor's other project files
+    /// (`worker.log`) do not wake it.
+    ///
+    /// FSEvents gives no deadline: with fseventsd backlogged (a loaded
+    /// machine, a full parallel `swift test`) delivery lags tens of seconds
+    /// and a write in the stream's first moments can be dropped outright. So
+    /// the test keeps writing — blank lines, which carry no event — until the
+    /// turn lands, and allows far longer than any sane delivery but still a
+    /// fraction of the fallback. `interval` is short so an early wake (a
+    /// late event for the setup writes) cannot park the loop past the turn.
     @Test func aTranscriptWriteWakesTheTail() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("vbcursor-\(UUID().uuidString)")
@@ -706,7 +715,7 @@ struct CursorTranscriptMonitorTests {
         let file = try project(root, "c1")
         try append("", to: file)
         let store = SessionStore()
-        let monitor = CursorTranscriptMonitor(root: root, interval: .seconds(600),
+        let monitor = CursorTranscriptMonitor(root: root, interval: .milliseconds(100),
                                               quietInterval: .seconds(600))
         let running = Task { await monitor.run(store: store) }
         defer { running.cancel() }
@@ -717,14 +726,17 @@ struct CursorTranscriptMonitorTests {
         while await monitor.transcriptPath(for: "c1") == nil {
             try await Task.sleep(for: .milliseconds(20))
         }
+        // Without the stream `run` would pass every `interval` and prove nothing.
+        #expect(await monitor.isEventDriven)
 
         #expect(CursorTranscriptMonitor.isTranscriptPath(file.path))
         #expect(!CursorTranscriptMonitor.isTranscriptPath(root.appendingPathComponent("empty-window/worker.log").path))
 
         try append(#"{"role":"user","message":{"content":[{"type":"text","text":"<user_query>go</user_query>"}]}}"#, to: file)
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = Date().addingTimeInterval(120)
         while await status() != .working, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(100))
+            try await Task.sleep(for: .milliseconds(500))
+            try append("", to: file)
         }
         #expect(await status() == .working)
     }
