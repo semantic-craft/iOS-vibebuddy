@@ -90,7 +90,9 @@ private struct WatchWindow: View {
                     }
                 }
             }
-            .sheet(item: $store.taskLink) { link in
+            .sheet(item: $store.taskLink, onDismiss: {
+                WatchNavigationDiagnostics.shared.record("detail.dismissed")
+            }) { link in
                 WatchTaskDetailView(store: store, link: link)
             }
     }

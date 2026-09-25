@@ -646,8 +646,27 @@ final class WatchStateStore: NSObject, ObservableObject {
             return
         }
         guard let link = WatchTaskLink(url: url) else { return }
+        // Which of three it was: the same page asked for again, a different
+        // one replacing it, or a page opening on nothing. A page stuck on
+        // screen with no link behind it (WR-10) shows up as `from-nil`.
+        WatchNavigationDiagnostics.shared.record(taskLink == link ? "route.url.same"
+            : taskLink == nil ? "route.url.from-nil" : "route.url.replace")
         quotaSelection = nil
         taskLink = link
+    }
+
+    /// The detail page's own way out. Returns false when no link was open —
+    /// a page on screen with nothing behind it — so the caller can still ask
+    /// the presentation itself to go.
+    @discardableResult
+    func closeTask() -> Bool {
+        guard taskLink != nil else {
+            WatchNavigationDiagnostics.shared.record("detail.back-unbound")
+            return false
+        }
+        WatchNavigationDiagnostics.shared.record("detail.back")
+        taskLink = nil
+        return true
     }
 
     /// A session the wrist was pointed at by id — a Needs-you or Results row,
