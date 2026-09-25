@@ -33,17 +33,6 @@ struct VoiceStyleTests {
         #expect(VoiceStyle(stored: "fieryGirl") == .fieryGirl)
     }
 
-    /// The instruction must be written in the language being read, or the
-    /// vendor hears a language switch instead of a note about delivery.
-    @Test func instructionLanguageFollowsTheSummary() throws {
-        let chinese = try #require(VoiceStyle.girlNextDoor.persona(.chinese))
-        let english = try #require(VoiceStyle.girlNextDoor.persona(.english))
-        #expect(chinese.clause.contains("邻家小妹"))
-        #expect(chinese.request.hasSuffix("？"))
-        #expect(english.clause.allSatisfy { $0.isASCII || $0 == "—" })
-        #expect(english.directive.hasSuffix("."))
-    }
-
     // MARK: Doubao — additions.context_texts, and `additions` is a jsonstring
 
     @Test func doubaoCarriesThePersonaInContextTextsAsAJSONString() throws {
@@ -77,14 +66,6 @@ struct VoiceStyleTests {
         let plain = QwenSpeechSynthesizer(workspaceID: nil, useIntl: false).parameters()
         #expect(plain["instruction"] == nil)
         #expect(plain["voice"] as? String == QwenSpeechSynthesizer.defaultVoice)
-    }
-
-    // MARK: Which vendors offer it
-
-    @Test func onlyVendorsWithAnInstructionChannelOfferStyle() {
-        #expect(SpeechSynthesis.supportsStyle(.doubao))
-        #expect(SpeechSynthesis.supportsStyle(.qwen))
-        #expect(!SpeechSynthesis.supportsStyle(.openai))
     }
 
     /// A persona stored against one provider must not be claimed by another

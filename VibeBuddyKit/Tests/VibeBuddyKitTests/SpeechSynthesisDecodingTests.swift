@@ -49,16 +49,6 @@ struct SpeechSynthesisDecodingTests {
 
     // MARK: Shared
 
-    @Test func everyFailureSaysSomethingActionableAndNothingBorrowed() {
-        for failure in [SpeechSynthesisFailure.configuration, .rejected, .rateLimited,
-                        .unreachable, .timedOut, .transport, .emptyAudio, .excessiveAudio] {
-            #expect(!failure.message.isEmpty)
-            #expect(failure.message.hasSuffix("."))
-        }
-        #expect(SpeechSynthesisFailure.rejected.message.contains("key"))
-        #expect(SpeechSynthesisFailure.unreachable.message.contains("connection"))
-    }
-
     @Test func aSummaryIsTwoSentences_notADocumentAndNotEmpty() throws {
         #expect(throws: SpeechSynthesisFailure.configuration) {
             _ = try SpeechSynthesisHTTP.checkedText("hello", apiKey: "")

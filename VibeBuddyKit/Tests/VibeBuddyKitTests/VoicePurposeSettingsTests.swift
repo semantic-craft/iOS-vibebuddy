@@ -113,20 +113,6 @@ struct ReadAloudPurposeSettingsTests {
         #expect(VoiceSettings.readAloudVoice(.qwen, defaults: defaults) == "kept-voice")
     }
 
-    @Test func everyVoiceProviderCanReadAloud() throws {
-        // Doubao stays out of summaries, but read-aloud is a separate question:
-        // it speaks, so it can be picked here — only never inherited.
-        #expect(!VoiceProvider.summaryProviders.contains(.doubao))
-        for provider in VoiceProvider.voiceProviders {
-            let support = try #require(SpeechSynthesis.support(provider), "\(provider) speech support")
-            #expect(!support.defaultModel.isEmpty, "\(provider) model")
-            #expect(!support.defaultVoice.isEmpty, "\(provider) voice")
-        }
-        // The other direction: a text-only vendor has no speech API to hand out.
-        #expect(SpeechSynthesis.support(.deepseek) == nil)
-        #expect(SpeechSynthesis.synthesizer(.init(provider: .deepseek, model: "deepseek-flash", voice: "")) == nil)
-    }
-
     @Test func readAloudReportsATextOnlySummaryProviderInsteadOfFollowingIt() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }

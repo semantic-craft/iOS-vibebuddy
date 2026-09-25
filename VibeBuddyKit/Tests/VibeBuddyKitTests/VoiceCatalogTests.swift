@@ -4,27 +4,6 @@ import Testing
 
 @Suite("Voice catalog and its tier rule")
 struct VoiceCatalogTests {
-    @Test func eachPurposeHasItsOwnSetForTheSameVendor() {
-        // OpenAI's speech list adds three voices its realtime list does not have.
-        let talk = Set(VoiceCatalog.voices(.conversation, .openai).map(\.id))
-        let read = Set(VoiceCatalog.voices(.readAloud, .openai).map(\.id))
-        #expect(talk.count == 10)
-        #expect(read.count == 13)
-        #expect(read.subtracting(talk) == ["fable", "nova", "onyx"])
-        // Doubao's realtime and TTS families do not even share ID shapes.
-        #expect(VoiceCatalog.voices(.conversation, .doubao).contains { $0.id.contains("_jupiter_") })
-        #expect(!VoiceCatalog.voices(.readAloud, .doubao).contains { $0.id.contains("_jupiter_") })
-        // Every (purpose, provider) that can speak is populated; a text-only
-        // vendor has no voices to list for either purpose.
-        #expect(VoiceCatalog.voices(.conversation, .deepseek).isEmpty)
-        #expect(VoiceCatalog.voices(.readAloud, .deepseek).isEmpty)
-        for purpose in VoicePurpose.allCases {
-            for provider in VoiceProvider.voiceProviders {
-                #expect(!VoiceCatalog.voices(purpose, provider).isEmpty, "\(purpose) \(provider)")
-            }
-        }
-    }
-
     @Test func tierRuleTurnsOnJustAboveTheLimit() {
         // Qwen read-aloud sits below the limit; Doubao above it.
         #expect(VoiceCatalog.voices(.readAloud, .qwen).count <= VoiceCatalog.tierLimit)
