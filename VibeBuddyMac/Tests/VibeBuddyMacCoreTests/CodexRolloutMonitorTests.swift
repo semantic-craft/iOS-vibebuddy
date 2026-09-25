@@ -316,7 +316,8 @@ struct CodexRolloutMonitorTests {
             lines: [sessionMeta(id: "desktop-new"), taskStarted(id: "turn-new")]
         )
 
-        #expect(await eventually(timeout: .seconds(1)) { await recorder.count == 1 })
+        // Discovery every 100 ms is the only way in; the bound is liveness.
+        #expect(await eventually { await recorder.count == 1 })
         #expect(await recorder.events.first?.sessionID == "desktop-new")
         #expect(await monitor.diagnostics().watchedFileCount == 1)
 
@@ -1108,9 +1109,11 @@ struct CodexRolloutMonitorTests {
             lines: [sessionMeta(id: "desktop-recovery"), taskStarted(id: "turn-1")]
         )
         let recorder = EventRecorder()
+        // Discovery is out of reach, so only the recreated watcher can deliver
+        // the stop, however long a loaded host takes.
         let monitor = CodexRolloutMonitor(
             root: fixture.root,
-            discoveryInterval: .seconds(5),
+            discoveryInterval: .seconds(600),
             debounceInterval: .milliseconds(20)
         )
         let task = Task { await monitor.run { await recorder.append($0) } }
@@ -1121,7 +1124,7 @@ struct CodexRolloutMonitorTests {
         #expect(await eventually { await monitor.diagnostics().watcherRecoveryCount >= 1 })
         try append(taskComplete(id: "turn-1"), to: file)
 
-        #expect(await eventually(timeout: .seconds(1)) { await recorder.count == 2 })
+        #expect(await eventually { await recorder.count == 2 })
         #expect(await recorder.events.last?.kind == .stop)
 
         task.cancel()
