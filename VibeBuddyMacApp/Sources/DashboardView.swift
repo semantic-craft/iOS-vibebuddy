@@ -352,6 +352,8 @@ struct DashboardView: View {
                     .keyboardShortcut(.return, modifiers: [])
             }
             .opacity(0)
+            // Shortcut carriers only; unnamed to VoiceOver, so hidden from it.
+            .accessibilityHidden(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("vibebuddy.selectNextPending"))) { _ in
             openGlobalNext()

@@ -1224,3 +1224,6 @@
 /* Voice call ended at the provider's per-call limit (D-1) */
 "Redial" = "重拨";
 "Start a new voice call without the earlier conversation" = "开始新的语音通话，不带之前的对话";
+"Hide glance" = "隐藏速览";
+"Expand glance" = "展开速览";
+"Sends this answer" = "点一下即发送这个回答";

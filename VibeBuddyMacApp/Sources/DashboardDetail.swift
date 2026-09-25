@@ -64,7 +64,9 @@ private struct ApprovalActionRow: View {
             always: { model.decide(approval.id, .alwaysAllow) },
             session: { model.decide(approval.id, .allowSession) },
             allowsPersistentDecision: approval.canPersistDecision, size: .small)
-            .background { Button("") { model.decide(approval.id, .allow) }.keyboardShortcut("a", modifiers: []).opacity(0) }
+            // The `a` shortcut's carrier is invisible, so it is hidden from
+            // VoiceOver too: an unnamed button that approves is a trap.
+            .background { Button("") { model.decide(approval.id, .allow) }.keyboardShortcut("a", modifiers: []).opacity(0).accessibilityHidden(true) }
         Button("Deny") { model.decide(approval.id, .deny) }
             .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             .keyboardShortcut("d", modifiers: [])
