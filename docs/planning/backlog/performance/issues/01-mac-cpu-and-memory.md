@@ -1,6 +1,6 @@
 # 01: Mac App 持续高 CPU 与内存体检
 
-**Status:** done（负载与内存达标；空闲 < 2% 未达标，转 [02](https://github.com/semantic-craft/iOS-vibebuddy/pull/300)）。保留作测量记录（README 与 02 引用本票 Comments），不按完成即删的惯例删除。
+**Status:** done（负载与内存达标；空闲 < 2% 未达标，转 [02](https://github.com/semantic-craft/iOS-vibebuddy/pull/300)）。保留作测量记录（README 引用本票 Comments），不按完成即删的惯例删除。
 
 **Blocked by:** None
 

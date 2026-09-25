@@ -20,7 +20,7 @@
   - 边界情况由 Kit 测试覆盖，不交给你：重复点「停下」只打断一次（`WatchApprovalTests.testASecondStopTapDoesNotSendASecondInterrupt`、`DispatchTests` 的 stop 路由）；停下只作用于它瞄准的那一轮（`testAStopIsForwardedOnlyForTheTurnItWasAimedAt`）；被拒的停下会说出来，失败的可以重试（`testARefusedStopIsSaidOutLoudAndAFailedOneCanBeRetried`）；回答绑定到它针对的那道题，Mac 先答后手表再发会被拒（`testAnAnswerIsBoundToTheQuestionItWasWrittenFor`）。这些都没有在设备上走过。
 - 2026-09-24 腕上一轮的结果（记录：`~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md`）：
   - 快捷回答：通过。卡片上选预设「Yes」，用双指互点两下发送，agent 收到「Yes」。
-  - 双指互点两下：「发送」处通过；「停下确认」处用过，但手机锁屏时停下没送达（见 08）；「允许 / 批准」处未验，你点的是横幅按钮。
+  - 双指互点两下：「发送」处通过；「停下确认」处用过，但手机锁屏时停下没送达（见 WR-08 / #292）；「允许 / 批准」处未验，你点的是横幅按钮。
   - 喊停：手机解锁时通过（托管 Cursor 任务 `061f9bdf`，12:04:55 记为 `userStopped`；来源是你的口述加 Mac 快照，停下本身不写手表诊断）。手机锁屏时失败，停下没到 Mac（[08](https://github.com/semantic-craft/iOS-vibebuddy/pull/292)）。Codex 那天额度用完，改用托管 Cursor 验。Mac 上停下的执行路径不同（Cursor 走 `cursorACP.cancel`，Codex 走 `monitor.interrupt`），**真实 Codex 停下仍未验**，9 月 25 日 09:00 额度重置后再跑。
-  - 触觉：长显示有没有自定义节奏，你没数到，**未验**。「需要你」横幅震了，也有两次推送已被苹果接受但手表没震，原因不明：当时手机朝上，但同一时段另三次正常送达（见 11）。
+  - 触觉：长显示有没有自定义节奏，你没数到，**未验**。「需要你」横幅震了，也有两次推送已被苹果接受但手表没震，原因不明：当时手机朝上，但同一时段另三次正常送达（见 WR-11 / #304）。
   - 新发现：[08](https://github.com/semantic-craft/iOS-vibebuddy/pull/292) 锁屏手机上的停下，[09](https://github.com/semantic-craft/iOS-vibebuddy/pull/305) 横幅「回复」直接打开 App，[10](https://github.com/semantic-craft/iOS-vibebuddy/pull/303)「返回总览」点了没反应，[11](https://github.com/semantic-craft/iOS-vibebuddy/pull/304) Mac 只等 25 秒。
