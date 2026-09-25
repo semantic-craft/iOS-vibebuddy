@@ -85,6 +85,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     private func setUp() async {
         writeLockProbe()
+        let categories = await UNUserNotificationCenter.current().notificationCategories()
+        await note("categories: " + categories.map { "\($0.identifier)[\($0.actions.map(\.identifier).joined(separator: ","))]" }.sorted().joined(separator: " "))
         do {
             let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
             let settings = await UNUserNotificationCenter.current().notificationSettings()

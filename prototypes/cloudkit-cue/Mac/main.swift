@@ -157,6 +157,8 @@ actor ZoneReader {
                         "handedAt": (record["handedAt"] as? Date)?.timeIntervalSince1970 ?? 0,
                         "locked": record["locked"] as? Int ?? -1, "detailOK": record["detailOK"] as? Int ?? -1,
                         "fetchMs": record["fetchMs"] as? Double ?? -1, "fetchError": record["fetchError"] as? String ?? "",
+                        // Server clock: skew-free upper bound together with the cue's.
+                        "serverCreated": record.creationDate?.timeIntervalSince1970 ?? 0,
                     ])
                     receipted.append(CKRecord.ID(recordName: cueID, zoneID: CueProto.zoneID))
                 case CueProto.actionType:
@@ -177,6 +179,8 @@ actor ZoneReader {
                         "userRecordName": record["userRecordName"] as? String ?? "",
                         "clockOffset": record["clockOffset"] as? Double ?? .nan,
                         "clockRTT": record["clockRTT"] as? Double ?? .nan,
+                        "registeredAt": (record["registeredAt"] as? Date)?.timeIntervalSince1970 ?? .nan,
+                        "serverModified": record.modificationDate?.timeIntervalSince1970 ?? .nan,
                     ].filter { !(($0.value as? Double)?.isNaN ?? false) })
                 case CueProto.deliveredType:
                     seen.insert(id.recordName)
@@ -250,8 +254,10 @@ func run(_ opts: Options) async throws {
         let record = makeCue(index: index, tag: tag, opts: opts)
         let saveStart = Date()
         do {
-            try await CueProto.save([record])
-            log.write(["event": "cue-saved", "cueID": record.recordID.recordName, "saveStart": saveStart.timeIntervalSince1970, "savedAt": Date().timeIntervalSince1970])
+            let result = try await CueProto.database.modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys, atomically: false)
+            let saved = try result.saveResults[record.recordID]!.get()
+            log.write(["event": "cue-saved", "cueID": record.recordID.recordName, "saveStart": saveStart.timeIntervalSince1970, "savedAt": Date().timeIntervalSince1970,
+                       "serverCreated": saved.creationDate?.timeIntervalSince1970 ?? 0])
         } catch {
             log.write(["event": "cue-save-error", "cueID": record.recordID.recordName, "error": CueProto.describe(error)])
         }
@@ -303,7 +309,7 @@ func report(_ opts: Options) {
     var receipts: [String: [[String: Any]]] = [:]
     for e in events where e["event"] as? String == "receipt" { receipts[e["cueID"] as! String, default: []].append(e) }
 
-    var toStart: [Double] = [], toBanner: [Double] = [], saveMs: [Double] = []
+    var toStart: [Double] = [], toBanner: [Double] = [], saveMs: [Double] = [], serverBound: [Double] = []
     print("cueID\tsave_ms\tpush→NSE_s\tbanner_s\tlocked\tdetail\tfetch_ms")
     for (cueID, cue) in saved.sorted(by: { ($0.value["savedAt"] as! Double) < ($1.value["savedAt"] as! Double) }) {
         let savedAt = cue["savedAt"] as! Double
@@ -316,11 +322,13 @@ func report(_ opts: Options) {
         let start = (r["startedAt"] as! Double) + offset - savedAt
         let banner = (r["handedAt"] as! Double) + offset - savedAt
         toStart.append(start); toBanner.append(banner)
+        if let a = cue["serverCreated"] as? Double, let b = r["serverCreated"] as? Double, a > 0, b > 0 { serverBound.append(b - a) }
         print(String(format: "%@\t%d\t%.2f\t%.2f\t%d\t%d\t%d", cueID, Int(save), start, banner, r["locked"] as? Int ?? -1, r["detailOK"] as? Int ?? -1, Int(r["fetchMs"] as? Double ?? -1)))
     }
     let missing = saved.count - toBanner.count
     print(String(format: "\ncues=%d received=%d missing=%d duplicates=%d", saved.count, toBanner.count, missing, receipts.values.reduce(0) { $0 + max(0, $1.count - 1) }))
     print(String(format: "save→banner  p50=%.2f s  p95=%.2f s  max=%.2f s", percentile(toBanner, 0.5), percentile(toBanner, 0.95), toBanner.max() ?? .nan))
+    print(String(format: "server cue→receipt (skew-free upper bound) p50=%.2f s  p95=%.2f s  max=%.2f s", percentile(serverBound, 0.5), percentile(serverBound, 0.95), serverBound.max() ?? .nan))
     print(String(format: "save→NSE     p50=%.2f s  p95=%.2f s", percentile(toStart, 0.5), percentile(toStart, 0.95)))
     print(String(format: "Mac save     p50=%.0f ms p95=%.0f ms", percentile(saveMs, 0.5), percentile(saveMs, 0.95)))
     for e in events where (e["event"] as? String)?.hasPrefix("action") == true { print("action: \(e)") }
