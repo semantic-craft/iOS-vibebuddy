@@ -183,6 +183,7 @@ struct SessionReducerTests {
         var r = SessionReducer()
         r.apply(ev(.sessionStart))
         r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))
+        #expect(r.sessions["s1"]?.isStuck == true)
         r.apply(ev(.userPromptSubmit, at: 2))
         #expect(r.sessions["s1"]?.isStuck == false)
     }
