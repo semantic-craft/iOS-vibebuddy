@@ -1808,10 +1808,6 @@ final class MenuBarModel: ObservableObject {
     /// on screen (hidden, or not built yet), so the caller posts a banner instead.
     func presentGlanceCard(_ alert: SoundAlert) -> Bool {
         guard glance?.isVisible == true, alert.sound != .pairSuccess else { return false }
-        // The card is never announced and folds away after a few seconds, so
-        // with VoiceOver on the cue goes out as a system notification, which
-        // VoiceOver reads and Notification Center keeps.
-        guard !NSWorkspace.shared.isVoiceOverEnabled else { return false }
         glanceCards.enqueue(alert, now: Date())
         publishGlanceCard()
         return true

@@ -174,6 +174,15 @@ public enum CompanionType {
 
 /// What the cat says about the whole snapshot, and how a request is worded.
 public enum CompanionCopy {
+    /// What an Approve / Deny key names as its target for VoiceOver: the
+    /// command or question, cut at `limit` characters so a long diff is not
+    /// read out in full before the key itself.
+    public static func spokenTarget(_ text: String?, limit: Int = 120) -> String {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return "" }
+        let flat = text.split(whereSeparator: \.isNewline).joined(separator: " ")
+        return flat.count > limit ? String(flat.prefix(limit)) + "…" : flat
+    }
+
     public static func needsYou(_ s: TaskPresentationSummary) -> Int { s.needsYou }
     public static func attentionLine(_ s: TaskPresentationSummary) -> String {
         String(localized: "Needs you \(s.needsYou) · Unread results \(s.completeUnread)", bundle: .module)

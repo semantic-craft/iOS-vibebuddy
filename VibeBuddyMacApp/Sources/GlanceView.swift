@@ -311,7 +311,8 @@ struct GlanceView: View {
                 Button { voice.toggle() } label: {
                     Image(systemName: micGlyph)
                         .font(MacTheme.font(13 * s, .semibold))
-                        .foregroundStyle(.white)
+                        // On the (always dark) mint the glyph takes the ink.
+                        .foregroundStyle(voice.isActive ? Color.onAccent : .white)
                         .frame(width: 28 * s, height: 28 * s)
                         .background(voice.isActive ? MacTheme.accent : Color.white.opacity(0.18), in: Circle())
                 }
@@ -407,11 +408,11 @@ struct GlanceView: View {
                         Button("Approve") { model.decide(a.id, .allow) }
                             .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.status(.completeUnread)), size: .large))
                             .keyboardShortcut("a", modifiers: [])
-                            .accessibilityHint(Text(a.commandPreview))
+                            .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                         Button("Deny") { model.decide(a.id, .deny) }
                             .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.status(.error)), size: .large))
                             .keyboardShortcut("d", modifiers: [])
-                            .accessibilityHint(Text(a.commandPreview))
+                            .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                     }
                     HStack(spacing: 6 * s) {
                         if a.canPersistDecision {
@@ -548,10 +549,10 @@ private struct GlanceEventCard: View {
                         if ApprovalEligibility.approval(for: live) != nil {
                             Button("Approve") { model.decide(a.id, .allow); model.dismissGlanceCard() }
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.completeUnread), scale: s))
-                                .accessibilityHint(Text(a.commandPreview))
+                                .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                             Button("Deny") { model.decide(a.id, .deny); model.dismissGlanceCard() }
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.error), scale: s))
-                                .accessibilityHint(Text(a.commandPreview))
+                                .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                         } else {
                             Label(WaitHandling.resolve(for: live).message, systemImage: "keyboard")
                                 .font(CompanionType.fixedFont(11 * s)).foregroundStyle(.white.opacity(0.8))

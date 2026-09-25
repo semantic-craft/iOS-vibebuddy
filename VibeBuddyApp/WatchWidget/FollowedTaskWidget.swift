@@ -65,7 +65,9 @@ struct FollowedTaskView: View {
                     }
                 }
                 .font(CompanionType.fixedFont(11))
-                .foregroundStyle(CompanionPalette.status(task.presentation))
+                // The idle status token is a 3:1 dot colour, not a text colour.
+                .foregroundStyle(task.presentation == .idle ? CompanionPalette.ink2
+                                 : CompanionPalette.status(task.presentation))
                 .widgetAccentable()
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)

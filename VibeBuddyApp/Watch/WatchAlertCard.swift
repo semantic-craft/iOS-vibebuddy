@@ -174,7 +174,7 @@ struct WatchAlertCard: View {
             // from your iPhone must not erase "sent, waiting for your Mac" and
             // leave the question looking untouched.
             if alert.isAnswerable {
-                WatchAnswerControl(store: store, alert: alert)
+                WatchAnswerControl(store: store, alert: alert, announces: isFrontmost)
             }
 
             // A waiting session has no running turn, so this stays silent here
@@ -183,7 +183,7 @@ struct WatchAlertCard: View {
             // about the session rather than about which screen it is on: the
             // day a wait becomes stoppable, both screens say so at once.
             if let followed = store.state?.followedTasks.first(where: { $0.sessionID == alert.sessionId }) {
-                WatchStopControl(store: store, task: followed)
+                WatchStopControl(store: store, task: followed, announces: isFrontmost)
             }
 
             if alsoWaiting > 0 {
@@ -253,7 +253,10 @@ struct WatchApprovalActions: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .announcesChanges(of: statusText)
+        // Only the outcome of the wearer's own tap, and only from the card in
+        // front: link sentences change on their own, and a card behind an
+        // open task page would say it twice.
+        .announcesChanges(of: phase != nil && isFrontmost ? statusText : nil)
     }
 
     /// Stacked and full-width, in the state's own colour, radius 8: the
@@ -270,7 +273,7 @@ struct WatchApprovalActions: View {
         }
         .buttonStyle(CompanionButtonStyle(kind: .filled(tint), size: .wide))
         // The target, for a VoiceOver user who swipes straight to the key.
-        .accessibilityHint(Text(alert.request ?? alert.summary ?? ""))
+        .accessibilityHint(Text(CompanionCopy.spokenTarget(alert.request ?? alert.summary)))
     }
 
     /// Never "Approved". The wrist knows only that the Mac took the decision;
@@ -386,6 +389,8 @@ enum WatchLinkBlock {
 struct WatchStopControl: View {
     @ObservedObject var store: WatchStateStore
     let task: WatchFollowedTask
+    /// Whether this copy speaks its status (the front one only).
+    var announces: Bool = true
     @State private var confirming: WatchStopIntent?
 
     private var phase: WatchSessionActionAttempt.Phase? {
@@ -449,7 +454,7 @@ struct WatchStopControl: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .announcesChanges(of: statusText)
+        .announcesChanges(of: phase != nil && announces ? statusText : nil)
         .sheet(item: $confirming) { intent in
             WatchStopConfirmView(intent: intent) {
                 store.submitStop(sessionID: intent.sessionID, statusSince: intent.statusSince)

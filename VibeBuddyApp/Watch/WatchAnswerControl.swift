@@ -15,6 +15,8 @@ import VibeBuddyKit
 struct WatchAnswerControl: View {
     @ObservedObject var store: WatchStateStore
     let alert: WatchAlert
+    /// Whether this copy speaks its status (the front card only).
+    var announces: Bool = true
     @State private var draft: WatchAnswerDraft?
     /// Demo Mode's launch input is honoured once. Without the latch, dismissing
     /// the confirmation page would re-open it forever.
@@ -40,7 +42,7 @@ struct WatchAnswerControl: View {
             // A prompt with several questions is walked one screen at a time
             // and sent as one set; the one-string path below never sees it.
             WatchQuestionWalkControl(store: store, alert: alert, questions: questions,
-                                     blocked: blocked, phase: phase)
+                                     blocked: blocked, phase: phase, announces: announces)
         } else if let choices {
             VStack(alignment: .leading, spacing: 6) {
                 // No buttons at all while nothing could travel. A tap that
@@ -82,7 +84,7 @@ struct WatchAnswerControl: View {
                     }
                 }
 
-                WatchAnswerStatusLine(phase: phase, reason: store.pendingAction.action?.reason)
+                WatchAnswerStatusLine(phase: phase, reason: store.pendingAction.action?.reason, announces: announces)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // One sheet for the whole control: every way in leads to the same
@@ -148,18 +150,23 @@ struct WatchAnswerStatusLine: View {
     let phase: WatchSessionActionAttempt.Phase?
     /// The iPhone's diagnosis when the phase is `failed` or `queued`.
     var reason: ConnectionFailureReason? = nil
+    var announces: Bool = true
 
     var body: some View {
-        if let message = statusText {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                if phase == .sending { ProgressView().controlSize(.mini) }
-                Text(message)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        // The watcher sits outside the `if`, so the first sentence (nil →
+        // "Sending…") is spoken too.
+        Group {
+            if let message = statusText {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if phase == .sending { ProgressView().controlSize(.mini) }
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .announcesChanges(of: statusText)
         }
+        .announcesChanges(of: announces ? statusText : nil)
     }
 
     /// Never "Answered". The wrist knows the Mac took the text; the question

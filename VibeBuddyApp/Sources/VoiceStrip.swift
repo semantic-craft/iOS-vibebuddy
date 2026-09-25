@@ -6,7 +6,7 @@ import VibeBuddyKit
 struct VoiceStrip: View {
     @ObservedObject var voice: VoiceChat
     /// Opens the voice page; the strip's reading is the button for it.
-    var open: () -> Void = {}
+    let open: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -62,7 +62,8 @@ struct VoiceStrip: View {
             .onTapGesture(perform: open)
             // The cat and the glyph are hidden, so the call phase is said.
             .accessibilityElement(children: .combine)
-            .accessibilityValue(Text(phaseWord))
+            // With an error on screen the error is the reading; no phase.
+            .accessibilityValue(voice.errorText == nil ? Text(phaseWord) : Text(""))
             .accessibilityAddTraits(.isButton)
             .accessibilityHint("Open the voice page")
             .accessibilityAction { open() }

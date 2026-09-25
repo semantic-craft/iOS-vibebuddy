@@ -110,7 +110,7 @@ struct DashboardSidebar: View {
             // stays its own button instead of being folded into the label.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(agentName))
-            .accessibilityValue(Text("\(tally.total) sessions"))
+            .accessibilityValue(tally.total == 1 ? Text("1 session") : Text("\(tally.total) sessions"))
             .accessibilityAddTraits(.isHeader)
             if !labels.iconOnly { quotaStrip }
         }

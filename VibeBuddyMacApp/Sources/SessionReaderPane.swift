@@ -391,12 +391,15 @@ struct SessionReaderPane: View {
         }
         // A decision that appears under the reader, and the word on an answer
         // sent from it, are spoken: neither takes VoiceOver's focus.
-        .onChange(of: live.pendingApproval?.id ?? live.pendingQuestion?.id) { _, id in
-            guard id != nil, live.status == .needsResponse else { return }
+        // Keyed by the session too: the pane is reused when the selection
+        // moves, and arrowing through the sidebar must not speak every row.
+        .onChange(of: [live.id, live.pendingApproval?.id ?? live.pendingQuestion?.id ?? ""]) { old, new in
+            guard old[0] == new[0], !new[1].isEmpty, live.status == .needsResponse else { return }
             AccessibilityNotification.Announcement(String(localized: "Your decision")).post()
         }
-        .onChange(of: model.answerFeedback[live.id]) { _, feedback in
-            if let feedback { AccessibilityNotification.Announcement(feedback).post() }
+        .onChange(of: [live.id, model.answerFeedback[live.id] ?? ""]) { old, new in
+            guard old[0] == new[0], !new[1].isEmpty else { return }
+            AccessibilityNotification.Announcement(new[1]).post()
         }
     }
 

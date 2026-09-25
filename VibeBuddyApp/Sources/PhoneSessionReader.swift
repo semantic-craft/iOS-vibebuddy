@@ -316,10 +316,10 @@ struct PhoneSessionReader: View {
         if let approval = session.pendingApproval, ApprovalEligibility.approval(for: session) != nil {
             let approve = Button("Approve") { decide(approval.id, .allow) }
                 .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))
-                .accessibilityHint(Text(approval.commandPreview))
+                .accessibilityHint(Text(CompanionCopy.spokenTarget(approval.commandPreview)))
             let deny = Button("Deny") { decide(approval.id, .deny) }
                 .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.status(.error))))
-                .accessibilityHint(Text(approval.commandPreview))
+                .accessibilityHint(Text(CompanionCopy.spokenTarget(approval.commandPreview)))
             ViewThatFits(in: .horizontal) {
                 HStack { approve; deny }
                 VStack(alignment: .leading) { approve; deny }

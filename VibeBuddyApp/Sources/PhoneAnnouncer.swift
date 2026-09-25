@@ -456,7 +456,7 @@ struct AnnouncerStrip: View {
     @ObservedObject var announcer: PhoneAnnouncer
     let replay: () -> Void
     /// Opens the voice page; the strip's reading is the button for it.
-    var open: () -> Void = {}
+    let open: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {

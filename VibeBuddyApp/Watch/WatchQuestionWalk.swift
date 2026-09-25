@@ -20,6 +20,7 @@ struct WatchQuestionWalkControl: View {
     /// Why nothing can be sent right now, from the card's own link check.
     let blocked: LocalizedStringResource?
     let phase: WatchSessionActionAttempt.Phase?
+    var announces: Bool = true
     @State private var walk: WatchQuestionWalkDraft?
 
     var body: some View {
@@ -44,7 +45,7 @@ struct WatchQuestionWalkControl: View {
                 .buttonBorderShape(.roundedRectangle(radius: 12))
                 .disabled(store.pendingAction.isBusy)
             }
-            WatchAnswerStatusLine(phase: phase)
+            WatchAnswerStatusLine(phase: phase, announces: announces)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(item: $walk) { draft in
