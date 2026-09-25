@@ -164,6 +164,16 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         }
     }
 
+    /// Whether a banner posted now would appear on screen (`BannerVisibility`),
+    /// not just land in Notification Center. The VoiceOver route relies on it.
+    func bannerAppears() async -> Bool {
+        guard E2ERunConfiguration.current?.notificationsEnabled ?? true else { return false }
+        let settings = await center.notificationSettings()
+        return BannerVisibility.appears(authorization: settings.authorizationStatus,
+                                        alertStyle: settings.alertStyle,
+                                        alertSetting: settings.alertSetting)
+    }
+
     nonisolated private static let deliveryKey = "delivery"
 
     private func post(title: String, body: String, sound: NotificationSound,
@@ -247,7 +257,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// The same words the phone puts on its banner and the push carries:
     /// one `PushCopy` for all three surfaces, localized here through this
     /// app's own string table (the keys are the English source text).
-    private static func copy(for alert: SoundAlert) -> (title: String, body: String) {
+    static func copy(for alert: SoundAlert) -> (title: String, body: String) {
         let c = PushCopy.copy(for: alert.sound, session: alert.session)
         let title = String(format: NSLocalizedString(c.titleKey, comment: ""), locale: .current,
                            arguments: c.titleArgs)
