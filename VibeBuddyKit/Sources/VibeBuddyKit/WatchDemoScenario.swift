@@ -27,6 +27,10 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
     case watchUnreachable
     /// The iPhone has never delivered a state.
     case noData
+    /// Long text everywhere the wrist reads: a question and its choices, a
+    /// decidable command at the eligibility limit, a command too long to
+    /// decide here, and a result with a summary and an excerpt (M-07).
+    case longText
 
     public var id: String { rawValue }
 
@@ -118,7 +122,66 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
                 + Self.workingAndDone(now: now).prefix(3)
         case .empty, .noData:
             return []
+        case .longText:
+            return Self.longTextSessions(now: now)
         }
+    }
+
+    /// The session ids of `longText`, for `VIBEBUDDY_WATCH_TASK`.
+    public static let longCommandTask = "demo-watch-long-command"
+    public static let overlongCommandTask = "demo-watch-overlong-command"
+    public static let longResultTask = "demo-watch-long-result"
+
+    private static func longTextSessions(now: Date) -> [AgentSession] {
+        let command = "git push --force-with-lease origin claude/m07-watch-full-text && gh pr create --base main --title 'feat(watch): show full request text' --label watch --draft"
+        let overlong = "curl -sS -X POST https://api.github.com/repos/semantic-craft/iOS-vibebuddy/actions/workflows/release.yml/dispatches -H 'Accept: application/vnd.github+json' -H \"Authorization: Bearer $GITHUB_TOKEN\" -d '{\"ref\":\"main\",\"inputs\":{\"version\":\"1.3.33\",\"build\":\"51\",\"notarize\":\"true\",\"channel\":\"stable\"}}' && echo dispatched"
+        var result = AgentSession(
+            id: longResultTask, agent: .claudeCode, project: "ios-vibebuddy", branch: "claude/m07",
+            model: "claude-opus-4-8", status: .done,
+            summary: "Watch full-text reading is in.",
+            hasUnreadCompletion: true,
+            attention: .followed,
+            statusSince: now.addingTimeInterval(-150), updatedAt: now.addingTimeInterval(-150))
+        result.completionText = "I moved the question, the command and the result excerpt onto one reading rule, so a decidable command is always shown in full and anything longer folds behind Show more instead of being cut off mid-word."
+        result.completionNotice = CompletionNotice(
+            id: sourceID + "/" + longResultTask + "/" + longResultTask + "-round",
+            deadline: now, state: .summary,
+            text: "Added the wrist fold for long text, relayed the result excerpt, and updated both demo scenarios. Watch tests pass; the iOS build is green and nothing on the Mac changed.")
+        return [
+            AgentSession(
+                id: "demo-watch-long-question", agent: .codex, project: "ios-vibebuddy",
+                branch: "claude/m07", model: "gpt-5-codex",
+                status: .needsResponse, waitKind: .question,
+                pendingQuestion: PendingQuestion(
+                    id: "demo-watch-long-prompt",
+                    prompt: "Two tests still fail after the rebase: WatchRelayTests expects the old six-result cap, and DashboardStoreTests times out waiting for a snapshot. Should I raise the cap to eight and update the test, or keep six and change the projection instead? Keeping six matches the ADR, raising it shows more results on the home.",
+                    options: [
+                        QuestionOption(id: "raise", label: "Raise the cap to eight and update WatchRelayTests"),
+                        QuestionOption(id: "keep", label: "Keep six and change the projection instead"),
+                    ]),
+                summary: "Waiting on a test decision",
+                attention: .followed,
+                statusSince: now.addingTimeInterval(-70), updatedAt: now.addingTimeInterval(-70)),
+            AgentSession(
+                id: longCommandTask, agent: .claudeCode, project: "ios-vibebuddy",
+                branch: "claude/m07", model: "claude-opus-4-8",
+                status: .needsResponse, waitKind: .permission,
+                pendingApproval: PendingApproval(
+                    id: "demo-watch-long-approval", tool: "Bash",
+                    commandPreview: String(command.prefix(120)), command: command),
+                summary: "Push the branch and open a draft PR",
+                statusSince: now.addingTimeInterval(-120), updatedAt: now.addingTimeInterval(-120)),
+            AgentSession(
+                id: overlongCommandTask, agent: .claudeCode, project: "release-check",
+                model: "claude-opus-4-8",
+                status: .needsResponse, waitKind: .permission,
+                pendingApproval: PendingApproval(
+                    id: "demo-watch-overlong-approval", tool: "Bash",
+                    commandPreview: String(overlong.prefix(120)), command: overlong),
+                summary: "Dispatch the release workflow",
+                statusSince: now.addingTimeInterval(-300), updatedAt: now.addingTimeInterval(-300)),
+            result,
+        ]
     }
 
     private static func permissionSession(now: Date) -> AgentSession {
@@ -267,7 +330,7 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             let observed = now.addingTimeInterval(-observedAgo)
             return [Self.codex(observedAt: observed, now: now),
                     Self.claude(observedAt: observed, now: now)]
-        case .normal, .permission, .question, .empty, .macDisconnected:
+        case .normal, .permission, .question, .empty, .macDisconnected, .longText:
             return [Self.codex(observedAt: now.addingTimeInterval(-42), now: now),
                     Self.claude(observedAt: now.addingTimeInterval(-70), now: now)]
         }

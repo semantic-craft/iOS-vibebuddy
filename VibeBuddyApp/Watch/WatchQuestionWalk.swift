@@ -169,10 +169,12 @@ struct WatchQuestionPage: View {
                     .font(.caption2)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                Text(item.text)
-                    .font(CompanionType.font(15, .black))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
+                // Whole, like the card's question (M-07).
+                WatchFoldedText(
+                    text: item.text, limit: WatchReadingFold.requestLimit,
+                    font: WatchReadingFold.width(item.text) > WatchReadingFold.longQuestion
+                        ? CompanionType.font(13, .heavy) : CompanionType.font(15, .black),
+                    color: .primary)
                 if item.multiSelect {
                     Text("Choose all that apply.")
                         .font(.caption2)
@@ -289,10 +291,8 @@ struct WatchQuestionReviewPage: View {
     /// wearer read — labels, never the values that travel.
     private func answer(_ item: WatchQuestionItem) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(item.text)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            WatchFoldedText(text: item.text, limit: WatchReadingFold.requestLimit,
+                            font: .caption2, color: .secondary)
             Text(labels(for: item))
                 .font(CompanionType.font(13, .heavy))
                 .fixedSize(horizontal: false, vertical: true)

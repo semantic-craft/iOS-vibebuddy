@@ -2,7 +2,7 @@
 
 **What to build:** 让手表横幅上的「回复」要么真能口述，要么如实改成「打开回答」。定方案前先查 Apple 文档和同类 App：watchOS 上带 `.foreground` 的 `UNTextInputNotificationAction`，在镜像通知里会不会先弹输入框。
 
-**Status:** ready-for-human（方案已定并实现；剩真机：点横幅「回复」，诊断记为 `notification.action-reply-card.*`，卡片上直接答）
+**Status:** done（#305；2026-09-25 19:04:58 腕上通过）
 
 ## 为什么
 
@@ -34,3 +34,4 @@
 
 - 2026-09-25：依据与决定见上。卡片上多点一下的问题见 11（用系统动作时没法省：长看界面上的「回复」本身就是进卡片的那一下；Home Assistant 那种自画按钮能省，但没采用，理由见上）。
 - 2026-09-25 评审（Opus，MERGE WITH FIXES）：诊断分开 nil / 空字符串；Home Assistant 改为「相关但不同」并补上他们的做法；改掉「类别是固定的」；手机内联回复标为未复验；同步票 07 与 README。
+- 2026-09-25 腕上：横幅「回复」→ `notification.action-reply-card.no-text-response` → 卡片 → 「Yes」，提问后 12.4 s 模拟的 Claude hook 收到 `{"Ship the release now?":"Yes"}`。
