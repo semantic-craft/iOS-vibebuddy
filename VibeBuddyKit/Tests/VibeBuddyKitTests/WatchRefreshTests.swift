@@ -21,23 +21,27 @@ struct WatchActivationRefreshPolicyTests {
     /// paced, and a failed ask may be retried sooner than a good one repeats.
     @Test func activationRefreshIsOneAtATimeAndPaced() {
         let t0 = Date(timeIntervalSinceReferenceDate: 0)
+        func at(_ seconds: TimeInterval) -> Date { t0.addingTimeInterval(seconds) }
         var policy = WatchActivationRefreshPolicy()
-        func begin(after seconds: TimeInterval, _ id: UUID = UUID()) -> Bool {
-            policy.begin(id, now: t0.addingTimeInterval(seconds))
-        }
-        func finish(_ id: UUID, _ succeeded: Bool) -> Bool { policy.finish(id, succeeded: succeeded) }
         let first = UUID(), second = UUID()
-        let steps = [
-            begin(after: 0, first),
-            !begin(after: 20),          // one in flight
-            !finish(UUID(), true),      // a reply to another attempt
-            finish(first, true),
-            !begin(after: 14),          // paced after a good one
-            begin(after: 15, second),
-            finish(second, false),
-            !begin(after: 17),
-            begin(after: 18),           // a failed one retries sooner
-        ]
-        #expect(steps == Array(repeating: true, count: steps.count))
+        let started = policy.begin(first, now: at(0))
+        #expect(started)
+        let whileInFlight = policy.begin(UUID(), now: at(20))
+        #expect(!whileInFlight)
+        let stranger = policy.finish(UUID(), succeeded: true)
+        #expect(!stranger)
+        let finished = policy.finish(first, succeeded: true)
+        #expect(finished)
+        let tooSoonAfterGood = policy.begin(UUID(), now: at(14))
+        #expect(!tooSoonAfterGood)
+        #expect(policy.retryDelay(now: at(14)) == nil)
+        let paced = policy.begin(second, now: at(15))
+        #expect(paced)
+        _ = policy.finish(second, succeeded: false)
+        #expect(policy.retryDelay(now: at(17)) == 1)
+        let tooSoonAfterFailure = policy.begin(UUID(), now: at(17))
+        #expect(!tooSoonAfterFailure)
+        let retried = policy.begin(UUID(), now: at(18))
+        #expect(retried)
     }
 }

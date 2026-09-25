@@ -31,9 +31,8 @@ public struct WatchRefreshReply: Codable, Sendable {
 /// the lock never reached the wrist, however often the app was opened. A
 /// `sendMessage` from the Watch does wake the locked iPhone, which then reads
 /// the Mac over HTTP. That wakes the phone and costs a request to the Mac, so it
-/// is paced: one at a time, at most every `interval` after one that came back,
-/// and every `retryInterval` after one that did not — so a link that comes up a
-/// moment after the window does still gets its try.
+/// is paced: one at a time, and a new one no sooner than `interval` after the
+/// last one was sent if it came back, `retryInterval` if it did not.
 public struct WatchActivationRefreshPolicy: Sendable, Equatable {
     public static let interval: TimeInterval = 15
     public static let retryInterval: TimeInterval = 3
@@ -45,14 +44,21 @@ public struct WatchActivationRefreshPolicy: Sendable, Equatable {
 
     /// Claims the slot for `id` when a request may go out now.
     public mutating func begin(_ id: UUID, now: Date) -> Bool {
-        guard inFlight == nil else { return false }
-        if let lastSent {
-            let floor = lastSucceeded ? Self.interval : Self.retryInterval
-            guard now.timeIntervalSince(lastSent) >= floor else { return false }
-        }
+        guard inFlight == nil, retryDelay(now: now) == nil else { return false }
+        if let lastSent, lastSucceeded,
+           now.timeIntervalSince(lastSent) < Self.interval { return false }
         inFlight = id
         lastSent = now
         return true
+    }
+
+    /// How long until a failed request may be retried, when that is what is
+    /// holding the next one back. A good reply's pace is not waited out: the
+    /// list is fresh, and the next activation will ask again.
+    public func retryDelay(now: Date) -> TimeInterval? {
+        guard inFlight == nil, !lastSucceeded, let lastSent else { return nil }
+        let left = Self.retryInterval - now.timeIntervalSince(lastSent)
+        return left > 0 ? left : nil
     }
 
     /// Releases the slot. False for a reply to an attempt that is no longer the
