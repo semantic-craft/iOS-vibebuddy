@@ -24,6 +24,12 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     private let lock = NSLock()
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var content: UNMutableNotificationContent?
+    private var identifier: String?
+    private var receivedAt = Date()
+    private var fetched = false
+    private var sentAt: Date?
+    private static let appGroup = "group.com.vibebuddy.app"
+    private static var group: UserDefaults? { UserDefaults(suiteName: appGroup) }
 
     override func didReceive(_ request: UNNotificationRequest,
                              withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -42,7 +48,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         content.userInfo = userInfo
         if let session = fields[CloudKitCue.Field.sessionID] as? String { content.threadIdentifier = session }
         let identifier = fields[CloudKitCue.Field.notificationID] as? String
-        let prefs = CloudKitCue.PhonePrefs.load(from: UserDefaults(suiteName: "group.com.vibebuddy.app"))
+        receivedAt = Date()
+        self.identifier = identifier
+        let prefs = CloudKitCue.PhonePrefs.load(from: Self.group)
         // Until the record is in hand, present by the phone's own switches with
         // the Mac's loudest intent assumed for a waiting cue.
         apply(CloudKitCue.presentation(for: identifier.flatMap(NotificationIdentity.sound(of:)),
@@ -57,6 +65,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         if let record = try? await CKContainer(identifier: CloudKitCue.containerID)
             .privateCloudDatabase.record(for: recordID), let content {
             fill(content, from: record, identifier: identifier, prefs: prefs)
+            fetched = true
+            sentAt = record[CloudKitCue.Field.sentAt] as? Date
         }
         deliver()
     }
@@ -112,6 +122,11 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         contentHandler = nil
         lock.unlock()
         guard let handler, let content else { return }
+        if let identifier {
+            CloudKitCue.Receipt.append(.init(notificationID: identifier, receivedAt: receivedAt, sentAt: sentAt,
+                                             fetched: fetched, passive: content.interruptionLevel == .passive),
+                                       to: CloudKitCue.Receipt.url(appGroup: Self.appGroup))
+        }
         handler(content)
     }
 

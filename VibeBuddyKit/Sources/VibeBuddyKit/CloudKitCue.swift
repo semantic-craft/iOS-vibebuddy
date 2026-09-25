@@ -162,3 +162,49 @@ extension CloudKitCue {
                             passive: false)
     }
 }
+
+extension CloudKitCue {
+    /// One CloudKit cue the phone's extension handled: proof the push arrived,
+    /// when, and whether the record could be read. The phone keeps the last few
+    /// in the app group and reports them with its registration, so the Mac can
+    /// tell "Apple never delivered it" from "delivered, details unreadable".
+    public struct Receipt: Codable, Sendable, Equatable {
+        public var notificationID: String
+        public var receivedAt: Date
+        /// When the Mac started saving the record (its `sentAt`), once fetched.
+        public var sentAt: Date?
+        public var fetched: Bool
+        public var passive: Bool
+
+        public init(notificationID: String, receivedAt: Date, sentAt: Date? = nil, fetched: Bool, passive: Bool) {
+            self.notificationID = notificationID
+            self.receivedAt = receivedAt
+            self.sentAt = sentAt
+            self.fetched = fetched
+            self.passive = passive
+        }
+
+        public static let kept = 20
+
+        /// A file, not app-group `UserDefaults`: the extension and the app are
+        /// separate processes, and a running app can keep reading a stale
+        /// cached suite.
+        public static func url(appGroup: String) -> URL? {
+            FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)?
+                .appendingPathComponent("cloudkit-cue-receipts.json")
+        }
+
+        public static func load(from url: URL?) -> [Receipt] {
+            guard let url, let data = try? Data(contentsOf: url),
+                  let receipts = try? JSONDecoder().decode([Receipt].self, from: data) else { return [] }
+            return receipts
+        }
+
+        public static func append(_ receipt: Receipt, to url: URL?) {
+            guard let url else { return }
+            let receipts = (load(from: url) + [receipt]).suffix(kept)
+            guard let data = try? JSONEncoder().encode(Array(receipts)) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+}

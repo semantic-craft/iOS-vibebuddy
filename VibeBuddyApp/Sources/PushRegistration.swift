@@ -97,6 +97,8 @@ final class PushRegistration {
             categories: SoundPrefs.categories)
         registration.supportsCompletionNotices = true
         registration.cloudKitUser = cloudKitUser
+        let receipts = CloudKitCue.Receipt.load(from: CloudKitCue.Receipt.url(appGroup: WidgetSnapshotStore.appGroup))
+        registration.cloudKitReceipts = receipts.isEmpty ? nil : receipts
         request.httpBody = try? JSONEncoder().encode(registration)
         Task { _ = try? await URLSession.shared.data(for: request) }
     }

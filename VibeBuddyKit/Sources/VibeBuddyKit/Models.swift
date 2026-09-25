@@ -854,6 +854,8 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     /// compares it with its own before relying on CloudKit cues. Nil when the
     /// phone has no iCloud account or predates CloudKit cues.
     public var cloudKitUser: String? = nil
+    /// The CloudKit cues this phone's extension handled most recently.
+    public var cloudKitReceipts: [CloudKitCue.Receipt]? = nil
 
     public init(token: String? = nil, deviceID: String? = nil, name: String? = nil,
                 model: String? = nil, systemVersion: String? = nil,

@@ -85,6 +85,7 @@ public actor CloudKitCueSender {
     private var zoneReady = false
     private var swept = false
     private(set) var status: CloudKitCueStatus
+    private var checkedAt: Date?
     /// Records this process saved and has not deleted yet.
     private var saved: [(id: CKRecord.ID, at: Date)] = []
 
@@ -116,9 +117,16 @@ public actor CloudKitCueSender {
         return value("com.apple.developer.icloud-container-environment") as? String ?? "Development"
     }
 
-    /// Ask iCloud again: account state and this Mac's user record name.
+    /// Ask iCloud again: account state and this Mac's user record name. The
+    /// menu-bar app asks on every 2 s poll, so an answer is reused for five
+    /// minutes when iCloud is available and 30 s when it is not.
     @discardableResult
-    public func refreshStatus() async -> CloudKitCueStatus {
+    public func refreshStatus(now: Date = Date()) async -> CloudKitCueStatus {
+        if let checkedAt {
+            let age = now.timeIntervalSince(checkedAt)
+            if age < (status.state == .available ? 300 : 30) { return status }
+        }
+        checkedAt = now
         do {
             let account = try await container.accountStatus()
             status.state = switch account {
