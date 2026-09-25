@@ -643,9 +643,16 @@ struct CursorTranscriptMonitorTests {
         return directory.appendingPathComponent("\(id).jsonl")
     }
 
+    /// Appends in place, as Cursor does: a rewrite would briefly shrink the
+    /// file under a running tail and replay it from the start.
     private func append(_ line: String, to url: URL) throws {
-        let existing = (try? Data(contentsOf: url)) ?? Data()
-        try (existing + Data((line + "\n").utf8)).write(to: url)
+        let data = Data((line + "\n").utf8)
+        guard let handle = try? FileHandle(forWritingTo: url) else {
+            return try data.write(to: url)
+        }
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
     }
 
     /// History is the composer store's job. A tailer that replayed what was
@@ -704,10 +711,11 @@ struct CursorTranscriptMonitorTests {
     /// FSEvents gives no deadline: with fseventsd backlogged (a loaded
     /// machine, a full parallel `swift test`) delivery lags tens of seconds
     /// and a write in the stream's first moments can be dropped outright. So
-    /// the test keeps writing — blank lines, which carry no event — until the
-    /// turn lands, and allows far longer than any sane delivery but still a
-    /// fraction of the fallback. `interval` is short so an early wake (a
-    /// late event for the setup writes) cannot park the loop past the turn.
+    /// the test keeps writing blank lines, which wake the stream but parse to
+    /// no transcript event, until the turn lands. It allows far longer than
+    /// any sane delivery but still a fraction of the fallback. `interval` is
+    /// short so an early wake (a late event for the setup writes) cannot park
+    /// the loop past the turn.
     @Test func aTranscriptWriteWakesTheTail() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("vbcursor-\(UUID().uuidString)")
@@ -727,7 +735,7 @@ struct CursorTranscriptMonitorTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         // Without the stream `run` would pass every `interval` and prove nothing.
-        #expect(await monitor.isEventDriven)
+        try #require(await monitor.isEventDriven)
 
         #expect(CursorTranscriptMonitor.isTranscriptPath(file.path))
         #expect(!CursorTranscriptMonitor.isTranscriptPath(root.appendingPathComponent("empty-window/worker.log").path))
