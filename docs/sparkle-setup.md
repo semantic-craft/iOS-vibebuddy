@@ -73,6 +73,14 @@ run the dry run below.
    and only last the app bundle — `VibeBuddyMacApp.app`, with the Hardened Runtime,
    a secure timestamp, your Developer ID identity, and
    `tools/vibebuddy-mac.entitlements` (microphone only — the app is not sandboxed).
+   When a Developer ID provisioning profile for `com.vibebuddy.mac` with the
+   `iCloud.com.vibebuddy.app` container is on disk (made once by
+   `tools/fetch-mac-cloudkit-profiles.sh`), the script embeds it and adds the
+   iCloud entitlements, environment `Production`, so a Mac without an APNs key
+   can send iCloud cues (ADR-0013 D, `docs/planning/backlog/public-push/`).
+   Without the profile it prints `iCloud cues: OFF` and signs as before — an
+   iCloud entitlement without a matching profile makes macOS refuse to launch
+   the app.
 3. Verifies the result: `codesign --verify --deep --strict`, plus a check that
    *every* nested Mach-O carries the runtime flag, a Developer ID authority, and a
    secure timestamp. Notarization rejects the whole submission over one un-hardened
@@ -189,7 +197,9 @@ network, which is why § What the script does staples both the app and the DMG.
    (`CFBundleVersion`), so it **must** increase or installed copies will not see the
    update.
 3. Write `docs/release-notes-<version>.md`.
-4. `tools/release-mac.sh`
+4. `tools/release-mac.sh`. It must print `iCloud cues: on (Production)`; the
+   Production CloudKit schema must already be deployed (CloudKit Console →
+   `iCloud.com.vibebuddy.app` → Deploy Schema Changes) or every cue save fails.
 5. Run the two publish commands it prints.
 6. Validate the published DMG (§ Verify the DMG, not the installed copy).
 7. Re-check for a peer run. Step 1 is an hour stale by now, and step 8 is the
