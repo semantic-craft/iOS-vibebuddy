@@ -114,9 +114,9 @@ struct WatchAnswerControl: View {
         Button {
             draft = WatchAnswerDraft(alert: alert, text: reply.text)
         } label: {
+            // An answer is read whole before it is picked (M-07).
             Text(reply.text)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
@@ -269,11 +269,8 @@ struct WatchAnswerConfirmView: View {
                     .minimumScaleFactor(0.8)
 
                 if let question, !question.isEmpty {
-                    Text(question)
-                        .font(CompanionType.font(10))
-                        .foregroundStyle(CompanionPalette.ink2)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
+                    WatchFoldedText(text: question, limit: WatchReadingFold.requestLimit,
+                                    font: CompanionType.font(10), color: CompanionPalette.ink2)
                 }
 
                 TextField("Your answer", text: $text, axis: .vertical)

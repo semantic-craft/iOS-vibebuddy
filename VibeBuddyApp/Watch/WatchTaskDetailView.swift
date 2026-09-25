@@ -205,20 +205,36 @@ struct WatchTaskDetailView: View {
         return "This task is unavailable. Return to the dashboard for current tasks."
     }
 
+    /// The result, as far as the wrist has it: the Mac's summary of this
+    /// round and the start of the agent's own reply, each a snippet that
+    /// expands in place (M-07). Each says what it is and that it is not the
+    /// whole result — that stays on the iPhone.
     @ViewBuilder
     private func summaryBody(_ task: WatchFollowedTask) -> some View {
         let completion = task.detailSummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let excerpt = task.resultExcerpt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let fallback = task.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !completion.isEmpty || !fallback.isEmpty {
-            Text(completion.isEmpty ? fallback : completion)
-                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink)
-            Text(completion.isEmpty ? String(localized: "Task summary or recent status · not the full result")
-                                    : String(localized: "Mac-generated completion summary · not the full result"))
-                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
-                .fixedSize(horizontal: false, vertical: true)
+        if !completion.isEmpty || !excerpt.isEmpty {
+            if !completion.isEmpty {
+                snippet(completion, caption: "Mac-generated completion summary · not the full result")
+            }
+            if !excerpt.isEmpty, excerpt != completion {
+                snippet(excerpt, caption: "Start of the agent's reply · full result on your iPhone")
+            }
+        } else if !fallback.isEmpty {
+            snippet(fallback, caption: "Task summary or recent status · not the full result")
         } else if task.completionID != nil {
             Text("View the result on your iPhone")
                 .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+        }
+    }
+
+    private func snippet(_ text: String, caption: LocalizedStringResource) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            WatchFoldedText(text: text, limit: WatchReadingFold.resultLimit)
+            Text(caption)
+                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

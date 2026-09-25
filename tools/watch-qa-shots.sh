@@ -11,6 +11,8 @@ out="${1:-$repo/.scratch/qa-shots/watch-01}"
 derived="${WATCH_QA_DERIVED_DATA:-$repo/.build/watch-qa}"
 device_name="${WATCH_QA_DEVICE:-VibeBuddy Watch QA}"
 bundle_id=com.vibebuddy.app.watchkitapp
+# Seconds to let a launch settle before the shot; raise it on a loaded Mac.
+settle="${WATCH_QA_SETTLE:-3}"
 
 # scenario:page:filename
 shots=(
@@ -74,7 +76,7 @@ for shot in "${shots[@]}"; do
   SIMCTL_CHILD_VIBEBUDDY_WATCH_SCENARIO="$scenario" \
   SIMCTL_CHILD_VIBEBUDDY_WATCH_PAGE="$page" \
     xcrun simctl launch "$udid" "$bundle_id" >/dev/null
-  sleep 3
+  sleep "$settle"
   xcrun simctl io "$udid" screenshot "$out/$name.png" >/dev/null 2>&1
   echo "  ✓ $name.png  ($scenario / $page)"
 done
@@ -83,7 +85,7 @@ done
 # onboarding screen is proven to be what an unpaired Watch really shows.
 xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 xcrun simctl launch "$udid" "$bundle_id" >/dev/null
-sleep 3
+sleep "$settle"
 xcrun simctl io "$udid" screenshot "$out/09-unpaired.png" >/dev/null 2>&1
 echo "  ✓ 09-unpaired.png  (no demo mode)"
 
@@ -97,7 +99,7 @@ shoot() { # scenario page filename [extra launch args…]
   SIMCTL_CHILD_VIBEBUDDY_WATCH_SCENARIO="$scenario" \
   SIMCTL_CHILD_VIBEBUDDY_WATCH_PAGE="$page" \
     xcrun simctl launch "$udid" "$bundle_id" "$@" >/dev/null
-  sleep 3
+  sleep "$settle"
   xcrun simctl io "$udid" screenshot "$out/$name.png" >/dev/null 2>&1
   echo "  ✓ $name.png"
 }
@@ -109,5 +111,25 @@ shoot staleQuota quota 11-quota-zh-Hans -AppleLanguages "(zh-Hans)"
 shoot permission home 12-permission-large-text "${big[@]}"
 shoot normal home 13-overview-large-text "${big[@]}"
 shoot staleQuota quota 14-quota-large-text "${big[@]}"
+
+# Long text (M-07): the question takeover, then each task detail opened
+# directly — the full command, the one too long to decide here, the result.
+shoot_task() { # scenario task filename [extra launch args…]
+  local scenario="$1" task="$2" name="$3"; shift 3
+  xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  SIMCTL_CHILD_VIBEBUDDY_DEMO=1 \
+  SIMCTL_CHILD_VIBEBUDDY_WATCH_SCENARIO="$scenario" \
+  SIMCTL_CHILD_VIBEBUDDY_WATCH_TASK="$task" \
+    xcrun simctl launch "$udid" "$bundle_id" "$@" >/dev/null
+  sleep "$settle"
+  xcrun simctl io "$udid" screenshot "$out/$name.png" >/dev/null 2>&1
+  echo "  ✓ $name.png"
+}
+
+shoot longText home 18-long-question
+shoot_task longText demo-watch-long-command 19-long-command
+shoot_task longText demo-watch-overlong-command 20-overlong-command
+shoot_task longText demo-watch-long-result 21-long-result
+shoot_task longText demo-watch-long-result 22-long-result-zh-Hans -AppleLanguages "(zh-Hans)"
 
 echo "→ shots in $out"

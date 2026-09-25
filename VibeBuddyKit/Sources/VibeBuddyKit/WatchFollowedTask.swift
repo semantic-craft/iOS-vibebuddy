@@ -101,6 +101,11 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     public var summary: String?
     /// Bounded Mac-authored result for the detail screen, excluded from WidgetKit.
     public var detailSummary: String? = nil
+    /// The start of the agent's own reply for this round — the Mac's bounded
+    /// first sentence of the final result (`completionText`, at most 280
+    /// characters), for the detail screen's expandable snippet (M-07). Like
+    /// `detailSummary` it never reaches WidgetKit. Absent in older relays.
+    public var resultExcerpt: String? = nil
     public var presentation: TaskPresentationState
     public var waitKind: WaitKind?
     public var pendingID: String?
@@ -120,6 +125,11 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         // surface sends its category only; details stay in existing alert UI.
         let text = session.status == .needsResponse ? nil : session.displaySummary
         detailSummary = session.completionSummary
+        // Only a finished round's own text: the Mac binds `completionText` to
+        // `completionID`, and a running or waiting session has no result yet.
+        let excerpt = session.completionText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        resultExcerpt = session.status == .done && session.completionID != nil && !excerpt.isEmpty
+            ? excerpt : nil
         summary = text.flatMap { raw in
             let line = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
             // Conservative: do not place path/command-shaped summaries on a face.
@@ -141,6 +151,7 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     public var complicationTask: Self {
         var compact = self
         compact.detailSummary = nil
+        compact.resultExcerpt = nil
         // A complication is a glance, not a control surface: it offers no way
         // to stop anything, so it carries neither the offer nor its reason.
         compact.stop = nil

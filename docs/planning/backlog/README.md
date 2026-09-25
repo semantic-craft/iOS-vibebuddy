@@ -90,7 +90,7 @@
 | RV-03 | 语音动作不要落到用户没点名的另一个等待中的任务 | [03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md) | 已合并（#297） | 2026-09-24 定案：批准、拒绝、回答、指示这四种动作，只有用户这一句话里说出了目标的名字才会发出；没说就扣住，请用户说出名字（ADR-0008「Named target」）。单元测试复现了 grape→orange；修复后用 Qwen、Gemini 合成语音重跑，点名的动作都落对了，没有落到别的任务上；Gemini 把「橘子」转写成日文，误扣过一次（安全方向）。已知缺口：Live 的工具调用如果比新一句的转写先到，上一句的词还算数（Gemini 的同一缺口随 2026-09-25 移除 Gemini 成为历史） | 真机语音时留意有没有误扣 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
 | G-4 | 无障碍检查（VoiceOver / 动态字体 / Reduce Motion），并入 G-5 的设计检查表 | roadmap JSON `G-4` | 部分完成 | Xcode 27 构建和 zh-Hans 已完成，无障碍检查没做 | 缩成只做无障碍 + 检查表 |
-| M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | roadmap JSON `M-07`（按 ADR-0021 2026-09-23 修订缩小） | 可开工 | 不做腕上朗读 | 保留 |
+| M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | [13](watch-wrist-resolve/issues/13-full-question-and-target.md) | 已实现（PR 待合并），模拟器已验；待腕上 | 改前：能批准的命令在 40 mm 上被截成 4 行（`gh pr c…`），问题截 3 行、选项截 2 行。现在问题、命令、选项整段显示、表冠滚动；超长的（约两屏以上，只可能是不能在手表上批的）先给预览加「展开」；能批准的命令永远不折叠。结果详情加上 agent 回复的开头（Mac 已给手机发的 `completionText`），摘要和回复各自可展开。保留 160 字符批准门槛；不做腕上朗读。截图 `~/Projects/_shared-work/iOS-vibebuddy/m07-watch-full-text-2026-09-25/` | 下一次手表检查的「长文字」一项 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级标注 | roadmap JSON | 部分完成 | #224 加了引导清单；README 已标出部分社区适配 | 缩小范围后保留 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后**（代码已丢失，重启时从 09 重做） | 见下节 | 等公开版稳定后再做 |
 
@@ -135,6 +135,7 @@
 **只剩你（原六件，剩四件：第 2、4、5、6 件）**
 
 1. ~~**手表检查**~~ **已完成（2026-09-25 18:53–19:07）**：锁屏后新开的任务出现在手表上（WR-12）、「回复」进卡片作答（WR-09）、「返回总览」（WR-10，测的是列表内任务）在腕上通过。WR-11 由 agent 在已装 App 上验证：等满 60 s，第 35 s 的回答送到；腕上超过 25 s 未直接测。WR-08：停下时手机到 Mac 的连接应是断的（按停下前后两次提醒的投递记录推断），锁屏按操作步骤推断。H-1 Codex 由 agent 用托管 Codex 任务验过：APNs 已接受这条批准推送，经手机用的同一接口批准后 Codex 执行了命令；手表到 Mac 这一段不分 agent。发现并修好一个环境问题：Codex 共享 app-server 守护进程还跑着 9 月 20 日的 0.153.4，自动升级删掉了它的 `codex-code-mode-host`，派给 Codex 的任务执行不了任何命令；已用 `codex app-server daemon start` 换成受管的 0.156.1。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-round-2026-09-25/RESULTS.md`。
+   **下一轮手表检查（不单独约，碰上时顺带）**：M-07 长文字——手表上来一条长问题或一条能批准的长命令时，表冠滚到底能读完、点「批准」正常；打开一条已完成任务，点一次结果的「展开」。
 2. **路线图旧项里只有你能做的两步**（可选，手表检查之后）：
    1. 手机锁屏时在横幅上点批准，看要不要 Face ID（A-03）。
    2. 在 Cursor IDE 的 agent 里输入一句提示词（H-5）。

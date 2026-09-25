@@ -79,22 +79,30 @@ struct WatchAlertCard: View {
                     .foregroundStyle(CompanionPalette.ink2)
             }
 
-            Text(title)
-                .font(CompanionType.font(15, .semibold))
-                .foregroundStyle(CompanionPalette.ink)
-                .lineLimit(3)
-                .minimumScaleFactor(0.8)
-                .fixedSize(horizontal: false, vertical: true)
+            // A question is read whole before it is answered (M-07): the
+            // Crown scrolls it, and only an outlier folds behind Show more. A
+            // long one drops to the body size so its answers stay near.
+            if alert.waitKind == .question, let request = alert.request {
+                WatchFoldedText(
+                    text: request, limit: WatchReadingFold.requestLimit,
+                    font: WatchReadingFold.width(request) > WatchReadingFold.longQuestion
+                        ? CompanionType.font(13, .medium) : CompanionType.font(15, .semibold))
+            } else {
+                Text(title)
+                    .font(CompanionType.font(15, .semibold))
+                    .foregroundStyle(CompanionPalette.ink)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // A command is code and must be read literally; it sits in its own
-            // mono strip. A question already is the title above.
+            // mono strip, whole. Every command the wrist can approve is short
+            // enough never to fold (`WatchReadingFold.requestLimit`); only one
+            // too long to decide here can, and its full text is a tap away.
             if alert.waitKind == .permission, let request = alert.request {
-                Text(request)
-                    .font(CompanionType.mono(10))
-                    .foregroundStyle(CompanionPalette.ink)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                WatchFoldedText(text: request, limit: WatchReadingFold.requestLimit,
+                                font: CompanionType.mono(10))
                     .padding(6)
                     .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }

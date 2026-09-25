@@ -169,11 +169,12 @@ struct WatchQuestionPage: View {
                     .font(.caption2)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                Text(item.text)
-                    .font(CompanionType.font(15, .black))
-                    .lineLimit(4)
-                    .minimumScaleFactor(0.8)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Whole, like the card's question (M-07).
+                WatchFoldedText(
+                    text: item.text, limit: WatchReadingFold.requestLimit,
+                    font: WatchReadingFold.width(item.text) > WatchReadingFold.longQuestion
+                        ? CompanionType.font(13, .heavy) : CompanionType.font(15, .black),
+                    color: .primary)
                 if item.multiSelect {
                     Text("Choose all that apply.")
                         .font(.caption2)
@@ -223,8 +224,7 @@ struct WatchQuestionPage: View {
                 }
                 Text(option.label)
                     .font(CompanionType.font(13, .heavy))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -292,7 +292,7 @@ struct WatchQuestionReviewPage: View {
             Text(item.text)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             Text(labels(for: item))
                 .font(CompanionType.font(13, .heavy))
                 .fixedSize(horizontal: false, vertical: true)
