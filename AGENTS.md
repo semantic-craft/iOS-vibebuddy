@@ -14,7 +14,7 @@ Run without asking: `swift build` / `swift test` in this checkout, XcodeGen and 
 
 If real-device or installed-app acceptance needs an unavailable device or extra authorization, finish the implementation and the available checks, then report that specific gap; the other checks do not prove it.
 
-Keep a small number of fast tests for critical pure logic or a reproduced regression. No coverage targets, test-first mandates, or per-edge-case matrices; do not let test expansion displace end-to-end validation.
+Keep a small number of fast tests for critical pure logic or a reproduced regression. No coverage targets, test-first mandates, or per-edge-case matrices; do not let test expansion displace end-to-end validation. Which tests earn their place (keep/delete rubric, sources): `docs/agents/testing-policy-research.md`.
 
 ## Skills
 
