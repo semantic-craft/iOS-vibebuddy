@@ -209,7 +209,7 @@ them — but grok resolves an argument-less quoted `command` as a literal path
 Claude capture hook is installed as `"…/capture-terminal.sh" claude`: with an
 argument both CLIs shell-parse it, and the script ignores `$1`. The Claude
 approval gate has arguments too since WR-11 (`claude 60`), so Grok runs it as
-well; `approval-hook.sh` exits at once when `GROK_SESSION_ID` is set and its
+well; `approval-hook.sh` exits at once when `GROK_HOOK_EVENT` is set and its
 source is not `grok`, leaving Grok's own gate the only one that asks.
 
 ### Grok status line
@@ -301,7 +301,7 @@ it skips the Ghostty AppleScript probe, which is only valid while the surface is
 focused — so the Mac *merges* each ref into the stored one field by field: a
 later capture updates what it saw and never erases what it didn't. On each
 event it POSTs the session's `session_id` (or Grok's camelCase `sessionId`;
-`$GROK_SESSION_ID` is the last resort only, since grok exports it to every
+`$GROK_HOOK_EVENT` is the last resort only, since grok exports it to every
 process it spawns) plus
 everything it can learn about where the session lives, to
 `http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/terminal`:

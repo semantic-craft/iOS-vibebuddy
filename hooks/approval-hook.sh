@@ -19,8 +19,9 @@
 SOURCE="$1"
 HOLD="$2"
 # Grok imports Claude's hooks through [compat.claude] and runs any command that
-# has arguments. Only Grok's own gate may ask on its behalf.
-[ -n "$GROK_SESSION_ID" ] && [ "$SOURCE" != grok ] && exit 0
+# has arguments; its hook runner (and only it) sets GROK_HOOK_EVENT. Only
+# Grok's own gate may ask on its behalf.
+[ -n "$GROK_HOOK_EVENT" ] && [ "$SOURCE" != grok ] && exit 0
 PORT="${VIBEBUDDY_PORT:-9876}"
 URL="http://127.0.0.1:${PORT}/approval"
 [ -n "$SOURCE" ] && URL="${URL}?agent=${SOURCE}"

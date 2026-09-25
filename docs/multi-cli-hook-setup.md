@@ -258,7 +258,7 @@ Grok-specific decoding rules (`GrokParser`):
   entries deliver the Claude shape without `?agent=grok` and currently fail fail-open
   with `required env var(s) not set: ${PPID}` — harmless noise, never relied on.
   The Claude approval gate (`approval-hook.sh claude 60` since WR-11) has arguments,
-  so Grok would run it; the script exits at once when `GROK_SESSION_ID` is set and
+  so Grok would run it; the script exits at once when `GROK_HOOK_EVENT` is set and
   its source is not `grok`, so only Grok's own gate asks for a Grok session.
 
 #### Remote approval (`--approval`)
@@ -370,7 +370,7 @@ while the surface is focused), so the Mac **merges** each ref into the stored on
 field by field — a later capture updates what it saw and never erases what it
 didn't see. Grok's event payload uses camelCase `sessionId` and spells its event
 name `hookEventName`; the script reads the payload's `session_id` first, then
-`sessionId`, and only then falls back to `$GROK_SESSION_ID` — every process grok
+`sessionId`, and only then falls back to `$GROK_HOOK_EVENT` — every process grok
 spawned inherits that variable, so it would otherwise mis-attribute a Claude
 session started from a shell inside grok. A session with no captured terminal can't be jumped to
 (the iOS button hides; the Mac button disables; a phone jump reports "no

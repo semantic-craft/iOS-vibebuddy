@@ -403,9 +403,12 @@ struct ApprovalRoutesTests {
             try await waitForPendingApproval(store, session: "ps")
             try await Task.sleep(for: .milliseconds(600))
             back.set()
-            // Released to Claude's own prompt within a recheck or two, not at 30 s.
+            // Held past the 300 ms default, then released to Claude's own
+            // prompt within a recheck or two — not at 30 s.
             #expect(try await held.isEmpty)
-            #expect(ContinuousClock.now - started < .seconds(10))
+            let elapsed = ContinuousClock.now - started
+            #expect(elapsed > .milliseconds(600))
+            #expect(elapsed < .seconds(10))
         }
     }
 
@@ -980,10 +983,10 @@ struct ApprovalRoutesTests {
         // gate may ask for it, so the Claude gate stays silent there.
         let compat = try await runApprovalHook(source: "claude", port: port, token: "t0k",
                                                stdin: bash("rm -rf build"), extra: ["60"],
-                                               env: ["GROK_SESSION_ID": "g1"])
+                                               env: ["GROK_HOOK_EVENT": "pre_tool_use"])
         #expect(compat.isEmpty)
         let grokOwn = try await runApprovalHook(source: "grok", port: port, token: "t0k",
-                                                stdin: grokBash("ls -la"), env: ["GROK_SESSION_ID": "g1"])
+                                                stdin: grokBash("ls -la"), env: ["GROK_HOOK_EVENT": "pre_tool_use"])
         #expect(grokOwn == #"{"decision":"allow"}"#)
 
         // A wrong token is a 401 → nothing on stdout → the agent fails open.
@@ -1052,6 +1055,7 @@ private func runApprovalHook(source: String?, port: Int, token: String,
     process.arguments = [repoRoot().appendingPathComponent("hooks/approval-hook.sh").path]
         + (source.map { [$0] } ?? []) + extra
     var env = ProcessInfo.processInfo.environment
+    env["GROK_HOOK_EVENT"] = nil
     env["GROK_SESSION_ID"] = nil
     env.merge(extraEnv) { $1 }
     env["VIBEBUDDY_PORT"] = String(port)

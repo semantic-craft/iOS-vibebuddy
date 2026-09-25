@@ -799,7 +799,9 @@ public struct VibeBuddyServer: Sendable {
                 await store.beginQuestion(sessionID: sessionID, question, at: Date())
                 let questionReturn = awayTimeout > timeout
                     ? Self.releaseWhenPresent(sessionID, interval: presenceRecheck, presence: presence) {
+                        guard await questionRegistry.isWaiting(sessionID: sessionID) else { return false }
                         await questionRegistry.cancelExact(sessionID: sessionID, questionID: question.id)
+                        return true
                     } : nil
                 defer { questionReturn?.cancel() }
                 guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: awayTimeout) else {
@@ -1354,19 +1356,17 @@ public struct VibeBuddyServer: Sendable {
 
     /// A wait stretched past the default because nobody was at the Mac hands
     /// back to the agent's own prompt as soon as someone is: presence is read
-    /// again every `interval`, and `release` runs once when it turns true.
+    /// again every `interval`, and `release` runs when it turns true, until
+    /// one release takes (a wait not registered yet is simply tried again).
     /// The caller cancels the returned task when its wait ends.
     static func releaseWhenPresent(_ sessionID: String, interval: Duration = .seconds(1),
                                    presence: @escaping @Sendable (String) async -> Bool,
-                                   release: @escaping @Sendable () async -> Void) -> Task<Void, Never> {
+                                   release: @escaping @Sendable () async -> Bool) -> Task<Void, Never> {
         Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else { return }
-                if await presence(sessionID) {
-                    await release()
-                    return
-                }
+                if await presence(sessionID), await release() { return }
             }
         }
     }

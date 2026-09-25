@@ -30,10 +30,10 @@
 - hook 命令带上它允许的等待：`approval-hook.sh claude 60`，hook 自身超时改为 75 s；脚本把 `hold=60` 带给 daemon，curl 上限改为 70 s。
 - daemon 只在两处用这个 hold：Claude 的 `PermissionRequest`，和 Claude 的 `AskUserQuestion`；两处都先问过 presence。旧式的 `PreToolUse` 审批门不问 presence，仍按 25 s。不带 hold 的调用（旧的 hook 配置、Codex、Cursor、Grok）一律 25 s，这样旧配置不会出现 hook 在 30 s 被 Claude 杀掉、而手机上的卡片还显示可答的情况。hold 限在 25–120 s 之间。
 - 不采用：到时后仍接受迟到的回答（held-decision 队列，ADR-0032）：hook 放行后 Claude 已经弹出自己的提示，迟到的回答没有地方送；手表上显示倒计时：不解决问题，还要多占一行屏幕；去掉卡片上多点的那一下：那一下是长看界面上的「回复」本身（见 09），App 里省不掉。
-- Grok 通过 `[compat.claude]` 会执行带参数的 Claude hook：`approval-hook.sh` 见到 `GROK_SESSION_ID` 且来源不是 `grok` 就立即退出，Grok 会话只由 Grok 自己的审批门来问。脚本对 hold 做与 daemon 相同的 25–120 s 限制，并去掉前导零（避免按八进制算），curl 永远不会比 daemon 先放弃。
+- Grok 通过 `[compat.claude]` 会执行带参数的 Claude hook：`approval-hook.sh` 见到 `GROK_HOOK_EVENT` 且来源不是 `grok` 就立即退出，Grok 会话只由 Grok 自己的审批门来问。脚本对 hold 做与 daemon 相同的 25–120 s 限制，并去掉前导零（避免按八进制算），curl 永远不会比 daemon 先放弃。
 - 已知遗留（未改）：用户在 Claude 里按 Esc 中断后 hook 进程被杀，daemon 不知道，卡片最多还能答 60 s（原来 25 s），这期间的回答会被接受后丢掉。可另开票：检测客户端断开。
 - 生效条件：新的 Mac App 部署到 /Applications 后，还要在「设置 → Install / repair」重装一次 hook（App 启动时不会改 agent 的配置）。Codex、Cursor、Grok 的 hook 配置不动（Codex 的信任哈希不会失效）。
 
 ## Comments
 
-- 2026-09-25 评审（Opus，MERGE WITH FIXES）：阻断项是 Grok 的 `[compat.claude]` 会执行带参数的 Claude 审批门（已修，脚本见 `GROK_SESSION_ID` 就退出，有测试）；另修了健康检测认不出 `claude 60`、脚本 hold 的上下限与八进制、「坐在 Mac 前体验不变」的说法（改为等待中每秒重判 presence），并补了提问路径与 presence 交还的测试。
+- 2026-09-25 评审（Opus，MERGE WITH FIXES）：阻断项是 Grok 的 `[compat.claude]` 会执行带参数的 Claude 审批门（已修，脚本见 `GROK_HOOK_EVENT` 就退出，有测试）；另修了健康检测认不出 `claude 60`、脚本 hold 的上下限与八进制、「坐在 Mac 前体验不变」的说法（改为等待中每秒重判 presence），并补了提问路径与 presence 交还的测试。
