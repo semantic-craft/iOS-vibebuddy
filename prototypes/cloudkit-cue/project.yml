@@ -1,0 +1,89 @@
+# Public-push ticket 01 prototype: CloudKit private-database alert push.
+# Separate bundle IDs and container; nothing here is built by the shipping
+# projects or release scripts. Generate with `xcodegen generate` in this dir.
+name: CueProto
+options:
+  bundleIdPrefix: com.vibebuddy
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: LQAVR62TK2
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    CUEPROTO_MAC_URL: "http://192.0.2.10:9878" # override on the xcodebuild command line
+    CUEPROTO_TOKEN: ""
+targets:
+  CueProto:
+    type: application
+    platform: iOS
+    sources: [iOS, Shared]
+    dependencies:
+      - target: CueProtoNSE
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Cue Proto
+        UILaunchScreen: {}
+        UIBackgroundModes: [remote-notification]
+        NSLocalNetworkUsageDescription: "Send banner button taps back to the prototype Mac listener."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        CueProtoMacURL: "$(CUEPROTO_MAC_URL)"
+        CueProtoToken: "$(CUEPROTO_TOKEN)"
+    entitlements:
+      path: iOS/CueProto.entitlements
+      properties:
+        aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
+        com.apple.security.application-groups: [group.com.vibebuddy.cueproto]
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.vibebuddy.cueproto]
+        com.apple.developer.icloud-services: [CloudKit]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.cueproto
+        TARGETED_DEVICE_FAMILY: "1"
+  CueProtoNSE:
+    type: app-extension
+    platform: iOS
+    sources: [NSE, Shared]
+    info:
+      path: NSE/Info.plist
+      properties:
+        CFBundleDisplayName: Cue Proto NSE
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    entitlements:
+      path: NSE/CueProtoNSE.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.vibebuddy.cueproto]
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.vibebuddy.cueproto]
+        com.apple.developer.icloud-services: [CloudKit]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.cueproto.nse
+        TARGETED_DEVICE_FAMILY: "1"
+  CueProtoMac:
+    type: application
+    platform: macOS
+    sources: [Mac, Shared]
+    info:
+      path: Mac/Info.plist
+      properties:
+        LSUIElement: true
+    entitlements:
+      path: Mac/CueProtoMac.entitlements
+      properties:
+        # Developer ID builds must name the environment; the dev-signed
+        # iPhone build subscribes in Development.
+        com.apple.developer.icloud-container-environment: Development
+        com.apple.developer.icloud-container-identifiers: [iCloud.com.vibebuddy.cueproto]
+        com.apple.developer.icloud-services: [CloudKit]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.cueproto.mac
+        ENABLE_HARDENED_RUNTIME: YES
