@@ -38,11 +38,15 @@ struct AttentionRoutingTests {
         func announce(_ alert: SoundAlert) async { note("announce") }
     }
 
-    private let alert = SoundAlert(
-        session: AgentSession(id: "s", agent: .claudeCode, project: "p", status: .needsResponse,
-                              waitKind: .permission, statusSince: Date(timeIntervalSince1970: 0),
-                              updatedAt: Date(timeIntervalSince1970: 0)),
-        sound: .needsApproval, delivery: .bannerSound)
+    private let alert = Self.alert(.bannerSound)
+
+    private static func alert(_ delivery: DeliveryLevel) -> SoundAlert {
+        SoundAlert(
+            session: AgentSession(id: "s", agent: .claudeCode, project: "p", status: .needsResponse,
+                                  waitKind: .permission, statusSince: Date(timeIntervalSince1970: 0),
+                                  updatedAt: Date(timeIntervalSince1970: 0)),
+            sound: .needsApproval, delivery: delivery)
+    }
 
     @Test("only an authorized, alerting style puts a banner on screen")
     func bannerVisibility() {
@@ -60,7 +64,7 @@ struct AttentionRoutingTests {
         let surfaces = Surfaces(voiceOver: true, appears: false)
         let attempt = await AttentionRouting.route(alert, via: surfaces)
         #expect(attempt.outcome == .scheduled)
-        #expect(surfaces.calls == ["announce", "card", "sound"])
+        #expect(surfaces.calls == ["card", "announce", "sound"])
     }
 
     @Test("VoiceOver with a banner that appears: the banner alone")
@@ -74,6 +78,13 @@ struct AttentionRoutingTests {
     func voiceOverSilentBannerGlanceHidden() async {
         let surfaces = Surfaces(voiceOver: true, appears: false, glanceVisible: false)
         _ = await AttentionRouting.route(alert, via: surfaces)
-        #expect(surfaces.calls == ["announce", "banner"])
+        #expect(surfaces.calls == ["banner", "announce"])
+    }
+
+    @Test("VoiceOver, silent banner, list-only cue: the card, not spoken")
+    func voiceOverListOnlyStaysQuiet() async {
+        let surfaces = Surfaces(voiceOver: true, appears: false)
+        _ = await AttentionRouting.route(Self.alert(.list), via: surfaces)
+        #expect(surfaces.calls == ["card", "sound"])
     }
 }

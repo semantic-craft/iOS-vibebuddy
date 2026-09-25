@@ -54,19 +54,26 @@ public protocol AttentionSurfaces: Sendable {
 /// banner and Notification Center keeps it, while a card folds away. That only
 /// holds for a banner that actually appears, so a banner the settings would
 /// file silently — or one that fails to post — is not trusted: the cue takes
-/// the card route and VoiceOver is asked to speak it.
+/// the card route and VoiceOver is asked to speak it, unless the cue is
+/// list-only.
 public enum AttentionRouting {
     public static func route(_ alert: SoundAlert, via surfaces: some AttentionSurfaces) async -> LocalNotificationAttempt {
         guard surfaces.notificationsEnabled else { return await surfaces.postBanner(alert) }
         guard await surfaces.isStillCurrent(alert) else { return .skipped }
-        if await surfaces.voiceOverRunning() {
-            if await surfaces.bannerAppears() {
-                let banner = await surfaces.postBanner(alert)
-                guard banner.outcome == .failed else { return banner }
-            }
-            await surfaces.announce(alert)
+        let voiceOver = await surfaces.voiceOverRunning()
+        if voiceOver, await surfaces.bannerAppears() {
+            let banner = await surfaces.postBanner(alert)
+            guard banner.outcome == .failed else { return banner }
         }
-        guard await surfaces.presentCard(alert) else { return await surfaces.postBanner(alert) }
+        // Spoken only once the cue has landed somewhere, and only when it was
+        // meant to interrupt: a list-only cue stays as quiet as its banner would.
+        let speak = voiceOver && alert.delivery.interrupts
+        guard await surfaces.presentCard(alert) else {
+            let banner = await surfaces.postBanner(alert)
+            if speak, banner.shouldRecord { await surfaces.announce(alert) }
+            return banner
+        }
+        if speak { await surfaces.announce(alert) }
         await surfaces.playCue(alert)
         return .scheduled()
     }
