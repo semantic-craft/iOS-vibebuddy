@@ -92,7 +92,7 @@ B-U、H-1、H-5、M-11、D-U 的 agent 部分已跑完，基于 main `ebd06396`�
 
 ### 发现（本次没有修；1 开了 realtime-verify 票 03，2 开了票 10）
 
-1. **语音模型会对没点名的任务下手，App 挡不住「另一个有效目标」**（[realtime-verify 票 03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md)）。 Qwen 第 1 轮把「拒绝 grape」发成了 `deny_session(orange)`。`VoiceSessionMatch` 和 App 的复核只拦得住对不上号或不唯一的名字；模型点名另一个仍在等待的任务时，动作会被执行。第 4 轮的输入转写是「批准调整的请求」「拒绝你这个请求」，模型给出的项目名却是正确的 桃子、李子。这份转写和模型实际听到的是不是同一路输入，代码里没有说明，所以分不清模型是听对了，还是按唯一候选猜的。
+1. **语音模型会对没点名的任务下手，App 挡不住「另一个有效目标」**（[#297 · realtime-verify 票 03](https://github.com/semantic-craft/iOS-vibebuddy/pull/297)）。 Qwen 第 1 轮把「拒绝 grape」发成了 `deny_session(orange)`。`VoiceSessionMatch` 和 App 的复核只拦得住对不上号或不唯一的名字；模型点名另一个仍在等待的任务时，动作会被执行。第 4 轮的输入转写是「批准调整的请求」「拒绝你这个请求」，模型给出的项目名却是正确的 桃子、李子。这份转写和模型实际听到的是不是同一路输入，代码里没有说明，所以分不清模型是听对了，还是按唯一候选猜的。
 2. **转录读取覆盖状态行的上下文窗口和型号**，见[票 10](agent-integration-2026-09/issues/10-transcript-overrides-statusline-window.md)。
 3. **Qwen 会漏掉明确的指令**：第 3 轮转写正确，模型却没有发动作。
 4. **Claude 的审批和问题在手机上只停留约 25 s**（`approvalTimeout`），过了就只能在 Mac 上回答。这是设计如此，但手机端在卡片消失前没有倒计时提示。
