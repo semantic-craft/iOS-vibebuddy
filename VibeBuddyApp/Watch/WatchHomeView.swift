@@ -60,7 +60,8 @@ struct WatchHomeView: View {
                     WatchSessionRow(state: .error,
                                     title: task.title.isEmpty ? String(localized: "Unnamed task") : task.title,
                                     detail: WatchSessionRow.detail(agent: task.agent,
-                                        task.summary ?? String(localized: "Stopped with an error")),
+                                        task.summary.flatMap { $0.isEmpty ? nil : $0 }
+                                            ?? String(localized: "Stopped with an error")),
                                     trailing: nil) {
                         store.openSession(task.sessionID)
                     }

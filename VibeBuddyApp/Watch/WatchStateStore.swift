@@ -646,6 +646,11 @@ final class WatchStateStore: NSObject, ObservableObject {
             return
         }
         guard let link = WatchTaskLink(url: url) else { return }
+        // Which of three it was: the same page asked for again, a different
+        // one replacing it, or a page opening on nothing. A page stuck on
+        // screen with no link behind it (WR-10) shows up as `from-nil`.
+        WatchNavigationDiagnostics.shared.record(taskLink == link ? "route.url.same"
+            : taskLink == nil ? "route.url.from-nil" : "route.url.replace")
         quotaSelection = nil
         taskLink = link
     }
