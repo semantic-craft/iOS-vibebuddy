@@ -68,7 +68,7 @@ Optional OpenAI voice conversation and read-aloud use your own API key. The repo
 | **Usage and quota widgets** | iPhone Usage and home/lock-screen widgets show each provider's reading, update age and unavailable state. Widget links open that provider. Widgets use the latest saved readings. [Usage update](docs/release-notes-1.3.17.md) |
 | **Continue with another agent** | On Mac, choose Claude Code, Codex or Cursor, review the directory and handoff prompt, then start. Observed session directories and continuation links survive restarts; unknown directories are left for you to choose. [Handoff details](docs/release-notes-1.3.16.md) |
 | **Menu bar and notch adaptation** | Recover off-screen menu bar placement. Compact status sits beside the camera at the current display's notch height, with content-sized sides and no model-specific configuration. [Menu bar](docs/release-notes-1.3.18.md) · [Notch](docs/release-notes-1.3.19.md) |
-| **Voice, summaries and read-aloud** | Configure optional voice conversation, completion summaries and Mac read-aloud separately, using supported providers including OpenAI, Gemini, Qwen and Doubao. [Voice settings](docs/release-notes-1.3.11.md) |
+| **Voice, summaries and read-aloud** | Configure optional voice conversation, completion summaries and Mac read-aloud separately, using supported providers including OpenAI, Qwen and Doubao. [Voice settings](docs/release-notes-1.3.11.md) |
 
 This page presents Mac 1.3.19 and iPhone/Watch 1.3.17 features. Mobile 1.3.17 (46) was submitted to App Review on 2026-09-15; submission does not mean approval or public availability. Check [Mac Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) and the [App Store listing](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) for downloadable versions.
 
@@ -98,7 +98,7 @@ See the [Codex integration contract](docs/codex-integration.md) and [agent hook 
 
 ### Voice is optional
 
-Choose **OpenAI, Google Gemini, Alibaba Qwen or Volcengine Doubao**, add your own API credential in the app, review the disclosure and explicitly start a call. Ask “Which task needs me?” or give a clear response to an answerable request. Voice conversation, completion summaries and Mac read-aloud are configured independently. When a provider's per-call time limit ends a call, the app says so and offers a one-tap redial; the new call does not carry over the earlier conversation. Provider charges apply; task monitoring and button approvals need no AI API key.
+Choose **OpenAI, Alibaba Qwen or Volcengine Doubao**, add your own API credential in the app, review the disclosure and explicitly start a call. Ask “Which task needs me?” or give a clear response to an answerable request. Voice conversation, completion summaries and Mac read-aloud are configured independently. When a provider's per-call time limit ends a call, the app says so and offers a one-tap redial; the new call does not carry over the earlier conversation. Provider charges apply; task monitoring and button approvals need no AI API key.
 
 ### Notifications follow your setup
 

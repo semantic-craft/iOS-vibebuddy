@@ -157,7 +157,7 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
     private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                            sampleRate: 24000, channels: 1, interleaved: false)!
 
-    /// `inputSampleRate` is the mic rate the chosen provider expects (Qwen/Gemini
+    /// `inputSampleRate` is the mic rate the chosen provider expects (Qwen/Doubao
     /// 16 kHz, OpenAI 24 kHz). Output is always 24 kHz PCM16.
     init(inputSampleRate: Double = 16000) {
         captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,

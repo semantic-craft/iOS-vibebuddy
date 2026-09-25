@@ -57,27 +57,19 @@ struct ProviderLimitSignalTests {
         #expect(!isLimit(auth))
     }
 
-    @Test("Gemini: the socket ending after goAway is the limit; without goAway it is a failure")
-    func gemini() {
-        #expect(isLimit(GeminiRealtimeSession.connectionEndEvent(afterGoAway: true, detail: "closed")))
-        let drop = GeminiRealtimeSession.connectionEndEvent(afterGoAway: false, detail: "Socket is not connected")
-        #expect(!isLimit(drop))
-    }
-
     /// A microphone frame in flight fails as the server closes at the cap. Its
     /// send failure must not reach the coordinator first as a generic error.
     @Test("a send failing at the cap defers to the receive loop's limit classification")
     @MainActor func sendFailureAtCapDoesNotPreemptTheLimit() {
-        #expect(GeminiRealtimeSession.sendFailureEvent(afterGoAway: true, detail: "Socket is not connected") == nil)
-        #expect(GeminiRealtimeSession.sendFailureEvent(afterGoAway: false, detail: "Socket is not connected") != nil)
         #expect(QwenRealtimeSession.sendFailureEvent(connectedFor: 120 * 60, detail: "Socket is not connected") == nil)
         #expect(QwenRealtimeSession.sendFailureEvent(connectedFor: 10 * 60, detail: "Socket is not connected") != nil)
 
-        // What the coordinator sees at Gemini's cap: send failure suppressed, then the limit.
+        // What the coordinator sees at Qwen's cap: send failure suppressed, then the limit.
         let coordinator = VoiceCallCoordinator(audio: SilentAudio(), actionHandler: { _ in "" })
         coordinator.handle(.connected)
-        let events = [GeminiRealtimeSession.sendFailureEvent(afterGoAway: true, detail: "Socket is not connected"),
-                      GeminiRealtimeSession.connectionEndEvent(afterGoAway: true, detail: "closed")]
+        let events = [QwenRealtimeSession.sendFailureEvent(connectedFor: 120 * 60, detail: "Socket is not connected"),
+                      QwenRealtimeSession.connectionEndEvent(status: 101, detail: "closed",
+                          serverCloseCode: .normalClosure, connectedFor: 120 * 60)]
         for case let event? in events { coordinator.handle(event) }
         #expect(coordinator.phase == .ended(.providerLimit) && coordinator.errorText == nil)
     }

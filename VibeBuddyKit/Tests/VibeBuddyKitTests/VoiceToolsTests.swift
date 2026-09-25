@@ -117,18 +117,4 @@ struct VoiceToolsTests {
         let project = props?["project"] as? [String: Any]
         #expect(project?["type"] as? String == "string")
     }
-
-    @Test("the Gemini declaration uses uppercase proto enum types and no wrapper type")
-    func geminiSchema() {
-        let answer = VoiceTools.all.first { $0.name == "answer_session" }!
-        let decl = answer.geminiDeclaration()
-        #expect(decl["name"] as? String == "answer_session")
-        #expect(decl["type"] == nil)   // Gemini declarations are not wrapped in {type:"function"}
-        let params = decl["parameters"] as? [String: Any]
-        #expect(params?["type"] as? String == "OBJECT")   // Gemini Schema.type is the proto enum name
-        let props = params?["properties"] as? [String: Any]
-        let project = props?["project"] as? [String: Any]
-        #expect(project?["type"] as? String == "STRING")
-        #expect(props?["text"] != nil)
-    }
 }

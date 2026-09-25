@@ -2,12 +2,12 @@ import Foundation
 
 /// A persona for read-aloud, layered on top of whichever voice is chosen.
 ///
-/// No vendor takes a style *flag*: Volcengine, Alibaba and Google all control
+/// No vendor takes a style *flag*: Volcengine and Alibaba both control
 /// delivery with a natural-language instruction, so a tier is a sentence we
 /// send, not an enum they recognise. What differs between them is only the
 /// grammatical form their docs use, so this file owns every word we say and
 /// each vendor's Kit file picks a form and a place to put it. That split is
-/// why adding a fourth vendor never edits this file.
+/// why adding another vendor never edits this file.
 ///
 /// `.standard` is the pre-existing behaviour, kept as a real option rather
 /// than a hidden one: a persona is taste, and someone who wants a summary read
@@ -82,16 +82,6 @@ public struct VoicePersona: Sendable, Equatable {
         switch language {
         case .chinese: "请\(clause)地表达。"
         case .english: "Please speak \(clause)."
-        }
-    }
-
-    /// A lead-in for a vendor with no instruction field, where the only way in
-    /// is the prompt itself ("Say in a spooky whisper: …"). Ends at the colon;
-    /// the caller joins it to the text.
-    public var leadIn: String {
-        switch language {
-        case .chinese: "请\(clause)地念出下面这段话："
-        case .english: "Say the following \(clause):"
         }
     }
 }

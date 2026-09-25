@@ -120,7 +120,6 @@ final class VoiceChat: ObservableObject {
         switch provider {
         case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
         case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: model, language: language)
-        case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: model)
         case .deepseek: return   // Unreachable: guarded above.
         }

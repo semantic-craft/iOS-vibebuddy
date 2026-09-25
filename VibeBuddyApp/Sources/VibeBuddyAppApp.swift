@@ -10,6 +10,15 @@ struct VibeBuddyAppApp: App {
     @StateObject private var voice: VoiceChat
 
     init() {
+        // Gemini was removed; its settings fall back before any view reads them.
+        // Read-aloud that followed a Gemini conversation reads with system
+        // speech rather than being moved to Qwen once the provider key goes.
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: VoiceSettings.providerKey) == "gemini",
+           defaults.object(forKey: PhoneReadAloudSelection.defaultsKey) == nil {
+            defaults.set(PhoneReadAloudSelection.system.rawValue, forKey: PhoneReadAloudSelection.defaultsKey)
+        }
+        VoiceSettings.removeRetiredGeminiSettings()
         let dash = DashboardStore()
         _dashboard = StateObject(wrappedValue: dash)
         _voice = StateObject(wrappedValue: VoiceChat(

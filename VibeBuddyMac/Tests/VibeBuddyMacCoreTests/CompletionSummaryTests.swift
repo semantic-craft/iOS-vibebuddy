@@ -146,7 +146,12 @@ struct CompletionSummaryTests {
             let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
             #expect(request.httpMethod == "POST")
             #expect(request.timeoutInterval == 4)
-            #expect(body["model"] as? String == (provider == .gemini ? nil : "configured-text-model"))
+            #expect(body["model"] as? String == "configured-text-model")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-key")
+            // The model ID is body data for every provider; it can never move the endpoint.
+            var hostile = configuration(provider); hostile.modelID = "m?x=/y#z"
+            let hostileRequest = try CompletionSummaryHTTP.request(input: input(), configuration: hostile, key: "k", timeout: 1)
+            #expect(hostileRequest.url == request.url)
             #expect(body["previous_response_id"] == nil && body["conversation"] == nil && body["audio"] == nil)
             if provider == .openai {
                 #expect(request.url?.absoluteString == "https://api.openai.com/v1/responses")
@@ -154,12 +159,6 @@ struct CompletionSummaryTests {
                 #expect(body["tool_choice"] as? String == "none")
                 #expect((body["tools"] as? [Any])?.isEmpty == true)
                 #expect((body["input"] as? [Any])?.count == 1)
-            } else if provider == .gemini {
-                #expect(request.url?.path == "/v1beta/models/configured-text-model:generateContent")
-                #expect(request.url?.query == nil)
-                #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "synthetic-key")
-                #expect(body["tools"] == nil)
-                #expect((body["contents"] as? [Any])?.count == 1)
             } else {
                 let messages = try #require(body["messages"] as? [[String: String]])
                 #expect(messages.map { $0["role"] } == ["system", "user"])
@@ -181,8 +180,6 @@ struct CompletionSummaryTests {
         }
         var invalid = configuration(); invalid.qwenWorkspaceID = "other.example/path"
         #expect(invalid.configurationFailure == .invalidWorkspace)
-        invalid = configuration(.gemini); invalid.modelID = "model?key=bad"
-        #expect(invalid.configurationFailure == .invalidModel)
     }
 
     /// The first summary provider with no voice side. One endpoint — Qwen's
@@ -235,10 +232,7 @@ struct CompletionSummaryTests {
             ["type": "reasoning", "summary": []],
             ["type": "message", "role": "assistant", "status": "completed", "content": [["type": "output_text", "text": text]]]],
             "usage": ["input_tokens": 90, "output_tokens": 25, "total_tokens": 115]]
-        let gemini: [String: Any] = ["candidates": [["finishReason": "STOP", "content": ["role": "model", "parts": [
-            ["thought": true, "text": "private reasoning"], ["text": text]]]]],
-            "usageMetadata": ["promptTokenCount": 90, "candidatesTokenCount": 25, "totalTokenCount": 118, "thoughtsTokenCount": 3]]
-        for (provider, body) in [(VoiceProvider.qwen, qwen(text)), (.openai, openai), (.gemini, gemini)] {
+        for (provider, body) in [(VoiceProvider.qwen, qwen(text)), (.openai, openai)] {
             let parsed = CompletionSummaryHTTP.decode(try json(body), provider: provider)
             #expect(parsed.text == text && parsed.failure == nil)
             #expect(parsed.usage?.inputTokens != nil)
@@ -257,8 +251,6 @@ struct CompletionSummaryTests {
         #expect(CompletionSummaryHTTP.decode(try json(incomplete), provider: .openai).failure == .incompleteOutput)
         var tool = openai; tool["output"] = [["type": "function_call", "name": "approve_session"]]
         #expect(CompletionSummaryHTTP.decode(try json(tool), provider: .openai).failure == .invalidOutput)
-        let partial: [String: Any] = ["candidates": [["finishReason": "MAX_TOKENS", "content": ["role": "model", "parts": [["text": text]]]]]]
-        #expect(CompletionSummaryHTTP.decode(try json(partial), provider: .gemini).failure == .incompleteOutput)
     }
 
     @Test func configurationIsOptInAndNeverUsesRealtimeModel() throws {

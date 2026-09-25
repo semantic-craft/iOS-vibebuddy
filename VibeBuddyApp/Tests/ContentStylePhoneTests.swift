@@ -69,10 +69,13 @@ final class ContentStylePhoneTests: XCTestCase {
         let name = "phone-speech-test-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
         defer { defaults.removePersistentDomain(forName: name) }
-        defaults.set("gemini", forKey: VoiceSettings.providerKey)
-        XCTAssertEqual(PhoneReadAloudSelection.load(defaults: defaults, hasKey: { _ in true }), .provider(.gemini))
+        defaults.set("openai", forKey: VoiceSettings.providerKey)
+        XCTAssertEqual(PhoneReadAloudSelection.load(defaults: defaults, hasKey: { _ in true }), .provider(.openai))
         defaults.set("qwen", forKey: VoiceSettings.providerKey)
-        XCTAssertEqual(PhoneReadAloudSelection.load(defaults: defaults, hasKey: { _ in false }), .provider(.gemini))
+        XCTAssertEqual(PhoneReadAloudSelection.load(defaults: defaults, hasKey: { _ in false }), .provider(.openai))
+        // Gemini was removed 2026-09-25: a stored Gemini selection reads as system speech.
+        defaults.set("gemini", forKey: PhoneReadAloudSelection.defaultsKey)
+        XCTAssertEqual(PhoneReadAloudSelection.load(defaults: defaults, hasKey: { _ in true }), .system)
         defaults.set("system", forKey: PhoneReadAloudSelection.defaultsKey)
         XCTAssertEqual(PhoneReadAloudSelection.load(defaults: defaults, hasKey: { _ in true }), .system)
         defaults.removeObject(forKey: PhoneReadAloudSelection.defaultsKey)

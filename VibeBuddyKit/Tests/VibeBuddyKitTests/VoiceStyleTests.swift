@@ -18,10 +18,9 @@ struct VoiceStyleTests {
                 let persona = style.persona(language)
                 #expect(persona != nil)
                 // Each form has to be a whole sentence, not a bare clause: the
-                // vendor is being asked, told, or led in.
+                // vendor is being asked or told.
                 #expect(persona?.request.contains(persona?.clause ?? "#") == true)
                 #expect(persona?.directive.contains(persona?.clause ?? "#") == true)
-                #expect(persona?.leadIn.contains(persona?.clause ?? "#") == true)
             }
         }
     }
@@ -42,7 +41,7 @@ struct VoiceStyleTests {
         #expect(chinese.clause.contains("邻家小妹"))
         #expect(chinese.request.hasSuffix("？"))
         #expect(english.clause.allSatisfy { $0.isASCII || $0 == "—" })
-        #expect(english.leadIn.hasSuffix(":"))
+        #expect(english.directive.hasSuffix("."))
     }
 
     // MARK: Doubao — additions.context_texts, and `additions` is a jsonstring
@@ -80,23 +79,11 @@ struct VoiceStyleTests {
         #expect(plain["voice"] as? String == QwenSpeechSynthesizer.defaultVoice)
     }
 
-    // MARK: Gemini — no instruction field, so the prompt leads in
-
-    @Test func geminiLeadsInBeforeTheSummary() throws {
-        let persona = try #require(VoiceStyle.fieryGirl.persona(.english))
-        let prompt = GeminiSpeechSynthesizer(persona: persona).prompt("The task is complete.")
-        #expect(prompt.hasPrefix(persona.leadIn))
-        #expect(prompt.hasSuffix("The task is complete."))
-        // The summary must survive intact — a persona may not rewrite it.
-        #expect(GeminiSpeechSynthesizer().prompt("The task is complete.") == "The task is complete.")
-    }
-
     // MARK: Which vendors offer it
 
     @Test func onlyVendorsWithAnInstructionChannelOfferStyle() {
         #expect(SpeechSynthesis.supportsStyle(.doubao))
         #expect(SpeechSynthesis.supportsStyle(.qwen))
-        #expect(SpeechSynthesis.supportsStyle(.gemini))
         #expect(!SpeechSynthesis.supportsStyle(.openai))
     }
 
@@ -110,7 +97,6 @@ struct VoiceStyleTests {
         defaults.set(VoiceStyle.fieryGirl.rawValue, forKey: VoiceSettings.readAloudStyleKey(.doubao))
         defaults.set(VoiceStyle.fieryGirl.rawValue, forKey: VoiceSettings.readAloudStyleKey(.openai))
         #expect(VoiceSettings.readAloudStyle(.doubao, defaults: defaults) == .fieryGirl)
-        #expect(VoiceSettings.readAloudStyle(.gemini, defaults: defaults) == .standard)
         #expect(VoiceSettings.readAloudStyle(.openai, defaults: defaults) == .standard)
     }
 

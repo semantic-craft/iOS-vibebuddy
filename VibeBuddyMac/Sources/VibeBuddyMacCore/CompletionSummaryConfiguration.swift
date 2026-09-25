@@ -30,7 +30,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         case .qwen: "qwen3.8-flash"
         case .openai: "gpt-5.6-luna"
         case .deepseek: "deepseek-flash"
-        case .gemini, .doubao: ""
+        case .doubao: ""
         }
     }
 
@@ -70,7 +70,6 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
             switch provider {
             case .qwen: name = "DASHSCOPE_API_KEY"
             case .openai: name = "OPENAI_API_KEY"
-            case .gemini: name = "GEMINI_API_KEY"
             case .deepseek: name = "DEEPSEEK_API_KEY"
             case .doubao: return nil
             }
@@ -87,8 +86,6 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         if provider == .openai, modelID.hasPrefix("gpt-live-") || modelID.hasPrefix("gpt-realtime") {
             return .invalidModel
         }
-        // Model IDs are data except in Gemini's path. Reject URL delimiters rather than accepting a different endpoint.
-        if !modelID.utf8.allSatisfy({ Self.identifierBytes.contains($0) }), provider == .gemini { return .invalidModel }
         if provider == .qwen, let workspace = qwenWorkspaceID,
            workspace.isEmpty || workspace.count > 63 || workspace.first == "-" || workspace.last == "-"
             || !workspace.utf8.allSatisfy({ Self.hostLabelBytes.contains($0) }) { return .invalidWorkspace }
@@ -96,5 +93,4 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
     }
 
     private static let hostLabelBytes = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-".utf8)
-    private static let identifierBytes = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.".utf8)
 }

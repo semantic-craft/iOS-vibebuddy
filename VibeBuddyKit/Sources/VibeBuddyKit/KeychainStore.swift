@@ -324,9 +324,8 @@ public enum VoiceSettings {
     ///
     /// The catalog is the authority on **which language a voice speaks**; the
     /// vendor constant is the authority on **which voice we like**. So keep the
-    /// curated pick whenever it speaks the conversation language — that is how
-    /// Gemini keeps Aoede for Chinese and Puck for English — and only when it
-    /// does not (Doubao's Vivi is Chinese-only) fall to the catalog's first
+    /// curated pick whenever it speaks the conversation language, and only when
+    /// it does not (Doubao's Vivi is Chinese-only) fall to the catalog's first
     /// voice for that language. A constant the catalog does not list cannot be
     /// vouched for, so it loses to the catalog too, and is kept only as the
     /// last resort for a provider with no catalog entries at all.
@@ -369,6 +368,41 @@ public enum VoiceSettings {
             guard let value = defaults.string(forKey: legacy) else { continue }
             if defaults.object(forKey: modern) == nil { defaults.set(value, forKey: modern) }
             defaults.removeObject(forKey: legacy)
+        }
+    }
+
+    /// Gemini was removed on 2026-09-25 (ADR-0001 amendment). A setting that
+    /// still names it would sit on a value no picker lists, so each purpose
+    /// falls back explicitly, never to another vendor on the user's behalf:
+    /// conversation returns to the default provider **with the companion off**
+    /// (the consent was given for Gemini), summaries become not configured,
+    /// and read-aloud stops pinning and follows summaries. Gemini's own model,
+    /// voice and style values and its Keychain key go too. Idempotent; runs at
+    /// launch beside `migrateLegacyReadAloudKeys`. The Keychain delete is tried
+    /// **once**: on the Mac an item written by a differently signed build can
+    /// raise an authorization prompt, and a denied prompt must not return at
+    /// every launch — the orphaned key has no reader left.
+    static let retiredGeminiKeyCleanupKey = "retiredGeminiKeyCleanupAttempted"
+    public static func removeRetiredGeminiSettings(defaults: UserDefaults = .standard,
+                                                   keyExists: (String) -> Bool = { KeychainStore.exists($0) },
+                                                   deleteKey: (String) -> Void = { KeychainStore.set(nil, for: $0) }) {
+        let retired = "gemini"
+        if defaults.string(forKey: providerKey) == retired {
+            // Summaries still inheriting the shared value inherited Gemini.
+            if defaults.object(forKey: summaryProviderKey) == nil { defaults.set("", forKey: summaryProviderKey) }
+            defaults.removeObject(forKey: providerKey)
+            defaults.set(false, forKey: companionEnabledKey)
+        }
+        if defaults.string(forKey: summaryProviderKey) == retired { defaults.set("", forKey: summaryProviderKey) }
+        if defaults.string(forKey: readAloudProviderKey) == retired { defaults.set("", forKey: readAloudProviderKey) }
+        for key in ["voiceModel", "voiceVoice", "readAloud.model", "readAloud.voice", "readAloud.style",
+                    "completionSummaryModel"].map({ "\($0).\(retired)" }) {
+            defaults.removeObject(forKey: key)
+        }
+        let account = "\(retired).apiKey"
+        if !defaults.bool(forKey: retiredGeminiKeyCleanupKey) {
+            defaults.set(true, forKey: retiredGeminiKeyCleanupKey)
+            if keyExists(account) { deleteKey(account) }
         }
     }
 

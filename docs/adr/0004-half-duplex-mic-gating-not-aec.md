@@ -1,6 +1,7 @@
 # Full-duplex voice processing and interruption
 
 **Status:** Accepted (2026-09-08); supersedes the half-duplex decision of 2026-06-05.
+Amended 2026-09-25: Gemini Live was removed (ADR-0001); its mentions below are historical.
 The historical filename is retained for existing links.
 
 ## Decision
