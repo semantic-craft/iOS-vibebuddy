@@ -504,7 +504,8 @@ struct CursorACPTests {
         }
         client.start()
         let prompt = Task {
-            let reply = try await client.request("session/prompt", timeout: .seconds(3))
+            // Liveness only: the ordering is the subject, not the latency.
+            let reply = try await client.request("session/prompt", timeout: .seconds(30))
             return reply["stopReason"] as? String
         }
         await eventually("direct prompt") { agent.request(named: "session/prompt") != nil }

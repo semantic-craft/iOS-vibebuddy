@@ -316,7 +316,8 @@ struct CodexRolloutMonitorTests {
             lines: [sessionMeta(id: "desktop-new"), taskStarted(id: "turn-new")]
         )
 
-        #expect(await eventually(timeout: .seconds(1)) { await recorder.count == 1 })
+        // Discovery every 100 ms is the only way in; the bound is liveness.
+        #expect(await eventually { await recorder.count == 1 })
         #expect(await recorder.events.first?.sessionID == "desktop-new")
         #expect(await monitor.diagnostics().watchedFileCount == 1)
 
@@ -1108,21 +1109,37 @@ struct CodexRolloutMonitorTests {
             lines: [sessionMeta(id: "desktop-recovery"), taskStarted(id: "turn-1")]
         )
         let recorder = EventRecorder()
+        // Discovery is out of reach, so the stop has to come through the
+        // recreated watcher, however long a loaded host takes.
         let monitor = CodexRolloutMonitor(
             root: fixture.root,
-            discoveryInterval: .seconds(5),
+            discoveryInterval: .seconds(600),
             debounceInterval: .milliseconds(20)
         )
         let task = Task { await monitor.run { await recorder.append($0) } }
         defer { task.cancel() }
         #expect(await eventually { await monitor.diagnostics().watchedFileCount == 1 })
 
-        await monitor.invalidateWatcherForTesting(at: file)
-        #expect(await eventually { await monitor.diagnostics().watcherRecoveryCount >= 1 })
+        let refreshes = await monitor.diagnostics().debouncedRefreshCount
+        // The monitor keys watchers by the path discovery resolved
+        // (`/private/var/…`), not the fixture's `/var/…` spelling; invalidating
+        // the latter removed nothing and left the original watcher delivering.
+        let tracked = try #require(await monitor.rolloutPath(for: "desktop-recovery"))
+        await monitor.invalidateWatcherForTesting(at: URL(fileURLWithPath: tracked))
+        #expect(await monitor.diagnostics().watcherRecoveryCount >= 1)
+        // The debounced refresh reinstalls the watcher in the same step it
+        // counts; append only after it, so that refresh cannot read the stop.
+        let reinstalled = await eventually {
+            let diagnostics = await monitor.diagnostics()
+            return diagnostics.debouncedRefreshCount > refreshes && diagnostics.watchedFileCount == 1
+        }
+        #expect(reinstalled)
+        let signals = await monitor.diagnostics().watcherEventCount
         try append(taskComplete(id: "turn-1"), to: file)
 
-        #expect(await eventually(timeout: .seconds(1)) { await recorder.count == 2 })
+        #expect(await eventually { await recorder.count == 2 })
         #expect(await recorder.events.last?.kind == .stop)
+        #expect(await monitor.diagnostics().watcherEventCount > signals)
 
         task.cancel()
         await task.value

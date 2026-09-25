@@ -4,7 +4,8 @@ import Testing
 
 /// `hooks/cursor-followup.sh` against a daemon that accepts and never answers
 /// (or answers half a response): it must still try both requests, print
-/// nothing, and finish inside the `stop` timeout the installer writes.
+/// nothing, and end on its own network budget, which fits inside the `stop`
+/// timeout the installer writes.
 /// Ported from the retired `hooks/test_install_agent_hooks.py`.
 @Suite("Cursor stop hook against a hung daemon", .serialized)
 struct CursorFollowupTimeoutTests {
@@ -81,7 +82,7 @@ struct CursorFollowupTimeoutTests {
         }
     }
 
-    @Test("fails open, silently, within the installed stop timeout", arguments: [false, true])
+    @Test("fails open, silently, on a network budget that fits the installed stop timeout", arguments: [false, true])
     func hungDaemon(partial: Bool) async throws {
         // The deadline is whatever the installer writes for `stop`.
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("vb-cursor-\(UUID().uuidString)")
@@ -94,6 +95,27 @@ struct CursorFollowupTimeoutTests {
             Issue.record("stop entry has no numeric timeout"); return
         }
         #expect(deadline == 5)
+
+        // The script's own network budget is what keeps it inside the
+        // deadline: its requests run one after another, each capped by
+        // `--max-time`, with the rest of the 5 s left for shell and JSON.
+        // Checked on the script itself, so a loaded host cannot fail it.
+        let script = try String(contentsOf: Self.repo.appendingPathComponent("hooks/cursor-followup.sh"), encoding: .utf8)
+        let budgets = script.split(separator: "\n")
+            .filter { $0.contains("curl ") && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+            .map { line -> TimeInterval? in
+                guard let range = line.range(of: #"--max-time [0-9.]+"#, options: .regularExpression) else { return nil }
+                return TimeInterval(line[range].dropFirst("--max-time ".count))
+            }
+        #expect(budgets.count == 2 && budgets.allSatisfy { $0 != nil }, "every curl carries --max-time: \(budgets)")
+        let budget = budgets.compactMap { $0 }.reduce(0, +)
+        #expect(budget <= deadline - 2, "network budget \(budget)s leaves under 2 s of a \(deadline)s deadline")
+        // Nothing else in the script may wait: the budget is the whole story
+        // only while the two capped requests are the only blocking calls.
+        let blocking = script.split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+            .filter { $0.range(of: #"\b(sleep|wait|nc|python3?|ruby|node|perl|osascript)\b"#, options: .regularExpression) != nil }
+        #expect(blocking.isEmpty, "blocking commands outside the capped requests: \(blocking)")
 
         let server = try HungServer(partialFollowup: partial)
         defer { server.stop() }
@@ -115,16 +137,27 @@ struct CursorFollowupTimeoutTests {
         try process.run()
         input.fileHandleForWriting.write(Data(#"{"hook_event_name":"stop","conversation_id":"timeout-test"}"#.utf8))
         try input.fileHandleForWriting.close()
-        while process.isRunning && Date().timeIntervalSince(started) < deadline + 2 {
+        // Liveness bound only: a script without its caps would hang here.
+        while process.isRunning && Date().timeIntervalSince(started) < 30 {
             try await Task.sleep(for: .milliseconds(50))
         }
         let elapsed = Date().timeIntervalSince(started)
         if process.isRunning { process.terminate() }
         for await _ in exited {}
-        #expect(elapsed < deadline, "took \(elapsed)s against a \(deadline)s stop timeout")
+        // The hung daemon holds both requests to their caps, so the script
+        // ended on its own budget, not on luck or an early error.
+        #expect(elapsed >= budget, "took \(elapsed)s against a \(budget)s budget")
+        #expect(elapsed < 30, "hung: \(elapsed)s")
         #expect(process.terminationStatus == 0)
         #expect(output.fileHandleForReading.availableData.isEmpty)
         #expect(errors.fileHandleForReading.availableData.isEmpty)
+        // The server thread records a request when it reads it, which a
+        // loaded host may do after the script has already given up.
+        let recorded = Date().addingTimeInterval(30)
+        while !(server.requested.contains { $0.hasPrefix("/hook?") } && server.requested.contains("/cursor-followup")),
+              Date() < recorded {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         #expect(server.requested.contains { $0.hasPrefix("/hook?") })
         #expect(server.requested.contains("/cursor-followup"))
     }

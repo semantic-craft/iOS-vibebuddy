@@ -395,7 +395,9 @@ struct ApprovalRoutesTests {
                                   approvalID: { "s" })
         try await srv.buildApplication().test(.router) { client in
             let started = ContinuousClock.now
-            async let held = client.execute(uri: "/approval?agent=claude&hold=30", method: .post,
+            // The longest hold honoured, so "released by presence" and "ran
+            // out the hold" stay a minute apart on any host.
+            async let held = client.execute(uri: "/approval?agent=claude&hold=120", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: claudeRequest("ls -la"))) { res -> String in
                 String(buffer: res.body)
@@ -404,11 +406,11 @@ struct ApprovalRoutesTests {
             try await Task.sleep(for: .milliseconds(600))
             back.set()
             // Held past the 300 ms default, then released to Claude's own
-            // prompt within a recheck or two — not at 30 s.
+            // prompt within a recheck or two — not at 120 s.
             #expect(try await held.isEmpty)
             let elapsed = ContinuousClock.now - started
             #expect(elapsed > .milliseconds(600))
-            #expect(elapsed < .seconds(10))
+            #expect(elapsed < .seconds(60))
         }
     }
 

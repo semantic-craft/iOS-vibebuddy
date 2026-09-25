@@ -14,6 +14,24 @@ struct CompletionNoticeIntegrationTests {
         func release() { continuation?.resume(returning: "The drawing is ready."); continuation = nil }
     }
 
+    /// The store's `resultClock`, moved by the test: notice deadlines pass
+    /// when the test says so, never because a loaded host ran late.
+    final class TestClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var current: Date
+        init(_ start: Date) { current = start }
+        var now: Date { lock.withLock { current } }
+        func advance(by seconds: TimeInterval) { lock.withLock { current += seconds } }
+    }
+
+    /// Polls until `condition` holds. The bound is liveness only.
+    private func eventually(_ condition: () async -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while ContinuousClock.now < deadline, !(await condition()) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     @Test("notification generation waits for native settlement and cancels if continuation arrives during generation",
           arguments: [AgentKind.claudeCode, .cursor])
     func settledNotification(_ agent: AgentKind) async throws {
@@ -22,7 +40,9 @@ struct CompletionNoticeIntegrationTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("source.jsonl")
         try Data().write(to: file)
-        let store = SessionStore(sourceID: "native-notice")
+        let end = Date()
+        // Pinned: the whole exchange happens before the deadline however slow the host.
+        let store = SessionStore(sourceID: "native-notice", resultClock: { end })
         let gate = GenerationGate()
         await store.configureCompletionNotices(url: dir.appendingPathComponent("decisions.json"), enabled: { true }) { _ in
             await gate.generate()
@@ -33,7 +53,6 @@ struct CompletionNoticeIntegrationTests {
             try handle.seekToEnd()
             try handle.write(contentsOf: JSONSerialization.data(withJSONObject: row) + Data([10]))
         }
-        let end = Date()
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: agent,
@@ -48,7 +67,7 @@ struct CompletionNoticeIntegrationTests {
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: agent, transcriptPath: file.path,
             observationSource: .hook, timestamp: end,
             completionText: agent == .claudeCode ? "The drawing is ready." : nil, completionSucceeded: true))
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
+        #expect(await store.snapshot(now: end).sessions.first?.completionNotice?.state == .pending)
         try await Task.sleep(for: .milliseconds(150))
         #expect(await gate.calls == 0)
         if agent == .claudeCode {
@@ -56,44 +75,39 @@ struct CompletionNoticeIntegrationTests {
                 "timestamp": formatter.string(from: end), "preventedContinuation": false,
                 "stopReason": "", "hookAdditionalContext": [], "hookErrors": []])
         } else { try append(["type": "turn_ended", "status": "success"]) }
-        for _ in 0..<100 where await gate.calls == 0 { try await Task.sleep(for: .milliseconds(20)) }
+        try await eventually { await gate.calls > 0 }
         #expect(await gate.calls == 1)
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
+        #expect(await store.snapshot(now: end).sessions.first?.completionNotice?.state == .pending)
         if agent == .claudeCode {
             try append(["type": "system", "subtype": "stop_hook_summary", "sessionId": "s",
                 "timestamp": formatter.string(from: end), "preventedContinuation": false,
                 "stopReason": "", "hookAdditionalContext": ["Continue working"], "hookErrors": []])
         } else { try append(["role": "user", "message": ["content": [["type": "text", "text": "Continue working"]]]]) }
         await gate.release()
-        for _ in 0..<100 {
-            if await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .cancelled { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .cancelled)
+        try await eventually { await store.snapshot(now: end).sessions.first?.completionNotice?.state == .cancelled }
+        #expect(await store.snapshot(now: end).sessions.first?.completionNotice?.state == .cancelled)
     }
 
     @Test("an unverified completion expires without a plain completion reminder")
     func unverifiedDeadlineIsSilent() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let store = SessionStore(sourceID: "unverified")
+        let end = Date()
+        let clock = TestClock(end)
+        let store = SessionStore(sourceID: "unverified", resultClock: { clock.now })
         let gate = GenerationGate()
         await store.configureCompletionNotices(url: dir.appendingPathComponent("decisions.json"), enabled: { true }) { _ in
             await gate.generate()
         }
-        // The round ended this long before its deadline, so the notice is still
-        // pending when it is first read; a loaded machine cannot eat that margin.
-        let end = Date().addingTimeInterval(3 - CompletionSummaryService.deadlineSeconds)
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
             observationSource: .hook, timestamp: end.addingTimeInterval(-1), turnID: "a"))
         _ = await store.setAttention(sessionID: "s", .followed)
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex,
             observationSource: .hook, timestamp: end, turnID: "a"))
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
-        for _ in 0..<100 where await store.snapshot(now: Date()).sessions.first?.completionNotice?.state != .cancelled {
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .cancelled)
+        #expect(await store.snapshot(now: end).sessions.first?.completionNotice?.state == .pending)
+        clock.advance(by: CompletionSummaryService.deadlineSeconds + 1)
+        try await eventually { await store.snapshot(now: clock.now).sessions.first?.completionNotice?.state != .pending }
+        #expect(await store.snapshot(now: clock.now).sessions.first?.completionNotice?.state == .cancelled)
         #expect(await gate.calls == 0)
     }
 
@@ -102,27 +116,26 @@ struct CompletionNoticeIntegrationTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("decisions.json")
-        let store = SessionStore(sourceID: "unverified-write-failure")
+        let end = Date()
+        let clock = TestClock(end)
+        let store = SessionStore(sourceID: "unverified-write-failure", resultClock: { clock.now })
         await store.configureCompletionNotices(url: file, enabled: { true }) { _ in
             Issue.record("An unverified result must not reach generation")
             return nil
         }
-        // Same margin as above: pending has to be observable before the deadline,
-        // and the ledger has to be broken while the notice is still waiting.
-        let end = Date().addingTimeInterval(3 - CompletionSummaryService.deadlineSeconds)
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
             observationSource: .hook, timestamp: end.addingTimeInterval(-1), turnID: "a"))
         _ = await store.setAttention(sessionID: "s", .followed)
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex,
             observationSource: .hook, timestamp: end, turnID: "a"))
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
+        #expect(await store.snapshot(now: end).sessions.first?.completionNotice?.state == .pending)
         // A directory at the ledger path makes atomic writes fail, including as root.
+        // The clock stands still, so the notice is still waiting when it breaks.
         try FileManager.default.removeItem(at: file)
         try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
-        for _ in 0..<100 where await store.snapshot(now: Date()).sessions.first?.completionNotice?.state != .cancelled {
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .cancelled)
+        clock.advance(by: CompletionSummaryService.deadlineSeconds + 1)
+        try await eventually { await store.snapshot(now: clock.now).sessions.first?.completionNotice?.state != .pending }
+        #expect(await store.snapshot(now: clock.now).sessions.first?.completionNotice?.state == .cancelled)
     }
 
     @Test func decisionSurvivesRestartAndCorruptionDoesNotOverwrite() throws {
@@ -145,22 +158,21 @@ struct CompletionNoticeIntegrationTests {
     @Test func storePublishesPendingBeforeResolvedCopy() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let store = SessionStore(sourceID: "synthetic-source")
+        let t = Date()
+        // Pinned: generation finishes before the deadline however slow the host.
+        let store = SessionStore(sourceID: "synthetic-source", resultClock: { t })
         await store.configureCompletionNotices(url: dir.appendingPathComponent("decisions.json"), enabled: { true }) { _ in
             try? await Task.sleep(for: .milliseconds(100))
             return "Synthetic repair complete; device validation pending."
         }
-        let t = Date()
         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: t.addingTimeInterval(-60), turnID: "turn"))
         _ = await store.setAttention(sessionID: "s", .followed)
         await store.ingest(HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: t, turnID: "turn", completionText: "Synthetic result", completionSucceeded: true))
-        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
+        #expect(await store.snapshot(now: t).sessions.first?.completionNotice?.state == .pending)
         // Generation takes 100ms of its own; wait for the resolved copy rather
         // than for a fixed slice of wall clock.
-        for _ in 0..<100 where await store.snapshot(now: Date()).sessions.first?.completionNotice?.state != .summary {
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        let s = try #require(await store.snapshot(now: Date()).sessions.first)
+        try await eventually { await store.snapshot(now: t).sessions.first?.completionNotice?.state != .pending }
+        let s = try #require(await store.snapshot(now: t).sessions.first)
         #expect(s.completionNotice?.state == .summary)
         #expect(s.summary != s.completionNotice?.text)
     }
