@@ -117,6 +117,10 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
                                    action: NotificationActionID?) -> String {
         switch route {
         case .open where action == nil: return "notification.default"
+        // Reply arriving with no words: on watchOS 27 a mirrored text-input
+        // action opens the app without collecting any (WR-09), so the card is
+        // where the answer is made.
+        case .open where action == .answer: return "notification.action-reply-card"
         case .open: return "notification.action-opens"
         case .decide: return "notification.action-decide"
         // Unbound: an older sender named no question, so the reply is bound

@@ -391,3 +391,11 @@ Hermes on a development build of main 9137f92f, Apple Watch Series 10 on watchOS
 - **Approve from the wrist banner: passed three times.** The Mac hook returned `allow` 9 s after the push on two fake waits. A hosted Cursor approval passed too.
 - **Reply from the wrist banner: never reached the watch with text.** Three times, watchOS opened the app with no text (`notification.action-opens`), 5–10 s after the push. Decision 5's binding is proven in the simulator only. What the button should become is ticket watch-wrist-resolve 09.
 - The eight-second patience was not tested against a cold launch that needed it: every held action went out within 2 s.
+
+## Amendment — Reply on the wrist opens the card (2026-09-25, WR-09)
+
+On watchOS 27 a mirrored `.foreground` `UNTextInputNotificationAction` opens the Watch app without collecting text (three device taps, `userText` empty). Home Assistant hit the same class of failure with text input on forwarded notifications ([home-assistant/iOS#5778](https://github.com/home-assistant/iOS/pull/5778)); Apple documents the action but says nothing about mirrored foreground text input.
+
+Decision: on the wrist, Reply *is* "open the answer card". Nothing changes on the phone, where the inline text field works. `resolve` already maps a Reply without words to `.open`; the Watch now records that tap as `notification.action-reply-card` so a device round can tell it from other opens. Decision 5's binding stays in place for any watchOS that does deliver text.
+
+Rejected: a background text action (it runs on the iPhone, where a failure in a locked phone is invisible from the wrist — the reason for decision 1); a Watch-only category without text input (Apple only says to register categories on the notification's target, the iPhone; whether a Watch registration changes a mirrored banner is undocumented, and it would still just open the card); per-question option buttons on the banner (categories are static and options vary per question).
