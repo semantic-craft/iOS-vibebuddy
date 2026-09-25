@@ -7,7 +7,7 @@ private let voiceLog = Logger(subsystem: "com.vibebuddy.app", category: "voice")
 
 /// The phone's voice companion: tap the pet to hold a **realtime speech-to-speech**
 /// conversation with the agent companion using the provider you picked
-/// (Qwen / OpenAI / Gemini). Audio streams directly to that provider via your own
+/// (Qwen / OpenAI / Doubao). Audio streams directly to that provider via your own
 /// key; the companion knows your live sessions. This is the iOS twin of the Mac
 /// `VoiceChat` — the provider sessions and config live in `VibeBuddyKit` and are
 /// reused as-is; only the audio I/O (`RealtimeAudioIO`, which adds `AVAudioSession`)
@@ -139,7 +139,6 @@ final class VoiceChat: ObservableObject {
         switch provider {
         case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
         case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: model, language: language)
-        case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: model)
         case .deepseek: return   // Unreachable: guarded above.
         }

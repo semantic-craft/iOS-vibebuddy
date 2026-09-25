@@ -113,12 +113,6 @@ public enum SpeechSynthesis {
                            defaultVoice: OpenAISpeechSynthesizer.defaultVoice) {
                 OpenAISpeechSynthesizer(model: $0.model, voice: $0.voice)
             }
-        case .gemini:
-            return Support(defaultModel: GeminiSpeechSynthesizer.defaultModel,
-                           defaultVoice: GeminiSpeechSynthesizer.defaultVoice,
-                           supportsStyle: true) {
-                GeminiSpeechSynthesizer(model: $0.model, voice: $0.voice, persona: $0.persona)
-            }
         case .doubao:
             return Support(defaultModel: DoubaoSpeechSynthesizer.defaultModel,
                            defaultVoice: DoubaoSpeechSynthesizer.defaultVoice,

@@ -4,7 +4,8 @@
 targets Qwen-Audio 3.0 Realtime (`qwen-audio-3.0-realtime-plus`) instead of
 Qwen3.5-Omni Realtime, with an optional Bailian workspace-specific endpoint;
 amended 2026-09-23 — a provider's per-connection limit ends the call as
-`ended(providerLimit)` with a one-tap redial (below).
+`ended(providerLimit)` with a one-tap redial (below); amended 2026-09-25 —
+Gemini Live removed (below). Gemini mentions above that date are historical.
 
 The voice companion talks to four cloud realtime vendors (Qwen-Audio
 Realtime, OpenAI GPT-Live or Realtime, Gemini Live, Doubao Realtime). We put them all behind one `RealtimeVoiceProvider`
@@ -147,3 +148,24 @@ quota or rate-limit error, or a server fault stays `failed`. The rules
 | Gemini Live | ~10-minute connection, 15-minute audio session | the socket ending after a `goAway` message |
 | Qwen-Audio 3.0 Realtime | 120 minutes on the shared realtime endpoint (Omni docs; the Qwen-Audio page states none) | a server close frame (not 1011) once the connection is ≥ 119 minutes old — Qwen sends no limit event |
 | Doubao Realtime | none documented | not mapped; its idle release (10 minutes silent) stays a failure |
+
+## Gemini removed (2026-09-25)
+
+The owner removed Gemini from every purpose — conversation (Gemini Live),
+completion summaries and read-aloud — and cancelled its D-1 provider-limit
+check. `VoiceProvider.gemini`, `GeminiRealtimeSession`,
+`GeminiSpeechSynthesizer`, the Gemini voice catalog, its summary request
+shape and its `goAway` limit rule are deleted; the provider-limit table's
+Gemini row above is historical. `ended(providerLimit)` and Redial stay: the
+OpenAI and Qwen rules still map to them.
+
+A stored Gemini choice falls back per purpose at launch
+(`VoiceSettings.removeRetiredGeminiSettings`), never to another vendor on the
+user's behalf: conversation returns to the default provider with the voice
+companion switched off (the consent was given for Gemini), summaries become
+not configured, read-aloud stops pinning and follows summaries (the iPhone's
+read-aloud reads system speech), and Gemini's model, voice and style values
+and its Keychain key are removed.
+
+The agent source string `gemini` (`AgentKind.fromSource` → `.antigravity`) is
+the Antigravity coding agent, not this provider, and is unaffected.

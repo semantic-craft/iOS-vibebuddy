@@ -10,6 +10,8 @@ struct VibeBuddyAppApp: App {
     @StateObject private var voice: VoiceChat
 
     init() {
+        // Gemini was removed; its settings fall back before any view reads them.
+        VoiceSettings.removeRetiredGeminiSettings()
         let dash = DashboardStore()
         _dashboard = StateObject(wrappedValue: dash)
         _voice = StateObject(wrappedValue: VoiceChat(

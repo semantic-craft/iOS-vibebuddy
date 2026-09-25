@@ -6,11 +6,6 @@ import Foundation
 ///   `qwen-audio-3.0-tts-flash` voice list.
 /// - OpenAI — developers.openai.com: the realtime voices, and the longer
 ///   `/v1/audio/speech` list that adds `fable`, `nova` and `onyx`.
-/// - Gemini — ai.google.dev speech generation (the 30-voice table) plus the
-///   Live API capabilities guide, which states that native-audio models
-///   "support any of the voices available for our Text-to-Speech (TTS)
-///   models". Conversation and read-aloud therefore share the set, and the
-///   shortlist is the eight the table lists first.
 /// - Doubao — docs.volcengine.com/docs/6561/1257544, the 语音合成大模型 2.0
 ///   table (`_uranus_bigtts` / `ICL_uranus_`, the only voices `seed-tts-2.0`
 ///   accepts) for read-aloud, and docs/6561/1594356 for the realtime O2.0
@@ -60,11 +55,6 @@ extension VoiceCatalog {
             "fable", "nova", "onyx", "sage", "shimmer", "verse",
         ], category: "Speech voices"),
 
-        // MARK: Gemini — one documented set, shared by both purposes.
-
-        Key(.conversation, .gemini): geminiVoices,
-        Key(.readAloud, .gemini): geminiVoices,
-
         // MARK: Doubao — realtime O2.0 and TTS 2.0 are different families.
 
         Key(.conversation, .doubao): [
@@ -113,22 +103,4 @@ extension VoiceCatalog {
                   category: category, core: true)
         }
     }
-
-    /// The 30-voice table, multilingual by documentation. The eight the table
-    /// lists first are the shortlist; the rest sit behind "show all".
-    private static let geminiVoices: [CatalogVoice] = {
-        let leading = [("Zephyr", "Bright"), ("Puck", "Upbeat"), ("Charon", "Informative"),
-                       ("Kore", "Firm"), ("Fenrir", "Excitable"), ("Leda", "Youthful"),
-                       ("Orus", "Firm"), ("Aoede", "Breezy")]
-        let rest = [("Callirrhoe", "Easy-going"), ("Autonoe", "Bright"), ("Enceladus", "Breathy"),
-                    ("Iapetus", "Clear"), ("Umbriel", "Easy-going"), ("Algieba", "Smooth"),
-                    ("Despina", "Smooth"), ("Erinome", "Clear"), ("Algenib", "Gravelly"),
-                    ("Rasalgethi", "Informative"), ("Laomedeia", "Upbeat"), ("Achernar", "Soft"),
-                    ("Alnilam", "Firm"), ("Schedar", "Even"), ("Gacrux", "Mature"),
-                    ("Pulcherrima", "Forward"), ("Achird", "Friendly"), ("Zubenelgenubi", "Casual"),
-                    ("Vindemiatrix", "Gentle"), ("Sadachbia", "Lively"), ("Sadaltager", "Knowledgeable"),
-                    ("Sulafat", "Warm")]
-        return leading.map { CatalogVoice($0.0, $0.0, $0.1, category: "Prebuilt voices", core: true) }
-            + rest.map { CatalogVoice($0.0, $0.0, $0.1, category: "More voices") }
-    }()
 }

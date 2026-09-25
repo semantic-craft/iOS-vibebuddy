@@ -53,10 +53,7 @@ public enum VoicePrompt {
     }
 
     public static func realtimeConversation(language: VoiceLanguage, provider: VoiceProvider) -> String {
-        let personality = provider == .gemini
-            ? "You are VibeBuddy, a concise, warm voice companion. \(language.replyInstruction) Use one short spoken sentence unless asked for more. Speak in a calm, gentle, even tone."
-            : companionPersonality(language: language)
-        return personality + "\n" + conversationToolInstructions + "\n" + """
+        companionPersonality(language: language) + "\n" + conversationToolInstructions + "\n" + """
             This is a live voice call. Stay silent until the user actually speaks; never fill silence or reply to your own voice. Do not repeat yourself. Keep a comfortable, steady volume without sudden shouting or loudness changes. Never claim an action succeeded before its tool result arrives. Report the tool result faithfully; Mac receipt is not agent completion.
             """
     }

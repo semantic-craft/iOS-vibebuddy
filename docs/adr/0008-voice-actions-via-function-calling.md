@@ -1,6 +1,7 @@
 # Voice acts on sessions via provider function calling, not transcript parsing
 
-**Status:** Accepted (2026-06-06)
+**Status:** Accepted (2026-06-06); amended 2026-09-25 — Gemini Live was removed
+(ADR-0001); its wire format and residual gaps below are historical.
 
 The realtime voice companion can approve / deny / answer sessions. Because
 **approve runs real commands on the user's Mac**, the action must fire only on an

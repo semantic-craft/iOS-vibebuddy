@@ -2,8 +2,8 @@ import Foundation
 
 /// One function-calling tool offered to a realtime voice session, in a
 /// provider-agnostic shape. Each provider serializes it onto its own wire format
-/// (`functionSchema()` for the OpenAI-Realtime-style providers, including Qwen;
-/// `geminiDeclaration()` for Gemini Live). `Sendable` so it can cross into the
+/// (`functionSchema()` for the OpenAI-Realtime-style providers,
+/// `qwenFunctionSchema()` for Qwen). `Sendable` so it can cross into the
 /// provider actors.
 public struct VoiceTool: Sendable {
     public let name: String
@@ -17,35 +17,26 @@ public struct VoiceTool: Sendable {
         public let description: String
     }
 
-    /// The JSON-schema object describing this tool's parameters. OpenAI/Qwen use
-    /// lowercase JSON-schema types (`object`/`string`); Gemini's `Schema.type` is
-    /// the proto enum name (`OBJECT`/`STRING`), so it needs the uppercase variant.
-    private func parametersSchema(uppercaseTypes: Bool) -> [String: Any] {
-        func ty(_ s: String) -> String { uppercaseTypes ? s.uppercased() : s }
+    /// The JSON-schema object describing this tool's parameters.
+    private var parametersSchema: [String: Any] {
         var properties: [String: Any] = [:]
         for p in parameters {
-            properties[p.name] = ["type": ty(p.type), "description": p.description]
+            properties[p.name] = ["type": p.type, "description": p.description]
         }
-        return ["type": ty("object"), "properties": properties, "required": required]
+        return ["type": "object", "properties": properties, "required": required]
     }
 
     /// OpenAI Realtime (GA) flat function-tool object for
     /// `session.tools` — `{type:"function", name, description, parameters}`.
     public func functionSchema() -> [String: Any] {
         ["type": "function", "name": name, "description": description,
-         "parameters": parametersSchema(uppercaseTypes: false)]
+         "parameters": parametersSchema]
     }
 
     /// Qwen Audio uses a nested function definition, unlike OpenAI Realtime.
     public func qwenFunctionSchema() -> [String: Any] {
         ["type": "function", "function": ["name": name, "description": description,
-                                         "parameters": parametersSchema(uppercaseTypes: false)]]
-    }
-
-    /// Gemini Live `functionDeclarations[]` entry — same fields, but **not**
-    /// wrapped in `{type:"function"}`, and with uppercase proto-enum types.
-    public func geminiDeclaration() -> [String: Any] {
-        ["name": name, "description": description, "parameters": parametersSchema(uppercaseTypes: true)]
+                                         "parameters": parametersSchema]]
     }
 }
 

@@ -23,12 +23,6 @@ struct SpeechSynthesisLiveTests {
         try await Self.play(OpenAISpeechSynthesizer(), key: key, outputVariable: "OPENAI_SPEECH_OUTPUT")
     }
 
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["GEMINI_SPEECH_E2E"] == "1"))
-    func geminiSpeaks() async throws {
-        let key = try #require(ProcessInfo.processInfo.environment["GEMINI_API_KEY"])
-        try await Self.play(GeminiSpeechSynthesizer(), key: key, outputVariable: "GEMINI_SPEECH_OUTPUT")
-    }
-
     @Test(.enabled(if: ProcessInfo.processInfo.environment["DOUBAO_SPEECH_E2E"] == "1"))
     func doubaoSpeaks() async throws {
         let key = try #require(ProcessInfo.processInfo.environment["DOUBAO_API_KEY"])

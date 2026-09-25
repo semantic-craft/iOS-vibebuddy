@@ -13,9 +13,9 @@ struct VoicePurposeSettingsTests {
         VoiceSettings.selectVoiceProvider(.doubao, defaults: defaults)
         #expect(defaults.string(forKey: VoiceSettings.providerKey) == "doubao")
         #expect(VoiceSettings.summaryProvider(defaults: defaults) == .openai)
-        defaults.set("gemini", forKey: VoiceSettings.summaryProviderKey)
+        defaults.set("deepseek", forKey: VoiceSettings.summaryProviderKey)
         VoiceSettings.selectVoiceProvider(.qwen, defaults: defaults)
-        #expect(VoiceSettings.summaryProvider(defaults: defaults) == .gemini)
+        #expect(VoiceSettings.summaryProvider(defaults: defaults) == .deepseek)
     }
 
     @Test func missingInvalidOrRealtimeOnlyDoesNotBecomeQwen() throws {
@@ -142,5 +142,60 @@ struct ReadAloudPurposeSettingsTests {
         // Pinning a vendor that speaks still works while summaries stay text-only.
         defaults.set(VoiceProvider.qwen.rawValue, forKey: VoiceSettings.readAloudProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
+    }
+}
+
+/// Gemini was removed 2026-09-25. A user who had it selected falls back per
+/// purpose without a crash and without being moved to another vendor.
+@Suite("Retired Gemini settings")
+struct RetiredGeminiSettingsTests {
+    private func suite() throws -> (UserDefaults, String) {
+        let name = "retired-gemini-tests-\(UUID())"
+        return (try #require(UserDefaults(suiteName: name)), name)
+    }
+
+    @Test func geminiEverywhereFallsBackPerPurpose() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("gemini", forKey: VoiceSettings.providerKey)       // summaries inherit it
+        defaults.set("gemini", forKey: VoiceSettings.readAloudProviderKey)
+        defaults.set(true, forKey: VoiceSettings.companionEnabledKey)
+        for key in ["voiceModel.gemini", "voiceVoice.gemini", "readAloud.model.gemini",
+                    "readAloud.voice.gemini", "readAloud.style.gemini", "completionSummaryModel.gemini"] {
+            defaults.set("x", forKey: key)
+        }
+        var deleted: [String] = []
+        VoiceSettings.removeRetiredGeminiSettings(defaults: defaults, keyExists: { _ in true },
+                                                  deleteKey: { deleted.append($0) })
+
+        // Conversation: default provider, companion off until the user opts in again.
+        #expect(defaults.object(forKey: VoiceSettings.providerKey) == nil)
+        #expect(defaults.bool(forKey: VoiceSettings.companionEnabledKey) == false)
+        // Summaries: not configured, and a later voice pick does not revive anything.
+        #expect(VoiceSettings.summaryProvider(defaults: defaults) == nil)
+        VoiceSettings.selectVoiceProvider(.openai, defaults: defaults)
+        #expect(VoiceSettings.summaryProvider(defaults: defaults) == nil)
+        // Read-aloud: follows summaries, which are unconfigured — never Qwen.
+        #expect(VoiceSettings.pinnedReadAloudProvider(defaults: defaults) == nil)
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .waitingForSummaryProvider)
+        #expect(defaults.dictionaryRepresentation().keys.allSatisfy { !$0.hasSuffix(".gemini") })
+        #expect(deleted == ["gemini.apiKey"])
+    }
+
+    @Test func otherProvidersAreUntouched() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("openai", forKey: VoiceSettings.providerKey)
+        defaults.set("gemini", forKey: VoiceSettings.summaryProviderKey)
+        defaults.set("doubao", forKey: VoiceSettings.readAloudProviderKey)
+        defaults.set(true, forKey: VoiceSettings.companionEnabledKey)
+        var deleted: [String] = []
+        VoiceSettings.removeRetiredGeminiSettings(defaults: defaults, keyExists: { _ in false },
+                                                  deleteKey: { deleted.append($0) })
+        #expect(defaults.string(forKey: VoiceSettings.providerKey) == "openai")
+        #expect(defaults.bool(forKey: VoiceSettings.companionEnabledKey))
+        #expect(defaults.string(forKey: VoiceSettings.summaryProviderKey) == "")
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.doubao))
+        #expect(deleted.isEmpty)
     }
 }

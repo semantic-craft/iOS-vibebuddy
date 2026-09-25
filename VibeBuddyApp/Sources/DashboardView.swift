@@ -1236,7 +1236,7 @@ private struct VoiceConsentSheet: View {
         VStack(spacing: 0) {
             PhoneSheetHeader(title: String(localized: "Voice companion")) { dismiss() }
             VStack(alignment: .leading, spacing: 16) {
-                Text("Tap the mic to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google).")
+                Text("Tap the mic to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Doubao (Volcengine).")
                     .foregroundStyle(CompanionPalette.ink2)
                 Text("When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to that provider using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server.")
                     .foregroundStyle(CompanionPalette.ink2)

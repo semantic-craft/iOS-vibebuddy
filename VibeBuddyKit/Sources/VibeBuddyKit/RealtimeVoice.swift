@@ -36,7 +36,7 @@ public struct VoicePlaybackCheckpoint: Sendable {
 }
 
 /// A provider-agnostic event from a real-time speech-to-speech session. Qwen,
-/// Gemini Live, and OpenAI Realtime all map onto this, so the audio/UI layer
+/// Doubao, and OpenAI Realtime / GPT-Live all map onto this, so the audio/UI layer
 /// stays the same and providers are swappable.
 public enum RealtimeVoiceEvent: Sendable {
     case connected
@@ -75,8 +75,9 @@ public protocol RealtimeVoiceProvider: Actor {
     func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) async
     func setInputAudioSuspended(_ suspended: Bool) async throws
     /// Return a tool call's result to the model so it can continue the turn (and
-    /// speak a confirmation). `name` is required by some providers (Gemini); the
-    /// OpenAI-style providers correlate on `callID` alone. Implementations must
+    /// speak a confirmation). The
+    /// OpenAI-style providers correlate on `callID` alone; `name` is carried
+    /// for any that need it. Implementations must
     /// finish socket delivery before returning, or preserve and drain the result
     /// in close(); failed delivery must terminate explicitly without retrying.
     func sendToolResult(callID: String, name: String, result: String) async

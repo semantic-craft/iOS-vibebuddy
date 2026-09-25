@@ -35,7 +35,6 @@ enum SettingsModelTestOperations {
             switch provider {
             case .qwen: QwenRealtimeSession(apiKey: apiKey, model: model, workspaceID: workspace, useIntl: international)
             case .openai: OpenAIVoiceSession.make(apiKey: apiKey, model: model)
-            case .gemini: GeminiRealtimeSession(apiKey: apiKey, model: model)
             case .doubao: DoubaoRealtimeSession(apiKey: apiKey, model: model)
             case .deepseek: nil
             }

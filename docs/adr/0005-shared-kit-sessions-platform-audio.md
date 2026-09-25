@@ -1,6 +1,7 @@
 # Shared Kit realtime sessions; platform-specific audio I/O and UI
 
-**Status:** Accepted (2026-06-05)
+**Status:** Accepted (2026-06-05); amended 2026-09-25 — Gemini Live was removed
+(ADR-0001), so `GeminiRealtimeSession` and its mentions below are historical.
 
 The realtime WebSocket sessions (`QwenRealtimeSession`, `OpenAIRealtimeSession`,
 `GeminiRealtimeSession`, `DoubaoRealtimeSession`) live in `VibeBuddyKit` as pure Foundation /

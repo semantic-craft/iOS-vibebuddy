@@ -229,7 +229,7 @@ struct SettingsView: View {
             } header: {
                 Text("Voice companion")
             } footer: {
-                Text("Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, Gemini (Google), or Doubao (Volcengine) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server.")
+                Text("Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, or Doubao (Volcengine) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server.")
             }
 
             // Only the selected provider's credentials show — key + editable
@@ -473,7 +473,6 @@ private struct ProviderSection: View {
         switch provider {
         case .qwen: session = QwenRealtimeSession(apiKey: key, model: effectiveModel, workspaceID: workspace.isEmpty ? nil : workspace, useIntl: intl)
         case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: effectiveModel)
-        case .gemini: session = GeminiRealtimeSession(apiKey: key, model: effectiveModel)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: effectiveModel)
         case .deepseek: return   // Text-only: never offered as a voice provider.
         }
@@ -515,7 +514,6 @@ private struct ProviderSection: View {
         switch provider {
         case .qwen:   return "e.g. longanqian / longanlufeng"
         case .openai: return "e.g. marin / cedar"
-        case .gemini: return "e.g. Puck / Kore"
         case .doubao: return "zh_female_vv_jupiter_bigtts"
         case .deepseek: return ""
         }

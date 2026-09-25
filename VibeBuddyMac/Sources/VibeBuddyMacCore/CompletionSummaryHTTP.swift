@@ -78,18 +78,13 @@ struct CompletionSummaryHTTP: Sendable {
                 openAI["reasoning"] = ["effort": "none"]
             }
             body = openAI
-        case .gemini:
-            endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(c.modelID):generateContent"
-            body = ["systemInstruction": ["parts": [["text": instructions]]],
-                    "contents": [["role": "user", "parts": [["text": user]]]],
-                    "generationConfig": ["candidateCount": 1, "maxOutputTokens": purpose == .notice ? 1024 : 3000, "responseMimeType": "text/plain", "responseModalities": ["TEXT"]]]
         }
         guard let url = URL(string: endpoint), timeout > 0 else { throw CompletionSummaryFailure.expired }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(c.provider == .gemini ? key : "Bearer \(key)", forHTTPHeaderField: c.provider == .gemini ? "x-goog-api-key" : "Authorization")
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -169,18 +164,6 @@ struct CompletionSummaryHTTP: Sendable {
                     pieces.append(text)
                 }
             }
-        case .gemini:
-            if let feedback = root["promptFeedback"] as? [String: Any], !absent(feedback["blockReason"]) { return fail(.invalidOutput) }
-            guard let candidates = root["candidates"] as? [[String: Any]], candidates.count == 1,
-                  let candidate = candidates.first else { return fail(.invalidResponse) }
-            guard candidate["finishReason"] as? String == "STOP" else { return fail(.incompleteOutput) }
-            guard let content = candidate["content"] as? [String: Any], content["role"] as? String == "model",
-                  let parts = content["parts"] as? [[String: Any]] else { return fail(.invalidResponse) }
-            for part in parts {
-                // Never turn function calls, executable code, inline audio or other modalities into spoken text.
-                guard Set(part.keys).isSubset(of: ["text", "thought", "thoughtSignature"]), let text = part["text"] as? String else { return fail(.invalidOutput) }
-                if part["thought"] as? Bool != true { pieces.append(text) }
-            }
         }
         let text = pieces.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return fail(.emptyOutput) }
@@ -206,7 +189,7 @@ struct CompletionSummaryHTTP: Sendable {
     private static func absent(_ value: Any?) -> Bool { value == nil || value is NSNull }
 
     private static func usage(_ root: [String: Any], provider: VoiceProvider) -> CompletionSummaryUsage? {
-        guard let u = root[provider == .gemini ? "usageMetadata" : "usage"] as? [String: Any] else { return nil }
+        guard let u = root["usage"] as? [String: Any] else { return nil }
         func number(_ value: Any?) -> Int? { guard let n = value as? Int, n >= 0 else { return nil }; return n }
         switch provider {
         case .doubao: return nil
@@ -218,9 +201,6 @@ struct CompletionSummaryHTTP: Sendable {
             return .init(inputTokens: number(u["input_tokens"]), outputTokens: number(u["output_tokens"]), totalTokens: number(u["total_tokens"]),
                          cachedInputTokens: number((u["input_tokens_details"] as? [String: Any])?["cached_tokens"]),
                          reasoningTokens: number((u["output_tokens_details"] as? [String: Any])?["reasoning_tokens"]))
-        case .gemini:
-            return .init(inputTokens: number(u["promptTokenCount"]), outputTokens: number(u["candidatesTokenCount"]), totalTokens: number(u["totalTokenCount"]),
-                         cachedInputTokens: number(u["cachedContentTokenCount"]), reasoningTokens: number(u["thoughtsTokenCount"]))
         }
     }
 

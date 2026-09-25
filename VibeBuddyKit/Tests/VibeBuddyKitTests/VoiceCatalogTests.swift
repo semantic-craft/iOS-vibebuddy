@@ -26,12 +26,11 @@ struct VoiceCatalogTests {
     }
 
     @Test func tierRuleTurnsOnJustAboveTheLimit() {
-        // Qwen read-aloud sits below the limit; Doubao and Gemini above it.
+        // Qwen read-aloud sits below the limit; Doubao above it.
         #expect(VoiceCatalog.voices(.readAloud, .qwen).count <= VoiceCatalog.tierLimit)
         #expect(!VoiceCatalog.isTiered(.readAloud, .qwen))
         #expect(VoiceCatalog.voices(.readAloud, .doubao).count > VoiceCatalog.tierLimit)
         #expect(VoiceCatalog.isTiered(.readAloud, .doubao))
-        #expect(VoiceCatalog.isTiered(.readAloud, .gemini))
         // Below the limit the dropdown holds everything in the language;
         // above it, only the vendor's own recommended tier.
         let qwen = VoiceCatalog.shortlist(.readAloud, .qwen, language: .chinese)
@@ -127,10 +126,8 @@ struct ConversationDefaultVoiceTests {
     @Test func aCuratedVoiceThatSpeaksTheLanguageIsKept() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
-        // Gemini's voices are multilingual, so its own language branch stands —
+        // OpenAI's voices are multilingual, so its pick stands in Chinese —
         // the catalog corrects the language, it does not overrule the taste.
-        #expect(VoiceSettings.voice(.gemini, .english, defaults: defaults) == "Puck")
-        #expect(VoiceSettings.voice(.gemini, .chinese, defaults: defaults) == "Aoede")
         #expect(VoiceSettings.voice(.openai, .chinese, defaults: defaults) == "marin")
         // Qwen's realtime voices are Chinese-only, so English has nothing better.
         #expect(VoiceSettings.voice(.qwen, .english, defaults: defaults) == "longanqian")

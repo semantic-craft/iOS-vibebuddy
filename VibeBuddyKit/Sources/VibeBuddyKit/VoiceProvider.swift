@@ -8,7 +8,6 @@ import Foundation
 public enum VoiceProvider: String, CaseIterable, Sendable {
     case qwen
     case openai
-    case gemini
     case doubao
     case deepseek
 
@@ -25,7 +24,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return "Qwen (DashScope)"
         case .openai: return "OpenAI"
-        case .gemini: return "Gemini (Google)"
         case .doubao: return String(localized: "Doubao (Volcengine)", bundle: .module)
         case .deepseek: return "DeepSeek"
         }
@@ -36,7 +34,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return "dashscope.apiKey"
         case .openai: return "openai.apiKey"
-        case .gemini: return "gemini.apiKey"
         case .doubao: return "doubao.realtime.apiKey"
         case .deepseek: return "deepseek.apiKey"
         }
@@ -48,7 +45,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return "qwen-audio-3.0-realtime-plus"
         case .openai: return "gpt-live-1"
-        case .gemini: return "gemini-3.1-flash-live-preview"
         case .doubao: return "1.2.6.1"
         case .deepseek: return ""
         }
@@ -57,7 +53,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     /// Microphone capture rate the backend expects (Hz). Output is 24 kHz for all.
     public var inputSampleRate: Double {
         switch self {
-        case .qwen, .gemini, .doubao: return 16_000
+        case .qwen, .doubao: return 16_000
         case .openai:        return 24_000
         // Text-only: no microphone path ever opens for it. Kept plain rather
         // than zero so a mistaken caller misconfigures instead of trapping.
@@ -66,8 +62,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     }
 
     /// The voice we pick for this provider when the user has not — taste, not
-    /// language. A vendor whose voices are all multilingual can still branch
-    /// (Gemini), but a vendor whose pick speaks only one language does not
+    /// language. A vendor whose pick speaks only one language does not
     /// pretend otherwise: Doubao's Vivi is Chinese, and `VoiceSettings.voice`
     /// is what swaps it for an English voice when the conversation is English.
     /// Call that, not this — this is the curated pick, not the resolved one.
@@ -75,7 +70,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return "longanqian"   // Qwen-Audio system voice (multilingual)
         case .openai: return "marin"
-        case .gemini: return language == .chinese ? "Aoede" : "Puck"
         case .doubao: return "zh_female_vv_jupiter_bigtts"   // Chinese; English → the catalog
         case .deepseek: return ""                            // Text-only; it never speaks
         }
@@ -90,7 +84,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides")!
         case .openai: return URL(string: "https://platform.openai.com/docs/models")!
-        case .gemini: return URL(string: "https://ai.google.dev/gemini-api/docs/models")!
         case .doubao: return URL(string: "https://www.volcengine.com/docs/6561/2549778?lang=zh")!
         case .deepseek: return URL(string: "https://api-docs.deepseek.com/quick_start/pricing")!
         }
@@ -119,12 +112,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
             address = "https://developers.openai.com/api/docs/models"
         case (.openai, .speechSynthesis):
             address = "https://developers.openai.com/api/docs/guides/text-to-speech"
-        case (.gemini, .conversation):
-            address = "https://ai.google.dev/gemini-api/docs/live-api"
-        case (.gemini, .text):
-            address = "https://ai.google.dev/gemini-api/docs/models"
-        case (.gemini, .speechSynthesis):
-            address = "https://ai.google.dev/gemini-api/docs/speech-generation"
         case (.doubao, .conversation):
             address = "https://www.volcengine.com/docs/6561/2549778?lang=zh"
         case (.doubao, .speechSynthesis):
@@ -142,7 +129,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides")!
         case .openai: return URL(string: "https://developers.openai.com/api/docs/guides/live-conversations")!
-        case .gemini: return URL(string: "https://ai.google.dev/gemini-api/docs/speech-generation")!
         case .doubao: return URL(string: "https://www.volcengine.com/docs/6561/2549778?lang=zh")!
         case .deepseek: return URL(string: "https://api-docs.deepseek.com/quick_start/pricing")!   // No voices; its model list
         }
@@ -157,7 +143,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return URL(string: "https://bailian.console.aliyun.com/?apiKey=1")!
         case .openai: return URL(string: "https://platform.openai.com/api-keys")!
-        case .gemini: return URL(string: "https://aistudio.google.com/apikey")!
         case .doubao: return URL(string: "https://console.volcengine.com/speech/new/setting/apikeys?projectName=default")!
         case .deepseek: return URL(string: "https://platform.deepseek.com/api_keys")!
         }

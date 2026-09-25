@@ -79,7 +79,6 @@
 "Voice provider" = "语音服务商";
 "Conversation language" = "对话语言";
 "Voice companion" = "语音伙伴";
-"Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, or Gemini (Google) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "可选，默认关闭。开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给所选服务商——Qwen（DashScope）、OpenAI 或 Gemini（Google）。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
 "Settings" = "设置";
 "API Key — paste your own (kept in the Keychain)" = "API 密钥——粘贴你自己的（存在钥匙串里）";
 "Get an API key" = "获取 API 密钥";
@@ -95,7 +94,7 @@
 /* MARK: Voice companion opt-in (consent gate) */
 "Voice companion off" = "语音伙伴已关闭";
 "Continue" = "继续";
-"Tap the mic to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google)." = "点一下麦克风，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或 Gemini（Google）。";
+"Tap the mic to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Doubao (Volcengine)." = "点一下麦克风，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或豆包（火山引擎）。";
 "When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to that provider using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给该服务商。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
 "Continuing keeps the mic off until your next tap." = "继续后，麦克风仍会保持关闭，直到你下次点击。";
 
@@ -366,7 +365,7 @@
 "Started — it will appear in Working" = "已开始——它会出现在“进行中”";
 
 /* MARK: Settings — voice conversation (ADR-0017, ticket 08) */
-"Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, Gemini (Google), or Doubao (Volcengine) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "可选，默认关闭。开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给所选服务商——Qwen（DashScope）、OpenAI、Gemini（Google）或豆包（火山引擎）。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
+"Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, or Doubao (Volcengine) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "可选，默认关闭。开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给所选服务商——Qwen（DashScope）、OpenAI 或豆包（火山引擎）。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
 "English" = "English";
 "Realtime voice model" = "实时语音模型";
 "Qwen Audio 3.0 Plus — recommended" = "Qwen Audio 3.0 Plus——推荐";
