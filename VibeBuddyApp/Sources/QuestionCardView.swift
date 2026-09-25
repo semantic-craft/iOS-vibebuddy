@@ -64,6 +64,7 @@ struct QuestionCardView: View {
                                 if !sendsOnTap || isPicked(option, in: item) {
                                     Image(systemName: isPicked(option, in: item) ? "checkmark.circle.fill" : "circle")
                                         .foregroundStyle(isPicked(option, in: item) ? CompanionPalette.accent : CompanionPalette.ink3)
+                                        .accessibilityHidden(true)
                                 }
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(option.label)
@@ -75,12 +76,17 @@ struct QuestionCardView: View {
                                 Spacer(minLength: 8)
                                 if sendsOnTap {
                                     Image(systemName: "arrow.turn.down.left")
-                                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(CompanionPalette.ink3)
+                                        .font(.caption.weight(.semibold)).foregroundStyle(CompanionPalette.ink3)
+                                        .accessibilityHidden(true)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(PhoneButtonStyle(kind: .quiet))
+                        // The check mark is drawn, so the pick is also said;
+                        // a one-tap option says it sends at once.
+                        .accessibilityAddTraits(isPicked(option, in: item) ? .isSelected : [])
+                        .accessibilityHint(sendsOnTap ? Text("Sends this answer") : Text(""))
                     }
                     if item.allowsOther {
                         TextField(item.options.isEmpty ? "Answer" : "Other…", text: binding(for: item.id), axis: .vertical)

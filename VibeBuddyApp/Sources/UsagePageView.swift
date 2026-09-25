@@ -102,6 +102,8 @@ enum UsageRows {
 /// every provider's windows, one bullet per window, then the local token
 /// spend. Pushed from the hub's `chart.bar` circle and from the quota widgets.
 struct UsagePageView: View {
+    /// Reduce Motion: slides and scrolls become fades or cuts (HIG: Motion).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var connection: ConnectionStore
     @Environment(\.dismiss) private var dismiss
@@ -144,7 +146,7 @@ struct UsagePageView: View {
                             guard let focus else { return }
                             // Let the push settle and the groups lay out first.
                             try? await Task.sleep(for: .milliseconds(350))
-                            withAnimation(.smooth) {
+                            withAnimation(reduceMotion ? nil : .smooth) {
                                 if let provider = focus.provider {
                                     proxy.scrollTo(provider, anchor: .top)
                                 } else {

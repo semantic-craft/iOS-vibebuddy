@@ -1706,9 +1706,14 @@ final class DashboardStore: ObservableObject {
 
     func showToast(_ message: String) {
         toast = message
+        // The toast is the only word on whether an approve, deny or answer
+        // got through; VoiceOver hears it, and it stays up long enough to
+        // be reached.
+        UIAccessibility.post(notification: .announcement, argument: message)
+        let visible: Duration = UIAccessibility.isVoiceOverRunning ? .seconds(8) : .seconds(2.5)
         toastTask?.cancel()
         toastTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2.5))
+            try? await Task.sleep(for: visible)
             self?.toast = nil
         }
     }

@@ -825,3 +825,5 @@
 /* Voice call ended at the provider's per-call limit (D-1) */
 "Redial" = "重拨";
 "Starts a new voice call without the earlier conversation" = "开始新的语音通话，不带之前的对话";
+"Sends this answer" = "点一下即发送这个回答";
+"Voice call ended" = "语音通话已结束";

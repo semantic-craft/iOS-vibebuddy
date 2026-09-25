@@ -174,7 +174,14 @@ struct InboxHomeView: View {
 
     @State private var selectedProjectPath: String?
 
-    private let tileColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Two tiles a row, one at accessibility sizes so "Unread results" is
+    /// read whole instead of shrinking to a few letters.
+    private var tileColumns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), spacing: 12)]
+            : [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -183,10 +190,11 @@ struct InboxHomeView: View {
                     .font(CompanionType.font(30, .semibold))
                     .tracking(CompanionType.tracking(30))
                     .foregroundStyle(CompanionPalette.ink)
+                    .accessibilityAddTraits(.isHeader)
                 Text(verbatim: "\(macName) · \(statusLine)")
                     .font(CompanionType.font(13))
                     .foregroundStyle(CompanionPalette.ink2)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
             }
             .padding(.horizontal, PhoneMetrics.gutter)
             .padding(.top, 2)
@@ -277,6 +285,8 @@ struct InboxHomeView: View {
                         .foregroundStyle(CompanionPalette.ink3)
                     Button { cancelHeld(item.id) } label: {
                         Image(systemName: "xmark.circle")
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(CompanionPalette.ink3)
@@ -324,31 +334,37 @@ struct InboxHomeView: View {
             HStack(spacing: 10) {
                 StatusDot(state: state, size: PhoneRowMetrics.dot)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    // At accessibility sizes the label sits over the title and
+                    // both wrap: the item that needs you is never an ellipsis.
+                    let firstUpLayout = typeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                        : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+                    firstUpLayout {
                         Text("First up")
                             .font(CompanionType.font(11, .semibold))
                             .foregroundStyle(CompanionPalette.ink3)
                         Text(session.displayTitle)
                             .font(CompanionType.font(15, .semibold))
                             .foregroundStyle(CompanionPalette.ink)
-                            .lineLimit(1)
+                            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     }
                     // The same pair the row shows: what it is, in its colour,
                     // then the question, command or result if there is one.
                     (Text(presentation.activityOrResult).foregroundStyle(CompanionPalette.status(state))
                      + Text(presentation.progress.map { " · " + $0 } ?? "").foregroundStyle(CompanionPalette.ink2))
                         .font(CompanionType.font(12))
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 }
                 Spacer(minLength: 6)
                 Text(verbatim: "1 / \(projection.pendingCount)")
                     .font(CompanionType.mono(11)).monospacedDigit()
                     .foregroundStyle(CompanionPalette.ink3)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(CompanionPalette.ink3)
             }
             .padding(.horizontal, 14)
+            .padding(.vertical, typeSize.isAccessibilitySize ? 10 : 0)
             .frame(minHeight: 56)
             .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: CompanionType.panelRadius))
             .overlay(RoundedRectangle(cornerRadius: CompanionType.panelRadius)
@@ -376,7 +392,7 @@ struct InboxHomeView: View {
                     Text(title)
                         .font(CompanionType.font(16, .semibold))
                         .foregroundStyle(CompanionPalette.ink)
-                        .lineLimit(1)
+                        .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                         .minimumScaleFactor(0.8)
                     Text(verbatim: "\(count)")
                         .font(CompanionType.font(16, bucket == .all ? .regular : .semibold)).monospacedDigit()
@@ -401,6 +417,7 @@ struct InboxHomeView: View {
                 Text("Projects")
                     .font(CompanionType.font(13, .semibold))
                     .foregroundStyle(CompanionPalette.ink2)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
                 if projection.pendingCount > 0 {
                     Button { readPending() } label: {

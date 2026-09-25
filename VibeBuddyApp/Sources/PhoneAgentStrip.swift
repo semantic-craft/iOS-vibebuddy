@@ -92,6 +92,13 @@ struct PhoneAgentTile: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+        // A fixed-width tab strip, like the system tab bar: the text stops at
+        // xxxLarge and a long press shows the Large Content Viewer instead of
+        // the name shrinking to a few letters (HIG: Large content viewer).
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .accessibilityShowsLargeContentViewer {
+            Text(verbatim: "\(name) \(item.tally.total)")
+        }
         .accessibilityLabel(Text(name))
         .accessibilityValue(Text(verbatim: value))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)

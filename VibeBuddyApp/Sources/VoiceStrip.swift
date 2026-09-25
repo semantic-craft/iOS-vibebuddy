@@ -5,10 +5,13 @@ import VibeBuddyKit
 /// said, what it replied, or an error / hint — plus which provider is live.
 struct VoiceStrip: View {
     @ObservedObject var voice: VoiceChat
+    /// Opens the voice page; the strip's reading is the button for it.
+    var open: () -> Void = {}
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 8) {
+            HStack(spacing: 8) {
             // The cat is the conversation's avatar (ADR-0017 §2): it appears
             // here while a call is live and nowhere else on the phone.
             if voice.errorText == nil, voice.phase != .idle {
@@ -22,6 +25,7 @@ struct VoiceStrip: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(voice.errorText != nil ? CompanionPalette.status(.error) : CompanionPalette.accent)
                     .frame(width: 18)
+                    .accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 1) {
                 if let err = voice.errorText {
@@ -52,6 +56,16 @@ struct VoiceStrip: View {
                 }
             }
             Spacer(minLength: 0)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: open)
+            // The cat and the glyph are hidden, so the call phase is said.
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(Text(phaseWord))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Open the voice page")
+            .accessibilityAction { open() }
             if voice.endNotice != nil, voice.errorText == nil, voice.phase == .idle {
                 RedialButton(voice: voice)
             } else if let provider = voice.activeProvider {
@@ -62,11 +76,22 @@ struct VoiceStrip: View {
                     .background(CompanionPalette.bg2, in: Capsule())
             }
         }
-        .padding(.horizontal, PhoneMetrics.gutter).padding(.vertical, 7)
+        .padding(.horizontal, PhoneMetrics.gutter).padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CompanionPalette.bg3)
         .overlay(alignment: .top) { PhoneDivider() }
         .overlay(alignment: .bottom) { PhoneDivider() }
+    }
+
+    private var phaseWord: LocalizedStringResource {
+        switch voice.phase {
+        case .listening: return "Listening…"
+        case .speaking: return "Speaking…"
+        case .thinking: return "Thinking…"
+        case .connecting: return "Connecting…"
+        case .recovering: return "Recovering audio…"
+        case .idle: return "Voice call ended"
+        }
     }
 
     private var icon: String {
@@ -93,6 +118,8 @@ struct RedialButton: View {
                 .foregroundStyle(Color.onAccent)
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(CompanionPalette.accent, in: Capsule())
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityHint("Starts a new voice call without the earlier conversation")
