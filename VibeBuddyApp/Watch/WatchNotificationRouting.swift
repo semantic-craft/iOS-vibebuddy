@@ -41,7 +41,9 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     /// registerCategories`), with the same identifiers and the same foreground
     /// option. A mirrored notification draws the iPhone's actions; this
     /// registration is what an independent watchOS delivery would draw, and it
-    /// must not disagree with the phone's about what a button means.
+    /// must not disagree with the phone's about what a button means. On
+    /// watchOS 27 the Reply below arrives without its words and opens the
+    /// answer card instead (WR-09).
     static func categories() -> Set<UNNotificationCategory> {
         let approve = UNNotificationAction(
             identifier: NotificationActionID.approve.rawValue,
@@ -88,6 +90,7 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         let approvalID = userInfo[NotificationUserInfoKey.approvalId] as? String
         let questionID = userInfo[NotificationUserInfoKey.questionId] as? String
         let userText = (response as? UNTextInputNotificationResponse)?.userText
+        let isTextResponse = response is UNTextInputNotificationResponse
         Task { @MainActor in
             // Save the target before releasing the OS background execution
             // opportunity. This does not wait for a window or navigation.
@@ -95,7 +98,8 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
             let route = WatchNotificationResponseRoute.resolve(action: action, isDismiss: isDismiss,
                                                                sessionID: sessionID, approvalID: approvalID,
                                                                questionID: questionID, userText: userText)
-            WatchNavigationDiagnostics.shared.record(Self.diagnostic(for: route, action: action))
+            WatchNavigationDiagnostics.shared.record(Self.diagnostic(for: route, action: action,
+                                                                    isTextResponse: isTextResponse))
             guard let sessionID = route.sessionID else { return }
             if let state = WatchComplicationStore.loadState()?.state,
                let source = state.sourceID, let epoch = state.pairingEpoch {
@@ -114,13 +118,18 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     /// Content-free lifecycle evidence: which kind of tap arrived, never what
     /// it was about.
     private static func diagnostic(for route: WatchNotificationResponseRoute,
-                                   action: NotificationActionID?) -> String {
+                                   action: NotificationActionID?,
+                                   isTextResponse: Bool) -> String {
         switch route {
         case .open where action == nil: return "notification.default"
         // Reply arriving with no words: on watchOS 27 a mirrored text-input
         // action opens the app without collecting any (WR-09), so the card is
-        // where the answer is made.
-        case .open where action == .answer: return "notification.action-reply-card"
+        // where the answer is made. Whether the system handed over a text
+        // response at all, or an empty one, is still open; the two are told
+        // apart here without recording what was said.
+        case .open where action == .answer:
+            return isTextResponse ? "notification.action-reply-card.empty-text"
+                                  : "notification.action-reply-card.no-text-response"
         case .open: return "notification.action-opens"
         case .decide: return "notification.action-decide"
         // Unbound: an older sender named no question, so the reply is bound
