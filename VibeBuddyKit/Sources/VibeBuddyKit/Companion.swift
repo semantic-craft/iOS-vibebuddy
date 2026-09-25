@@ -48,8 +48,9 @@ public enum CompanionPalette {
         case .requiresInput:  return dynamic(0xC54200, 0xF1B467)
         case .thinking:       return dynamic(0x2572B7, 0x81A1C1)
         case .completeUnread: return accent
-        // The idle dot is non-text and holds 3:1 against `bg`.
-        case .idle:           return translucent(0x141414, 0.46, 0xF0F0F0, 0.36)
+        // The idle dot is non-text and holds 3:1 against `bg`, and against
+        // the Watch's pure black (0.38 there is 3.09:1; 0.36 was 2.86:1).
+        case .idle:           return translucent(0x141414, 0.46, 0xF0F0F0, 0.38)
         case .unassigned:     return ink3
         }
     }
@@ -66,19 +67,32 @@ public enum CompanionPalette {
                             _ dark: UInt32, _ darkAlpha: CGFloat) -> Color {
         #if os(macOS)
         return Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let match = appearance.bestMatch(from: [.aqua, .darkAqua,
+                                                    .accessibilityHighContrastAqua,
+                                                    .accessibilityHighContrastDarkAqua])
+            let isDark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
+            let high = match == .accessibilityHighContrastAqua || match == .accessibilityHighContrastDarkAqua
             return NSColor(hex: isDark ? dark : light)
-                .withAlphaComponent(isDark ? darkAlpha : lightAlpha)
+                .withAlphaComponent(contrasted(isDark ? darkAlpha : lightAlpha, high: high))
         })
         #elseif os(iOS)
         return Color(uiColor: UIColor { trait in
             let isDark = trait.userInterfaceStyle == .dark
             return UIColor(hex: isDark ? dark : light)
-                .withAlphaComponent(isDark ? darkAlpha : lightAlpha)
+                .withAlphaComponent(contrasted(isDark ? darkAlpha : lightAlpha,
+                                               high: trait.accessibilityContrast == .high))
         })
         #else
         return Color(hex: dark).opacity(darkAlpha)
         #endif
+    }
+
+    /// Increase Contrast closes half the gap to opaque: hairlines, the only
+    /// edge of ghost buttons and chips, go from ~1.2:1 to ~4:1, and
+    /// secondary and tertiary ink move toward full ink. Opaque tokens are
+    /// unchanged.
+    static func contrasted(_ alpha: CGFloat, high: Bool) -> CGFloat {
+        high ? alpha + (1 - alpha) / 2 : alpha
     }
 }
 

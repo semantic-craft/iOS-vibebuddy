@@ -86,6 +86,7 @@ public struct StateGlyph: View {
                 .foregroundStyle(quiet ? CompanionPalette.ink3 : tint)
         }
         .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(state.label)
     }
 }
@@ -111,7 +112,9 @@ public struct AgentAvatar: View {
             .frame(width: size * 0.56, height: size * 0.56)
             .frame(width: size, height: size)
             .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(agent.displayName)
+            .accessibilityAddTraits(.isImage)
     }
 }
 
@@ -241,19 +244,23 @@ public struct SplitApproveButton: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             #endif
-            .frame(width: chevronWidth, height: height)
+            .frame(width: chevronWidth)
+            .frame(minHeight: height, maxHeight: .infinity)
             .background(green, in: UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                                                           bottomTrailingRadius: height / 2, topTrailingRadius: height / 2,
                                                           style: .continuous))
             .overlay {
                 Image(systemName: "chevron.down")
                     .font(.system(size: size == .small ? 8 : 10, weight: .black))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.onAccent)
                     .allowsHitTesting(false)
             }
             .accessibilityLabel(String(localized: "More approval options", bundle: .module))
             }
         }
+        // Both halves take the taller one's height, so a label grown by
+        // Dynamic Type never clips inside a fixed key.
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -264,9 +271,10 @@ private struct SplitHalfStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(CompanionType.font(size == .small ? 11 : (size == .large ? 15 : 13), .heavy))
-            .foregroundStyle(.white)
+            // White on the dark mint is 2.06:1; `onAccent` flips to ink there.
+            .foregroundStyle(Color.onAccent)
             .padding(.leading, size == .small ? 12 : 16).padding(.trailing, size == .small ? 9 : 12)
-            .frame(height: height)
+            .frame(minHeight: height, maxHeight: .infinity)
             .background(color, in: UnevenRoundedRectangle(topLeadingRadius: height / 2, bottomLeadingRadius: height / 2,
                                                           bottomTrailingRadius: 0, topTrailingRadius: 0,
                                                           style: .continuous))
