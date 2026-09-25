@@ -126,6 +126,13 @@ struct ConversationDefaultVoiceTests {
     @Test func aCuratedVoiceThatSpeaksTheLanguageIsKept() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
+        // A curated pick that is not the catalog's first voice still stands
+        // when it speaks the language; the catalog only replaces a mismatch.
+        let english = VoiceCatalog.voices(.readAloud, .openai).filter { $0.speaks(.english) }
+        let second = try #require(english.dropFirst().first)
+        #expect(VoiceSettings.languageDefault(.readAloud, .openai, .english, curated: second.id) == second.id)
+        #expect(VoiceSettings.languageDefault(.readAloud, .openai, .english, curated: "not-listed")
+                == VoiceCatalog.defaultVoice(.readAloud, .openai, language: .english))
         // OpenAI's voices are multilingual, so its pick stands in Chinese —
         // the catalog corrects the language, it does not overrule the taste.
         #expect(VoiceSettings.voice(.openai, .chinese, defaults: defaults) == "marin")

@@ -378,7 +378,11 @@ public enum VoiceSettings {
     /// (the consent was given for Gemini), summaries become not configured,
     /// and read-aloud stops pinning and follows summaries. Gemini's own model,
     /// voice and style values and its Keychain key go too. Idempotent; runs at
-    /// launch beside `migrateLegacyReadAloudKeys`.
+    /// launch beside `migrateLegacyReadAloudKeys`. The Keychain delete is tried
+    /// **once**: on the Mac an item written by a differently signed build can
+    /// raise an authorization prompt, and a denied prompt must not return at
+    /// every launch — the orphaned key has no reader left.
+    static let retiredGeminiKeyCleanupKey = "retiredGeminiKeyCleanupAttempted"
     public static func removeRetiredGeminiSettings(defaults: UserDefaults = .standard,
                                                    keyExists: (String) -> Bool = { KeychainStore.exists($0) },
                                                    deleteKey: (String) -> Void = { KeychainStore.set(nil, for: $0) }) {
@@ -396,7 +400,10 @@ public enum VoiceSettings {
             defaults.removeObject(forKey: key)
         }
         let account = "\(retired).apiKey"
-        if keyExists(account) { deleteKey(account) }
+        if !defaults.bool(forKey: retiredGeminiKeyCleanupKey) {
+            defaults.set(true, forKey: retiredGeminiKeyCleanupKey)
+            if keyExists(account) { deleteKey(account) }
+        }
     }
 
     /// Per-provider model / voice ID UserDefaults keys (one set each).

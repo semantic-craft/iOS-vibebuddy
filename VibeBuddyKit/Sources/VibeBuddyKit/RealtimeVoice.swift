@@ -75,9 +75,8 @@ public protocol RealtimeVoiceProvider: Actor {
     func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) async
     func setInputAudioSuspended(_ suspended: Bool) async throws
     /// Return a tool call's result to the model so it can continue the turn (and
-    /// speak a confirmation). The
-    /// OpenAI-style providers correlate on `callID` alone; `name` is carried
-    /// for any that need it. Implementations must
+    /// speak a confirmation). Results correlate on `callID`; Doubao and GPT-Live
+    /// also read `name` to recognise `end_voice_call`. Implementations must
     /// finish socket delivery before returning, or preserve and drain the result
     /// in close(); failed delivery must terminate explicitly without retrying.
     func sendToolResult(callID: String, name: String, result: String) async

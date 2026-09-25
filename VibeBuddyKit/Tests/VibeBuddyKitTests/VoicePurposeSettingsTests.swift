@@ -180,6 +180,10 @@ struct RetiredGeminiSettingsTests {
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .waitingForSummaryProvider)
         #expect(defaults.dictionaryRepresentation().keys.allSatisfy { !$0.hasSuffix(".gemini") })
         #expect(deleted == ["gemini.apiKey"])
+        // A denied Keychain prompt must not come back at every launch.
+        VoiceSettings.removeRetiredGeminiSettings(defaults: defaults, keyExists: { _ in true },
+                                                  deleteKey: { deleted.append($0) })
+        #expect(deleted == ["gemini.apiKey"])
     }
 
     @Test func otherProvidersAreUntouched() throws {

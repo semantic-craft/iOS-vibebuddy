@@ -73,7 +73,7 @@
 | WR-09 | 手表横幅「回复」直接打开 App，不收文字 | [09](watch-wrist-resolve/issues/09-banner-reply-opens-app.md) | needs-triage | watchOS 27 上，带 `.foreground` 的文字输入按钮不弹输入框；什么都没发出去，是安全的 | 先查 Apple 文档与同类 App，再定方案 |
 | WR-10 | 任务详情页「返回总览」点了没反应 | [10](watch-wrist-resolve/issues/10-back-to-dashboard-dead.md) | ready-for-agent | 打开一个已离开列表的会话后出现，只能强制退出；另外列表行上不标 agent | 保留 |
 | WR-11 | Mac 只等 25 秒，手表上的操作常常来不及 | [11](watch-wrist-resolve/issues/11-hook-wait-vs-wrist.md) | needs-triage | 这一轮 9 次过期；卡片上还要多点一下「回复」 | 先量时间分布再定 |
-| D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | **完成**；Gemini 路径 2026-09-25 由你取消，iPhone 的 D-1 检查不再需要 | 2026-09-25 你决定移除 Gemini 集成（ADR-0001 修订），唯一能在约 10 分钟内到顶的供应商随之移除；结束通话 + 重拨保留给 Qwen / OpenAI（按单元测试，真实到顶要 60–120 分钟，碰上长通话时再看）。历史：2026-09-24 用 Kit 里 App 共用的 Gemini 会话与通话状态机打真实 API：第 591.9 s 服务端结束通话（按代码只有先收到 `goAway` 才会判为上限），进入「已到上限」且没有报错，重拨 0.8 s 接通。界面上的提示和重拨按钮没截图（computer use 未获授权）；iPhone 路径未验 | — |
+| D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | **代码完成**；Gemini 路径 2026-09-25 由你取消，iPhone 的 D-1 检查不再需要；Mac / iPhone 上的到顶提示和重拨按钮没截图验证过，等自然出现的长通话再看 | 2026-09-25 你决定移除 Gemini 集成（ADR-0001 修订），唯一能在约 10 分钟内到顶的供应商随之移除；结束通话 + 重拨保留给 Qwen / OpenAI（按单元测试，真实到顶要 60–120 分钟，碰上长通话时再看）。历史：2026-09-24 用 Kit 里 App 共用的 Gemini 会话与通话状态机打真实 API：第 591.9 s 服务端结束通话（按代码只有先收到 `goAway` 才会判为上限），进入「已到上限」且没有报错，重拨 0.8 s 接通。界面上的提示和重拨按钮没截图（computer use 未获授权）；iPhone 路径未验 | — |
 | RV-03 | 语音动作不要落到用户没点名的另一个等待中的任务 | [03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md) | 已合并（#297） | 2026-09-24 定案：批准、拒绝、回答、指示这四种动作，只有用户这一句话里说出了目标的名字才会发出；没说就扣住，请用户说出名字（ADR-0008「Named target」）。单元测试复现了 grape→orange；修复后用 Qwen、Gemini 合成语音重跑，点名的动作都落对了，没有落到别的任务上；Gemini 把「橘子」转写成日文，误扣过一次（安全方向）。已知缺口：Gemini 或 Live 的工具调用如果比新一句的转写先到，上一句的词还算数 | 真机语音时留意有没有误扣；不装机 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
 | G-4 | 无障碍检查（VoiceOver / 动态字体 / Reduce Motion），并入 G-5 的设计检查表 | roadmap JSON `G-4` | 部分完成 | Xcode 27 构建和 zh-Hans 已完成，无障碍检查没做 | 缩成只做无障碍 + 检查表 |
@@ -131,7 +131,7 @@
 3. ~~**Codex 重新信任**~~ **已完成**（2026-09-24）：你已在 `/hooks` 信任，`vibebuddyd hooks status` 显示「Codex is running all 14 VibeBuddy hooks」，路径是固定目录。重新部署后已确认：两次从 main 替换 App 之后（11:00Z、12:08Z），`hooks status` 仍显示「running all 14」，不需要重新信任。
 4. **语音耳测**（约 5 分钟，D-U，只能靠耳朵）：Qwen 打一通短电话，中英文各说一句；OpenAI 补一句英文（Gemini 已于 2026-09-25 移除）。每通回一句「听得清吗、能打断吗」。
 5. **App Store Connect 登录一次**（1 分钟，可选）：在 Chrome 里登录 appstoreconnect.apple.com，agent 就能读 iOS 1.3.28 (58) 的审核状态。Mail / Outlook 的读取请求你已拒绝，所以也可以直接告诉 agent 状态邮件写的是什么。
-6. **要不要发布**：WR-08 修好且锁屏停下复验通过，H-2 也通过后再问你。Mac 1.3.33（带上 #262 起已合并的全部改动，含 #287、#290、#293）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。
+6. **要不要发布**：WR-08 修好且锁屏停下复验通过，H-2 也通过后再问你。Mac 1.3.33（带上 #262 起已合并的全部改动，含 #287、#290、#293）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。下一版起已没有 Gemini：发布或提交审核时，agent 同步删掉 `docs/privacy-policy.md` 和 `docs/app-store-listing.md` 里的 Google (Gemini)。
 
 ## 观察项（暂不动手）
 

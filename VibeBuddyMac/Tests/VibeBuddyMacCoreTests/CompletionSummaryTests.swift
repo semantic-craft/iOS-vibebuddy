@@ -147,6 +147,11 @@ struct CompletionSummaryTests {
             #expect(request.httpMethod == "POST")
             #expect(request.timeoutInterval == 4)
             #expect(body["model"] as? String == "configured-text-model")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-key")
+            // The model ID is body data for every provider; it can never move the endpoint.
+            var hostile = configuration(provider); hostile.modelID = "m?x=/y#z"
+            let hostileRequest = try CompletionSummaryHTTP.request(input: input(), configuration: hostile, key: "k", timeout: 1)
+            #expect(hostileRequest.url == request.url)
             #expect(body["previous_response_id"] == nil && body["conversation"] == nil && body["audio"] == nil)
             if provider == .openai {
                 #expect(request.url?.absoluteString == "https://api.openai.com/v1/responses")
