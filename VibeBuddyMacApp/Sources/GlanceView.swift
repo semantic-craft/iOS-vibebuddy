@@ -13,6 +13,9 @@ struct GlanceView: View {
 
     @State private var expandedDecisionID: String?
     @State private var hovering = false
+    /// Reduce Motion: the island changes shape with a short fade instead of a
+    /// spring and a zoom (HIG: Motion).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hoverTask: Task<Void, Never>?
 
     private enum Mode: Equatable { case idle, compact, card, expanded }
@@ -45,8 +48,12 @@ struct GlanceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // The panel overlaps the menu bar on purpose; SwiftUI must not inset for it.
         .ignoresSafeArea()
-        .animation(Self.motion, value: mode)
-        .animation(Self.motion, value: model.glanceCard?.id)
+        .animation(reduceMotion ? .easeInOut(duration: 0.15) : Self.motion, value: mode)
+        .animation(reduceMotion ? .easeInOut(duration: 0.15) : Self.motion, value: model.glanceCard?.id)
+    }
+
+    private var unfold: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
     }
 
     // MARK: notch layout
@@ -86,11 +93,11 @@ struct GlanceView: View {
             if mode == .card, let card = model.glanceCard {
                 GlanceEventCard(card: card, model: model, scale: s)
                     .frame(width: max(cardWidth * 0.9, notch.width))
-                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                    .transition(unfold)
             } else if mode == .expanded {
                 expanded
                     .frame(width: max(cardWidth, notch.width))
-                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                    .transition(unfold)
             }
         }
         .padding(.horizontal, topRadius)
@@ -101,6 +108,10 @@ struct GlanceView: View {
         .offset(x: mode == .compact ? (trailingWingWidth - leadingWingWidth) / 2 : 0)
         .onHover(perform: hoverChanged)
         .onTapGesture { if mode == .compact || mode == .idle { model.setGlanceExpanded(true) } }
+        // Hover and click are pointer-only; VoiceOver and Full Keyboard
+        // Access open the same list through a named action.
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: Text("Expand glance")) { model.setGlanceExpanded(true) }
     }
 
     private var compactStatus: some View {
@@ -211,7 +222,8 @@ struct GlanceView: View {
             Image(systemName: voiceSymbol)
                 .font(CompanionType.fixedFont(12, .semibold))
                 .foregroundStyle(voice.isSpeaking ? Color.green : Color.red)
-                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: true)
+                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: !reduceMotion)
+                .accessibilityHidden(true)
             Text(voiceLabel)
                 .font(CompanionType.fixedFont(12, .semibold))
                 .foregroundStyle(.white)
@@ -227,7 +239,8 @@ struct GlanceView: View {
             // Fixed size: the compact capsule is 30pt tall (ADR-0017 §8).
             Text("\(n)")
                 .font(CompanionType.fixedFont(12, .black).monospacedDigit())
-                .foregroundStyle(.white)
+                // White on the dark amber is 1.83:1; the on-accent ink is 10:1.
+                .foregroundStyle(Color.onAccent)
                 .padding(.horizontal, 8).padding(.vertical, 2)
                 .background(MacTheme.status(summary.error > 0 ? .error : .requiresInput), in: Capsule())
                 .fixedSize()
@@ -283,6 +296,8 @@ struct GlanceView: View {
     private func linkButton(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title).underline().foregroundStyle(.white.opacity(0.85))
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -296,13 +311,14 @@ struct GlanceView: View {
                 Button { voice.toggle() } label: {
                     Image(systemName: micGlyph)
                         .font(MacTheme.font(13 * s, .semibold))
-                        .foregroundStyle(.white)
+                        // On the (always dark) mint the glyph takes the ink.
+                        .foregroundStyle(voice.isActive ? Color.onAccent : .white)
                         .frame(width: 28 * s, height: 28 * s)
                         .background(voice.isActive ? MacTheme.accent : Color.white.opacity(0.18), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .help(voice.isActive ? "End voice conversation" : "Start voice conversation")
-                .accessibilityLabel("Toggle voice companion")
+                .accessibilityLabel(voice.isActive ? "End voice conversation" : "Start voice conversation")
                 if voice.isActive {
                     PetFace(state: model.buddyState, voice: .init(voice.phase), bare: true, scale: 0.45 * s)
                 }
@@ -329,6 +345,7 @@ struct GlanceView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Hide glance (\(model.toggleGlanceHotkey.displayString))")
+                .accessibilityLabel("Hide glance")
             }
             if let notice = voice.endNotice, voice.errorText == nil, !voice.isActive {
                 HStack(alignment: .firstTextBaseline, spacing: 8 * s) {
@@ -350,7 +367,7 @@ struct GlanceView: View {
                 Divider().overlay(.white.opacity(0.16))
                 ForEach(groups.buckets) { group in
                     Text("\(group.title) · \(group.sessions.count)")
-                        .font(MacTheme.font(10 * s, .heavy))
+                        .font(MacTheme.font(max(10, 10 * s), .heavy))
                         .textCase(.uppercase).kerning(0.6)
                         .foregroundStyle(.white.opacity(0.5))
                         .padding(.top, 2 * s)
@@ -382,7 +399,7 @@ struct GlanceView: View {
         if let a = p.pendingApproval {
                 Divider().overlay(.white.opacity(0.16))
                 Text("\(p.displayTitle) wants to \(MacSummaryCopy.requestVerb(a))")
-                    .font(MacTheme.font(10 * s, .heavy))
+                    .font(MacTheme.font(max(10, 10 * s), .heavy))
                     .textCase(.uppercase).kerning(0.6)
                     .foregroundStyle(.white.opacity(0.55))
                 ApprovalBody(approval: a, onDark: true)
@@ -391,21 +408,24 @@ struct GlanceView: View {
                         Button("Approve") { model.decide(a.id, .allow) }
                             .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.status(.completeUnread)), size: .large))
                             .keyboardShortcut("a", modifiers: [])
+                            .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                         Button("Deny") { model.decide(a.id, .deny) }
                             .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.status(.error)), size: .large))
                             .keyboardShortcut("d", modifiers: [])
+                            .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                     }
                     HStack(spacing: 6 * s) {
                         if a.canPersistDecision {
                         linkButton("Always") { model.decide(a.id, .alwaysAllow) }
                             .help("Always allow this exact command in future")
-                        Text("·").foregroundStyle(.white.opacity(0.4))
+                        Text("·").foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true)
                         linkButton("This session") { model.decide(a.id, .allowSession) }
                             .help("Stop asking for the rest of this run")
-                        Text("·").foregroundStyle(.white.opacity(0.4))
+                        Text("·").foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true)
                         }
                         linkButton(p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
                             .help(p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
+                            .accessibilityLabel(p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }
                     .font(MacTheme.font(11 * s, .heavy))
                 } else {
@@ -422,17 +442,17 @@ struct GlanceView: View {
                 }
                 if let outcome = model.jumpFeedback[p.id] {
                     Text(outcome.macMessage(for: p))
-                        .font(MacTheme.font(10 * s, .medium))
+                        .font(MacTheme.font(max(10, 10 * s), .medium))
                         .foregroundStyle(.white.opacity(0.68))
                 }
 
         } else if let question = p.pendingQuestion {
-            Text("Your decision").font(MacTheme.font(11 * s, .semibold))
+            Text("Your decision").font(MacTheme.font(11 * s, .semibold)).accessibilityAddTraits(.isHeader)
             if WaitHandling.resolve(for: p) == .remoteAvailable {
                 QuestionCardView(question: question) { answers in model.answer(p.id, answers: answers) }
             } else {
                 Text(question.prompt).font(MacTheme.font(12 * s))
-                Text(WaitHandling.resolve(for: p).message).font(MacTheme.font(10 * s))
+                Text(WaitHandling.resolve(for: p).message).font(MacTheme.font(max(10, 10 * s)))
             }
         } else {
             Text(WaitHandling.resolve(for: p).message).font(MacTheme.font(11 * s))
@@ -450,6 +470,7 @@ private struct GlanceEventCard: View {
     let scale: CGFloat
 
     private var s: CGFloat { scale }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var session: AgentSession { card.session }
     private var live: AgentSession { model.sessions.first { $0.id == session.id } ?? session }
 
@@ -528,8 +549,10 @@ private struct GlanceEventCard: View {
                         if ApprovalEligibility.approval(for: live) != nil {
                             Button("Approve") { model.decide(a.id, .allow); model.dismissGlanceCard() }
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.completeUnread), scale: s))
+                                .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                             Button("Deny") { model.decide(a.id, .deny); model.dismissGlanceCard() }
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.error), scale: s))
+                                .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                         } else {
                             Label(WaitHandling.resolve(for: live).message, systemImage: "keyboard")
                                 .font(CompanionType.fixedFont(11 * s)).foregroundStyle(.white.opacity(0.8))
@@ -554,7 +577,7 @@ private struct GlanceEventCard: View {
     /// The remaining time as a hairline that drains left to right. Reads the
     /// card's deadline, so a hold that pushes the deadline visibly refills it.
     private var timeline: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20)) { context in
+        TimelineView(.animation(minimumInterval: reduceMotion ? 1 : 1 / 20)) { context in
             let remaining = max(0, card.deadline.timeIntervalSince(context.date))
             let fraction = min(1, remaining / card.duration)
             GeometryReader { geo in
@@ -618,7 +641,7 @@ private struct GlanceSessionRow: View {
                     Text(session.summary ?? ToolActivity.label(for: session))
                         .font(MacTheme.font(13 * s, .heavy))
                     Text(subtitle)
-                        .font(MacTheme.font(10 * s, .semibold))
+                        .font(MacTheme.font(max(10, 10 * s), .semibold))
                         .foregroundStyle(.white.opacity(feedback == nil ? 0.62 : 0.85))
                         .contentTransition(.opacity)
                 }
@@ -674,7 +697,8 @@ struct GlanceButtonStyle: ButtonStyle {
         configuration.label
             // Fixed size: a 24pt key on the glance card (ADR-0017 §8).
             .font(CompanionType.fixedFont(12 * scale, .semibold))
-            .foregroundStyle(.white)
+            // White on the tinted keys is 2.06:1 on the mint; `onAccent` is ink there.
+            .foregroundStyle(tint == nil ? Color.white : Color.onAccent)
             .lineLimit(1)
             .padding(.horizontal, 12 * scale)
             .frame(height: 24 * scale)

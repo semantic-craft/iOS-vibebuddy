@@ -203,7 +203,8 @@ private struct CompactTrailingCount: View {
             // sized by the hardware, not the text ramp (ADR-0017 §8).
             Text(count > 99 ? "99+" : "\(count)")
                 .font(CompanionType.fixedFont(12, .black).monospacedDigit())
-                .foregroundStyle(.white)
+                // White on the dark amber is 1.83:1; the on-accent ink is 10:1.
+                .foregroundStyle(Color.onAccent)
                 .padding(.horizontal, 7).padding(.vertical, 1)
                 .background(CompanionPalette.status(summary.primaryState), in: Capsule())
                 .accessibilityLabel(
@@ -268,6 +269,10 @@ struct LockScreenView: View {
             }
             ActivityBottom(state: state)
         }
+        // The ground is the dark glance in both appearances, so the status
+        // words and the keys resolve their dark values: in light mode the
+        // light reds and ambers were 3:1 on it.
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -335,7 +340,8 @@ private struct IslandKey: View {
     var body: some View {
         Text(title)
             .font(CompanionType.font(14, .heavy))
-            .foregroundStyle(.white)
+            // White on the dark mint is 2.06:1; the on-accent ink is 9:1.
+            .foregroundStyle(Color.onAccent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
             .background(tint, in: Capsule())

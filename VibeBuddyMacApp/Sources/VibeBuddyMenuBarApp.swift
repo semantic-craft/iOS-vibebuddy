@@ -757,7 +757,7 @@ struct MenuContent: View {
                 model.voiceChat.toggle()
             }
             .help(voiceIsIdle ? "Start voice conversation" : "End voice conversation")
-            .accessibilityLabel("Toggle voice companion")
+            .accessibilityLabel(voiceIsIdle ? "Start voice conversation" : "End voice conversation")
             if !voiceIsIdle {
                 // The conversation's avatar (ADR-0017 §2): the cat appears
                 // while a call is live and nowhere else in the panel.

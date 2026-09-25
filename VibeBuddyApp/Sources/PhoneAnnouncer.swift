@@ -455,13 +455,17 @@ final class PhoneAnnouncer: ObservableObject {
 struct AnnouncerStrip: View {
     @ObservedObject var announcer: PhoneAnnouncer
     let replay: () -> Void
+    /// Opens the voice page; the strip's reading is the button for it.
+    let open: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
+            HStack(spacing: 8) {
             Image(systemName: announcer.isBusy ? "speaker.wave.2" : "speaker")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(CompanionPalette.ink3)
                 .frame(width: 16)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 if let current = announcer.current {
                     HStack(spacing: 6) {
@@ -481,6 +485,18 @@ struct AnnouncerStrip: View {
                 }
             }
             Spacer(minLength: 4)
+            }
+            // The reading is a 44pt target even when it is one short line.
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: open)
+            // One element that reads what is playing and opens the voice page.
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Open the voice page")
+            .accessibilityAction { open() }
+            // 30pt keys with 44pt targets: 14pt apart so the targets don't overlap.
+            HStack(spacing: 14) {
             if announcer.isBusy {
                 PhoneCircleButton(announcer.isPaused ? "play.fill" : "pause.fill", size: 30, tint: CompanionPalette.ink2) {
                     announcer.togglePause()
@@ -495,9 +511,9 @@ struct AnnouncerStrip: View {
             }
             PhoneCircleButton("xmark", size: 30, tint: CompanionPalette.ink2) { announcer.stop() }
                 .accessibilityLabel("Stop reading")
+            }
         }
         .padding(.horizontal, PhoneMetrics.gutter)
-        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CompanionPalette.bg)
         .accessibilityElement(children: .contain)

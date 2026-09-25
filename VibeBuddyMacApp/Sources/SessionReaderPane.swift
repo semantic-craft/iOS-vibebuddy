@@ -366,6 +366,7 @@ struct SessionReaderPane: View {
         VStack(alignment: .leading, spacing: 10) {
             if live.status == .needsResponse {
                 Text("Your decision").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
+                    .accessibilityAddTraits(.isHeader)
                 if let approval = live.pendingApproval {
                     RequestCard(session: live, approval: approval, model: model)
                 } else if let question = live.pendingQuestion {
@@ -387,6 +388,18 @@ struct SessionReaderPane: View {
             if let feedback = model.answerFeedback[live.id] {
                 Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
             }
+        }
+        // A decision that appears under the reader, and the word on an answer
+        // sent from it, are spoken: neither takes VoiceOver's focus.
+        // Keyed by the session too: the pane is reused when the selection
+        // moves, and arrowing through the sidebar must not speak every row.
+        .onChange(of: [live.id, live.pendingApproval?.id ?? live.pendingQuestion?.id ?? ""]) { old, new in
+            guard old[0] == new[0], !new[1].isEmpty, live.status == .needsResponse else { return }
+            AccessibilityNotification.Announcement(String(localized: "Your decision")).post()
+        }
+        .onChange(of: [live.id, model.answerFeedback[live.id] ?? ""]) { old, new in
+            guard old[0] == new[0], !new[1].isEmpty else { return }
+            AccessibilityNotification.Announcement(new[1]).post()
         }
     }
 

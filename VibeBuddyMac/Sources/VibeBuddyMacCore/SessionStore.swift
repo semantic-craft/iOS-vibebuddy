@@ -521,7 +521,7 @@ public actor SessionStore {
         noticeTasks[id] = Task {
             let request = ContentPresentationRequest(sourceID: sourceID,
                 target: .completion(sessionID: session.id, completionID: completionID), purpose: .speech)
-            while !Task.isCancelled, Date() < notice.deadline, self.presentationTargetIsCurrent(request) {
+            while !Task.isCancelled, self.resultClock() < notice.deadline, self.presentationTargetIsCurrent(request) {
                 let body = await self.completionBody(sessionID: session.id, completionID: completionID)
                 if body.text != nil, await self.speechEvidenceIsSettled(request) {
                     guard !Task.isCancelled, self.presentationTargetIsCurrent(request) else { return }
@@ -533,8 +533,15 @@ public actor SessionStore {
             }
             await self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: nil)
         }
+        // The deadline is read on `resultClock`, like the loop above: sleep the
+        // remaining time measured on it, then re-check, so a pinned test clock
+        // decides when it has passed, not a loaded host.
         Task {
-            try? await Task.sleep(for: .seconds(max(0, notice.deadline.timeIntervalSinceNow)))
+            while self.noticeLedger?.notices[id]?.state == .pending {
+                let remaining = notice.deadline.timeIntervalSince(self.resultClock())
+                guard remaining > 0 else { break }
+                do { try await Task.sleep(for: .seconds(remaining)) } catch { break }
+            }
             await self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: nil)
         }
         return notice
@@ -556,7 +563,7 @@ public actor SessionStore {
             && session?.hasUnreadCompletion == true && session?.isStuck == false && followed && noticeEnabled?() == true
             && (notice.presentationRevision == nil || notice.presentationRevision == presentationConfiguration().presentationRevision)
         if !valid { notice.state = .cancelled }
-        else if Date() < notice.deadline, let text, !text.isEmpty, text.count <= 180 {
+        else if resultClock() < notice.deadline, let text, !text.isEmpty, text.count <= 180 {
             notice.state = .summary; notice.text = text
         } else { notice.state = .plain }
         if noticeLedger?.save(notice) != true {
@@ -570,8 +577,9 @@ public actor SessionStore {
     private var completionResults = CompletionResults()
     private var completionReads: Set<String> = []
     /// The clock the store passes to `CompletionResults`, including for the
-    /// two-second notification window. Wall time in production; tests pin it
-    /// so a loaded machine cannot age a result past that window.
+    /// two-second notification window, and the one completion-notice
+    /// deadlines are read on. Wall time in production; tests pin it so a
+    /// loaded machine cannot age a result or a notice past its window.
     private let resultClock: @Sendable () -> Date
     /// Test-only: `completionResult` calls currently parked waiting for
     /// terminal proof, so a test can ingest that proof strictly afterwards.
@@ -1938,6 +1946,16 @@ public actor SessionStore {
     /// Assembly itself is not coalesced: the recap ledger and completion
     /// results settle inside `currentSnapshot` and must see every state.
     static let broadcastWindow: Duration = .milliseconds(300)
+    /// What the window is measured on. Wall time in production; tests move it
+    /// by hand so a loaded host cannot split a burst or hold the trailer.
+    struct BroadcastClock: Sendable {
+        var now: @Sendable () -> ContinuousClock.Instant
+        var sleep: @Sendable (ContinuousClock.Instant) async throws -> Void
+        static let live = BroadcastClock(now: { .now },
+                                         sleep: { try await Task.sleep(until: $0, clock: .continuous) })
+    }
+    private var broadcastClock = BroadcastClock.live
+    func setBroadcastClockForTesting(_ clock: BroadcastClock) { broadcastClock = clock }
     private var lastDeliveryAt: ContinuousClock.Instant?
     private var pendingDelivery: Snapshot?
     private var trailingDelivery: Task<Void, Never>?
@@ -1947,7 +1965,7 @@ public actor SessionStore {
     private func broadcast() {
         let snapshot = currentSnapshot(now: Date())
         guard !subscribers.isEmpty else { return }
-        let now = ContinuousClock.now
+        let now = broadcastClock.now()
         if trailingDelivery != nil {
             pendingDelivery = snapshot
             return
@@ -1955,8 +1973,9 @@ public actor SessionStore {
         if let last = lastDeliveryAt, now - last < Self.broadcastWindow {
             pendingDelivery = snapshot
             let due = last + Self.broadcastWindow
+            let sleep = broadcastClock.sleep
             trailingDelivery = Task { [weak self] in
-                try? await Task.sleep(until: due, clock: .continuous)
+                try? await sleep(due)
                 await self?.deliverTrailing()
             }
             return
@@ -1968,7 +1987,7 @@ public actor SessionStore {
         trailingDelivery = nil
         guard let snapshot = pendingDelivery else { return }
         pendingDelivery = nil
-        deliver(snapshot, at: ContinuousClock.now)
+        deliver(snapshot, at: broadcastClock.now())
     }
 
     private func deliver(_ snapshot: Snapshot, at now: ContinuousClock.Instant) {

@@ -135,11 +135,12 @@ struct WatchConnectionBanner: View {
         if let title = connection.bannerTitle {
             HStack(spacing: 5) {
                 Image(systemName: connection.symbolName)
-                    .font(.system(size: 10))
+                    .font(CompanionType.font(10))
+                    .accessibilityHidden(true)
+                // Never cut: this sentence is why the buttons are gone.
                 Text(title)
                     .font(CompanionType.font(10))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(CompanionPalette.ink2)
@@ -163,7 +164,8 @@ struct WatchFooter: View {
         VStack(spacing: 3) {
             HStack(spacing: 4) {
                 Image(systemName: connection.symbolName)
-                    .font(.system(size: 9))
+                    .font(CompanionType.font(9))
+                    .accessibilityHidden(true)
                 Text(relayText)
                     .font(CompanionType.font(10))
                     .monospacedDigit()

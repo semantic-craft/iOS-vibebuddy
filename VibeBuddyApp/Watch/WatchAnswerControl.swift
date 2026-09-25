@@ -15,6 +15,8 @@ import VibeBuddyKit
 struct WatchAnswerControl: View {
     @ObservedObject var store: WatchStateStore
     let alert: WatchAlert
+    /// Whether this copy speaks its status (the front card only).
+    var announces: Bool = true
     @State private var draft: WatchAnswerDraft?
     /// Demo Mode's launch input is honoured once. Without the latch, dismissing
     /// the confirmation page would re-open it forever.
@@ -40,7 +42,7 @@ struct WatchAnswerControl: View {
             // A prompt with several questions is walked one screen at a time
             // and sent as one set; the one-string path below never sees it.
             WatchQuestionWalkControl(store: store, alert: alert, questions: questions,
-                                     blocked: blocked, phase: phase)
+                                     blocked: blocked, phase: phase, announces: announces)
         } else if let choices {
             VStack(alignment: .leading, spacing: 6) {
                 // No buttons at all while nothing could travel. A tap that
@@ -58,7 +60,7 @@ struct WatchAnswerControl: View {
                                 draft = WatchAnswerDraft(alert: alert, text: unsent.text)
                             } label: {
                                 Label("Use my reply", systemImage: "text.bubble")
-                                    .lineLimit(1)
+                                    .lineLimit(2)
                                     .minimumScaleFactor(0.7)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -82,7 +84,7 @@ struct WatchAnswerControl: View {
                     }
                 }
 
-                WatchAnswerStatusLine(phase: phase, reason: store.pendingAction.action?.reason)
+                WatchAnswerStatusLine(phase: phase, reason: store.pendingAction.action?.reason, announces: announces)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // One sheet for the whole control: every way in leads to the same
@@ -114,9 +116,9 @@ struct WatchAnswerControl: View {
         Button {
             draft = WatchAnswerDraft(alert: alert, text: reply.text)
         } label: {
+            // An answer is read whole before it is picked (M-07).
             Text(reply.text)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
@@ -130,7 +132,7 @@ struct WatchAnswerControl: View {
         TextFieldLink(prompt: Text(alert.request ?? String(localized: "Your answer"))) {
             Label(source == .options ? "Something else" : "Dictate an answer",
                   systemImage: "mic.fill")
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } onSubmit: { spoken in
@@ -148,17 +150,23 @@ struct WatchAnswerStatusLine: View {
     let phase: WatchSessionActionAttempt.Phase?
     /// The iPhone's diagnosis when the phase is `failed` or `queued`.
     var reason: ConnectionFailureReason? = nil
+    var announces: Bool = true
 
     var body: some View {
-        if let message = statusText {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                if phase == .sending { ProgressView().controlSize(.mini) }
-                Text(message)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        // The watcher sits outside the `if`, so the first sentence (nil →
+        // "Sending…") is spoken too.
+        Group {
+            if let message = statusText {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if phase == .sending { ProgressView().controlSize(.mini) }
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
+        .announcesChanges(of: announces ? statusText : nil)
     }
 
     /// Never "Answered". The wrist knows the Mac took the text; the question
@@ -265,15 +273,11 @@ struct WatchAnswerConfirmView: View {
                                                         agent: agent))
                     .font(CompanionType.font(10))
                     .foregroundStyle(CompanionPalette.ink2)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let question, !question.isEmpty {
-                    Text(question)
-                        .font(CompanionType.font(10))
-                        .foregroundStyle(CompanionPalette.ink2)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
+                    WatchFoldedText(text: question, limit: WatchReadingFold.requestLimit,
+                                    font: CompanionType.font(10), color: CompanionPalette.ink2)
                 }
 
                 TextField("Your answer", text: $text, axis: .vertical)

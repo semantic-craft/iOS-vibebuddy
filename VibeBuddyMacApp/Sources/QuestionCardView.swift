@@ -38,6 +38,7 @@ struct QuestionCardView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: isPicked(option, in: item) ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(isPicked(option, in: item) ? MacTheme.accent : MacTheme.ink3)
+                                    .accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(option.label).fontWeight(.semibold)
                                     if let description = option.description {
@@ -49,6 +50,9 @@ struct QuestionCardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+                        // The check mark is drawn, so the pick is also said.
+                        .accessibilityAddTraits(isPicked(option, in: item) ? .isSelected : [])
+                        .accessibilityHint(sendsOnTap ? Text("Sends this answer") : Text(""))
                     }
                     if item.allowsOther {
                         TextField(item.options.isEmpty ? "Your answer" : "Other…",

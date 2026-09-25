@@ -189,6 +189,7 @@ struct WatchSessionRow: View {
     let detail: String?
     let trailing: String?
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(spacing: 0) {
@@ -212,7 +213,7 @@ struct WatchSessionRow: View {
                         Text(detail)
                             .font(CompanionType.font(10))
                             .foregroundStyle(CompanionPalette.ink2)
-                            .lineLimit(1)
+                            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                             .minimumScaleFactor(0.8)
                     }
                 }
@@ -224,20 +225,19 @@ struct WatchSessionRow: View {
                         .foregroundStyle(CompanionPalette.ink2)
                 } else {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(CompanionType.font(9, .semibold))
                         .foregroundStyle(CompanionPalette.ink3)
                         .padding(.top, 3)
                 }
             }
             .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // A one-line row is still a full watch target (HIG: 38pt+).
+            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(state.label), \(title)"))
         .accessibilityValue(Text([detail, trailing].compactMap { $0 }.joined(separator: ", ")))
-        .accessibilityAddTraits(.isButton)
     }
 
     /// Whose it is, then what it said: two tasks in the same project read the
@@ -265,6 +265,11 @@ struct WatchSessionRow: View {
 struct WatchQuotaStrips: View {
     let state: WatchDashboardState
     let now: Date
+    // The label and number columns grow with the text, so "100%" and a pool
+    // name are not cut at accessibility sizes.
+    @ScaledMetric(relativeTo: .caption2) private var nameColumn: CGFloat = 38
+    @ScaledMetric(relativeTo: .caption2) private var poolColumn: CGFloat = 58
+    @ScaledMetric(relativeTo: .caption2) private var percentColumn: CGFloat = 32
 
     var body: some View {
         if !state.quotas.isEmpty {
@@ -296,9 +301,9 @@ struct WatchQuotaStrips: View {
             // take up to 58pt and only its own row's bar pays for it.
             Group {
                 if let pool {
-                    Text(pool).frame(maxWidth: 58, alignment: .leading)
+                    Text(pool).frame(maxWidth: poolColumn, alignment: .leading)
                 } else {
-                    Text(agent.shortName).frame(width: 38, alignment: .leading)
+                    Text(agent.shortName).frame(width: nameColumn, alignment: .leading)
                 }
             }
             .font(CompanionType.font(10))
@@ -314,7 +319,7 @@ struct WatchQuotaStrips: View {
                     .font(CompanionType.font(10))
                     .monospacedDigit()
                     .foregroundStyle(CompanionPalette.ink)
-                    .frame(width: 32, alignment: .trailing)
+                    .frame(width: percentColumn, alignment: .trailing)
             } else {
                 Text(reading.status(now: now) == .awaitingReset ? "Reset reached · awaiting update" : "Window unavailable")
                     .font(CompanionType.font(10))
@@ -323,7 +328,7 @@ struct WatchQuotaStrips: View {
             }
             if let symbol = freshness.symbolName {
                 Image(systemName: symbol)
-                    .font(.system(size: 9))
+                    .font(CompanionType.font(9))
                     .foregroundStyle(CompanionPalette.ink2)
             }
         }

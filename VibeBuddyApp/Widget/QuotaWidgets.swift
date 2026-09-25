@@ -432,7 +432,10 @@ struct PhoneQuotaProviderView: View {
             }
             .foregroundStyle(.white)
         }
-        .accessibilityElement(children: .combine)
+        // "CL, 42%" says neither whose it is nor which way it counts.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(entry.provider.displayName))
+        .accessibilityValue(remaining.map { Text("\($0)% left") } ?? Text("Not provided by this Mac"))
     }
 }
 

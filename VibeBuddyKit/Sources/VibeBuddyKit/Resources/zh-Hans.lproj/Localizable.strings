@@ -35,6 +35,8 @@
 /* MARK: CompanionSectionHeader / CompanionViews */
 "Collapse" = "收起";
 "Expand" = "展开";
+"Expanded" = "已展开";
+"Collapsed" = "已收起";
 "Approve" = "批准";
 "Always allow this" = "总是允许这个";
 "Allow all this session" = "本会话全部允许";

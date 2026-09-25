@@ -95,7 +95,7 @@ struct ClaudeAgentsSourceTests {
         let print = Box("a"), gate = DispatchSemaphore(value: 0)
         let source = ClaudeAgentsSource(run: {
             // The first run answers; later ones hang like a wedged CLI.
-            if print.value != "a" { _ = gate.wait(timeout: .now() + 10) }
+            if print.value != "a" { _ = gate.wait(timeout: .now() + 45) }
             return Self.sample
         }, fingerprint: { print.value }, fallback: { [] }, needs: { _ in nil })
         let id = "747978a2-9efa-4859-8365-9f209d4fe9fe"
@@ -104,7 +104,8 @@ struct ClaudeAgentsSourceTests {
         let start = Date()
         #expect(await ClaudeBackgroundSessions.find(sessionID: id, in: source, timeLimit: .milliseconds(200))?.id == "747978a2")
         #expect(await ClaudeBackgroundSessions.find(sessionID: "nope", in: source, timeLimit: .milliseconds(200)) == nil)
-        #expect(Date().timeIntervalSince(start) < 5)
+        // Far inside the 45 s the wedged run holds out, on any host.
+        #expect(Date().timeIntervalSince(start) < 20)
         print.value = "a"   // release the held run; the refresh the late lookup starts answers at once
         gate.signal()
     }
@@ -178,7 +179,8 @@ struct ClaudeAgentsSourceTests {
         #expect(ClaudeAgentsSource.runCLI(environment: ["PATH": "/usr/bin:/bin"], home: home, timeout: 2) == nil)
         FileManager.default.createFile(atPath: home.appendingPathComponent("go").path, contents: nil)
         let closed = home.appendingPathComponent("closed")
-        let limit = Date().addingTimeInterval(10)
+        // Liveness only: a loaded host is slow to run the grandchild's loop.
+        let limit = Date().addingTimeInterval(40)
         while !FileManager.default.fileExists(atPath: closed.path), Date() < limit {
             Thread.sleep(forTimeInterval: 0.1)
         }

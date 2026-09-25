@@ -192,6 +192,9 @@
 "Mac-generated completion summary · not the full result" = "Mac 生成的完成摘要，非完整结果";
 "Task summary or recent status · not the full result" = "任务摘要或最近状态，非完整结果";
 "View the result on your iPhone" = "结果请在手机上看";
+"Start of the agent's reply · full result on your iPhone" = "agent 回复的开头，完整结果在手机上";
+"Show more" = "展开";
+"Show less" = "收起";
 "%lld unread outside Followed" = "关注列表外还有 %lld 条未读";
 "View on your iPhone" = "在手机上查看";
 "Done %lld · %lld unread" = "完成 %lld · %lld 未读";

@@ -236,6 +236,21 @@ public enum WatchApprovalEligibility {
     }
 }
 
+extension PendingApproval {
+    /// What a notification says is being approved (M-07). A banner, and the
+    /// wrist's long look, carry Approve for anything the wrist may decide, so
+    /// they show that whole target — the full command or path — rather than
+    /// the Mac's 120-character preview, which is cut without a mark. A target
+    /// too long to decide from a banner keeps the preview, marked as cut; one
+    /// with only a preview (a URL, a tool without a command) shows it as is.
+    public var notificationBody: String {
+        guard let detail = command ?? filePath, !detail.isEmpty else { return commandPreview }
+        if detail.count <= WatchApprovalEligibility.maxDetailLength { return detail }
+        return detail.hasPrefix(commandPreview) && commandPreview.count < detail.count
+            ? commandPreview + "…" : commandPreview
+    }
+}
+
 // MARK: - The iPhone's gate
 
 /// The iPhone's decision about a tap that arrived from the wrist.

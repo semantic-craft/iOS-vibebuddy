@@ -15,6 +15,7 @@ struct PhoneSessionReader: View {
     @FocusState private var replyFocused: Bool
     @EnvironmentObject private var dashboard: DashboardStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showHistory = false
     @State private var showChanges = false
     @StateObject private var resultReader = CompletionBodyReader()
@@ -46,17 +47,23 @@ struct PhoneSessionReader: View {
                             Text(session.taskGoal)
                                 .font(.title2.weight(.semibold))
                                 .foregroundStyle(CompanionPalette.ink)
-                                .lineLimit(2)
+                                .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                                .accessibilityAddTraits(.isHeader)
                             // The same line the row carries: the state word in
                             // its colour, then agent, project and branch.
-                            HStack(spacing: 5) {
-                                StatusDot(state: state, size: 6)
+                            // One fact a line at accessibility sizes, so the
+                            // state word is never the part that gets cut.
+                            let metaLayout = typeSize.isAccessibilitySize
+                                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                                : AnyLayout(HStackLayout(spacing: 5))
+                            metaLayout {
+                                if !typeSize.isAccessibilitySize { StatusDot(state: state, size: 6) }
                                 Text(ToolActivity.label(for: session))
                                     .foregroundStyle(CompanionPalette.status(state))
-                                Text("·")
+                                if !typeSize.isAccessibilitySize { Text("·") }
                                 Text(session.agent.shortName)
                                 if DashboardFilters.projectTitle(session.dashboardProjectIdentity, among: dashboard.allSessions.map(\.dashboardProjectIdentity)) != session.displayTitle {
-                                    Text("·")
+                                    if !typeSize.isAccessibilitySize { Text("·") }
                                     Text(DashboardFilters.projectTitle(session.dashboardProjectIdentity, among: dashboard.allSessions.map(\.dashboardProjectIdentity)))
                                         .accessibilityLabel(session.dashboardProjectIdentity)
                                         .contextMenu {
@@ -65,12 +72,13 @@ struct PhoneSessionReader: View {
                                         }
                                 }
                                 if let branch = session.branch {
-                                    Text("·")
+                                    if !typeSize.isAccessibilitySize { Text("·") }
                                     Text(branch).font(CompanionType.mono(10)).lineLimit(1).truncationMode(.middle)
                                 }
                             }
                             .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                            .lineLimit(1)
+                            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                            .accessibilityElement(children: .combine)
                         }
                     }
                     Button("Conversation history") { showHistory = true }
@@ -235,10 +243,18 @@ struct PhoneSessionReader: View {
                 ScrollView { expiredDraft }.frame(maxHeight: maxHeight)
             } else if notificationIsCurrent {
                 if session.status == .needsResponse {
+                    // As tall as the request, up to the cap: no empty band
+                    // between a short command and the keys pinned below it.
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) { decision }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    }.frame(maxHeight: maxHeight)
+                    }
+                    .frame(maxHeight: maxHeight)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Pinned under the scroll, not inside it: at large text
+                    // sizes the command fills the dock and the keys must not
+                    // be pushed below its fold.
+                    decisionKeys
                 } else if SessionActionSupport.resolve(for: session).isAvailable {
                     HStack(alignment: .bottom) {
                         TextField("Reply to this task", text: Binding(get: { draft.text }, set: { value in
@@ -295,17 +311,27 @@ struct PhoneSessionReader: View {
         }
     }
 
+    /// Approve / Deny side by side, stacked when the labels no longer fit.
+    @ViewBuilder private var decisionKeys: some View {
+        if let approval = session.pendingApproval, ApprovalEligibility.approval(for: session) != nil {
+            let approve = Button("Approve") { decide(approval.id, .allow) }
+                .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))
+                .accessibilityHint(Text(CompanionCopy.spokenTarget(approval.commandPreview)))
+            let deny = Button("Deny") { decide(approval.id, .deny) }
+                .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.status(.error))))
+                .accessibilityHint(Text(CompanionCopy.spokenTarget(approval.commandPreview)))
+            ViewThatFits(in: .horizontal) {
+                HStack { approve; deny }
+                VStack(alignment: .leading) { approve; deny }
+            }
+            .disabled(!authorityIsCurrent || dashboard.phoneActionDisabled(for: session))
+        }
+    }
+
     @ViewBuilder private var decision: some View {
         if let approval = session.pendingApproval {
             ApprovalBody(approval: approval)
-            if ApprovalEligibility.approval(for: session) != nil {
-                HStack {
-                    Button("Approve") { decide(approval.id, .allow) }
-                        .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))
-                    Button("Deny") { decide(approval.id, .deny) }
-                        .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.status(.error))))
-                }.disabled(!authorityIsCurrent || dashboard.phoneActionDisabled(for: session))
-            } else { Text(WaitHandling.resolve(for: session).message) }
+            if ApprovalEligibility.approval(for: session) == nil { Text(WaitHandling.resolve(for: session).message) }
         } else if let question = session.pendingQuestion {
             if WaitHandling.resolve(for: session) == .remoteAvailable {
                 QuestionCardView(question: question, actionState: dashboard.phoneActionState(for: session), savedDraft: draftBinding) { answers in

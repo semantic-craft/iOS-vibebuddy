@@ -106,11 +106,16 @@ struct DashboardSidebar: View {
                 }
             }
             .opacity(labels.iconOnly ? 1 : labels.opacity)
+            // The name and its count read as one heading; the quota below
+            // stays its own button instead of being folded into the label.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(agentName))
+            .accessibilityValue(tally.total == 1 ? Text("1 session") : Text("\(tally.total) sessions"))
+            .accessibilityAddTraits(.isHeader)
             if !labels.iconOnly { quotaStrip }
         }
         .padding(.horizontal, 8).padding(.bottom, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(agentName))
+        .accessibilityElement(children: .contain)
     }
 
     /// The agent's allowance where the agent is, rather than in a plinth of
@@ -155,10 +160,10 @@ struct DashboardSidebar: View {
                 Text("\(reading.remainingPercent)%")
                     .font(MacTheme.mono(10, .semibold)).foregroundStyle(reading.tint)
                 if let warning = reading.warningText(now: now) {
-                    Text(warning).font(MacTheme.font(9)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                    Text(warning).font(MacTheme.font(10)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
                         .lineLimit(1)
                 } else if let reset = reading.resetText(now: now) {
-                    Text(reset).font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3).lineLimit(1)
+                    Text(reset).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3).lineLimit(1)
                 }
             }
             QuotaBullet(usedPercent: reading.usedPercent, pacePercent: nil, height: 4)
@@ -193,6 +198,7 @@ struct DashboardSidebar: View {
                         showOlder = false
                     }
                     .buttonStyle(.plain).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                    .padding(.vertical, 4).contentShape(Rectangle())
                 }
             }
         }
@@ -305,7 +311,9 @@ struct DashboardSidebar: View {
             }
             .buttonStyle(SidebarRowStyle(selected: voice.isActive))
             .help(voiceHelp)
-            .accessibilityLabel("Toggle voice companion")
+            // Says what a press does now, and the call's state beside it.
+            .accessibilityLabel(voice.isActive ? "End voice conversation" : "Start voice conversation")
+            .accessibilityValue(Text(stateWord))
             if let line = secondLine, !labels.iconOnly {
                 Text(line.text).font(MacTheme.font(10.5))
                     .foregroundStyle(line.isError ? MacTheme.status(.error) : MacTheme.ink2)
@@ -496,7 +504,7 @@ struct AgentSessionRow: View {
                         .foregroundStyle(MacTheme.accent).padding(.top, 3)
                 }
                 Text(session.updatedAt, format: .relative(presentation: .numeric, unitsStyle: .narrow))
-                    .font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3)
+                    .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
                     .lineLimit(1).padding(.top, 2)
             }
             .sidebarRowFrame(minHeight: 30, vertical: 5)
@@ -504,7 +512,8 @@ struct AgentSessionRow: View {
         .buttonStyle(SidebarRowStyle(selected: selected))
         .help(Text(session.displayTitle) + Text(" — ") + Text(subtitle))
         .accessibilityLabel(Text(session.displayTitle))
-        .accessibilityValue(Text(subtitle))
+        // The 6pt dot is the only place the state is drawn, so it is said.
+        .accessibilityValue(Text(verbatim: "\(session.presentationState.label), \(subtitle)"))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 

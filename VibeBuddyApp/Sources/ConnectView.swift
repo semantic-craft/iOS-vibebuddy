@@ -3,6 +3,8 @@ import VibeBuddyKit
 
 /// Connect screen: QR pairing is the primary path; manual entry is tucked away.
 struct ConnectView: View {
+    /// Reduce Motion: slides and scrolls become fades or cuts (HIG: Motion).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
 
@@ -214,7 +216,7 @@ struct ConnectView: View {
             .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .wide))
             .disabled(!canConnect)
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
     }
 
     private func field(_ label: LocalizedStringKey, placeholder: String,

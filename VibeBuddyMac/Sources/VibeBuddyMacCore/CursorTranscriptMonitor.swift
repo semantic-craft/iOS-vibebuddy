@@ -86,6 +86,10 @@ public actor CursorTranscriptMonitor {
         path.split(separator: "/").contains("agent-transcripts")
     }
 
+    /// Whether `run` is being woken by the file-event stream rather than
+    /// falling back to a pass every `interval` (for tests and diagnostics).
+    private(set) var isEventDriven = false
+
     /// Passes run when a transcript changes, at most one per `interval` —
     /// the old fixed cadence, so a busy conversation costs no more than it
     /// did and the first line after a quiet spell is seen at once. With
@@ -101,14 +105,19 @@ public actor CursorTranscriptMonitor {
                 }
             }
         }
+        isEventDriven = events != nil
         defer {
+            isEventDriven = false
             ticker?.cancel()
             events?.stop()
             wake.finish()
         }
         // Establish cursors without emitting: everything already on disk is
         // history, and history is the composer store's job. The stream is
-        // already open, so a line written meanwhile wakes the first pass.
+        // already open, so a line written meanwhile normally wakes the first
+        // pass. Normally: under a backlogged fseventsd delivery can lag tens
+        // of seconds and a write in the stream's first moments can be lost,
+        // which the `quietInterval` pass bounds.
         _ = seed(now: Date())
         var pending = wakes.makeAsyncIterator()
         while !Task.isCancelled {
