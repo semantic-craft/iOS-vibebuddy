@@ -114,7 +114,8 @@ final class Listener: @unchecked Sendable {
                 let body = buffer[split.upperBound...]
                 let length = head.components(separatedBy: "\r\n")
                     .first { $0.lowercased().hasPrefix("content-length:") }
-                    .flatMap { Int($0.split(separator: ":")[1].trimmingCharacters(in: .whitespaces)) } ?? 0
+                    .flatMap { $0.split(separator: ":", maxSplits: 1).dropFirst().first }
+                    .flatMap { Int($0.trimmingCharacters(in: .whitespaces)) } ?? 0
                 if body.count >= length || isComplete || error != nil {
                     self.respond(connection, head: head, body: Data(body.prefix(length)))
                     return
