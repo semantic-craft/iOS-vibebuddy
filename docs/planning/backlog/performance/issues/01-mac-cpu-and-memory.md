@@ -1,6 +1,6 @@
 # 01: Mac App 持续高 CPU 与内存体检
 
-**Status:** done（负载与内存达标；空闲 < 2% 未达标，转 [02](02-mac-idle-cpu.md)）。保留作测量记录（README 与 02 引用本票 Comments），不按完成即删的惯例删除。
+**Status:** done（负载与内存达标；空闲 < 2% 未达标，转 [02](https://github.com/semantic-craft/iOS-vibebuddy/pull/300)）。保留作测量记录（README 与 02 引用本票 Comments），不按完成即删的惯例删除。
 
 **Blocked by:** None
 
@@ -55,5 +55,5 @@
   - 修复：#287（① 集合不变且没有过期时跳过；② 改用 URL resource values）和 #290（App 不再观察模型；`tools/menubar-leak-check.sh` 回归检查，E2E 副本修复前 82 → 320，修复后 2 → 2）。两个 PR 都经 Opus 评审后合并，main 49552ecd 装机。
   - 修复后（main 49552ecd）：同负载的 2–3 个 working 6.17%（p95 12.0%，修复前 8.71%）；1–3 个 6.86%（p95 22.8%）；5–6 个 **6.23%**（p95 13.0%，目标 < 10%，达标）。0 个 working（10 min 里 9 次取样为 0）时 **3.09%**（p95 5.2%，目标 < 2%，未达标）。内存：`heap` 活对象相隔 30 min 从 94.7 MB 到 93.8 MB，`MenuBarExtraAccess` 恒为 1；2 h 曲线（main 49552ecd，04:21–06:26Z）：footprint 启动后 30 min 内从 173 MB 爬到 254 MB，04:56 起 90 min 一直是 254 MB（**无单调增长，达标**）。注意 04:56 之后基本只有 0–1 个 working 会话；主要证据是 heap 里泄漏的 `MenuBarExtraAccess` 在 5–6 个 working 的负载后仍恒为 1。05:51 那一行采到的是同名的 E2E 测试进程（pid 50860），不计。爬升的部分是启动那次 2.4 GB 峰值之后分配器留着的脏页，不是活对象。
   - 空闲热点（`sample` 30 s）：2 s 轮询对快照里全部 133 个会话逐个问 WindowServer 是否锁屏、空闲多久；Cursor 项目名解不出或折叠了连字符时，每 2 s 重新探测一遍文件系统；每 5 min 一次的 token 用量重扫；快照组装。前两项在 #293 修。
-  - #293（空闲轮询：`isViewing` 先看界面、后查锁屏 / 空闲，锁屏查询从每轮 266 次降到最多 2 次；Cursor 解不出的项目名缓存 60 s）经 Opus 评审合并，main b07b2dab 装机。最终空闲（全程 0 个 working，10 min）**2.56%**（p95 4.2%），修复前 3.09%，仍高于 2%。空闲时间分散在快照组装、Cursor 转录轮询、`claude agents` 刷新和 Codex / Cursor 的扫描上，没有单一热点，另开 [02](02-mac-idle-cpu.md) 继续做。
+  - #293（空闲轮询：`isViewing` 先看界面、后查锁屏 / 空闲，锁屏查询从每轮 266 次降到最多 2 次；Cursor 解不出的项目名缓存 60 s）经 Opus 评审合并，main b07b2dab 装机。最终空闲（全程 0 个 working，10 min）**2.56%**（p95 4.2%），修复前 3.09%，仍高于 2%。空闲时间分散在快照组装、Cursor 转录轮询、`claude agents` 刷新和 Codex / Cursor 的扫描上，没有单一热点，另开 [02](https://github.com/semantic-craft/iOS-vibebuddy/pull/300) 继续做。
   - 验收勾选：同负载前后对比已记录（本条）；5 个活跃会话 < 10% 已达标；2 h 内存无单调增长已达标；空闲 < 2% 未达标，转 02；在最终版 main b07b2dab 上全量 `swift test`：Kit 595 + 85 XCTest、Mac 1251 + 57 XCTest 通过；App Release 构建即装机版。
