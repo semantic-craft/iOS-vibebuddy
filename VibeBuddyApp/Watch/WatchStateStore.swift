@@ -31,6 +31,11 @@ final class WatchStateStore: NSObject, ObservableObject {
     @Published private(set) var taskRefreshFailed = false
     private var refreshAttempt: WatchRefreshRequest?
     private var refreshTimeout: Task<Void, Never>?
+    /// The wrist's own refresh when the app comes forward (WR-12), separate
+    /// from a task detail's: it has no spinner and no failure line.
+    private var activationRefresh = WatchActivationRefreshPolicy()
+    private var activationRefreshTimeout: Task<Void, Never>?
+    private var activationRefreshRetry: Task<Void, Never>?
     @Published private(set) var isOpeningActivity = false
     @Published var activityOpenError: String?
     private var diagnosticDelivery: Task<Void, Never>?
@@ -208,6 +213,8 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     deinit {
         refreshTimeout?.cancel()
+        activationRefreshTimeout?.cancel()
+        activationRefreshRetry?.cancel()
         diagnosticDelivery?.cancel()
         retryTask?.cancel()
         actionReplyTimeout?.cancel()
@@ -629,6 +636,82 @@ final class WatchStateStore: NSObject, ObservableObject {
         receive(WatchStateInbox.encode(fresh))
         taskRefreshFailed = false
         WatchNavigationDiagnostics.shared.record("refresh.received")
+    }
+
+    /// Ask the iPhone for the Mac's current state because the app came forward
+    /// (WR-12). The application context only moves when the iPhone writes it,
+    /// and a locked iPhone has no stream to the Mac: a task started after the
+    /// lock never reached the wrist until a task detail was refreshed. This is
+    /// the same request, sent on its own while the wrist is looking and the
+    /// phone is in range, paced by `WatchActivationRefreshPolicy`.
+    private func refreshOnActivation() {
+        guard !isDemo, isForeground, let session, session.activationState == .activated else { return }
+        // Why nothing went out is recorded, so a wrist round that shows only
+        // `window.active` can still tell an unreachable phone from pacing.
+        func skip(_ reason: String) {
+            WatchNavigationDiagnostics.shared.record("refresh.active.skip.\(reason)")
+        }
+        guard session.isReachable else { return skip("unreachable") }
+        guard let source = state?.sourceID, let epoch = state?.pairingEpoch else { return skip("no-state") }
+        // A task detail's own refresh is already bringing the same snapshot.
+        guard refreshAttempt == nil else { return skip("detail") }
+        let request = WatchRefreshRequest(sourceID: source, pairingEpoch: epoch)
+        guard let data = try? JSONEncoder().encode(request) else { return }
+        let now = Date()
+        guard activationRefresh.begin(request.id, now: now) else {
+            // A failed ask right before the link settled gets its one retry,
+            // even if nothing else changes while the wrist is looking.
+            if let delay = activationRefresh.retryDelay(now: now), activationRefreshRetry == nil {
+                activationRefreshRetry = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled else { return }
+                    self?.activationRefreshRetry = nil
+                    self?.refreshOnActivation()
+                }
+            }
+            return skip("paced")
+        }
+        activationRefreshRetry?.cancel()
+        activationRefreshRetry = nil
+        WatchNavigationDiagnostics.shared.record("refresh.active.request")
+        activationRefreshTimeout?.cancel()
+        activationRefreshTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled else { return }
+            self?.finishActivationRefresh(request, reply: nil)
+        }
+        session.sendMessage([WatchRefreshRequest.messageKey: data], replyHandler: { @Sendable [weak self] reply in
+            let result = (reply[WatchRefreshReply.messageKey] as? Data).flatMap {
+                try? JSONDecoder().decode(WatchRefreshReply.self, from: $0)
+            }
+            Task { @MainActor [weak self] in self?.finishActivationRefresh(request, reply: result) }
+        }, errorHandler: { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in self?.finishActivationRefresh(request, reply: nil) }
+        })
+    }
+
+    private func cancelActivationRefresh() {
+        activationRefreshTimeout?.cancel()
+        activationRefreshRetry?.cancel()
+        activationRefreshRetry = nil
+        activationRefresh = WatchActivationRefreshPolicy()
+    }
+
+    private func finishActivationRefresh(_ request: WatchRefreshRequest, reply: WatchRefreshReply?) {
+        let fresh = state.flatMap { request.accepts($0) ? reply?.snapshot(for: request) : nil }
+        guard activationRefresh.finish(request.id, succeeded: fresh != nil) else { return }
+        activationRefreshTimeout?.cancel()
+        guard let fresh else {
+            WatchNavigationDiagnostics.shared.record("refresh.active.failed")
+            return
+        }
+        // What the Mac did while the phone was locked is backlog, the same as
+        // the context taken in `becameActive`: its notifications have already
+        // reached the wrist, so it is shown without a tap. (The iPhone writes
+        // the same snapshot to the context as it answers; that copy is held
+        // to the same rule, see `didReceiveApplicationContext`.)
+        receive(WatchStateInbox.encode(fresh), announce: false)
+        WatchNavigationDiagnostics.shared.record("refresh.active.received")
     }
 
     func cancelTaskRefresh() {
@@ -1115,7 +1198,7 @@ final class WatchStateStore: NSObject, ObservableObject {
     }
 
     /// Record a new state and let any in-flight decision see it.
-    private func install(_ next: WatchDashboardState) {
+    private func install(_ next: WatchDashboardState, announce: Bool = true) {
         if let epoch = pendingPairingEpoch, let nextEpoch = next.pairingEpoch, epoch != nextEpoch {
             cancelPendingNavigation()
         }
@@ -1124,6 +1207,7 @@ final class WatchStateStore: NSObject, ObservableObject {
             // ever about this world. Clear it rather than let it describe one.
             cancelActivityOpen()
             cancelTaskRefresh()
+            cancelActivationRefresh()
             pendingAction = WatchSessionActionState()
         }
         state = next
@@ -1142,7 +1226,7 @@ final class WatchStateStore: NSObject, ObservableObject {
             completionAttempt = nil
         }
         flushCompletions()
-        feel(next)
+        feel(next, announce: announce)
     }
 
     /// The state that was already on screen before this launch. It is the
@@ -1177,10 +1261,10 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// The boundary is recorded before anything is played, so a state that
     /// arrives while the wrist is down is remembered as already-known rather
     /// than replayed as news later.
-    private func feel(_ state: WatchDashboardState) {
+    private func feel(_ state: WatchDashboardState, announce: Bool = true) {
         let now = Date()
         let earned = haptics.advance(to: state, now: now)
-        guard isForeground, !earned.isEmpty else { return }
+        guard announce, isForeground, !earned.isEmpty else { return }
         guard let cue = WatchHaptics.cue(forAnyOf: earned,
                                          categories: state.effectiveCategories,
                                          quiet: state.isQuiet(at: now)) else {
@@ -1259,13 +1343,16 @@ final class WatchStateStore: NSObject, ObservableObject {
         flushCompletions()
         refreshFallback()
         settleBannerAction(expired: false)
+        // Both ways in: the window coming forward with the phone already in
+        // range, and the phone coming into range while the window is up.
+        refreshOnActivation()
     }
 
     /// Take a payload from the relay. A payload that cannot be decoded leaves
     /// the last known good state on screen rather than blanking the Watch.
-    fileprivate func receive(_ payload: Data?) {
+    fileprivate func receive(_ payload: Data?, announce: Bool = true) {
         guard inbox.accept(payload), let accepted = inbox.state else { return }
-        install(accepted)
+        install(accepted, announce: announce)
     }
 }
 
@@ -1291,7 +1378,13 @@ extension WatchStateStore: WCSessionDelegate {
     nonisolated func session(_ session: WCSession,
                              didReceiveApplicationContext applicationContext: [String: Any]) {
         let payload = applicationContext[WatchStateInbox.contextKey] as? Data
-        Task { @MainActor [weak self] in self?.receive(payload) }
+        Task { @MainActor [weak self] in
+            // While the wrist's own refresh is out, the iPhone writes the very
+            // snapshot it is answering with to the context too, and whichever
+            // copy lands first would otherwise decide whether the backlog taps.
+            guard let self else { return }
+            self.receive(payload, announce: self.activationRefresh.inFlight == nil)
+        }
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
