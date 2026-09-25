@@ -1,4 +1,4 @@
-# 施工清单（2026-09-24 更新）
+# 施工清单（2026-09-25 更新）
 
 这里是当前全部计划的入口：上半部分是最近已完成的改动，下半部分是**全部未完成**的施工项。可交互版本（带可复制的 agent 提示词）：https://claude.ai/artifact/M4n5cM4CeHYbv7sTGtH6VF 。
 
@@ -54,6 +54,17 @@
 | #293 | 空闲轮询先看界面、后查锁屏；Cursor 解不出的项目名缓存 60 s | 空闲 3.09% → 2.56%（目标 < 2%，转 PERF-02） |
 | #300 | **PERF-02**：Cursor 转录改由 FSEvents 唤醒（仍至少间隔 2 s，另有 30 s 兜底）；回顾只为 24 h 内最新 12 条建条目（输出不变，快照组装仍然每次都做）；数据库签名、Codex 目录检查改用 stat / lstat；漏看周标签不再每次新建 `DateFormatter` | 装机版空闲（0 个 working，10 min）2.56% → **1.50%**；隔离 A/B 2.13% → 1.71%；Cursor 状态各测了一次：0.77 s 变为 working、0.10 s 变为 done（原来固定 2 s 轮询一次），连续写入时仍至少间隔 2 s 处理一次 |
 
+### 2026-09-24 至 25 · 手表腕上问题（WR-08…WR-11）
+
+每个 PR 都经独立 Opus 子代理评审，修完意见后合并。
+
+| PR | 改动 | 效果 |
+|---|---|---|
+| #292 | **WR-08**：手机锁屏、流断时，手表的「停下」照样发出；手机拿 Mac 的快照核对后试一次，不排队、不重试 | **腕上已过（2026-09-25 15:45:50 +08:00）**：手机锁屏，从手表停下托管 Cursor 任务，Mac 记为 `userStopped`（另一会话的记录，待你确认当时锁屏） |
+| #303 | **WR-10**：「返回总览」由 store 直接关详情页；新诊断 `detail.back` / `detail.dismissed` / `route.url.*`，诊断环 48 → 200 条；列表行标出 agent | 模拟器上没复现真机那次的问题，6 种顺序都能返回（属防护性修复）；待腕上 |
+| #305 | **WR-09**：手表上的「回复」就是打开回答卡片；诊断分清系统给的是 nil 还是空文字；ADR-0033 修订 | 回答走已在真机跑通的卡片路径；待腕上 |
+| #304 | **WR-11**：Mac 前没人时，Claude 的审批和提问最多等 60 s（原 25 s），等待中每秒重判一次，回到终端就交还 CLI；hook 超时 75 s；Grok compat 不再执行 Claude 的审批门 | 卡片回答（真机只量过一次，20.1 s）预期不再压线；要替换 Mac App、重装一次 Claude hook 才生效，待腕上 |
+
 ## 开发项
 
 | ID | 内容 | 票据 | 状态 | 依据 | 建议 |
@@ -69,13 +80,13 @@
 | AI-02 | Grok leader 扇出实测、托管会话恢复、`grok --resume` 续接 | [02](agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md) | done（#299） | 实测：leader 模式下第二个客户端能看到 TUI 会话、同时收到它的权限请求，且它的回答能直接放行 TUI 的提示；关掉 TUI 后回合在 leader 里继续、不发 `SessionEnd`；文件 hook `timeout` 没有 600 s 上限（1 800 s 才被截断）。恢复：daemon 重启后托管会话显示为可恢复，继续时 `session/load` 接上（真实 grok 记得重启前的对话）；失败给出原因，在 Mac 上打开这一行会在终端 `grok --resume` 续接 | leader 挂接（远程批准终端里的 Grok）可行但没做，要做另开票 |
 | AI-03 | Grok status line 转发和活跃会话名册 | [03](agent-integration-2026-09/issues/03-grok-statusline-and-registry.md) | done（#298） | 安装时包装 `[ui.status_line]`（卸载按字节还原）；Grok 行显示上下文与成本（真实 TUI：21.5k / 500k、$0.038）；`kill -9` 关掉 TUI 后 16 s 由名册兜底移出 working，正常关闭由 `SessionEnd` 约 1 s 移除 | 新会话生效；你的 `~/.grok/config.toml` 要在 App 里点 Install / repair 后才会改 |
 | WR-07 | 通知携带 question id，手表横幅回答不再靠推断 | [07](watch-wrist-resolve/issues/07-banner-reply-question-id.md) | done（#275） | 绑定逻辑在模拟器上已验过：送达、换题拒绝、多段拒绝、旧通知降级。watchOS 27 上点横幅「回复」直接打开 App、不带文字，横幅口述走不到；09 已定为打开回答卡片 | 绑定代码保留，只在某个 watchOS 带来文字时生效；横幅口述的真机验收不再追 |
-| WR-08 | 手机锁屏时，手表上的「停下」发不出去 | [08](watch-wrist-resolve/issues/08-locked-phone-stop.md) | **done**（#292；2026-09-25 腕上通过） | 2026-09-25 15:45:50 手机锁屏，你从手表停下托管 Cursor 任务 7aedadf2，Mac 同一秒记为 `userStopped: true`，`sleep 900` 随即结束。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-round-2026-09-25/RESULTS.md` | — |
-| WR-09 | 手表横幅「回复」直接打开 App，不收文字 | [09](watch-wrist-resolve/issues/09-banner-reply-opens-app.md) | ready-for-human（#305） | 定案：手表上「回复」就是打开回答卡片（卡片路径 2026-09-24 已在真机跑通）；手机照旧内联回复。诊断记为 `notification.action-reply-card.*`，顺带分清系统给的是 nil 还是空文字 | 下一轮腕上：点一次「回复」，在卡片上答 |
-| WR-10 | 任务详情页「返回总览」点了没反应 | [10](watch-wrist-resolve/issues/10-back-to-dashboard-dead.md) | ready-for-agent | 打开一个已离开列表的会话后出现，只能强制退出；另外列表行上不标 agent | 保留 |
-| WR-11 | Mac 只等 25 秒，手表上的操作常常来不及 | [11](watch-wrist-resolve/issues/11-hook-wait-vs-wrist.md) | needs-triage | 这一轮 9 次过期；卡片上还要多点一下「回复」 | 先量时间分布再定 |
-| WR-12 | 手机锁屏后才开始的任务，手表列表里一直没有 | [12](watch-wrist-resolve/issues/12-new-task-while-phone-locked.md) | 修复中（分支 `claude/wr12-active-refresh`） | 2026-09-25 14:57–15:27 打开手表 App 4 次都没看到新任务，没法停下。手表回到前台时只重读旧的 context，从不向手机要新状态；锁屏手机的流已断、不写新 context。手表的 `sendMessage` 能唤醒锁屏手机（详情页刷新 14:56、15:45 都成功） | 回到前台时节流刷新一次；下一轮腕上验 |
+| WR-08 | 手机锁屏时，手表上的「停下」发不出去 | [08](watch-wrist-resolve/issues/08-locked-phone-stop.md) | 已合并（#292）；**腕上已过**，待你确认当时手机锁屏 | 2026-09-25 15:45:50：手机锁屏，手表停下托管 Cursor 任务，Mac 记为 `userStopped`、`sleep 900` 同时结束（`~/Projects/_shared-work/iOS-vibebuddy/watch-round-2026-09-25/RESULTS.md`，构建 main 2031998b，含 #292）。同一轮发现 WR-12 候选 | — |
+| WR-09 | 手表横幅「回复」直接打开 App，不收文字 | [09](watch-wrist-resolve/issues/09-banner-reply-opens-app.md) | 已合并（#305），已装 Hermes；待腕上 | 定案：手表上「回复」就是打开回答卡片（卡片路径 2026-09-24 已在真机跑通）；手机照旧内联回复。诊断记为 `notification.action-reply-card.*`，顺带分清系统给的是 nil 还是空文字 | 下一次手表检查的「回复」一项 |
+| WR-10 | 任务详情页「返回总览」点了没反应 | [10](watch-wrist-resolve/issues/10-back-to-dashboard-dead.md) | 已合并（#303），已装 Hermes；待腕上 | 模拟器上没复现真机那次的问题（6 种顺序都能返回）；改为 store 直接关页（防护性），新诊断能分清是按钮没收到点击还是页面卡住；列表行已标出 agent | 下一次手表检查的「返回总览」一项 |
+| WR-11 | Mac 只等 25 秒，手表上的操作常常来不及 | [11](watch-wrist-resolve/issues/11-hook-wait-vs-wrist.md) | 已合并（#304）；待装机、重装 Claude hook、腕上 | 实测：横幅批准 / 拒绝 5–9 s 到 Mac；卡片回答 16–25 s 以上（真机只完整量到一次，20.1 s），压线。9 次过期里只有 3 次是时间不够，其余是没弹横幅、没震、没戴表等。定案：Mac 前没人时 Claude 等到 60 s，等待中每秒重判 presence；Codex / Cursor / Grok 与旧配置仍 25 s | 已知遗留：Esc 中断后卡片最多还能答 60 s（回答会被丢掉），可另开票 |
+| WR-12 | 手机锁屏时，新开的任务到不了手表 | [12](watch-wrist-resolve/issues/12-new-task-while-phone-locked.md) | 已实现（#309），待腕上 | 2026-09-25 14:57–15:27 打开手表 App 4 次都没看到锁屏后才开始的任务，没法停下。`WatchStateStore.becameActive()` 只重读 application context；锁屏手机的流已断、不写新 context。修法：手表回到前台（或前台时手机变为可达）就向手机要一次最新状态，限频（成功后 15 s、失败后 3 s），装入时不震 | 下一次手表检查的「锁屏后新任务」一项 |
 | D-1 / D-2 | 供应商连接上限到顶时结束通话、一键重拨；语音文档与 ADR-0001 同步 | [02](realtime-verify/issues/02-provider-limit-redial.md) + roadmap JSON | **代码完成**；Gemini 路径 2026-09-25 由你取消，iPhone 的 D-1 检查不再需要；Mac / iPhone 上的到顶提示和重拨按钮没截图验证过，等自然出现的长通话再看 | 2026-09-25 你决定移除 Gemini 集成（ADR-0001 修订），唯一能在约 10 分钟内到顶的供应商随之移除；结束通话 + 重拨保留给 Qwen / OpenAI（按单元测试，真实到顶要 60–120 分钟，碰上长通话时再看）。历史：2026-09-24 用 Kit 里 App 共用的 Gemini 会话与通话状态机打真实 API：第 591.9 s 服务端结束通话（按代码只有先收到 `goAway` 才会判为上限），进入「已到上限」且没有报错，重拨 0.8 s 接通。界面上的提示和重拨按钮没截图（computer use 未获授权）；iPhone 路径未验 | — |
-| RV-03 | 语音动作不要落到用户没点名的另一个等待中的任务 | [03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md) | 已合并（#297） | 2026-09-24 定案：批准、拒绝、回答、指示这四种动作，只有用户这一句话里说出了目标的名字才会发出；没说就扣住，请用户说出名字（ADR-0008「Named target」）。单元测试复现了 grape→orange；修复后用 Qwen、Gemini 合成语音重跑，点名的动作都落对了，没有落到别的任务上；Gemini 把「橘子」转写成日文，误扣过一次（安全方向）。已知缺口：Gemini 或 Live 的工具调用如果比新一句的转写先到，上一句的词还算数 | 真机语音时留意有没有误扣；不装机 |
+| RV-03 | 语音动作不要落到用户没点名的另一个等待中的任务 | [03](realtime-verify/issues/03-voice-action-names-a-different-waiting-task.md) | 已合并（#297） | 2026-09-24 定案：批准、拒绝、回答、指示这四种动作，只有用户这一句话里说出了目标的名字才会发出；没说就扣住，请用户说出名字（ADR-0008「Named target」）。单元测试复现了 grape→orange；修复后用 Qwen、Gemini 合成语音重跑，点名的动作都落对了，没有落到别的任务上；Gemini 把「橘子」转写成日文，误扣过一次（安全方向）。已知缺口：Live 的工具调用如果比新一句的转写先到，上一句的词还算数（Gemini 的同一缺口随 2026-09-25 移除 Gemini 成为历史） | 真机语音时留意有没有误扣 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
 | G-4 | 无障碍检查（VoiceOver / 动态字体 / Reduce Motion），并入 G-5 的设计检查表 | roadmap JSON `G-4` | 部分完成 | Xcode 27 构建和 zh-Hans 已完成，无障碍检查没做 | 缩成只做无障碍 + 检查表 |
 | M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | roadmap JSON `M-07`（按 ADR-0021 2026-09-23 修订缩小） | 可开工 | 不做腕上朗读 | 保留 |
@@ -107,10 +118,10 @@
 | 装机 + 端到端（已完成） | **2026-09-24 通过**：从 `main` 装机 3 次（9137f92f → 49552ecd → b07b2dab，最后一次含 #287、#288、#290、#292、#293）；每次都核对了签名、单进程、`/health`、hook 脚本与仓库一致。隔离 daemon（:18791）17 项全部通过：允许 / 拒绝、问题回答与过期 409、`/device` 403、AI-04 三种情形、Codex / Grok 事件、`/ledger/flush` 204 / 401；跳转查找在已装 App 上 0.49–1.04 s（3 s 时限内）。Codex 已改走固定目录（等同设置页「修复」），`vibebuddyd hooks status` 显示已装、14 条当时等你信任（2026-09-24 你已信任，现在全部运行）；信任之前 Codex 的 hook 事件和命令行审批拦截不运行（已信任，此限制已解除）；会话和进度仍经 app-server / 转录看得到。2026-09-24 重新部署后已确认 Codex 仍视为已信任（见 C-1 票）。设置页截图没拍（computer use 未获授权）。记录在 `~/Projects/_shared-work/iOS-vibebuddy/acceptance-2026-09-24/` | 「Install the latest Mac App and run acceptance」 |
 | D-1 真实通话 | **2026-09-25 取消**：Gemini 集成已移除，iPhone 这一步不再做。历史：**Kit 层已验（2026-09-24）**：无界面的测试程序跑 Kit 里 App 共用的 Gemini 会话，约 10 分钟到上限后正确结束，重拨接通；界面截图未拍。iPhone 路径：模拟器上试过但没走通（未签名的模拟器构建拿不到钥匙串，`-34018`；Xcode 27 的 Device Hub 没有可操作的窗口），改由 agent 用签名的模拟器构建 + XCUITest 点麦克风再走一遍，key 从 `GEMINI_API_KEY` 经测试进程写入，不在界面里输入；尚未做 | 同上 + 「Install the new phone build, then prep the watch check」 |
 | PERF-01 收尾（已完成） | 见开发项 PERF-01 行：负载与 2 h 内存达标，空闲转 PERF-02 | 「Install the latest Mac App and run acceptance」 |
-| H-2 零漏接 | 在冻结的 1.3.33 候选（之后不再合并）上，用本机真实会话的活动看漏接台账，≥ 30 分钟无新增即算 Mac 端通过。**预跑已通过（2026-09-24，main 9137f92f）**：01:45–03:14Z 共 89 min，本机 2–8 个真实会话在跑，整段漏接新增 0（其中 01:45–02:35 读到 10 次提醒、共 30 条投递记录）；之后的腕上一轮不计入。这次不含 Codex 的 hook 事件：01:51 起它们等你信任、不运行（之后你已信任，正式跑会包含）。正式跑之前先做「只剩你」第 3 件，冻结 1.3.33 候选后再跑一次；不能用提交审核代替。手机 / 手表端：2026-09-24 那一轮**没有通过**（锁屏停下失败，另有 2 次推送已被苹果接受但手表没出现），等 WR-08 修好后再判 | 同上（预跑已做） |
+| H-2 零漏接 | 在冻结的 1.3.33 候选（之后不再合并）上，用本机真实会话的活动看漏接台账，≥ 30 分钟无新增即算 Mac 端通过。**预跑已通过（2026-09-24，main 9137f92f）**：01:45–03:14Z 共 89 min，本机 2–8 个真实会话在跑，整段漏接新增 0（其中 01:45–02:35 读到 10 次提醒、共 30 条投递记录）；之后的腕上一轮不计入。这次不含 Codex 的 hook 事件：01:51 起它们等你信任、不运行（之后你已信任，正式跑会包含）。正式跑之前先做「只剩你」第 3 件，冻结 1.3.33 候选后再跑一次；不能用提交审核代替。手机 / 手表端：2026-09-24 那一轮**没有通过**（锁屏停下失败，另有 2 次推送已被苹果接受但手表没出现）；WR-08 已于 2026-09-25 腕上通过，等这次手表检查做完后再判 | 同上（预跑已做） |
 | AI-04 真实会话（已完成） | **2026-09-24 通过**，经过见[票 04](agent-integration-2026-09/issues/04-claude-stop-background-tasks.md) Comments 末条：真实 `/loop 1m` 共 7 轮都落定为「已排定循环」，共享 App 的投递记录 0 条；后台 subagent 挂起期间保持 working，结束后 Mac 通知 1 条、APNs 每台手机 1 条。隔离 `vibebuddyd` 不推首次完成提醒，「响没响」只能用菜单栏 App（:9876，`d43c762b`）核对。记录表在 `~/Projects/_shared-work/iOS-vibebuddy/ai04-acceptance-2026-09-23/` | 「VibeBuddy AI-04 真机验收准备」 |
 | 路线图旧项的 agent 部分（2026-09-24 上午已跑） | 手机批准（模拟器；Claude、Grok、Cursor）、杀 App 后 APNs、在场门控、`/jump` 接回、Desktop 跳转、派活、手机回答问题、断联待定决策、跨端撤销都通过；D-U 合成语音 Gemini、Qwen 各在第 4 轮 3/3。状态行字段部分通过（被转录覆盖，票 10）；Codex 的 steer、审批和额度推送受阻于 Codex 额度（9 月 25 日 9:00 重置，不用重置券）。另有：验收服务在约定窗口后向 Hermes 多推了 28 条测试提醒。明细与发现见[路线图核对](roadmap-audit-2026-09-24.md)末节 | 本会话；Codex 部分待额度重置后重跑 |
-| Hermes / 手表装新版 | **已完成**：2026-09-24 10:45 装到 Hermes；腕上一轮 11:14–12:05 做完，结果见「只剩你」第 1 件。开发版 1.3.28 (58)，`main` 9137f92f（与 ebd06396 应用代码相同），含 #275。**模拟器已验（2026-09-24）**：横幅「回复」带 `questionId` 时持有即绑定并送达，agent 收到的正是那一题；换题后等约 8.6 s 拒绝，卡片显示「这项请求已经不需要你处理了」+「未发送：…」，新题没被答；多段问题不发送、口述留在卡片；无 `questionId` 的旧通知记为 `-unbound`，在首份中继状态绑定后送达；横幅「拒绝」送达，agent 收到 deny。手表在模拟器上不能弹横幅，点击由本地临时注入代替（未提交），点击之后全是正式代码。**D-1 iPhone 未验（2026-09-25 随 Gemini 移除取消）**：未签名的模拟器构建没有钥匙串权限（`-34018`），存不了 key；Xcode 27 的 Device Hub 没有可操作的模拟器窗口。hook 等待只有 25 s，而手表发出后到 Mac 还要约 11–13 s，所以腕上每步要在横幅到后 10 s 内做完。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md` | 「Install the new phone build, then prep the watch check」 |
+| Hermes / 手表装新版 | **2026-09-25 15:35（+08:00）已装 Hermes**：`main` 23666347（含 #292、#303、#305），开发版 1.3.28 (58)，Mac `apns.json` 仍是 sandbox。版本号没变，靠新诊断名（`detail.back`、`notification.action-reply-card.*`）区分新构建。注意：另一会话在 00:3x 装过 2031998b，并把手表 App 直接装到手表上；手表上现在是哪个构建以诊断为准。之前的记录：`~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md`、`watch-round-2026-09-25/RESULTS.md` | 本会话 |
 
 **2026-09-24 已由 agent 确认（[路线图核对](roadmap-audit-2026-09-24.md)）**
 
@@ -122,17 +133,16 @@
 
 **只剩你（共六件）**
 
-1. **手表一轮：WR-08 已于 2026-09-25 15:45 通过**（手机锁屏时从手表停下，Mac 同一秒记为 `userStopped`）。2026-09-24 那一轮（11:14–12:05）通过的：手机锁屏时，横幅「拒绝」和「批准」；卡片上的快捷回答 + 双指互点两下发送；手机解锁时，从手表「停下」。那一轮开出的 WR-08 到 WR-11 已全部合并；2026-09-25 又发现 WR-12（锁屏后才开始的任务不出现在手表上）。下一轮腕上一次做完：WR-12、WR-10「返回总览」、WR-09「回复」开卡片、一次真实 Codex 横幅批准。记录在 `~/Projects/_shared-work/iOS-vibebuddy/watch-acceptance-2026-09-24/RESULTS.md` 和 `watch-round-2026-09-25/RESULTS.md`。
-2. **路线图旧项里只有你能做的几步**（手表一轮之后）：
-   1. 手机开专注模式，看一条问题横幅还弹不弹（A-03）。
-   2. 手机锁屏时在横幅上点批准，看要不要 Face ID（A-03）。
-   3. 摘下手表看一条推送落在哪；戴上但不解锁再看一条（M-01）。
-   4. 手表上对 Claude、Codex、Grok 各批准一次（H-1）。
-   5. 在 Cursor IDE 的 agent 里输入一句提示词（H-5）。
+1. **手表检查（约 10 分钟，≤ 5 步）**：只验真手腕才能证明的：手机锁屏后新开的任务出现在手表上（WR-12）；「回复」进卡片作答（WR-09），且回答在推送后超过 25 s 仍能送到（WR-11）；「返回总览」（WR-10）；一次真实 Codex 横幅批准（H-1，Codex 额度 2026-09-25 已重置）；另请确认 2026-09-25 15:45 从手表停下时手机是锁着的（WR-08）。步骤由 agent 准备好后单独发给你；Mac 那边由 agent 驱动并读日志。之前已通过：锁屏时横幅「拒绝」「批准」、卡片快捷回答 + 双指互点两下、解锁时停下（2026-09-24），锁屏时停下（2026-09-25）。WR-07 的横幅口述不再验（watchOS 27 上走不到，见 WR-09）。
+2. **路线图旧项里只有你能做的两步**（可选，手表检查之后）：
+   1. 手机锁屏时在横幅上点批准，看要不要 Face ID（A-03）。
+   2. 在 Cursor IDE 的 agent 里输入一句提示词（H-5）。
+
+   2026-09-25 删掉了三步。专注模式下横幅弹不弹（A-03）：我们发的是 `interruption-level: time-sensitive` 并申请了对应 entitlement，负载有测试覆盖（`ActivityPushTests`、`NotificationDeliveryTests`），Mac 的专注模式 2026-09-06 已验，iPhone 上的表现取决于你自己的专注设置。摘下手表时推送落在哪（M-01）：由系统决定。手表上对三家各批准一次（H-1）：手表到手机到 Mac 这一段不分 agent，手表批准已过 3 次（2 次模拟的 Claude 等待、1 次托管 Cursor）；各家 Mac 端由 agent 验，Claude、Grok、Cursor 已在模拟器通过，Codex 由 agent 在额度恢复后补。
 3. ~~**Codex 重新信任**~~ **已完成**（2026-09-24）：你已在 `/hooks` 信任，`vibebuddyd hooks status` 显示「Codex is running all 14 VibeBuddy hooks」，路径是固定目录。重新部署后已确认：两次从 main 替换 App 之后（11:00Z、12:08Z），`hooks status` 仍显示「running all 14」，不需要重新信任。
 4. **语音耳测**（约 5 分钟，D-U，只能靠耳朵）：Qwen 打一通短电话，中英文各说一句；OpenAI 补一句英文（Gemini 已于 2026-09-25 移除）。每通回一句「听得清吗、能打断吗」。
 5. **App Store Connect 登录一次**（1 分钟，可选）：在 Chrome 里登录 appstoreconnect.apple.com，agent 就能读 iOS 1.3.28 (58) 的审核状态。Mail / Outlook 的读取请求你已拒绝，所以也可以直接告诉 agent 状态邮件写的是什么。
-6. **要不要发布**：WR-08 修好且锁屏停下复验通过，H-2 也通过后再问你。Mac 1.3.33（带上 #262 起已合并的全部改动，含 #287、#290、#293）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。下一版起已没有 Gemini：发布或提交审核时，agent 同步删掉 `docs/privacy-policy.md` 和 `docs/app-store-listing.md` 里的 Google (Gemini)。
+6. **要不要发布**：手表检查（第 1 件）和 H-2 都通过后再问你。Mac 1.3.33（带上 #262 起已合并的全部改动，含 #287、#290、#293）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。下一版起已没有 Gemini：发布或提交审核时，agent 同步删掉 `docs/privacy-policy.md` 和 `docs/app-store-listing.md` 里的 Google (Gemini)。
 
 ## 观察项（暂不动手）
 
