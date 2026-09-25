@@ -40,7 +40,7 @@ public struct PushCopy: Equatable, Sendable {
         switch sound {
         case .needsApproval:
             return make("%@ needs permission", fixed: "Approve or deny",
-                        free: s.pendingApproval?.commandPreview ?? s.summary)
+                        free: s.pendingApproval?.notificationBody ?? s.summary)
         case .needsAnswer:
             return make("%@ needs you", fixed: "Waiting for your input", free: s.summary)
         case .longWaitNudge:

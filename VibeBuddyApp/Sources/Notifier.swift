@@ -373,7 +373,7 @@ struct LocalNotifier: AttentionNotifier {
         switch alert.sound {
         case .needsApproval:
             return (String(localized: "\(s.project) needs permission"),
-                    s.pendingApproval?.commandPreview ?? s.summary ?? String(localized: "Approve or deny"))
+                    s.pendingApproval?.notificationBody ?? s.summary ?? String(localized: "Approve or deny"))
         case .needsAnswer:
             return (String(localized: "\(s.project) needs you"),
                     s.summary ?? String(localized: "Waiting for your input"))
