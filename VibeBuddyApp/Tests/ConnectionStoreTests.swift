@@ -29,6 +29,12 @@ final class ConnectionStoreTests: XCTestCase {
         try JSONDecoder().decode(PairingPayload.self, from: XCTUnwrap(defaults.data(forKey: key)))
     }
 
+    func testFreshPhoneHasNoPairingAndNoFailure() {
+        let store = ConnectionStore(defaults: makeDefaults(), protectedDataAvailable: { true })
+        XCTAssertNil(store.pairing)
+        XCTAssertNil(store.loadFailure)
+    }
+
     /// The regression this file exists for: a launch that could not read the
     /// defaults must not present an unpaired phone for the life of the process,
     /// and must not lose the Mac that is still on disk.

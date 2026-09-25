@@ -77,4 +77,12 @@ struct WaitingNotificationsTests {
         #expect(ledger.outstanding.isEmpty)
         #expect(ledger.withdrawals(for: []).isEmpty)
     }
+
+    @Test("Only waiting cues are withdrawable")
+    func waitingCuesAreTheWithdrawableOnes() {
+        for sound in NotificationSound.allCases {
+            let waiting = [NotificationSound.needsAnswer, .needsApproval, .longWaitNudge].contains(sound)
+            #expect(sound.isWaitingCue == waiting, "\(sound.rawValue)")
+        }
+    }
 }

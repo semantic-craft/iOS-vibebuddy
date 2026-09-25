@@ -92,6 +92,8 @@ struct WireCodingTests {
         #expect(WaitKind.question.rawValue == "question")
         #expect(AgentKind.claudeCode.rawValue == "claudeCode")
         #expect(AgentKind.codex.rawValue == "codex")
+        // Quota rows travel keyed by provider; an old phone drops a row whose key it can't read (#111).
+        #expect(AccountUsageProvider.allCases.map(\.rawValue) == ["codex", "claude", "grok", "cursor", "grokBot"])
     }
 
     // 6. Decodes a known external JSON payload (pins the contract)

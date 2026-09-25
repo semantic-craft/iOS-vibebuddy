@@ -8,6 +8,13 @@ import VibeBuddyKit
 struct NotificationDeliveryTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    @Test("the on-disk delivery vocabulary never claims delivered")
+    func vocabularyNeverDelivered() {
+        #expect(Set(NotificationDeliveryOutcome.allCases.map(\.rawValue)) == [
+            "attempted", "scheduled", "accepted", "failed", "skipped", "pruned",
+        ])
+    }
+
     @Test("a standing failure survives a restart even when skips came after it")
     func latchedFailureSurvivesReload() async throws {
         let url = FileManager.default.temporaryDirectory

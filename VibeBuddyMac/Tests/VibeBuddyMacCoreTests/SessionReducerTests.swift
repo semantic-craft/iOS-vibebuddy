@@ -178,6 +178,15 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.tokens == 1500)   // latest turn
     }
 
+    @Test("a new prompt clears a prior failure")
+    func newPromptClearsFailure() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))
+        r.apply(ev(.userPromptSubmit, at: 2))
+        #expect(r.sessions["s1"]?.isStuck == false)
+    }
+
     @Test("SessionStart creates an idle done session until the first prompt")
     func startCreates() {
         var r = SessionReducer()

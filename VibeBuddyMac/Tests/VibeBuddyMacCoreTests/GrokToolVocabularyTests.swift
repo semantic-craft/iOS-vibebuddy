@@ -26,6 +26,13 @@ struct GrokToolVocabularyTests {
         #expect(GrokToolVocabulary.canonicalTool("list_dir") == "Glob")
     }
 
+    @Test("web and subagent tools map to their Claude counterparts")
+    func webAndSubagents() {
+        #expect(GrokToolVocabulary.canonicalTool("web_search") == "WebSearch")
+        #expect(GrokToolVocabulary.canonicalTool("web_fetch") == "WebFetch")
+        #expect(GrokToolVocabulary.canonicalTool("spawn_subagent") == "Task")
+    }
+
     @Test("MCP tools gain the mcp__ prefix, and keep it if already there")
     func mcp() {
         #expect(GrokToolVocabulary.canonicalTool("firecrawl__scrape") == "mcp__firecrawl__scrape")

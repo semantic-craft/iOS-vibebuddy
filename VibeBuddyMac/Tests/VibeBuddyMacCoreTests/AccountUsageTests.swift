@@ -604,6 +604,15 @@ struct AccountUsageTests {
         #expect(permissions.intValue == 0o600)
     }
 
+    @Test("each provider keeps its own cache file on disk")
+    func providerCacheFiles() {
+        let home = URL(fileURLWithPath: "/Users/example")
+        #expect(AccountUsageFileCache.defaultFileURL(provider: .grok, home: home).lastPathComponent == "grok-usage.json")
+        #expect(AccountUsageFileCache.defaultFileURL(provider: .cursor, home: home).lastPathComponent == "cursor-usage.json")
+        let urls = AccountUsageProvider.allCases.map { AccountUsageFileCache.defaultFileURL(provider: $0, home: home) }
+        #expect(Set(urls).count == urls.count)
+    }
+
     @Test("Cursor collector without a cookie stays unavailable, never 0%")
     func cursorProviderRequiresCookie() async throws {
         let provider = CursorUsageProvider(cookie: nil, cookieMode: { .manual }, transport: MissingCookieTransport())
