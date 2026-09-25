@@ -99,8 +99,7 @@ struct WatchNotificationView: View {
                     Text(content.title)
                         .font(CompanionType.font(15, .semibold))
                         .foregroundStyle(CompanionPalette.status(state))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if !content.body.isEmpty {

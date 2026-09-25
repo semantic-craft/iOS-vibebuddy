@@ -20,6 +20,7 @@ struct WatchQuestionWalkControl: View {
     /// Why nothing can be sent right now, from the card's own link check.
     let blocked: LocalizedStringResource?
     let phase: WatchSessionActionAttempt.Phase?
+    var announces: Bool = true
     @State private var walk: WatchQuestionWalkDraft?
 
     var body: some View {
@@ -36,7 +37,7 @@ struct WatchQuestionWalkControl: View {
                         Image(systemName: "list.number")
                     }
                     .font(CompanionType.font(13, .heavy))
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -44,7 +45,7 @@ struct WatchQuestionWalkControl: View {
                 .buttonBorderShape(.roundedRectangle(radius: 12))
                 .disabled(store.pendingAction.isBusy)
             }
-            WatchAnswerStatusLine(phase: phase)
+            WatchAnswerStatusLine(phase: phase, announces: announces)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(item: $walk) { draft in
@@ -220,8 +221,10 @@ struct WatchQuestionPage: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if item.multiSelect {
                     Image(systemName: picked.contains(option.value) ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 12))
+                        .font(.caption)
+                        .accessibilityHidden(true)
                 }
+                // The wearer picks what they read, so the label is never cut.
                 Text(option.label)
                     .font(CompanionType.font(13, .heavy))
                     .fixedSize(horizontal: false, vertical: true)
@@ -230,6 +233,7 @@ struct WatchQuestionPage: View {
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.roundedRectangle(radius: 12))
+        .accessibilityAddTraits(item.multiSelect && picked.contains(option.value) ? .isSelected : [])
     }
 }
 
@@ -254,8 +258,7 @@ struct WatchQuestionReviewPage: View {
                 Text(caption)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                 ForEach(items) { item in
                     answer(item)
                 }
@@ -265,6 +268,8 @@ struct WatchQuestionReviewPage: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // The shared filled key: its `onAccent` label is 9:1 on the
+                // mint, where the system's white prominent label is 2:1.
                 Button {
                     onSend()
                 } label: {
@@ -272,9 +277,7 @@ struct WatchQuestionReviewPage: View {
                         .font(CompanionType.font(14, .heavy))
                         .frame(maxWidth: .infinity)
                 }
-                .tint(CompanionPalette.status(.completeUnread))
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonStyle(CompanionButtonStyle(kind: .filled(CompanionPalette.status(.completeUnread)), size: .wide))
                 .handGestureShortcut(.primaryAction)
                 Button("Back", action: onBack)
                     .buttonStyle(.bordered)

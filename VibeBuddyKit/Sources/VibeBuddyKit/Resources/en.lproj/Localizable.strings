@@ -21,6 +21,8 @@
 "Done" = "Done";
 "Collapse" = "Collapse";
 "Expand" = "Expand";
+"Expanded" = "Expanded";
+"Collapsed" = "Collapsed";
 "Approve" = "Approve";
 "Always allow this" = "Always allow this";
 "Allow all this session" = "Allow all this session";

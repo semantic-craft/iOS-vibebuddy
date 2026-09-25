@@ -19,17 +19,20 @@ struct WatchAlertCard: View {
     /// rendering its own top alert behind an open task sheet, and two live
     /// claims would let a pinch approve a command the wearer cannot see.
     var isFrontmost: Bool = true
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var accent: Color { CompanionPalette.status(.requiresInput) }
 
     var body: some View {
         // A card on a hairline, not a tinted block: the dot and the kicker
-        // carry the urgency (ADR-0017 §4).
+        // carry the urgency (ADR-0017 §4). The card *contains* its elements:
+        // combining it would fold Approve, Deny and the answers into one
+        // spoken blob that VoiceOver can only reach through the Actions rotor.
         content
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .companionCard()
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
     }
 
     /// `<project> wants to <verb>` when the tool is known, else the plain kind.
@@ -70,7 +73,7 @@ struct WatchAlertCard: View {
                 Text(label)
                     .font(CompanionType.font(10, .medium))
                     .foregroundStyle(accent)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 4)
                 Text(WatchFormat.duration(alert.waitedFor(now: now)))
@@ -78,6 +81,7 @@ struct WatchAlertCard: View {
                     .monospacedDigit()
                     .foregroundStyle(CompanionPalette.ink2)
             }
+            .accessibilityElement(children: .combine)
 
             // A question is read whole before it is answered (M-07): the
             // Crown scrolls it, and only an outlier folds behind Show more. A
@@ -91,7 +95,7 @@ struct WatchAlertCard: View {
                 Text(title)
                     .font(CompanionType.font(15, .semibold))
                     .foregroundStyle(CompanionPalette.ink)
-                    .lineLimit(3)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 3)
                     .minimumScaleFactor(0.8)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -120,6 +124,7 @@ struct WatchAlertCard: View {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Image(systemName: "circle")
                                 .font(.system(size: 6))
+                                .accessibilityHidden(true)
                             Text(option)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -138,8 +143,9 @@ struct WatchAlertCard: View {
                 }
             }
             .font(CompanionType.font(10))
-            .lineLimit(1)
+            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             .minimumScaleFactor(0.7)
+            .accessibilityElement(children: .combine)
 
             // What the request is, above; what can be done about it, below.
             CompanionHairline()
@@ -168,7 +174,7 @@ struct WatchAlertCard: View {
             // from your iPhone must not erase "sent, waiting for your Mac" and
             // leave the question looking untouched.
             if alert.isAnswerable {
-                WatchAnswerControl(store: store, alert: alert)
+                WatchAnswerControl(store: store, alert: alert, announces: isFrontmost)
             }
 
             // A waiting session has no running turn, so this stays silent here
@@ -177,7 +183,7 @@ struct WatchAlertCard: View {
             // about the session rather than about which screen it is on: the
             // day a wait becomes stoppable, both screens say so at once.
             if let followed = store.state?.followedTasks.first(where: { $0.sessionID == alert.sessionId }) {
-                WatchStopControl(store: store, task: followed)
+                WatchStopControl(store: store, task: followed, announces: isFrontmost)
             }
 
             if alsoWaiting > 0 {
@@ -247,6 +253,10 @@ struct WatchApprovalActions: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Only the outcome of the wearer's own tap, and only from the card in
+        // front: link sentences change on their own, and a card behind an
+        // open task page would say it twice.
+        .announcesChanges(of: phase != nil && isFrontmost ? statusText : nil)
     }
 
     /// Stacked and full-width, in the state's own colour, radius 8: the
@@ -257,11 +267,13 @@ struct WatchApprovalActions: View {
             store.submit(alert, choice)
         } label: {
             Text(title)
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(CompanionButtonStyle(kind: .filled(tint), size: .wide))
+        // The target, for a VoiceOver user who swipes straight to the key.
+        .accessibilityHint(Text(CompanionCopy.spokenTarget(alert.request ?? alert.summary)))
     }
 
     /// Never "Approved". The wrist knows only that the Mac took the decision;
@@ -377,6 +389,8 @@ enum WatchLinkBlock {
 struct WatchStopControl: View {
     @ObservedObject var store: WatchStateStore
     let task: WatchFollowedTask
+    /// Whether this copy speaks its status (the front one only).
+    var announces: Bool = true
     @State private var confirming: WatchStopIntent?
 
     private var phase: WatchSessionActionAttempt.Phase? {
@@ -422,7 +436,7 @@ struct WatchStopControl: View {
                 confirming = WatchStopIntent(task: task)
             } label: {
                 Label("Stop", systemImage: "stop.fill")
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.8)
                     .frame(maxWidth: .infinity)
             }
@@ -440,6 +454,7 @@ struct WatchStopControl: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .announcesChanges(of: phase != nil && announces ? statusText : nil)
         .sheet(item: $confirming) { intent in
             WatchStopConfirmView(intent: intent) {
                 store.submitStop(sessionID: intent.sessionID, statusSince: intent.statusSince)
@@ -516,7 +531,7 @@ struct WatchStopConfirmView: View {
                 Text(intent.title.isEmpty ? String(localized: "Unnamed task") : intent.title)
                     .font(CompanionType.font(12))
                     .foregroundStyle(CompanionPalette.ink2)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("The turn it is running now ends. Work already finished stays done.")
                     .font(CompanionType.font(10))
                     .foregroundStyle(CompanionPalette.ink2)
@@ -543,6 +558,18 @@ struct WatchStopConfirmView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 2)
+        }
+    }
+}
+
+extension View {
+    /// Speaks a status sentence when it changes. "Sending…", "Your Mac has
+    /// it" and "Not sent" otherwise appear silently under a key a VoiceOver
+    /// user has already moved away from.
+    func announcesChanges(of message: LocalizedStringResource?) -> some View {
+        onChange(of: message.map { String(localized: $0) }) { _, spoken in
+            guard let spoken, !spoken.isEmpty else { return }
+            AccessibilityNotification.Announcement(spoken).post()
         }
     }
 }

@@ -28,7 +28,7 @@ struct AccountUsageSummaryView: View {
                 }
                 if let available = snapshot.hasAvailableUsage {
                     Text(available ? "Usage available" : "No usage available").font(MacTheme.font(10))
-                        .foregroundStyle(available ? MacTheme.ink2 : Color.orange)
+                        .foregroundStyle(available ? MacTheme.ink2 : MacTheme.status(.requiresInput))
                 }
                 if provider == .grokBot, snapshot.primary == nil, snapshot.usageDetail == nil {
                     Text("Weekly percentage unavailable").foregroundStyle(MacTheme.ink2)
@@ -103,7 +103,7 @@ struct AccountUsageSummaryView: View {
             if let reason = state.unavailableReason {
                 Label(reason.displayText(provider: provider), systemImage: reasonIcon(reason))
                     .font(MacTheme.font(10))
-                    .foregroundStyle(reason == .collectionDisabled ? MacTheme.ink2 : Color.orange)
+                    .foregroundStyle(reason == .collectionDisabled ? MacTheme.ink2 : MacTheme.status(.requiresInput))
                     .fixedSize(horizontal: false, vertical: true)
                 if reason != .collectionDisabled, let retry = state.nextRefreshAt, retry > now {
                     Text("Retry \(retry, style: .relative)")

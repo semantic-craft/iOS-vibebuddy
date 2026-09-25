@@ -22,6 +22,14 @@ final class GlanceAttentionRouter: AttentionNotifier, @unchecked Sendable {
         // banners: off means no ping of either kind (the banner path skips too).
         guard Self.notificationsEnabled else { return await banners.notify(alert) }
         guard await banners.validateCompletion?(alert) != false else { return .skipped }
+        // With VoiceOver running the banner goes first: VoiceOver reads it and
+        // Notification Center keeps it, while a card is never announced and
+        // folds away. The card is still the fallback when the banner cannot be
+        // posted (notifications denied), so the cue is never lost.
+        if await MainActor.run(body: { NSWorkspace.shared.isVoiceOverEnabled }) {
+            let banner = await banners.notify(alert)
+            guard banner.outcome == .failed else { return banner }
+        }
         let shown = await MainActor.run { presentOnGlance(alert) }
         guard shown else { return await banners.notify(alert) }
         if Self.soundEnabled { CuePlayer.play(alert.sound) }

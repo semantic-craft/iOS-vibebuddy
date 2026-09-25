@@ -65,6 +65,10 @@ final class GlanceWindow {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        // The island is black in both appearances, so its tokens resolve their
+        // dark values: light-mode status reds and the diff's minus sign were
+        // under 3:1 on the black ground.
+        panel.appearance = NSAppearance(named: .darkAqua)
         // Above the menu bar (24) and its status items (25), like every notch app,
         // so the island covers the menu-bar band beside the housing and receives
         // the pointer there. Deliberately NOT `isFloatingPanel`: setting it

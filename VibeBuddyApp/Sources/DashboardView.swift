@@ -7,6 +7,9 @@ import VibeBuddyKit
 /// sessions retain their message rows and explicit reply targets; filtering
 /// never changes the Buddy scope, subscription, or action authority.
 struct DashboardView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Reduce Motion: slides and scrolls become fades or cuts (HIG: Motion).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var detailCompletionNotificationID: String?
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
@@ -207,18 +210,11 @@ struct DashboardView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 if announcer.isBusy || announcer.status != nil {
-                    AnnouncerStrip(announcer: announcer, replay: { announcer.replayLatest(live: { dashboard.allSessions }) })
-                        .contentShape(Rectangle())
-                        .onTapGesture { showVoicePage = true }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityHint("Open the voice page")
+                    AnnouncerStrip(announcer: announcer, replay: { announcer.replayLatest(live: { dashboard.allSessions }) },
+                                   open: { showVoicePage = true })
                 }
                 if voice.phase != .idle || voice.errorText != nil || voice.endNotice != nil {
-                    VoiceStrip(voice: voice)
-                        .contentShape(Rectangle())
-                        .onTapGesture { showVoicePage = true }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityHint("Open the voice page")
+                    VoiceStrip(voice: voice, open: { showVoicePage = true })
                 }
                 StreamComposer(target: replyTarget,
                                macName: connection.pairing?.macName,
@@ -240,8 +236,8 @@ struct DashboardView: View {
                     .offset(y: -28)
             }
         }
-        .animation(.smooth, value: dashboard.groups)
-        .animation(.smooth, value: replyTo)
+        .animation(reduceMotion ? nil : .smooth, value: dashboard.groups)
+        .animation(reduceMotion ? nil : .smooth, value: replyTo)
         .toolbar(.hidden, for: .navigationBar)
         .tint(CompanionPalette.accent)
         .sheet(isPresented: $showFilters, onDismiss: {
@@ -349,7 +345,7 @@ struct DashboardView: View {
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(CompanionPalette.ink, in: Capsule())
                     .padding(.bottom, 100)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.smooth, value: dashboard.toast)
@@ -606,7 +602,7 @@ struct DashboardView: View {
             Text(DeviceConnectionView.status(pairing: connection.pairing, demo: connection.demo, state: dashboard.state))
                 .font(CompanionType.font(11))
                 .foregroundStyle(CompanionPalette.ink2)
-                .lineLimit(2)
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                 .accessibilityIdentifier("phone-connection-status")
         }
     }
@@ -671,7 +667,7 @@ struct DashboardView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .frame(height: PhoneMetrics.control)
+                .frame(minHeight: PhoneMetrics.control)
                 .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: PhoneMetrics.controlRadius))
                 .overlay(RoundedRectangle(cornerRadius: PhoneMetrics.controlRadius)
                     .strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline))
@@ -756,7 +752,7 @@ struct DashboardView: View {
         openReader(session)
         dashboard.clearFocus()
         if page == .list, stream.contains(where: { $0.id == id }) {
-            withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
+            withAnimation(reduceMotion ? nil : .smooth) { proxy.scrollTo(id, anchor: .center) }
         }
         highlightId = id
         Task {
@@ -906,6 +902,7 @@ private struct TaskRow: View {
     let isSelected: Bool
     let showsDivider: Bool
     let onOpen: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var presentation: RowPresentation { RowPresentation(session: session) }
     private var state: TaskPresentationState { session.presentationState }
@@ -932,12 +929,12 @@ private struct TaskRow: View {
                                 .font(CompanionType.font(16))
                                 .tracking(CompanionType.tracking(16))
                                 .foregroundStyle(CompanionPalette.ink)
-                                .lineLimit(1)
+                                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                             Spacer(minLength: 8)
                             HStack(spacing: 5) {
                                 if session.effectiveAttention != .normal {
                                     Image(systemName: session.effectiveAttention == .followed ? "bell.badge" : "bell.slash")
-                                        .font(.system(size: 10, weight: .medium))
+                                        .font(.caption2.weight(.medium))
                                         .accessibilityLabel(session.effectiveAttention.stateTitle)
                                 }
                                 Text(PhoneRelativeTime.short(session.updatedAt, now: now))
@@ -945,6 +942,20 @@ private struct TaskRow: View {
                             }
                             .foregroundStyle(CompanionPalette.ink3)
                         }
+                        if typeSize.isAccessibilitySize {
+                            // One fact a line, so the state word is never the
+                            // part that gets cut.
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(stateWord).foregroundStyle(CompanionPalette.status(state))
+                                if let detail {
+                                    Text(detail).lineLimit(2)
+                                        .font(detail == session.ledgerSummary ? CompanionType.mono(12) : CompanionType.font(13))
+                                }
+                                if let projectTitle { Text(projectTitle).lineLimit(2) }
+                            }
+                            .font(CompanionType.font(13))
+                            .foregroundStyle(CompanionPalette.ink3)
+                        } else {
                         HStack(spacing: 5) {
                             Text(stateWord).foregroundStyle(CompanionPalette.status(state))
                             if let detail {
@@ -960,6 +971,7 @@ private struct TaskRow: View {
                         .font(CompanionType.font(13))
                         .foregroundStyle(CompanionPalette.ink3)
                         .lineLimit(1)
+                        }
                     }
                 }
                 .padding(.horizontal, PhoneMetrics.gutter)
@@ -995,6 +1007,8 @@ enum PhoneRowMetrics {
 /// target the banner names both; without one the text is a new task. `+` starts
 /// one from scratch, and the mic is the voice companion the cat used to host.
 private struct StreamComposer: View {
+    /// Reduce Motion: slides and scrolls become fades or cuts (HIG: Motion).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let target: AgentSession?
     let macName: String?
     let reachable: Bool
@@ -1045,7 +1059,10 @@ private struct StreamComposer: View {
                         Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(CompanionPalette.ink3)
                             .frame(width: 26, height: 26)
+                            // 44pt target around the 26pt glyph cell.
+                            .padding(9)
                             .contentShape(Rectangle())
+                            .padding(-9)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Cancel reply")
@@ -1054,7 +1071,7 @@ private struct StreamComposer: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .companionCard()
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
             HStack(spacing: 8) {
                 PhoneCircleButton("plus", size: 30, tint: CompanionPalette.ink2,

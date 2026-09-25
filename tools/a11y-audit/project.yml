@@ -1,0 +1,26 @@
+name: A11yAudit
+options: { bundleIdPrefix: com.vibebuddy.qa, deploymentTarget: { iOS: "18.0", watchOS: "11.0" } }
+settings: { base: { CODE_SIGNING_ALLOWED: NO, SWIFT_VERSION: "5.0", GENERATE_INFOPLIST_FILE: YES } }
+targets:
+  AXHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.qa.axhost, INFOPLIST_KEY_UILaunchScreen_Generation: YES } }
+  AXAuditUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies: [{ target: AXHost }]
+    settings: { base: { TEST_TARGET_NAME: AXHost, PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.qa.axaudit } }
+  AXWHost:
+    type: application
+    platform: watchOS
+    sources: [WHost]
+    settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.qa.axwhost, INFOPLIST_KEY_WKApplication: YES, INFOPLIST_KEY_WKWatchOnly: YES } }
+  AXWAuditUITests:
+    type: bundle.ui-testing
+    platform: watchOS
+    sources: [WUITests, UITests/Audit.swift]
+    dependencies: [{ target: AXWHost }]
+    settings: { base: { TEST_TARGET_NAME: AXWHost, PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.qa.axwaudit } }

@@ -38,3 +38,4 @@
 "%lldh %lldm" = "%1$lld小时%2$lld分";
 "%lldh" = "%lld小时";
 "%lldm" = "%lld分";
+"%lld%% left" = "剩余 %lld%%";

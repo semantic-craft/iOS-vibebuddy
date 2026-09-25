@@ -77,6 +77,19 @@ struct PhoneButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         CompanionButtonStyle(kind: sharedKind, size: sharedSize, radius: PhoneMetrics.controlRadius)
             .makeBody(configuration: configuration)
+            // The keys draw at 27–40pt; the touch target reaches 44pt (HIG)
+            // with invisible slop that the layout does not see.
+            .padding(.vertical, touchSlop)
+            .contentShape(Rectangle())
+            .padding(.vertical, -touchSlop)
+    }
+
+    private var touchSlop: CGFloat {
+        switch size {
+        case .small: return 8
+        case .regular: return 6
+        case .wide: return 2
+        }
     }
 
     private var sharedKind: CompanionButtonStyle.Kind {

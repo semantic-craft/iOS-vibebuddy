@@ -72,10 +72,13 @@ public struct CompanionSectionHeader: View {
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
+            .accessibilityValue(expanded.wrappedValue ? Text("Expanded", bundle: .module) : Text("Collapsed", bundle: .module))
             .accessibilityHint(expanded.wrappedValue ? Text("Collapse", bundle: .module) : Text("Expand", bundle: .module))
+            .accessibilityAddTraits(.isHeader)
         } else {
             label(chevron: nil)
                 .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
         }
     }
 
@@ -185,9 +188,13 @@ public struct CompanionButtonStyle: ButtonStyle {
 
 /// The status dot: one per row, in the state's colour. The idle dot is the
 /// only one that reads as "nothing to see".
+///
+/// With Differentiate Without Color on, the dot becomes the state's symbol,
+/// so amber and red rows no longer differ by hue alone (HIG: Color).
 public struct StatusDot: View {
     public let state: TaskPresentationState
     public var size: CGFloat
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     public init(state: TaskPresentationState, size: CGFloat = 7) {
         self.state = state
@@ -195,9 +202,18 @@ public struct StatusDot: View {
     }
 
     public var body: some View {
-        Circle()
-            .fill(CompanionPalette.status(state))
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        Group {
+            if differentiateWithoutColor {
+                Image(systemName: state.symbolName)
+                    .font(.system(size: max(size, 7) * 1.3, weight: .bold))
+                    .foregroundStyle(CompanionPalette.status(state))
+                    .frame(width: max(size, 7) * 1.5, height: max(size, 7) * 1.5)
+            } else {
+                Circle()
+                    .fill(CompanionPalette.status(state))
+                    .frame(width: size, height: size)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
