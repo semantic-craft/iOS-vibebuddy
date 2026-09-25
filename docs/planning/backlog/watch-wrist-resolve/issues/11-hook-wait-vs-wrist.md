@@ -2,7 +2,7 @@
 
 **What to build:** 让手表上来得及回答。先量一下真机上从推送到手表点击送达 Mac 的时间分布，再决定：延长等待、到时间后仍接受「对得上那一轮」的迟到回答，还是在手表上显示倒计时。
 
-**Status:** ready-for-human（已实现；生效要重装一次 Claude hook；剩真机：卡片上回答一次，超过 25 s 也能送到）
+**Status:** done（#304；Mac 端验证，腕上超过 25 s 未直接测）
 
 ## 为什么
 
@@ -37,3 +37,4 @@
 ## Comments
 
 - 2026-09-25 评审（Opus，MERGE WITH FIXES）：阻断项是 Grok 的 `[compat.claude]` 会执行带参数的 Claude 审批门（已修，脚本见 `GROK_HOOK_EVENT` 就退出，有测试）；另修了健康检测认不出 `claude 60`、脚本 hold 的上下限与八进制、「坐在 Mac 前体验不变」的说法（改为等待中每秒重判 presence），并补了提问路径与 presence 交还的测试。
+- 2026-09-25 已装 App：daemon 按 hold=60 两次分别在 60.29 s、60.24 s 放行（测试直接调 `/approval?agent=claude&hold=60`，未经 hook 脚本；已装 Claude hook 为 `claude 60` / timeout 75）；第 35 s 用手机的 `/answer` 格式作答，模拟 hook 在 35.3 s 收到。腕上那次作答只用了 12.4 s（WR-09）。
