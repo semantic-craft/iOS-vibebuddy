@@ -547,7 +547,11 @@ public enum ObservationHealthDetector {
         }
         guard name == "approval-hook.sh" else { return false }
         if agent == .claudeCode {
-            return (argv.count == 1 || argv == [executable, expected])
+            // `claude <hold>` is the gate since WR-11; the bare and `claude`
+            // forms are what earlier installers wrote.
+            let held = argv.count == 3 && argv[1] == expected
+                && !argv[2].isEmpty && argv[2].allSatisfy { $0.isASCII && $0.isNumber }
+            return (argv.count == 1 || argv == [executable, expected] || held)
                 && ["PermissionRequest", "PreToolUse"].contains(event)
         }
         return argv == [executable, expected]

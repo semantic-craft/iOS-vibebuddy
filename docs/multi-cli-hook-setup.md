@@ -124,12 +124,16 @@ this is a bounded dashboard integration.
 #### Remote approval (`--approval`)
 
 `--approval` replaces the asynchronous `PermissionRequest`
-status group with a blocking `hooks/approval-hook.sh` (`timeout: 30`, matcher
-`*`). Claude fires `PermissionRequest` only when it would stop and ask — a prompt
+status group with a blocking `hooks/approval-hook.sh claude 60` (`timeout: 75`,
+matcher `*`). Claude fires `PermissionRequest` only when it would stop and ask — a prompt
 in default mode, an uncertain classifier in auto mode — and honours the hook's
 `hookSpecificOutput.decision.behavior` (`allow` / `deny` + `message`); Claude Code
 2.1.261 validates exactly that shape. Every other tool call never reaches the
-phone. Silence (no phone answer in 25s) leaves Claude's own prompt in place;
+phone. Silence leaves Claude's own prompt in place: at once when the session's
+terminal is in front and in use, otherwise after up to 60 s (the `60` is the hold
+the command passes; WR-11) — presence is read again every second during that
+wait, so coming back to the terminal hands the prompt back within a second — and
+after 25 s for a gate installed before the hold existed;
 `bypassPermissions` fires the event but ignores the answer. The `PreToolUse`
 status forwarder stays asynchronous. An older gate on `PreToolUse` (every call
 held) is migrated by a plain install; on a Claude Code older than 2.1.257 (which
@@ -146,8 +150,8 @@ as `decision.updatedPermissions`, so Claude Code writes the rule itself
 #### Questions (`AskUserQuestion`)
 
 `--approval` also adds a blocking `PreToolUse` group with matcher
-`AskUserQuestion` (same `approval-hook.sh`, `timeout: 30`). The daemon shows the
-questions on the phone and Mac cards; an answer within 25s goes back as
+`AskUserQuestion` (same `approval-hook.sh claude 60`, `timeout: 75`). The daemon shows the
+questions on the phone and Mac cards; an answer within the same wait goes back as
 `hookSpecificOutput.updatedInput` — the original `questions` plus `answers`
 keyed by question text (an array for a multi-select, the typed text for
 "Other") — so Claude continues without its own prompt. Silence prints nothing:
@@ -253,6 +257,9 @@ Grok-specific decoding rules (`GrokParser`):
 - Grok also imports `~/.claude/settings.json` hooks via `[compat.claude]`. Those
   entries deliver the Claude shape without `?agent=grok` and currently fail fail-open
   with `required env var(s) not set: ${PPID}` — harmless noise, never relied on.
+  The Claude approval gate (`approval-hook.sh claude 60` since WR-11) has arguments,
+  so Grok would run it; the script exits at once when `GROK_HOOK_EVENT` is set and
+  its source is not `grok`, so only Grok's own gate asks for a Grok session.
 
 #### Remote approval (`--approval`)
 
@@ -363,7 +370,7 @@ while the surface is focused), so the Mac **merges** each ref into the stored on
 field by field — a later capture updates what it saw and never erases what it
 didn't see. Grok's event payload uses camelCase `sessionId` and spells its event
 name `hookEventName`; the script reads the payload's `session_id` first, then
-`sessionId`, and only then falls back to `$GROK_SESSION_ID` — every process grok
+`sessionId`, and only then falls back to `$GROK_HOOK_EVENT` — every process grok
 spawned inherits that variable, so it would otherwise mis-attribute a Claude
 session started from a shell inside grok. A session with no captured terminal can't be jumped to
 (the iOS button hides; the Mac button disables; a phone jump reports "no

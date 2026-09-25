@@ -158,6 +158,11 @@ struct ObservationHealthDetectorTests {
         try write(#"{"hooks":{"SessionStart":[{"hooks":[{"command":"/app/vibebuddy-forward.sh codex","async":true}]}],"PermissionRequest":[{"hooks":[{"command":"/app/approval-hook.sh codex","async":true}]}]}}"#,
                   to: hooks)
         #expect(detect(home: home).health(agent: .codex, source: .hook) == .asyncIncompatible)
+
+        // The Claude gate carries its hold since WR-11 and is still recognised.
+        try write(#"{"hooks":{"PermissionRequest":[{"hooks":[{"command":"/app/approval-hook.sh claude 60","async":true}]}]}}"#,
+                  to: home.appendingPathComponent(".claude/settings.json"))
+        #expect(detect(home: home).health(agent: .claudeCode, source: .hook) == .asyncIncompatible)
     }
 
     @Test("fork inherits older metadata without changing owner version")

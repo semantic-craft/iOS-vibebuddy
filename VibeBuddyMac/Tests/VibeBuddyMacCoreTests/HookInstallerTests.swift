@@ -183,13 +183,15 @@ struct HookInstallerTests {
         #expect(grokGate.contains { ($0["command"] as? String ?? "").hasSuffix("\" grok") })
         let claudeApproved = try home.json(".claude/settings.json")
         let claudeGate = Self.handlers(claudeApproved, "PermissionRequest")
-        #expect(claudeGate.contains { ($0["command"] as? String ?? "").contains("approval-hook.sh") && $0["timeout"] as? Int == 30 })
+        // The Claude gate asks for the away hold and gives its hook room above it (WR-11).
+        #expect(claudeGate.contains { ($0["command"] as? String ?? "").hasSuffix("approval-hook.sh\" claude 60")
+            && $0["timeout"] as? Int == 75 })
         #expect(!claudeGate.contains { ($0["command"] as? String ?? "").contains("vibebuddy-forward.sh") })
         let claudePre = Self.handlers(claudeApproved, "PreToolUse", excludingMatcher: "AskUserQuestion")
         #expect(!claudePre.contains { ($0["command"] as? String ?? "").contains("approval-hook.sh") })
         #expect(claudePre.contains { ($0["command"] as? String ?? "").contains("vibebuddy-forward.sh") && $0["async"] as? Bool == true })
         #expect(Self.handlers(claudeApproved, "PreToolUse", matcher: "AskUserQuestion").contains {
-            ($0["command"] as? String ?? "").contains("approval-hook.sh") && $0["timeout"] as? Int == 30 })
+            ($0["command"] as? String ?? "").hasSuffix("approval-hook.sh\" claude 60") && $0["timeout"] as? Int == 75 })
         let codexApproved = try home.json(".codex/hooks.json")
         let codexGate = Self.handlers(codexApproved, "PermissionRequest")
         #expect(codexGate.contains { ($0["command"] as? String ?? "").hasSuffix("approval-hook.sh\" codex") && $0["timeout"] as? Int == 30 })

@@ -340,6 +340,85 @@ struct ApprovalRoutesTests {
         }
     }
 
+    @Test("a gate's hold stretches a PermissionRequest wait, never a PreToolUse one (WR-11)")
+    func awayHoldOnlyForPermissionRequest() async throws {
+        let store = SessionStore()
+        let srv = server(store: store, approvalTimeout: .milliseconds(300))
+        try await srv.buildApplication().test(.router) { client in
+            // Asked about presence and nobody is there: a decision made after
+            // the default wait still reaches the agent.
+            async let held = client.execute(uri: "/approval?agent=claude&hold=10", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequest("ls -la"))) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForPendingApproval(store, session: "ps")
+            try await Task.sleep(for: .milliseconds(700))
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"allow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held.contains(#""behavior":"allow""#))
+        }
+        // A PreToolUse gate never asked about presence, so the same hold is
+        // ignored and the default wait lapses into the CLI's own prompt.
+        let preStore = SessionStore()
+        let pre = server(store: preStore, approvalTimeout: .milliseconds(300))
+        try await pre.buildApplication().test(.router) { client in
+            let started = ContinuousClock.now
+            try await client.execute(uri: "/approval?hold=10", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: bash("make deploy"))) { res in
+                #expect(String(buffer: res.body).isEmpty)
+            }
+            #expect(ContinuousClock.now - started < .seconds(5))
+        }
+    }
+
+    @Test("a stretched wait hands back to the CLI once someone is at the Mac (WR-11)")
+    func stretchedWaitReleasesOnPresence() async throws {
+        final class Flag: @unchecked Sendable {
+            let lock = NSLock(); var on = false
+            func set() { lock.withLock { on = true } }
+            var value: Bool { lock.withLock { on } }
+        }
+        let back = Flag()
+        let store = SessionStore()
+        let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876,
+                                  approvalRegistry: ApprovalRegistry(),
+                                  rules: { _ in PermissionRules(allow: [], deny: []) },
+                                  allowStore: VibeBuddyAllowStore(url: allowStoreURL),
+                                  presence: { _ in back.value },
+                                  presenceRecheck: .milliseconds(100),
+                                  approvalTimeout: .milliseconds(300),
+                                  approvalID: { "s" })
+        try await srv.buildApplication().test(.router) { client in
+            let started = ContinuousClock.now
+            async let held = client.execute(uri: "/approval?agent=claude&hold=30", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequest("ls -la"))) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForPendingApproval(store, session: "ps")
+            try await Task.sleep(for: .milliseconds(600))
+            back.set()
+            // Held past the 300 ms default, then released to Claude's own
+            // prompt within a recheck or two — not at 30 s.
+            #expect(try await held.isEmpty)
+            let elapsed = ContinuousClock.now - started
+            #expect(elapsed > .milliseconds(600))
+            #expect(elapsed < .seconds(10))
+        }
+    }
+
+    @Test("the away wait honours only a sane hold", arguments: [
+        (nil, 25), ("", 25), ("abc", 25), ("0", 25), ("10", 25), ("60", 60), ("999", 120),
+    ] as [(String?, Int)])
+    func awayWaitBounds(hold: String?, seconds: Int) {
+        #expect(VibeBuddyServer.awayWait(hold: hold, default: .seconds(25)) == .seconds(seconds))
+    }
+
     @Test("a native deny rule still wins over a PermissionRequest")
     func permissionRequestNativeDeny() async throws {
         try await server(deny: ["Bash(rm:*)"]).buildApplication().test(.router) { client in
@@ -892,6 +971,24 @@ struct ApprovalRoutesTests {
                                                 stdin: claudeRequest("rm -rf build"))
         #expect(request == codexDeny)
 
+        // The WR-11 gate form: a hold in any shape still answers and exits 0
+        // (leading zeros are not octal, an oversized hold is clamped).
+        for hold in ["60", "060", "08", "0", "99999999999999999999", "abc"] {
+            let held = try await runApprovalHook(source: "claude", port: port, token: "t0k",
+                                                 stdin: bash("ls -la"), extra: [hold])
+            #expect(held.contains("\"permissionDecision\":\"allow\""), "hold \(hold)")
+        }
+
+        // Grok runs Claude's hooks through [compat.claude]; only Grok's own
+        // gate may ask for it, so the Claude gate stays silent there.
+        let compat = try await runApprovalHook(source: "claude", port: port, token: "t0k",
+                                               stdin: bash("rm -rf build"), extra: ["60"],
+                                               env: ["GROK_HOOK_EVENT": "pre_tool_use"])
+        #expect(compat.isEmpty)
+        let grokOwn = try await runApprovalHook(source: "grok", port: port, token: "t0k",
+                                                stdin: grokBash("ls -la"), env: ["GROK_HOOK_EVENT": "pre_tool_use"])
+        #expect(grokOwn == #"{"decision":"allow"}"#)
+
         // A wrong token is a 401 → nothing on stdout → the agent fails open.
         let unauthorized = try await runApprovalHook(source: "grok", port: port, token: "wrong",
                                                      stdin: grokBash("ls -la"))
@@ -951,12 +1048,16 @@ private func waitUntilListening(port: Int) async throws {
 
 /// Run the real hook script against the running daemon and return its stdout.
 private func runApprovalHook(source: String?, port: Int, token: String,
-                             stdin: String) async throws -> String {
+                             stdin: String, extra: [String] = [],
+                             env extraEnv: [String: String] = [:]) async throws -> String {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/sh")
     process.arguments = [repoRoot().appendingPathComponent("hooks/approval-hook.sh").path]
-        + (source.map { [$0] } ?? [])
+        + (source.map { [$0] } ?? []) + extra
     var env = ProcessInfo.processInfo.environment
+    env["GROK_HOOK_EVENT"] = nil
+    env["GROK_SESSION_ID"] = nil
+    env.merge(extraEnv) { $1 }
     env["VIBEBUDDY_PORT"] = String(port)
     env["VIBEBUDDY_TOKEN"] = token
     process.environment = env

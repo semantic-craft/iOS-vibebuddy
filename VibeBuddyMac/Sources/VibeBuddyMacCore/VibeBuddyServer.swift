@@ -50,6 +50,8 @@ public struct VibeBuddyServer: Sendable {
     /// answer and the phone gets a read-only card. The default never claims
     /// presence, so a headless daemon always holds for the phone.
     public let presence: @Sendable (String) async -> Bool
+    /// How often a wait stretched for an empty Mac re-reads presence (WR-11).
+    public let presenceRecheck: Duration
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
     public let onJump: @Sendable (TerminalRef) async -> JumpOutcome
@@ -125,6 +127,7 @@ public struct VibeBuddyServer: Sendable {
                 approvalContext: ApprovalContextStore = ApprovalContextStore(),
                 questionRegistry: QuestionRegistry = QuestionRegistry(),
                 presence: @escaping @Sendable (String) async -> Bool = { _ in false },
+                presenceRecheck: Duration = .seconds(1),
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
@@ -172,6 +175,7 @@ public struct VibeBuddyServer: Sendable {
         self.approvalID = approvalID
         self.questionRegistry = questionRegistry
         self.presence = presence
+        self.presenceRecheck = presenceRecheck
         self.onJump = onJump
         self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onJumpToCursor = onJumpToCursor
@@ -756,6 +760,10 @@ public struct VibeBuddyServer: Sendable {
         hookAuthed.post("approval") { request, _ -> Response in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             guard agent.supportsCLIIntegration else { return Response(status: .ok) }
+            // Longer only past a presence check that said nobody is at the
+            // Mac, and only when the gate asked for it (WR-11).
+            let awayTimeout = Self.awayWait(hold: request.uri.queryParameters["hold"].map(String.init),
+                                            default: timeout)
             let buffer = try await request.body.collect(upTo: 1 << 20)
             let data = Data(buffer: buffer)
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
@@ -789,7 +797,14 @@ public struct VibeBuddyServer: Sendable {
                     return Response(status: .ok)
                 }
                 await store.beginQuestion(sessionID: sessionID, question, at: Date())
-                guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: timeout) else {
+                let questionReturn = awayTimeout > timeout
+                    ? Self.releaseWhenPresent(sessionID, interval: presenceRecheck, presence: presence) {
+                        guard await questionRegistry.isWaiting(sessionID: sessionID) else { return false }
+                        await questionRegistry.cancelExact(sessionID: sessionID, questionID: question.id)
+                        return true
+                    } : nil
+                defer { questionReturn?.cancel() }
+                guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: awayTimeout) else {
                     await store.makeQuestionReadOnly(sessionID: sessionID, questionID: question.id)
                     return Response(status: .ok)
                 }
@@ -919,7 +934,15 @@ public struct VibeBuddyServer: Sendable {
                                     oldText: d.oldText, newText: d.newText,
                                     permissionMode: call.permissionMode,
                                     suggestedRule: PermissionSuggestion.describe(suggestions)), at: Date())
-                let outcome = await registry.wait(id: id, timeout: timeout)
+                // A PreToolUse gate fires with nobody asked about presence, so
+                // it keeps the short wait whatever the hook allows.
+                let wait = call.event == .permissionRequest ? awayTimeout : timeout
+                let approvalReturn = wait > timeout
+                    ? Self.releaseWhenPresent(sessionID, interval: presenceRecheck, presence: presence) {
+                        await registry.resolve(id: id, with: .pass)
+                    } : nil
+                let outcome = await registry.wait(id: id, timeout: wait)
+                approvalReturn?.cancel()
                 await store.endApproval(sessionID: sessionID, approvalID: id, at: Date())
                 switch outcome {
                 case .allow:
@@ -1319,6 +1342,33 @@ public struct VibeBuddyServer: Sendable {
         }
 
         return router
+    }
+
+    /// The wait a gate asked for (`approval-hook.sh`'s `hold`), used only
+    /// once the presence check has said nobody is at the Mac. Never shorter
+    /// than the default, never longer than two minutes. Absent or unreadable
+    /// keeps the default, which is what every hook config written before WR-11
+    /// gets: its own timeout is 30 s and would kill a longer wait.
+    static func awayWait(hold: String?, default base: Duration) -> Duration {
+        guard let seconds = hold.flatMap(Int.init), seconds > 0 else { return base }
+        return max(base, .seconds(min(seconds, 120)))
+    }
+
+    /// A wait stretched past the default because nobody was at the Mac hands
+    /// back to the agent's own prompt as soon as someone is: presence is read
+    /// again every `interval`, and `release` runs when it turns true, until
+    /// one release takes (a wait not registered yet is simply tried again).
+    /// The caller cancels the returned task when its wait ends.
+    static func releaseWhenPresent(_ sessionID: String, interval: Duration = .seconds(1),
+                                   presence: @escaping @Sendable (String) async -> Bool,
+                                   release: @escaping @Sendable () async -> Bool) -> Task<Void, Never> {
+        Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else { return }
+                if await presence(sessionID), await release() { return }
+            }
+        }
     }
 
     /// A PreToolUse reply that answers `AskUserQuestion` on the user's behalf:
