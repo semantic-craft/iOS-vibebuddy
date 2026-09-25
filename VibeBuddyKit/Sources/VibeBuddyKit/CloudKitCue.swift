@@ -102,3 +102,63 @@ public enum CloudKitCue {
             questionId: kind == .question ? requestID : nil)
     }
 }
+
+extension CloudKitCue {
+    /// The phone's own sound settings, mirrored into the app group so the
+    /// Notification Service Extension can apply them: one CloudKit record
+    /// reaches every phone on the account, so each phone quiets it for itself.
+    public struct PhonePrefs: Codable, Sendable, Equatable {
+        public var playSound: Bool
+        public var manualQuiet: Bool
+        public var quietHours: QuietHours
+        public var categories: NotificationCategoryPrefs
+
+        public init(playSound: Bool = true, manualQuiet: Bool = false,
+                    quietHours: QuietHours = QuietHours(), categories: NotificationCategoryPrefs = .default) {
+            self.playSound = playSound
+            self.manualQuiet = manualQuiet
+            self.quietHours = quietHours
+            self.categories = categories
+        }
+
+        static let key = "cloudKitCuePhonePrefs"
+
+        public static func load(from defaults: UserDefaults?) -> PhonePrefs {
+            guard let data = defaults?.data(forKey: key),
+                  let prefs = try? JSONDecoder().decode(PhonePrefs.self, from: data) else { return PhonePrefs() }
+            return prefs
+        }
+
+        public func save(to defaults: UserDefaults?) {
+            guard let data = try? JSONEncoder().encode(self) else { return }
+            defaults?.set(data, forKey: Self.key)
+        }
+    }
+
+    /// How this phone presents a cue the Mac sent at `sentLevel`'s loudness.
+    /// The extension cannot drop a notification, so a category this phone
+    /// switched off, or Quiet mode below a banner, lands `passive` and silent
+    /// — in Notification Center, never a banner or a sound.
+    public struct Presentation: Equatable, Sendable {
+        public var playsSound: Bool
+        public var timeSensitive: Bool
+        public var passive: Bool
+    }
+
+    public static func presentation(for sound: NotificationSound?, macWantsSound: Bool, macTimeSensitive: Bool,
+                                    prefs: PhonePrefs, now: Date = Date()) -> Presentation {
+        let quiet = Presentation(playsSound: false, timeSensitive: false, passive: true)
+        guard let sound else {
+            return Presentation(playsSound: macWantsSound && prefs.playSound, timeSensitive: false, passive: false)
+        }
+        guard prefs.categories.isEnabled(sound) else { return quiet }
+        var level: DeliveryLevel = macWantsSound ? .bannerSound : .banner
+        if prefs.manualQuiet || prefs.quietHours.isQuiet(at: now) {
+            level = min(level, DeliveryMatrix.level(for: sound, attention: .muted))
+        }
+        guard level.interrupts else { return quiet }
+        return Presentation(playsSound: level.makesSound && prefs.playSound,
+                            timeSensitive: macTimeSensitive && level == .bannerSound,
+                            passive: false)
+    }
+}
