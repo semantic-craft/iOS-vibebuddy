@@ -58,7 +58,7 @@ struct WatchAnswerControl: View {
                                 draft = WatchAnswerDraft(alert: alert, text: unsent.text)
                             } label: {
                                 Label("Use my reply", systemImage: "text.bubble")
-                                    .lineLimit(1)
+                                    .lineLimit(2)
                                     .minimumScaleFactor(0.7)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -114,9 +114,10 @@ struct WatchAnswerControl: View {
         Button {
             draft = WatchAnswerDraft(alert: alert, text: reply.text)
         } label: {
+            // Never truncated: the wearer must read the whole reply they are
+            // about to pick, at every text size.
             Text(reply.text)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
@@ -130,7 +131,7 @@ struct WatchAnswerControl: View {
         TextFieldLink(prompt: Text(alert.request ?? String(localized: "Your answer"))) {
             Label(source == .options ? "Something else" : "Dictate an answer",
                   systemImage: "mic.fill")
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } onSubmit: { spoken in
@@ -158,6 +159,7 @@ struct WatchAnswerStatusLine: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .announcesChanges(of: statusText)
         }
     }
 
@@ -265,14 +267,12 @@ struct WatchAnswerConfirmView: View {
                                                         agent: agent))
                     .font(CompanionType.font(10))
                     .foregroundStyle(CompanionPalette.ink2)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let question, !question.isEmpty {
                     Text(question)
                         .font(CompanionType.font(10))
                         .foregroundStyle(CompanionPalette.ink2)
-                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 

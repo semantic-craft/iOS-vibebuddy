@@ -19,17 +19,20 @@ struct WatchAlertCard: View {
     /// rendering its own top alert behind an open task sheet, and two live
     /// claims would let a pinch approve a command the wearer cannot see.
     var isFrontmost: Bool = true
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var accent: Color { CompanionPalette.status(.requiresInput) }
 
     var body: some View {
         // A card on a hairline, not a tinted block: the dot and the kicker
-        // carry the urgency (ADR-0017 §4).
+        // carry the urgency (ADR-0017 §4). The card *contains* its elements:
+        // combining it would fold Approve, Deny and the answers into one
+        // spoken blob that VoiceOver can only reach through the Actions rotor.
         content
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .companionCard()
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
     }
 
     /// `<project> wants to <verb>` when the tool is known, else the plain kind.
@@ -70,7 +73,7 @@ struct WatchAlertCard: View {
                 Text(label)
                     .font(CompanionType.font(10, .medium))
                     .foregroundStyle(accent)
-                    .lineLimit(2)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 4)
                 Text(WatchFormat.duration(alert.waitedFor(now: now)))
@@ -78,11 +81,14 @@ struct WatchAlertCard: View {
                     .monospacedDigit()
                     .foregroundStyle(CompanionPalette.ink2)
             }
+            .accessibilityElement(children: .combine)
 
             Text(title)
                 .font(CompanionType.font(15, .semibold))
                 .foregroundStyle(CompanionPalette.ink)
-                .lineLimit(3)
+                // At accessibility sizes the question is read whole: the card
+                // scrolls, and an answer to half a question is not an answer.
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 3)
                 .minimumScaleFactor(0.8)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -92,7 +98,7 @@ struct WatchAlertCard: View {
                 Text(request)
                     .font(CompanionType.mono(10))
                     .foregroundStyle(CompanionPalette.ink)
-                    .lineLimit(4)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 4)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(6)
@@ -109,6 +115,7 @@ struct WatchAlertCard: View {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Image(systemName: "circle")
                                 .font(.system(size: 6))
+                                .accessibilityHidden(true)
                             Text(option)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -127,8 +134,9 @@ struct WatchAlertCard: View {
                 }
             }
             .font(CompanionType.font(10))
-            .lineLimit(1)
+            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             .minimumScaleFactor(0.7)
+            .accessibilityElement(children: .combine)
 
             // What the request is, above; what can be done about it, below.
             CompanionHairline()
@@ -236,6 +244,7 @@ struct WatchApprovalActions: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .announcesChanges(of: statusText)
     }
 
     /// Stacked and full-width, in the state's own colour, radius 8: the
@@ -246,11 +255,13 @@ struct WatchApprovalActions: View {
             store.submit(alert, choice)
         } label: {
             Text(title)
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(CompanionButtonStyle(kind: .filled(tint), size: .wide))
+        // The target, for a VoiceOver user who swipes straight to the key.
+        .accessibilityHint(Text(alert.request ?? alert.summary ?? ""))
     }
 
     /// Never "Approved". The wrist knows only that the Mac took the decision;
@@ -411,7 +422,7 @@ struct WatchStopControl: View {
                 confirming = WatchStopIntent(task: task)
             } label: {
                 Label("Stop", systemImage: "stop.fill")
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.8)
                     .frame(maxWidth: .infinity)
             }
@@ -429,6 +440,7 @@ struct WatchStopControl: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .announcesChanges(of: statusText)
         .sheet(item: $confirming) { intent in
             WatchStopConfirmView(intent: intent) {
                 store.submitStop(sessionID: intent.sessionID, statusSince: intent.statusSince)
@@ -505,7 +517,7 @@ struct WatchStopConfirmView: View {
                 Text(intent.title.isEmpty ? String(localized: "Unnamed task") : intent.title)
                     .font(CompanionType.font(12))
                     .foregroundStyle(CompanionPalette.ink2)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("The turn it is running now ends. Work already finished stays done.")
                     .font(CompanionType.font(10))
                     .foregroundStyle(CompanionPalette.ink2)
@@ -532,6 +544,18 @@ struct WatchStopConfirmView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 2)
+        }
+    }
+}
+
+extension View {
+    /// Speaks a status sentence when it changes. "Sending…", "Your Mac has
+    /// it" and "Not sent" otherwise appear silently under a key a VoiceOver
+    /// user has already moved away from.
+    func announcesChanges(of message: LocalizedStringResource?) -> some View {
+        onChange(of: message.map { String(localized: $0) }) { _, spoken in
+            guard let spoken, !spoken.isEmpty else { return }
+            AccessibilityNotification.Announcement(spoken).post()
         }
     }
 }
