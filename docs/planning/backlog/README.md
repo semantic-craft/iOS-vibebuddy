@@ -1,4 +1,4 @@
-# 施工清单（2026-09-25 更新）
+# 施工清单（2026-09-26 更新）
 
 这里是当前全部计划的入口：上半部分是最近已完成的改动，下半部分是**全部未完成**的施工项。可交互版本（带可复制的 agent 提示词）：https://claude.ai/artifact/M4n5cM4CeHYbv7sTGtH6VF 。
 
@@ -66,6 +66,19 @@
 | #304 | **WR-11**：Mac 前没人时，Claude 的审批和提问最多等 60 s（原 25 s），等待中每秒重判一次，回到终端就交还 CLI；hook 超时 75 s；Grok compat 不再执行 Claude 的审批门 | 2026-09-25 装机后 Mac 端验证：daemon 按 hold=60 等满 60.3 s（测试直接调 `/approval`，未经 hook 脚本；已装 hook 配置为 `claude 60` / timeout 75）；第 35 s 用手机的 `/answer` 格式作答，模拟 hook 在 35.3 s 收到；腕上超过 25 s 的作答未直接测 |
 | #309 | **WR-12**：手表回到前台（或前台时手机变为可达）就向手机要一次最新状态，限频 | 腕上 2026-09-25 通过：手机锁屏后新开的任务，第二次抬腕请求后 1.3 s 收到，手机同步给手表的状态里有这条任务 |
 
+### 2026-09-25 至 26 · 发布与合并
+
+#316、#318–#323 经独立 Opus 子代理评审后合并（#317 为版本号 PR，未单独贴评审）。
+
+| PR | 改动 | 效果 |
+|---|---|---|
+| #316 / #317 | 发布 Mac 1.3.33 (51)、1.3.34 (52)；iOS 1.3.29 (61) 提交审核 | 1.3.34 已发布；`/Applications` 之后又换成 main 开发版 |
+| #318 | **G-4b**：开着 VoiceOver 时，不会真正弹出的系统通知不再算送达，改走刘海卡片并朗读 | 随 Mac 1.3.35 |
+| #319 | 删除 11 张已完成工单，表格行改指向已合并的 PR | 清理 |
+| #320 / #321 | **A-12**：没配 `.p8` 的 Mac 经用户自己的 iCloud 私有库推提醒；iOS 新增通知服务扩展 | 开发环境验收通过；Production schema 2026-09-26 已部署；随 Mac 1.3.35 / iOS 1.3.30 |
+| #322 | Mac、iPhone 删除 Recap（Watch 本来没有）；完成结果改存 `completion-results.json` | 必须与 iOS 同发 |
+| #323 | 朗读主播风格：严肃 / 撒娇 / 诱惑（音色 + 语气 + 措辞），长播报分段合成 | 已装机 |
+
 ## 开发项
 
 | ID | 内容 | 票据 | 状态 | 依据 | 建议 |
@@ -91,8 +104,8 @@
 | RV-03 | 语音动作不要落到用户没点名的另一个等待中的任务 | [03](https://github.com/semantic-craft/iOS-vibebuddy/pull/297) | 已合并（#297） | 2026-09-24 定案：批准、拒绝、回答、指示这四种动作，只有用户这一句话里说出了目标的名字才会发出；没说就扣住，请用户说出名字（ADR-0008「Named target」）。单元测试复现了 grape→orange；修复后用 Qwen、Gemini 合成语音重跑，点名的动作都落对了，没有落到别的任务上；Gemini 把「橘子」转写成日文，误扣过一次（安全方向）。已知缺口：Live 的工具调用如果比新一句的转写先到，上一句的词还算数（Gemini 的同一缺口随 2026-09-25 移除 Gemini 成为历史） | 真机语音时留意有没有误扣 |
 | E-1 | Icon Composer 分层图标 | roadmap JSON `E-1` | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 | 保留 |
 | G-4 | 无障碍检查（VoiceOver / 动态字体 / Reduce Motion / 对比度 / 点击区域），并入 G-5 的设计检查表 | [检查表](../../design/accessibility-checklist.md)、[审计记录](../../design/accessibility-audit-2026-09.md) | **done**（#315） | 三端逐项审计 + 模拟器上用 Apple 的 `performAccessibilityAudit` 和元素树做修前修后对比（`tools/a11y-audit/`）。最重要的一条：手表的审批 / 提问卡片原来被 VoiceOver 当成**一个**按钮，批准、拒绝和快捷回答只能从转子里找，双击卡片可能直接触发第一个选项；已拆开。iPhone 最大字号下「First up」「Claude / Codex」等不再被截成几个字母，审批按钮固定在命令下面；深色模式薄荷绿按钮上的白字 2.06:1 → 9.09:1（灵动岛、Mac 刘海、Dashboard、手表）；iPhone 首次加上 Reduce Motion；Mac 开着 VoiceOver 时提醒改走系统通知；「增强对比度」开始生效 | 真机 VoiceOver 没人听过；有几条低优先级的没做（见审计记录末节）。以后的 UI 改动按检查表走 |
-| G-4b | 开着 VoiceOver 时，看不见的系统通知（样式「无」、临时授权）不再算送达，改走刘海卡片并念出 | [01](voiceover-alerts/issues/01-silent-banner-fallback.md) | done（本 PR，随 Mac 1.3.35） | 1.3.34 发布评审（#317）发现；路由挪进 `VibeBuddyMacCore` 并有回归测试；专注模式无法在不多弹权限的前提下检测，不做 | 真机 VoiceOver 没听过，下次顺带听 |
-| M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | [13](watch-wrist-resolve/issues/13-full-question-and-target.md) | 已实现（PR 待合并），模拟器已验；待腕上 | 改前：能批准的命令在 40 mm 上被截成 4 行（`gh pr c…`），问题截 3 行、选项截 2 行。现在问题、命令、选项整段显示、表冠滚动；超长的（约两屏以上，只可能是不能在手表上批的）先给预览加「展开」；能批准的命令永远不折叠。结果详情加上 agent 回复的开头（Mac 已给手机发的 `completionText`），摘要和回复各自可展开。保留 160 字符批准门槛；不做腕上朗读。截图 `~/Projects/_shared-work/iOS-vibebuddy/m07-watch-full-text-2026-09-25/` | 下一次手表检查的「长文字」一项 |
+| G-4b | 开着 VoiceOver 时，看不见的系统通知（样式「无」、临时授权）不再算送达，改走刘海卡片并念出 | [01](voiceover-alerts/issues/01-silent-banner-fallback.md) | done（#318，随 Mac 1.3.35） | 1.3.34 发布评审（#317）发现；路由挪进 `VibeBuddyMacCore` 并有回归测试；专注模式无法在不多弹权限的前提下检测，不做 | 真机 VoiceOver 没听过，下次顺带听 |
+| M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | [13](watch-wrist-resolve/issues/13-full-question-and-target.md) | done（#313，随 iOS 1.3.29）；模拟器已验，腕上顺带看 | 改前：能批准的命令在 40 mm 上被截成 4 行（`gh pr c…`），问题截 3 行、选项截 2 行。现在问题、命令、选项整段显示、表冠滚动；超长的（约两屏以上，只可能是不能在手表上批的）先给预览加「展开」；能批准的命令永远不折叠。结果详情加上 agent 回复的开头（Mac 已给手机发的 `completionText`），摘要和回复各自可展开。保留 160 字符批准门槛；不做腕上朗读。截图 `~/Projects/_shared-work/iOS-vibebuddy/m07-watch-full-text-2026-09-25/` | 下一次手表检查的「长文字」一项 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级标注 | roadmap JSON | 部分完成 | #224 加了引导清单；README 已标出部分社区适配 | 缩小范围后保留 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后**（代码已丢失，重启时从 09 重做） | 见下节 | 等公开版稳定后再做 |
 
@@ -145,8 +158,7 @@
    2026-09-25 删掉了三步。专注模式下横幅弹不弹（A-03）：我们发的是 `interruption-level: time-sensitive` 并申请了对应 entitlement，负载有测试覆盖（`ActivityPushTests`、`NotificationDeliveryTests`），Mac 的专注模式 2026-09-06 已验，iPhone 上的表现取决于你自己的专注设置。摘下手表时推送落在哪（M-01）：由系统决定。手表上对三家各批准一次（H-1）：手表到手机到 Mac 这一段不分 agent，手表批准已过 3 次（2 次模拟的 Claude 等待、1 次托管 Cursor）；各家 Mac 端由 agent 验，Claude、Grok、Cursor 已在模拟器通过，Codex 2026-09-25 已由 agent 验过（托管任务，见第 1 件）。
 3. ~~**Codex 重新信任**~~ **已完成**（2026-09-24）：你已在 `/hooks` 信任，`vibebuddyd hooks status` 显示「Codex is running all 14 VibeBuddy hooks」，路径是固定目录。重新部署后已确认：两次从 main 替换 App 之后（11:00Z、12:08Z），`hooks status` 仍显示「running all 14」，不需要重新信任。
 4. **语音耳测**（约 5 分钟，D-U，只能靠耳朵）：Qwen 打一通短电话，中英文各说一句；OpenAI 补一句英文（Gemini 已于 2026-09-25 移除）。每通回一句「听得清吗、能打断吗」。
-5. **App Store Connect 登录一次**（1 分钟，可选）：在 Chrome 里登录 appstoreconnect.apple.com，agent 就能读 iOS 1.3.28 (58) 的审核状态。Mail / Outlook 的读取请求你已拒绝，所以也可以直接告诉 agent 状态邮件写的是什么。
-6. **要不要发布**：前提已满足，待你决定（手表检查已完成；H-2 按字面标准通过，1.3.33 须从与 6236e188 代码相同的提交切出，否则重跑）。Mac 1.3.33（带上 #262 起已合并的全部改动，含 #287、#290、#293）和下一版 iOS 是否发布，由你一句话决定；agent 负责打包、公证和上传。下一版起已没有 Gemini：发布或提交审核时，agent 同步删掉 `docs/privacy-policy.md` 和 `docs/app-store-listing.md` 里的 Google (Gemini)。
+5. ~~**App Store Connect 登录一次**~~、6. ~~**要不要发布**~~：已被 2026-09-25 的 Mac 1.3.33 / 1.3.34 发布和 iOS 1.3.29 (61) 提交取代；2026-09-26 你在发版会话里说「发版原则就是我不怎么干预，你全自动做」，Mac 1.3.35 / iOS 1.3.30 按此由 agent 完成。
 
 ## 观察项（暂不动手）
 
