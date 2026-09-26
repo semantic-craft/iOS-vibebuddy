@@ -16,7 +16,7 @@ enum PhoneNetwork {
         addresses().contains { CompanionEndpoint(host: $0, port: 1)?.isTailnetIPv4 == true }
     }
 
-    /// Every IPv4 address on an interface that is up and running.
+    /// Every IPv4 address on a VPN tunnel interface that is up and running.
     static func addresses() -> [String] {
         var list: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&list) == 0, let first = list else { return [] }
@@ -26,7 +26,10 @@ enum PhoneNetwork {
         while let entry = cursor {
             defer { cursor = entry.pointee.ifa_next }
             let flags = Int32(entry.pointee.ifa_flags)
-            guard flags & IFF_UP != 0, flags & IFF_RUNNING != 0,
+            // Only VPN tunnels: carrier CGNAT hands cellular (`pdp_ip*`)
+            // addresses from the same 100.64.0.0/10 block.
+            guard String(cString: entry.pointee.ifa_name).hasPrefix("utun"),
+                  flags & IFF_UP != 0, flags & IFF_RUNNING != 0,
                   let address = entry.pointee.ifa_addr,
                   address.pointee.sa_family == UInt8(AF_INET) else { continue }
             var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))

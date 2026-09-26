@@ -58,7 +58,7 @@ struct DeviceConnectionView: View {
                     Label {
                         VStack(alignment: .leading, spacing: 5) {
                             Text("Connect away from home").font(CompanionType.font(16, .medium))
-                            Text("Use your Mac on cellular with Headscale, Tailscale or Surge.")
+                            Text("Use your Mac on cellular with Tailscale. Headscale and Surge work too.")
                                 .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                         }
                         .padding(.vertical, 6)

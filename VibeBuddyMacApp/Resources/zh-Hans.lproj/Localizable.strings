@@ -582,11 +582,6 @@
 "Forget" = "忘记";
 "Stops pushes and forgets all registered phones until you choose Pair a phone again." = "停止推送并忘记所有已注册的手机，直到你再次选择“配对手机”。";
 "Connection" = "连接";
-"Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address." = "把 Mac 和 iPhone 连到同一个 tailnet。使用 Headscale 时，填这台 Mac 的 100.x.x.x 地址。";
-"Use Tailscale for remote access" = "用 Tailscale 远程访问";
-"Tailscale address" = "Tailscale 地址";
-"Enter a valid Tailscale address." = "请输入有效的 Tailscale 地址。";
-"100.x.x.x or Mac name.ts.net" = "100.x.x.x 或 Mac 名称.ts.net";
 
 /* MARK: Settings — Agent CLIs (ADR-0017) */
 "Hooks" = "Hook";
@@ -1078,20 +1073,16 @@
 "Connection method" = "连接方式";
 "Same Wi-Fi" = "同一 Wi-Fi";
 "Away from Mac" = "在外连接";
-"Headscale / Tailscale · Bring the remote address to your iPhone." = "Headscale / Tailscale · 将远程地址带到 iPhone。";
 "Connect both devices to the same network, then scan this Mac’s code." = "两端连接同一网络，再扫描这台 Mac 的二维码。";
 "Remote address ready" = "远程地址已就绪";
 "Prepare this Mac’s network" = "准备这台 Mac 的网络";
 "Detect remote address" = "识别远程地址";
 "The address is ready. Your iPhone still needs to check the connection." = "地址已准备好，还需由 iPhone 检查连接。";
-"Connect the Tailscale app on this Mac to your Headscale network and allow incoming connections. Surge alone cannot receive connections to this Mac." = "在 Mac 的 Tailscale 中加入你的 Headscale 网络，并允许传入连接。仅使用 Surge 无法接收发往这台 Mac 的连接。";
-"Mac network setup" = "Mac 网络设置说明";
 "Choose this Mac’s remote address:" = "选择这台 Mac 的远程地址：";
 "Scan once to bring in the Mac address and pairing permission. iPhone checks the connection before saving." = "扫码带入 Mac 地址和配对授权，iPhone 检查通过后保存。";
 "Scan in VibeBuddy on iPhone within 2 minutes." = "请在 2 分钟内用 iPhone 的 VibeBuddy 扫码。";
 "Close pairing code" = "关闭配对码";
 "Show connection code" = "显示连接二维码";
-"If needed, finish Headscale sign-in in Surge or Tailscale on your iPhone, then check again." = "如尚未入网，请在 iPhone 的 Surge 或 Tailscale 中完成 Headscale 登录，再检查连接。";
 "Already paired? Send the remote address over the existing connection. Open VibeBuddy on your iPhone to receive it." = "已配对的手机可通过现有连接接收远程地址。请在 iPhone 上打开 VibeBuddy。";
 "Sync to iPhone" = "同步到 iPhone";
 "Scan the connection code again to enable syncing for this phone." = "请重新扫描连接二维码，为这台手机启用同步。";
@@ -1115,7 +1106,6 @@
 "Scan this Mac’s current connection code on iPhone, then check again." = "用 iPhone 扫描这台 Mac 当前的连接二维码，然后重新检查。";
 "Open VibeBuddy on iPhone and retry the check. Its previous address stays saved until the check succeeds." = "在 iPhone 上打开 VibeBuddy 后重试检查。检查成功前，手机保留原地址。";
 "Mac remote IPv4 address" = "Mac 远程 IPv4 地址";
-"Use this Mac’s 100.x address, not the Headscale server URL." = "请填写这台 Mac 的 100.x 地址，此处不填 Headscale 服务器网址。";
 "Advanced connection settings" = "高级连接设置";
 "Detected on this Mac: %@" = "本机识别到的地址：%@";
 
@@ -1206,3 +1196,9 @@
 "This build cannot use iCloud. Install the release from GitHub, or configure an APNs key." = "这个版本用不了 iCloud。请安装 GitHub 上的正式版，或配置 APNs 密钥。";
 "Cues reach a closed iPhone through your own iCloud. The iPhone must use the same Apple Account." = "iPhone 关着 App 时，提醒经你自己的 iCloud 送达。iPhone 必须登录同一个 Apple 账号。";
 "This style reads with its own voice and model, and rewords summaries. The voice and model set here apply to Standard." = "这个风格使用专属音色和模型，播报文字也会按风格改写。这里设置的音色和模型只在“标准”风格下使用。";
+"Tailscale · Bring the remote address to your iPhone." = "Tailscale · 将远程地址带到 iPhone。";
+"Install Tailscale on this Mac and sign in; VibeBuddy finds its 100.x.x.x address automatically. Keep incoming connections allowed. Surge alone cannot receive connections to this Mac." = "在这台 Mac 上安装并登录 Tailscale，VibeBuddy 会自动找到它的 100.x.x.x 地址。请保持允许传入连接。仅靠 Surge 无法接收对这台 Mac 的连接。";
+"Download Tailscale for Mac" = "下载 Mac 版 Tailscale";
+"Using Headscale?" = "使用 Headscale？";
+"If needed, sign in to Tailscale on your iPhone with the same account as this Mac, then check again." = "如尚未入网，请在 iPhone 的 Tailscale 中用与这台 Mac 相同的账号登录，再检查连接。";
+"Use the 100.x.x.x address Tailscale shows for this Mac, not a server URL." = "填写 Tailscale 里显示的这台 Mac 的 100.x.x.x 地址，不是服务器网址。";

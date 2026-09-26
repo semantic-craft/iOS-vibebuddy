@@ -69,7 +69,7 @@ public enum ConnectionDiagnosis {
     ///   - endpoint: The Mac's address as paired.
     ///   - kind: What the transport reported.
     ///   - phoneHasTailnet: Whether this phone currently holds an address in
-    ///     the tailnet range on any interface — the one thing a running Surge
+    ///     the tailnet range on a VPN tunnel (`utun`) — the one thing a running Surge
     ///     or Tailscale gives it and a stopped one takes away.
     public static func diagnose(endpoint: CompanionEndpoint?, kind: ConnectionFailureKind,
                                 phoneHasTailnet: Bool) -> ConnectionFailureReason {

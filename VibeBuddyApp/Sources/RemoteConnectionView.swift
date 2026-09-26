@@ -3,6 +3,7 @@ import VibeBuddyKit
 
 struct RemoteConnectionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
     @StateObject private var check = RemoteConnectionAttempt()
@@ -12,13 +13,10 @@ struct RemoteConnectionView: View {
     @State private var initializedDraft = false
     @State private var showScanner = false
     @State private var showManual = false
-    @State private var showNetworkSteps = true
-    @State private var provider = NetworkProvider.surge
-
-    private enum NetworkProvider: String, CaseIterable, Identifiable {
-        case surge = "Surge", tailscale = "Tailscale"
-        var id: String { rawValue }
-    }
+    @AppStorage(NetworkApp.storageKey) private var savedProvider = ""
+    @State private var provider = NetworkApp.tailscale
+    @State private var bothInstalled = false
+    @State private var phoneOnTailnet = false
 
     private var candidate: PairingPayload? {
         (scannedPairing ?? connection.pairing)?.usingTailnetIPv4(host, port: Int(port) ?? 0)
@@ -53,15 +51,15 @@ struct RemoteConnectionView: View {
                             .font(CompanionType.font(13))
                     }
                     DisclosureGroup("Enter address manually", isExpanded: $showManual) {
-                        LabeledContent("Mac private IP") {
+                        LabeledContent("Mac’s Tailscale IP") {
                             TextField("100.x.x.x", text: $host)
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
                                 .font(CompanionType.mono(14))
-                                .accessibilityLabel("Mac private IP (100.x.x.x)")
+                                .accessibilityLabel("Mac’s Tailscale IP (100.x.x.x)")
                                 .accessibilityIdentifier("remote-mac-ip")
                         }
-                        Text("Use the Mac’s Tailscale IPv4 address, not the Headscale server URL or Surge node address.")
+                        Text("Use the 100.x.x.x address Tailscale shows for your Mac, not a server URL.")
                             .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                         DisclosureGroup("Advanced settings") {
                             LabeledContent("Port") {
@@ -87,26 +85,38 @@ struct RemoteConnectionView: View {
                 }
                 .disabled(check.isChecking)
                 Section("2. Prepare your phone’s network") {
-                    Picker("Network app", selection: $provider) {
-                        ForEach(NetworkProvider.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    DisclosureGroup("Network setup steps", isExpanded: $showNetworkSteps) {
-                        if provider == .surge {
-                            Text("In Surge, add a Tailscale policy with your Headscale control-url and sign in. Confirm the Mac’s private IP uses this policy. Current Surge versions add routes for discovered devices automatically.")
-                            Link("Surge setup guide", destination: URL(string: "https://manual.nssurge.com/policies/tailscale.html")!)
-                        } else {
-                            Text("In the Tailscale app, sign in to the same network as your Mac. If you use Headscale, choose your Headscale server before signing in. Keep Tailscale connected.")
-                            Link("Tailscale and Headscale setup", destination: URL(string: "https://headscale.net/stable/usage/connect/apple/#ios")!)
+                    if bothInstalled {
+                        Picker("Network app", selection: $provider) {
+                            ForEach(NetworkApp.allCases) { Text(verbatim: $0.name).tag($0) }
                         }
-                        Text("Keep VibeBuddy and Tailscale running on the Mac, with incoming connections allowed. Sign-in happens in your network app; VibeBuddy checks the connection.")
+                        .pickerStyle(.segmented)
                     }
-                    .font(CompanionType.font(13))
+                    if provider == .surge {
+                        Text("In Surge, add a Tailscale policy with your Headscale control-url and sign in. Confirm the Mac’s private IP uses this policy. Current Surge versions add routes for discovered devices automatically.")
+                        Link("Surge setup guide", destination: URL(string: "https://manual.nssurge.com/policies/tailscale.html")!)
+                    } else {
+                        Text("Install Tailscale on this iPhone and sign in with the same account as your Mac. Keep it connected.")
+                        Link("Get Tailscale on the App Store", destination: URL(string: "https://apps.apple.com/app/tailscale/id1470499037")!)
+                        Text("Self-hosted Headscale? In Tailscale, choose your own server before signing in.")
+                            .foregroundStyle(CompanionPalette.ink2)
+                        Link("Headscale setup", destination: URL(string: "https://headscale.net/stable/usage/connect/apple/#ios")!)
+                    }
+                    // Only for Tailscale: whether Surge's policy puts a tailnet
+                    // address on this phone's tunnel has not been verified.
+                    if provider == .tailscale {
+                        Label(phoneOnTailnet ? LocalizedStringKey("This iPhone is on your tailnet") : LocalizedStringKey("This iPhone is not on a tailnet yet"),
+                              systemImage: phoneOnTailnet ? "checkmark.circle.fill" : "circle.dashed")
+                            .foregroundStyle(phoneOnTailnet ? CompanionPalette.accent : CompanionPalette.ink2)
+                            .accessibilityIdentifier("remote-phone-tailnet")
+                    }
+                    Text("Keep VibeBuddy and Tailscale running on the Mac, with incoming connections allowed. Sign-in happens in your network app; VibeBuddy checks the connection.")
+                        .foregroundStyle(CompanionPalette.ink2)
                 }
+                .font(CompanionType.font(13))
                 .disabled(check.isChecking)
                 Section {
                     if let candidate {
-                        LabeledContent("Mac private IP") {
+                        LabeledContent("Mac’s Tailscale IP") {
                             Text(verbatim: "\(candidate.host):\(candidate.port)")
                                 .font(CompanionType.mono(13))
                         }
@@ -153,8 +163,10 @@ struct RemoteConnectionView: View {
         .navigationTitle("Connect away from home")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            refreshNetwork()
             guard !initializedDraft else { return }
             initializedDraft = true
+            provider = NetworkApp.preferred(saved: savedProvider)
             if let pairing = connection.pairing,
                pairing.usingTailnetIPv4(pairing.host, port: pairing.port) != nil {
                 host = pairing.host
@@ -162,6 +174,8 @@ struct RemoteConnectionView: View {
             port = String(connection.pairing?.port ?? 9876)
         }
         .onDisappear { check.cancel() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { refreshNetwork() } }
+        .onChange(of: provider) { _, choice in if bothInstalled { savedProvider = choice.rawValue } }
         .onChange(of: host) { _, _ in check.reset() }
         .onChange(of: port) { _, _ in check.reset() }
         .sheet(isPresented: $showScanner) {
@@ -198,6 +212,14 @@ struct RemoteConnectionView: View {
         .phoneList()
         .navigationTitle("Check status away from home")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Re-read on every return to the app: the person usually leaves to sign
+    /// in to the network app and comes back.
+    private func refreshNetwork() {
+        bothInstalled = NetworkApp.allCases.allSatisfy(\.isInstalled)
+        if !bothInstalled { provider = NetworkApp.preferred(saved: savedProvider) }
+        phoneOnTailnet = PhoneNetwork.hasTailnetAddress()
     }
 
     private func connect() {

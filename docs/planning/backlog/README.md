@@ -107,6 +107,7 @@
 | G-4b | 开着 VoiceOver 时，看不见的系统通知（样式「无」、临时授权）不再算送达，改走刘海卡片并念出 | [01](voiceover-alerts/issues/01-silent-banner-fallback.md) | done（#318，随 Mac 1.3.35） | 1.3.34 发布评审（#317）发现；路由挪进 `VibeBuddyMacCore` 并有回归测试；专注模式无法在不多弹权限的前提下检测，不做 | 真机 VoiceOver 没听过，下次顺带听 |
 | M-07 | 手表展示完整问题 / 审批对象，结果片段可展开 | [13](watch-wrist-resolve/issues/13-full-question-and-target.md) | done（#313，随 iOS 1.3.29）；模拟器已验，腕上顺带看 | 改前：能批准的命令在 40 mm 上被截成 4 行（`gh pr c…`），问题截 3 行、选项截 2 行。现在问题、命令、选项整段显示、表冠滚动；超长的（约两屏以上，只可能是不能在手表上批的）先给预览加「展开」；能批准的命令永远不折叠。结果详情加上 agent 回复的开头（Mac 已给手机发的 `completionText`），摘要和回复各自可展开。保留 160 字符批准门槛；不做腕上朗读。截图 `~/Projects/_shared-work/iOS-vibebuddy/m07-watch-full-text-2026-09-25/` | 下一次手表检查的「长文字」一项 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级标注 | roadmap JSON | 部分完成 | #224 加了引导清单；README 已标出部分社区适配 | 缩小范围后保留 |
+| NET-01 | 远程连接以官方 Tailscale 为主路，Surge / Headscale 退为变体 | [01](tailscale-first-setup/issues/01-tailscale-first-remote-setup.md) | **done**（本 PR；真机走查未做） | 2026-09-26 computer use 看两端界面：iPhone 远程页默认 Surge，两端文案和链接默认 Headscale，首次打开步骤重影，文档界面名过时 | 手机只装官方 Tailscale、关 Wi-Fi 走一遍 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后**（代码已丢失，重启时从 09 重做） | 见下节 | 等公开版稳定后再做 |
 
 ## 2026-09-23 已拍板（对照 GitHub 同类项目）

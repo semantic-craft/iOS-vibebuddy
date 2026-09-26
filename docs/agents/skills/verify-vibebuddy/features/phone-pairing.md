@@ -15,7 +15,7 @@ Pairing is the owner's explicit, time-limited consent to link an iPhone to this 
 - On Mac: menu-bar cat → phone-details popover or Settings → **Pair a phone**. Scan the QR labeled **Pairing QR code** within 2 minutes (`Scan this in the vibebuddy iOS app within 2 minutes.`).
 - On iPhone Connect: **Scan to pair**, or **Enter address manually** (Host / Port / Token) then **Connect**.
 - Headless: `vibebuddyd --pair` prints `Pairing enabled for 120 seconds.`
-- Tailscale: enable **Use Tailscale for remote access**, paste the tailnet host, then pair to that address (still the same token and port).
+- Tailscale: in **Devices & connection** choose **Away from Mac**; the `100.x.x.x` address is detected (or typed under **Advanced connection settings**), then **Show connection code** pairs to that address (still the same token and port).
 
 ## Driving it with control-vibebuddy
 
