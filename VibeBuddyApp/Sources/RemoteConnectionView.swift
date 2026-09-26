@@ -226,8 +226,6 @@ struct RemoteConnectionView: View {
         guard let candidate else { return }
         let original = connection.pairing
         check.start(candidate, connection: connection) {
-            // Remember the road that just worked, so the failure card opens it.
-            if bothInstalled { savedProvider = provider.rawValue }
             if original == nil { dashboard.confirmPairing() }
             if candidate == original { dashboard.start(candidate) }
         }

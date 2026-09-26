@@ -24,7 +24,7 @@
 - 失败文案把 Tailscale 放前面（手机、手表一致）。
 - 文档：远程一节改为"官方 Tailscale 主路 + Headscale 变体 + iPhone 用 Surge 变体"，只用 `100.x` 地址，写明常开的 Mac 用 Homebrew 版注册成系统服务更稳（开机即连，不需要有人打开 App）。
 - 删掉无引用的旧 Surge / Headscale 文案（iOS 20 条、Mac 10 条）。
-- 评审第 1 轮后补充：两个 App 都装且没选过时，「打开」按钮照旧先开 Surge（开 Tailscale 会把正在用的 Surge 隧道挤掉），检查成功后记下这次走通的 App；tailnet 地址只认 `utun` 隧道接口（运营商 CGNAT 会给蜂窝网分 100.64/10 地址，之前会误判为已接入）；状态行只在 Tailscale 路径显示（Surge 策略会不会给手机分 100.x 地址没验证过）。
+- 评审第 1 轮后补充：两个 App 都装且没在选择器里选过时，「打开」按钮照旧先开 Surge（开 Tailscale 会把正在用的 Surge 隧道挤掉；VibeBuddy 看不出隧道来自哪个 App，所以检查成功也不替用户记选择）；tailnet 地址只认 `utun` 隧道接口（运营商 CGNAT 会给蜂窝网分 100.64/10 地址，之前会误判为已接入）；状态行只在 Tailscale 路径显示（Surge 策略会不会给手机分 100.x 地址没验证过）。
 
 ## 验收
 

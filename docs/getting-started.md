@@ -101,7 +101,7 @@ address selects that policy. See the
 [Surge Tailscale guide](https://manual.nssurge.com/policies/tailscale.html).
 When both Surge and Tailscale are installed, **Connect away from home** lets
 you choose which one you use, and **Turn on Tailscale or Surge** opens that
-one.
+one; if you have not chosen, it opens Surge.
 
 The **Mac still needs a Tailscale client**, connected to the same tailnet with
 incoming connections allowed. Surge on the Mac can keep running, but its
