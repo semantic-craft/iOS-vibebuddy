@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Agent-facing configuration for the iOS-vibebuddy repo. Global rules and `~/Projects/AGENTS.md` apply first; this file adds project facts.
+Agent-facing configuration for the iOS-vibebuddy repo. Global rules apply first; this file adds project facts.
 
 ## Delivery boundaries
 
