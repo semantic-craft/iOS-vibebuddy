@@ -167,6 +167,8 @@ physical-device delivery or owner acceptance has passed.
 
 ## Amendment: the recap — what ended while you were not looking (2026-09-14)
 
+> Superseded 2026-09-26: Recap is removed on every device (ADR-0028 amendment).
+
 The owner's 2026-09-13 direction (`.scratch/watch-recap-crown`, eight decision
 tickets) extends *tell me why* to the stretch of time the owner was away: the
 wrist answers "which rounds ended since I last read, and how", not only "who
@@ -226,6 +228,8 @@ all, and the mirrored notifications' behaviour, all need a paired device.
 
 ## Amendment: Mac recap reader and confirmation (2026-09-14)
 
+> Superseded 2026-09-26: Recap is removed on every device (ADR-0028 amendment).
+
 Inbox and the Mac sidebar open one global Recap reader, directly from
 `Snapshot.recap`. Each `RecapEntry.id` remains a separate round, including
 several rounds of one Session. Selection shows only that round's recorded
@@ -261,7 +265,8 @@ hidden feature. Build 34 removes the Watch Recap row, sheet, Crown pager,
 demo launch entry, and Watch-side bulk-read submission and retry handling.
 The remaining relay plumbing (`WatchRecapQueue`, `WatchDashboardState.recap`,
 the phone's recap-read relay) was deleted on 2026-09-23.
-There is no enable switch. Phone and Mac Recap are unaffected. This supersedes
+There is no enable switch. Phone and Mac Recap are unaffected (both were removed
+2026-09-26, see ADR-0028's amendment). This supersedes
 the Watch Recap presentation and Mark all decisions above; individual task
 actions and their acknowledgement queue remain available. Removing the
 feature does not mark any rounds as read.

@@ -10,7 +10,7 @@ final class LegacyHistoryCleanupTests: XCTestCase {
         defer { try? fm.removeItem(at: home) }
         let cache = home.appendingPathComponent("Library/Application Support/VibeBuddy/SessionHistory")
         let transcript = home.appendingPathComponent(".claude/projects/p/s.jsonl")
-        let keptSupport = home.appendingPathComponent("Library/Application Support/VibeBuddy/recap-ledger.json")
+        let keptSupport = home.appendingPathComponent("Library/Application Support/VibeBuddy/completion-results.json")
         let staleTemp = temp.appendingPathComponent("vibebuddy-history-1234")
         let otherTemp = temp.appendingPathComponent("unrelated")
         for dir in [cache, transcript.deletingLastPathComponent(), staleTemp, otherTemp] {

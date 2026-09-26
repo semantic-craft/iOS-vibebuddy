@@ -58,7 +58,6 @@ struct DashboardSidebar: View {
                 SidebarRow(systemName: "tray", title: "Inbox",
                            count: waiting, countTint: MacTheme.status(.requiresInput),
                            selected: library == "inbox") { library = "inbox" }
-                SidebarRow(systemName: "clock.arrow.circlepath", title: "Recap", selected: library == "recap") { library = "recap" }
                 SidebarRow(systemName: "chart.bar", title: "Usage", selected: library == "usage") { library = "usage" }
 
                 sessionsHeading

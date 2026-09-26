@@ -12,9 +12,6 @@ public actor SessionStore {
         UserDefaults.standard.set(style.style.rawValue, forKey: ContentStyleConfiguration.defaultsKey)
         return true
     }
-    private var recapPresentations: [String: ContentPresentation] = [:]
-    private var recapCaptureTasks: [String: Task<Void, Never>] = [:]
-    private var recapCaptureAttempts: Set<String> = []
 
     public func configureContentPresentation(service: ContentPresentationService,
         save: @escaping @Sendable (ContentStyleConfiguration) -> Bool = { _ in false },
@@ -36,7 +33,6 @@ public actor SessionStore {
               update.configuration.style != .custom || !update.configuration.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return nil }
         guard savePresentationStyle(update.configuration) else { return nil }
-        recapPresentations.removeAll()
         broadcast()
         return contentStyleState()
     }
@@ -79,27 +75,13 @@ public actor SessionStore {
         if request.purpose == .speech, let title = input?.title, !spokenText.contains(title) {
             spokenText = title + (config.language == .chinese ? "。" : ". ") + spokenText
         }
-        let result = ContentPresentation(request: request, revision: config.presentationRevision,
+        return ContentPresentation(request: request, revision: config.presentationRevision,
             text: spokenText, generated: text != nil)
-        if case .recap(let id) = request.target, result.generated {
-            recapPresentations[id] = result
-            if recapPresentations.count > Recap.maxEntries * 2 {
-                let visible = Set(recapLedger.entries.keys)
-                recapPresentations = recapPresentations.filter { visible.contains($0.key) }
-                if recapPresentations.count > Recap.maxEntries * 2 { recapPresentations = [id: result] }
-            }
-            broadcast()
-        }
-        return result
     }
 
     private func presentationTargetIsCurrent(_ request: ContentPresentationRequest) -> Bool {
         guard request.sourceID == sourceID else { return false }
         switch request.target {
-        case .recap(let id):
-            guard request.purpose == .recap, let entry = recapLedger.entries[id],
-                  entry.endedAt > Date().addingTimeInterval(-RecapLedger.retention), entry.resultConflict != true else { return false }
-            return entry.completionID.map { !resultRejected(sessionID: entry.sessionID, completionID: $0) } ?? true
         case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _):
             guard request.purpose == .speech, let session = reducer.sessions[id], session.historyOnly != true else { return false }
             guard request.target.matches(session) else { return false }
@@ -115,18 +97,6 @@ public actor SessionStore {
         encoder.outputFormatting = [.sortedKeys]
         let sessionID: String, identity: String, title: String, material: String
         switch request.target {
-        case .recap(let id):
-            if let entry = recapLedger.entries[id], entry.resultText == nil, let completionID = entry.completionID {
-                await captureRecapResult(id: id, sessionID: entry.sessionID, completionID: completionID)
-            }
-            guard let entry = recapLedger.entries[id], entry.resultConflict != true,
-                  presentationTargetIsCurrent(request), let original = entry.resultText, !original.isEmpty else {
-                ContentPresentationService.diagnose(stage: "evidence", reason: "recapResultUnavailable")
-                return nil
-            }
-            sessionID = entry.sessionID; identity = id
-            title = entry.title
-            material = "Historical round ended at \(entry.endedAt). Outcome: \(entry.kind.rawValue). Current state has not been checked.\n" + original
         case .completion(let id, let completionID):
             guard let session = reducer.sessions[id] else { return nil }
             let body = await completionBody(sessionID: id, completionID: completionID)
@@ -160,8 +130,6 @@ public actor SessionStore {
     private func presentationFallback(_ request: ContentPresentationRequest, language: VoiceLanguage) -> String {
         let chinese = language == .chinese
         switch request.target {
-        case .recap:
-            return chinese ? "这一轮暂时无法生成当前风格的摘要。请查看保存的原记录。" : "A summary in the current style is unavailable. Review the saved record."
         case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return "" }
             let title = session.displayTitle
@@ -186,12 +154,6 @@ public actor SessionStore {
               let read = completionResults.speechRead(key: key,
                   cursorFollowupHandedAt: cursorFollowupHandedAt[sessionID]) else { return false }
         return await Task.detached { read.speechEvidenceIsSettled() }.value
-    }
-
-    private func captureRecapResult(id: String, sessionID: String, completionID: String) async {
-        guard id == resultKey(sessionID: sessionID, completionID: completionID), recapLedger.entries[id] != nil,
-              let result = await readCompletionRecord(key: id), !Task.isCancelled else { return }
-        recapLedger.retainResult(id: id, text: result.finalText, now: Date())
     }
 
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
@@ -576,6 +538,8 @@ public actor SessionStore {
 
     private var completionResults = CompletionResults()
     private var completionReads: Set<String> = []
+    /// Rounds whose missing final text has been requested from the transcript once.
+    private var resultReadAttempts: Set<String> = []
     /// The clock the store passes to `CompletionResults`, including for the
     /// two-second notification window, and the one completion-notice
     /// deadlines are read on. Wall time in production; tests pin it so a
@@ -642,8 +606,8 @@ public actor SessionStore {
     private var lifecycleJournal: LifecycleJournal?
     /// Missed `needsResponse` waits (Q13). Beside the journal; muted counts.
     private var missedLedger: MissedLedger
-    /// Ended rounds and the recap horizon, beside the journal (`RecapLedger`).
-    private var recapLedger: RecapLedger
+    /// Verified completion results, beside the journal (`CompletionResultLedger`).
+    private var resultLedger: CompletionResultLedger
     private var handoffScanner: HandoffScanner
     /// Snapshot assembly runs on every event and status-line sample; the
     /// handoff scan walks `.scratch` under every recent directory (up to 50).
@@ -721,8 +685,9 @@ public actor SessionStore {
         self.copilotReader = copilotDatabase.map { CopilotSessionReader(database: $0) } ?? CopilotSessionReader()
         self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
         self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
-        self.recapLedger = RecapLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("recap-ledger.json"), now: now)
-        self.completionResults = CompletionResults(restoring: self.recapLedger)
+        self.resultLedger = CompletionResultLedger(
+            url: journalURL?.deletingLastPathComponent().appendingPathComponent(CompletionResultLedger.fileName), now: now)
+        self.completionResults = CompletionResults(restoring: self.resultLedger)
         self.handoffScanner = HandoffScanner()
         let ledgerDirectory = journalURL?.deletingLastPathComponent()
         self.continuationLedger = ContinuationLedger(url: ledgerDirectory?.appendingPathComponent(ContinuationLedger.fileName), now: now)
@@ -1156,7 +1121,7 @@ public actor SessionStore {
                     // Stop can arrive before its assistant line reaches disk.
                     // This unscoped metadata tail must not replace the ending's
                     // own summary with an earlier round. Exact completion proof
-                    // may still enrich the recap later through completionText.
+                    // may still enrich it later through completionText.
                     if event.kind == .stop { info.summary = nil }
                     enrichSession(sessionID: event.sessionID, with: info)
                 }
@@ -1257,12 +1222,11 @@ public actor SessionStore {
     }
 
     private func resultKey(sessionID: String, completionID: String) -> String? {
-        sourceID.map { RecapEntry.completedID(sourceID: $0, sessionID: sessionID, completionID: completionID) }
+        sourceID.map { CompletionResults.key(sourceID: $0, sessionID: sessionID, completionID: completionID) }
     }
 
     private func persistCompletionResults() {
-        for id in completionResults.retain(in: &recapLedger, now: resultClock()) {
-            recapPresentations[id] = nil
+        for id in completionResults.retain(in: &resultLedger, now: resultClock()) {
             if var notice = noticeLedger?.notices[id], notice.state == .pending || notice.state == .summary {
                 notice.state = .cancelled; notice.text = nil
                 _ = noticeLedger?.save(notice)
@@ -1558,20 +1522,6 @@ public actor SessionStore {
         return true
     }
 
-    /// Mark all from a recap: move the recap horizon forward to the newest
-    /// entry the user saw. The horizon only advances, so a retried or reordered
-    /// request is harmless; it changes no round's read state and writes no
-    /// lifecycle event — reading a round stays an exact-round `/acknowledge`.
-    public func advanceRecapHorizon(_ request: RecapReadRequest, now: Date = Date()) -> RecapReadOutcome {
-        guard let sourceID, !sourceID.isEmpty, request.sourceID == sourceID else { return .sourceMismatch }
-        do {
-            if try recapLedger.advanceHorizon(to: request.horizon, now: now) { broadcast() }
-            return .accepted
-        } catch {
-            return .failed
-        }
-    }
-
     /// Record any wait that has sat in `needsResponse` for five minutes
     /// without an acknowledgement. Safe to call on every poll.
     public func evaluateMissed(now: Date) {
@@ -1709,40 +1659,12 @@ public actor SessionStore {
             }
             return session
         }
-        // Ended rounds are recorded from the assembled sessions — after tool
-        // evidence and attention are layered on — so every observation path
-        // records the same facts, and the recap reads mute and acknowledgement
-        // from the very list the other surfaces show.
-        let recapResults = completionResults.recapResults(for: snapshot.sessions, sourceID: sourceID)
-        recapLedger.observe(snapshot.sessions, sourceID: sourceID, now: now, results: recapResults)
-        recapCaptureAttempts.formIntersection(recapLedger.entries.keys)
-        for entry in completionResults.recapRecovery(in: recapLedger, now: now) {
-            guard recapCaptureAttempts.insert(entry.id).inserted else { continue }
-            recapCaptureTasks[entry.id] = Task {
-                await self.captureRecapResult(id: entry.id, sessionID: entry.sessionID, completionID: entry.completionID)
-                self.recapCaptureTasks.removeValue(forKey: entry.id)
-            }
+        let pendingReads = completionResults.pendingReads(for: snapshot.sessions, sourceID: sourceID, now: resultClock())
+        resultReadAttempts.formIntersection(pendingReads)
+        for key in pendingReads where resultReadAttempts.insert(key).inserted {
+            Task { _ = await self.readCompletionRecord(key: key) }
         }
-        snapshot.recap = recapLedger.recap(now: now, sessions: snapshot.sessions) { [noticeLedger] id in
-            guard let notice = noticeLedger?.notices[id], notice.state == .summary,
-                  let text = notice.text?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !text.isEmpty, text.count <= 180 else { return nil }
-            return text
-        }
-        let presentationRevision = presentationConfiguration().presentationRevision
-        snapshot.contentPresentationRevision = presentationRevision
-        if var recap = snapshot.recap {
-            recap.entries = recap.entries.map { entry in
-                var entry = entry
-                if recapLedger.entries[entry.id]?.resultConflict != true,
-                   entry.completionID.map({ !resultRejected(sessionID: entry.sessionID, completionID: $0) }) ?? true,
-                   let content = recapPresentations[entry.id], content.revision == presentationRevision {
-                    entry.contentPresentation = content
-                }
-                return entry
-            }
-            snapshot.recap = recap
-        }
+        snapshot.contentPresentationRevision = presentationConfiguration().presentationRevision
         let active = Set(snapshot.sessions.compactMap { $0.completionNotice?.id })
         for id in noticeTasks.keys where !active.contains(id) {
             noticeTasks.removeValue(forKey: id)?.cancel()
@@ -1943,8 +1865,8 @@ public actor SessionStore {
     /// events for three sessions used to hand three 500 KB snapshots to every
     /// phone within a millisecond; the phone only ever acted on the last.
     ///
-    /// Assembly itself is not coalesced: the recap ledger and completion
-    /// results settle inside `currentSnapshot` and must see every state.
+    /// Assembly itself is not coalesced: completion notices and results
+    /// settle inside `currentSnapshot` and must see every state.
     static let broadcastWindow: Duration = .milliseconds(300)
     /// What the window is measured on. Wall time in production; tests move it
     /// by hand so a loaded host cannot split a burst or hold the trailer.

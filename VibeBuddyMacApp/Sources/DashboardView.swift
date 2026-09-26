@@ -10,7 +10,7 @@ import VibeBuddyMacCore
 /// dashboard window has ever been built still reaches the view once it is.
 @MainActor
 final class DashboardRoute: ObservableObject {
-    enum Library: String { case inbox, recap, live, usage }
+    enum Library: String { case inbox, live, usage }
 
     static let shared = DashboardRoute()
     enum Destination { case library(Library), session(String), firstPending, nextPending }
@@ -248,8 +248,7 @@ struct DashboardView: View {
                 .zIndex(1)
             Group {
                 if libraryScope == "inbox" {
-                    MacInboxHomeView(model: model, projection: projection, recap: model.recap,
-                                     openRecap: { libraryScope = "recap" },
+                    MacInboxHomeView(model: model, projection: projection,
                                      readPending: { model.readPending(); showSpeechPanel = true },
                                      openFirst: openFirstPending,
                                      openBucket: openBucket,
@@ -262,8 +261,6 @@ struct DashboardView: View {
                                          landOnFirst(project: scope, status: nil, agent: agentFilter)
                                      },
                                      openOlder: { openBucket(nil); showOlder = true })
-                } else if libraryScope == "recap" {
-                    MacRecapView(model: model)
                 } else if libraryScope == "live" {
                     // The sessions moved into the agent column, so the reading
                     // takes the whole pane (ADR-0024: no right column).
@@ -299,7 +296,7 @@ struct DashboardView: View {
         .onChange(of: model.continueRequest) { _, request in presentContinue(request) }
         .sheet(isPresented: $showSpeechPanel) { MacVoicePanel(model: model) }
         .onAppear {
-            // `VIBEBUDDY_DEMO_PAGE=dashboard/<inbox|recap|live|usage|newtask>`
+            // `VIBEBUDDY_DEMO_PAGE=dashboard/<inbox|live|usage|newtask>`
             // lands on that library, or opens New task, for screenshots and QA.
             guard let page = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"],
                   page.hasPrefix("dashboard/") else { return }

@@ -941,7 +941,7 @@
 "%lld lines added in uncommitted tracked files" = "未提交的已跟踪文件新增 %lld 行";
 "No uncommitted changes" = "没有未提交的变化";
 
-/* Mac Inbox and round recap */
+/* Mac Inbox */
 "Inbox" = "收件箱";
 "First up" = "先处理这项";
 "All sessions" = "全部任务";
@@ -962,40 +962,12 @@
 "Session unavailable" = "任务不可用";
 "Working sessions have no pending results in this scope." = "此范围内的进行中任务暂无待处理结果。";
 "No other pending tasks in this scope." = "此范围内没有其他待处理任务。";
-"Recap" = "回顾";
-"%lld rounds · %lld failed" = "%lld 轮 · %lld 轮失败";
-"Recap unavailable" = "回顾暂不可用";
-"After your last confirmation · Last 24 hours · Up to 12 rounds" = "上次确认之后 · 最近 24 小时 · 最多 12 轮";
-"Showing cached recap" = "正在显示缓存的回顾";
-"Updated" = "更新于";
-"The selected round has left this recap." = "选中的轮次已离开本次回顾。";
-"No new recap" = "暂无新回顾";
-"Ended rounds will appear here within the recap window." = "回顾时间范围内结束的轮次会出现在这里。";
-"Read" = "已读";
-"Completed" = "已完成";
-"No summary was recorded for this round." = "本轮没有记录摘要。";
-"Open current task" = "打开当前任务";
-"Opens the live task, which may have moved to a newer round." = "打开实时任务；任务可能已进入新一轮。";
-"The current task is unavailable. This round remains here." = "当前任务已不可用，本轮记录仍会保留。";
-"Waiting for an authoritative recap from this Mac." = "正在等待此 Mac 提供权威回顾。";
 
 /* Mac confirmation, routing and speech controls */
 "Open Inbox · %@" = "打开收件箱 · %@";
 "Open Inbox" = "打开收件箱";
-"Open Recap" = "打开回顾";
 "Next pending · All sessions" = "下一项待处理 · 全部任务";
 "Open task details" = "打开任务详情";
-"Recap starts after" = "回顾起点";
-"Confirms completed results in this recap as read across devices. This does not approve the work or resolve failures." = "将本次回顾的完成结果同步标为已读。这不代表工作通过验收，也不会解决失败。";
-"Confirming this recap…" = "正在确认本次回顾…";
-"The source changed. The previous confirmation was stopped." = "来源已改变，之前的确认操作已停止。";
-"Confirmation is incomplete. Retry keeps the original rounds, even when this recap is empty." = "确认尚未完成。即使回顾列表已清空，重试仍只处理原来的轮次。";
-"%lld of %lld completion requests handled" = "已处理 %lld / %lld 项完成结果请求";
-"Retry this confirmation" = "重试本次确认";
-"This confirmation was accepted. Lists update from the Mac’s snapshot." = "本次确认已处理，列表将按 Mac 的快照更新。";
-"%lld older rounds were no longer available to mark read." = "%lld 个旧轮次已无法标为已读。";
-"Confirm this recap" = "确认本次回顾";
-"Confirmation is unavailable until this Mac supplies a fresh snapshot." = "此 Mac 提供最新快照后才能确认。";
 "Read pending" = "朗读待处理事项";
 "All current pending tasks" = "全部当前待处理事项";
 "Current announcement" = "正在朗读";

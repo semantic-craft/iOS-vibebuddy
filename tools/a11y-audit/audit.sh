@@ -16,7 +16,7 @@ mkdir -p $out; rm -f $out/issues.jsonl $out/tree.txt
 [[ -d $here/A11yAudit.xcodeproj ]] || (cd $here && xcodegen generate >/dev/null)
 if [[ $kind == phone ]]; then
   dest="id=${A11Y_PHONE_UDID:?set A11Y_PHONE_UDID}"; scheme=AXAuditUITests
-  export TEST_RUNNER_AX_PAGES="${PAGES:-home,list,read,usage,customize,newtask,voice,recap}"
+  export TEST_RUNNER_AX_PAGES="${PAGES:-home,list,read,usage,customize,newtask,voice}"
 else
   dest="id=${A11Y_WATCH_UDID:?set A11Y_WATCH_UDID}"; scheme=AXWAuditUITests
   export TEST_RUNNER_AX_SCREENS="${SCREENS:-normal:home,permission:home,question:home,normal:quota,staleQuota:quota,normal:home:demo-watch-tests,macDisconnected:home}"

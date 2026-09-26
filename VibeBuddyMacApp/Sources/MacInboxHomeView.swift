@@ -7,8 +7,6 @@ import VibeBuddyMacCore
 struct MacInboxHomeView: View {
     @ObservedObject var model: MenuBarModel
     let projection: DashboardSessionList
-    let recap: Recap?
-    let openRecap: () -> Void
     let readPending: () -> Void
     let openFirst: () -> Void
     let openBucket: (DashboardSessionList.StatusFilter?) -> Void
@@ -80,21 +78,6 @@ struct MacInboxHomeView: View {
                     bucket(needsTitle, count: summary.needsYou, symbol: "exclamationmark.triangle", filter: .needsYou)
                     bucket("Working", count: summary.thinking, symbol: "ellipsis.circle", filter: .working)
                 }
-                Button(action: openRecap) {
-                    HStack {
-                        Label("Recap", systemImage: "clock.arrow.circlepath")
-                        Spacer()
-                        if let recap {
-                            Text("\(recap.entries.count) rounds · \(recap.failedCount) failed")
-                        } else {
-                            Text("Recap unavailable")
-                        }
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(MacTheme.font(12)).padding(14).companionCard(MacTheme.bg2)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).accessibilityIdentifier("mac-inbox-recap")
                 if projection.olderCount > 0 {
                     Button(action: openOlder) { Label("Show \(projection.olderCount) older", systemImage: "clock.arrow.circlepath") }
                         .buttonStyle(.borderless).font(MacTheme.font(12))

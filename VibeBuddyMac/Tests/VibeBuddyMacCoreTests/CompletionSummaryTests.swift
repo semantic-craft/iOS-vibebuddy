@@ -100,7 +100,7 @@ struct CompletionSummaryTests {
         return URLSession(configuration: config)
     }
 
-    @Test func presentationsCoalesceAndSeparatePurposeStyleAndEvidence() async throws {
+    @Test func presentationsCoalesceAndSeparateStyleAndEvidence() async throws {
         let session = session(body: try json(qwen()), delay: 0.05)
         defer { session.invalidateAndCancel() }
         let service = ContentPresentationService(session: session, key: { _ in "synthetic" })
@@ -115,13 +115,12 @@ struct CompletionSummaryTests {
         #expect(SummaryStub.state.requestCount == 1)
         #expect(await service.generate(material, purpose: .speech, configuration: config) == values[0])
         #expect(SummaryStub.state.requestCount == 1)
-        #expect(await service.generate(material, purpose: .recap, configuration: config) != nil)
         config.contentStyle = .init(style: .decision)
         #expect(await service.generate(material, purpose: .speech, configuration: config) != nil)
         #expect(await service.generate(input(text: "The original result was corrected."), purpose: .speech, configuration: config) != nil)
-        #expect(SummaryStub.state.requestCount == 4)
+        #expect(SummaryStub.state.requestCount == 3)
         #expect(await service.generate(material, purpose: .notice, configuration: config) == nil)
-        #expect(SummaryStub.state.requestCount == 4)
+        #expect(SummaryStub.state.requestCount == 3)
     }
 
     @Test func failedPresentationDoesNotAutomaticallyRetryAndLongSpeechCannotBecomeNotice() async throws {
@@ -321,7 +320,7 @@ struct CompletionSummaryTests {
     @Test func instructionsShapeOutputForAnActionFirstReader() {
         for style in ContentStyle.allCases {
             let config = ContentStyleConfiguration(style: style, customPrompt: "只讲客户收益。")
-            for purpose in [SummaryPurpose.notice, .speech, .recap] {
+            for purpose in [SummaryPurpose.notice, .speech] {
                 let text = CompletionSummaryHTTP.instructions(style: config, purpose: purpose, language: .chinese)
                 // Reader-shaped rules apply to every style and purpose: no preamble, visible state, numbered user steps, capped lists.
                 #expect(text.contains("不写开场白"))
@@ -347,11 +346,9 @@ struct CompletionSummaryTests {
         let speech = CompletionSummaryHTTP.instructions(style: .default, purpose: .speech, language: .chinese)
         #expect(speech.contains("spoken order"))
         #expect(!speech.contains("1. 2. 3."))
-        let recap = CompletionSummaryHTTP.instructions(style: .default, purpose: .recap, language: .chinese)
-        #expect(recap.contains("without a closing next-step line or numbered list"))
         let decision = CompletionSummaryHTTP.instructions(style: .init(style: .decision), purpose: .speech, language: .chinese)
         #expect(decision.contains("第一句是项目结论（没有待决选择时，不把它改成行动开头）"))
-        let custom = CompletionSummaryHTTP.instructions(style: .init(style: .custom, customPrompt: "只讲客户收益。"), purpose: .recap, language: .english)
+        let custom = CompletionSummaryHTTP.instructions(style: .init(style: .custom, customPrompt: "只讲客户收益。"), purpose: .speech, language: .english)
         #expect(custom.contains("只讲客户收益。"))
         #expect(custom.contains("The evidence and output rules above always apply"))
     }

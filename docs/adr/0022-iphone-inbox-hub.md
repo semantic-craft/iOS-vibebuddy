@@ -100,7 +100,8 @@ results, and "Next" follows the scope the reader entered from.
 
 The Mac Dashboard now opens on Inbox: First up, the four current-session
 buckets, the shared Recap overview and Projects with pending counts. All
-sessions opens the existing list/detail workspace. History and Favorites
+sessions opens the existing list/detail workspace. Recap was removed on every device on 2026-09-26
+(ADR-0028 amendment). History and Favorites
 retain their library counts. New task remains available. Inbox global counts
 ignore residual list filters; projects preserve their original identity, including
 full paths or cloud repository identity when supplied by the live source.

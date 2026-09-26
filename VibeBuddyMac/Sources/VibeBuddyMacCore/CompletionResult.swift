@@ -2,7 +2,7 @@ import Foundation
 import VibeBuddyKit
 
 /// Extraction evidence stays out of snapshots and the lifecycle journal.
-/// The recap ledger retains a bounded copy of verified finalText by exact round.
+/// `CompletionResultLedger` retains a bounded copy of verified finalText by exact round.
 public struct FrozenCompletionResult: Sendable, Equatable {
     public let sourceID: String
     public let sessionID: String
@@ -24,7 +24,7 @@ public enum CompletionResultAvailability: Sendable, Equatable {
 
 /// Separate from progress: failure to prove a result never changes the three states.
 struct CompletionResults {
-    /// Persisted independently of recap entries. Native identity or an observed
+    /// Persisted in `CompletionResultLedger`. Native identity or an observed
     /// Claude prompt boundary is required; the opaque completion UUID is never guessed.
     struct Record: Codable, Equatable, Sendable {
         let sourceID: String
@@ -40,9 +40,9 @@ struct CompletionResults {
         var text: String?
         var conflict = false
         var invalidated = false
-        var id: String { RecapEntry.completedID(sourceID: sourceID, sessionID: sessionID, completionID: completionID) }
+        var id: String { CompletionResults.key(sourceID: sourceID, sessionID: sessionID, completionID: completionID) }
         func readable(now: Date) -> Bool {
-            !conflict && !invalidated && completedAt > now.addingTimeInterval(-RecapLedger.retention)
+            !conflict && !invalidated && completedAt > now.addingTimeInterval(-CompletionResultLedger.retention)
         }
         func frozen(now: Date) -> FrozenCompletionResult? {
             guard readable(now: now), let text, !text.isEmpty, text.count <= 12_000 else { return nil }
@@ -65,13 +65,17 @@ struct CompletionResults {
         let transcriptPath: String?
         var expectedText: String?
         var outcome: CompletionResultAvailability?
-        var readingResult: FrozenCompletionResult?
     }
     private var runs: [String: Run] = [:]
     private var candidates: [String: Candidate] = [:]
     private var records: [String: Record] = [:]
 
-    init(restoring ledger: RecapLedger? = nil) {
+    /// One round's identity on every surface: `<sourceID>/<sessionID>/<completionID>`.
+    static func key(sourceID: String, sessionID: String, completionID: String) -> String {
+        sourceID + "/" + sessionID + "/" + completionID
+    }
+
+    init(restoring ledger: CompletionResultLedger? = nil) {
         records = ledger?.results ?? [:]
     }
 
@@ -80,11 +84,11 @@ struct CompletionResults {
         candidates[id] = nil
     }
 
-    mutating func retain(in ledger: inout RecapLedger, now: Date) -> [String] {
+    mutating func retain(in ledger: inout CompletionResultLedger, now: Date) -> [String] {
         // Runs on every ingested event. `bounded` JSON-encodes every record
         // to size the set, and the ledger's results are always a bounded set,
         // so an unchanged set only changes when its oldest record ages out.
-        let cutoff = now.addingTimeInterval(-RecapLedger.retention)
+        let cutoff = now.addingTimeInterval(-CompletionResultLedger.retention)
         if records != ledger.results || ledger.results.values.contains(where: { $0.completedAt <= cutoff }) {
             ledger.retainResults(records, now: now)
             records = ledger.results
@@ -104,14 +108,14 @@ struct CompletionResults {
 
     func isRejected(sessionID: String, completionID: String, sourceID: String?, now: Date = Date()) -> Bool {
         guard let sourceID,
-              let record = records[RecapEntry.completedID(sourceID: sourceID, sessionID: sessionID, completionID: completionID)] else { return false }
+              let record = records[Self.key(sourceID: sourceID, sessionID: sessionID, completionID: completionID)] else { return false }
         return !record.readable(now: now)
     }
 
     func isCurrent(session: AgentSession?, completionID: String, sourceID: String?) -> Bool {
         guard let session else { return false }
         if let sourceID,
-           let record = records[RecapEntry.completedID(sourceID: sourceID, sessionID: session.id, completionID: completionID)],
+           let record = records[Self.key(sourceID: sourceID, sessionID: session.id, completionID: completionID)],
            let run = runs[session.id],
            run.agent != record.agent || run.turnID != record.turnID || run.startedAt > record.completedAt { return false }
         return session.status == .done && !session.isStuck && session.probeRetired != true
@@ -219,7 +223,7 @@ struct CompletionResults {
         if !isCurrent(session: session, completionID: completionID, sourceID: sourceID) {
             reason = "This completion is no longer current."
         } else if let sourceID {
-            let key = RecapEntry.completedID(sourceID: sourceID, sessionID: sessionID, completionID: completionID)
+            let key = Self.key(sourceID: sourceID, sessionID: sessionID, completionID: completionID)
             if records[key] != nil { return .read(key: key) }
             reason = "Legacy or unobserved completion: exact turn mapping is unknown."
         } else {
@@ -239,7 +243,7 @@ struct CompletionResults {
         if let result {
             return CompletionBody(sourceID: result.sourceID, sessionID: sessionID, completionID: completionID, text: result.finalText)
         }
-        let record = sourceID.flatMap { records[RecapEntry.completedID(sourceID: $0, sessionID: sessionID, completionID: completionID)] }
+        let record = sourceID.flatMap { records[Self.key(sourceID: $0, sessionID: sessionID, completionID: completionID)] }
         let reason = record?.conflict == true ? "Conflicting final result evidence; ordinary reading is refused."
             : record?.invalidated == true ? "This turn was aborted or invalidated."
             : record?.readable(now: now) != true ? "The retained result has expired."
@@ -267,24 +271,18 @@ struct CompletionResults {
         return RowPresentation.firstSentence(result.finalText)
     }
 
-    func recapResults(for sessions: [AgentSession], sourceID: String?) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: sessions.compactMap { session in
-            guard let sourceID, !isRejected(sessionID: session.id, completionID: session.completionID ?? "", sourceID: sourceID),
-                  let candidate = candidates[session.id], candidate.completionID == session.completionID else { return nil }
-            let result: FrozenCompletionResult
-            if let retained = candidate.readingResult { result = retained }
-            else if case .ready(let captured) = candidate.outcome { result = captured }
-            else { return nil }
-            guard result.sourceID == sourceID else { return nil }
-            return (RecapEntry.completedID(sourceID: sourceID, sessionID: session.id, completionID: result.completionID), result.finalText)
-        })
-    }
-
-    func recapRecovery(in ledger: RecapLedger, now: Date) -> [(id: String, sessionID: String, completionID: String)] {
-        ledger.entries.values.compactMap { entry in
-            guard entry.resultText == nil, let completionID = entry.completionID,
-                  records[entry.id]?.readable(now: now) == true else { return nil }
-            return (entry.id, entry.sessionID, completionID)
+    /// Current rounds whose ending carried no final text but whose transcript
+    /// can still supply it. Read right away, inside the two-second window, so
+    /// the round gets its preview and its result is kept.
+    func pendingReads(for sessions: [AgentSession], sourceID: String?, now: Date) -> [String] {
+        guard let sourceID else { return [] }
+        return sessions.compactMap { session in
+            guard session.status == .done, !session.isStuck, session.historyOnly != true,
+                  let completionID = session.completionID else { return nil }
+            let key = Self.key(sourceID: sourceID, sessionID: session.id, completionID: completionID)
+            guard let record = records[key], record.readable(now: now), record.text == nil,
+                  record.transcriptPath != nil else { return nil }
+            return key
         }
     }
 
@@ -296,14 +294,10 @@ struct CompletionResults {
         records[id] = record
         if var candidate = candidates[record.sessionID], candidate.completionID == record.completionID {
             if record.conflict {
-                candidate.readingResult = nil
                 candidate.outcome = .resultUnavailable
-            } else {
-                candidate.readingResult = record.frozen(now: now)
-                if candidate.outcome == nil {
-                    candidate.outcome = Self.freeze(text, candidate: candidate, sourceID: record.sourceID,
-                        sessionID: record.sessionID, now: now)
-                }
+            } else if candidate.outcome == nil {
+                candidate.outcome = Self.freeze(text, candidate: candidate, sourceID: record.sourceID,
+                    sessionID: record.sessionID, now: now)
             }
             candidates[record.sessionID] = candidate
         }
@@ -355,7 +349,7 @@ struct CompletionResults {
            runs[id] == nil, let turn = event.turnID, !turn.isEmpty,
            let sourceID, let session, session.status == .done, !session.isStuck,
            let completionID = session.completionID {
-            let key = RecapEntry.completedID(sourceID: sourceID, sessionID: id, completionID: completionID)
+            let key = Self.key(sourceID: sourceID, sessionID: id, completionID: completionID)
             if records[key] == nil {
                 if event.observationSource == .hook {
                     candidates[id] = Candidate(completionID: completionID, turnID: turn,
@@ -407,7 +401,7 @@ struct CompletionResults {
            let currentRun = runs[id], currentRun.agent == event.agent, event.timestamp >= currentRun.startedAt,
            event.completionSucceeded == false || event.probeRetirement || event.userStopped {
             if let sourceID, let candidate = candidates[id] {
-                let key = RecapEntry.completedID(sourceID: sourceID, sessionID: id, completionID: candidate.completionID)
+                let key = Self.key(sourceID: sourceID, sessionID: id, completionID: candidate.completionID)
                 records[key]?.invalidated = true
             }
             runs[id] = nil; candidates[id] = nil
@@ -429,7 +423,7 @@ struct CompletionResults {
             guard let turn = run.turnID, !turn.isEmpty, event.turnID == turn || progressOnly else { return }
         }
         guard event.completionSucceeded == true || progressOnly else { return }
-        let key = RecapEntry.completedID(sourceID: sourceID, sessionID: id, completionID: completionID)
+        let key = Self.key(sourceID: sourceID, sessionID: id, completionID: completionID)
         // Only the reducer creating this opaque completion can introduce its mapping.
         // A restored legacy UUID must remain unknown even if a later event has a boundary.
         guard records[key] != nil || createdCompletion else { return }

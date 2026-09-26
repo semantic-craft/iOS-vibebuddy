@@ -55,7 +55,7 @@ the reader wanted.
 5. **The libraries stay fleet-wide.** Inbox, Recap, History, Favorites and
    Usage count every agent even while the rail is on one of them: an Inbox that
    read "0 need you" because another agent's block was filtered out would hide
-   work. Only the sessions under `SESSIONS` are scoped.
+   work. Only the sessions under `SESSIONS` are scoped. (Recap was removed on every device on 2026-09-26; see ADR-0028's amendment.)
 6. **A global route clears the rail.** The hotkey and "first pending task" mean
    every agent, so they return the rail to All agents before they walk the
    queue; a deep link to one session moves the rail to that session's agent

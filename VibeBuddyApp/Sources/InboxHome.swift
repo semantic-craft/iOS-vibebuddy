@@ -164,7 +164,6 @@ struct InboxHomeView: View {
     let showOlder: () -> Void
     /// "Read pending": the queue above, spoken in order (ticket 04).
     let readPending: () -> Void
-    var openRecap: () -> Void = {}
     /// Decisions this phone accepted and is holding until it can reach the
     /// Mac (ADR-0032). Shown above the queue: they are the person's own
     /// unfinished business, and the reason nothing below has moved.
@@ -236,12 +235,6 @@ struct InboxHomeView: View {
                 }
                 .padding(.horizontal, PhoneMetrics.gutter)
                 .padding(.top, 12)
-                Button(action: openRecap) {
-                    Label("Recap", systemImage: "clock.arrow.circlepath")
-                        .font(.headline).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(PhoneButtonStyle(kind: .quiet))
-                .padding(.horizontal, PhoneMetrics.gutter).padding(.top, 14)
                 projectList
                     .padding(.top, 18)
             }

@@ -38,8 +38,6 @@ struct CompletionResultTests {
         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "late", agent: .codex,
             timestamp: ended.addingTimeInterval(-10), turnID: "turn"))
         await store.ingest(HookEvent(kind: .stop, sessionID: "late", agent: .codex, timestamp: ended))
-        let initial = await store.snapshot(now: Date())
-        let recapID = try #require(initial.recap?.entries.first?.id)
         await store.ingest(HookEvent(kind: .stop, sessionID: "late", agent: .codex, timestamp: ended,
             turnID: "turn", completionText: "Search is ready. Voice remains unverified.", completionSucceeded: true))
         let id = try #require(await store.snapshot(now: Date()).sessions.first?.completionID)
@@ -58,7 +56,8 @@ struct CompletionResultTests {
             timestamp: Date(), turnID: "new-turn"))
         #expect(await store.completionResult(sessionID: "late", completionID: id, forReading: true) == .cancelled)
         _ = await store.snapshot(now: Date())
-        #expect(RecapLedger(url: directory.appendingPathComponent("recap-ledger.json")).entries[recapID]?.resultText == body.text)
+        let key = CompletionResults.key(sourceID: "source", sessionID: "late", completionID: id)
+        #expect(CompletionResultLedger(url: directory.appendingPathComponent(CompletionResultLedger.fileName)).results[key]?.text == body.text)
     }
 
     @Test func claudeTerminalProof() async throws {

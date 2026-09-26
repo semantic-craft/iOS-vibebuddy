@@ -121,6 +121,7 @@ turn-identified terminal event may separately retain bounded text for manual
 reading, even when observed later. It is invalidated by a new turn, failure or
 retirement, and cannot replace an already retained result. This does not revive
 an expired notification. Recap copies use the same verified round evidence.
+(Recap was removed on every device on 2026-09-26; see ADR-0028's amendment.)
 
 ## Provider-limit ending and redial (2026-09-23)
 

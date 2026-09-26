@@ -77,10 +77,6 @@ final class MenuBarModel: ObservableObject {
     let settingsTests = SettingsTestCoordinator()
     let settingsCredentials = SettingsCredentials()
     @Published private(set) var sessions: [AgentSession] = []
-    @Published private(set) var recap: Recap?
-    // The recap view owns a five-second TimelineView for freshness.
-    private(set) var recapUpdatedAt: Date?
-    @Published private(set) var recapConfirmation = RecapConfirmation()
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Directories sessions have run in, newest first — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []
@@ -342,13 +338,6 @@ final class MenuBarModel: ObservableObject {
                 let snapshot = await self.store.snapshot(now: Date())
                 return snapshot.sourceID == sourceID && snapshot.sessions.contains { target.matches($0) }
             })
-    }
-
-    func recapPresentation(for entry: RecapEntry) async -> ContentPresentation? {
-        guard let sourceID = snapshotSourceID else { return nil }
-        let result = await store.presentation(.init(sourceID: sourceID, target: .recap(id: entry.id), purpose: .recap))
-        guard snapshotSourceID == sourceID, recap?.entries.contains(where: { $0.id == entry.id }) == true else { return nil }
-        return result
     }
 
     var dashboardViewedSessionID: String?
@@ -732,79 +721,18 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    /// Explicit recap actions require a recent authority snapshot. Browsing
-    /// cached entries remains available while this action is unavailable.
-    var recapAuthorityAvailable: Bool {
-        guard snapshotSourceID != nil, let updated = recapUpdatedAt else { return false }
-        return Date().timeIntervalSince(updated) <= 10
-    }
-
-    func confirmRecap(_ displayed: Recap, sourceID: String?) {
-        guard sourceID == snapshotSourceID,
-              recapConfirmation.begin(recap: displayed, sourceID: sourceID,
-                                      available: recapAuthorityAvailable) else { return }
-        driveRecapConfirmation()
-    }
-
-    func retryRecapConfirmation() {
-        guard recapConfirmation.retry(sourceID: snapshotSourceID, available: recapAuthorityAvailable) else { return }
-        driveRecapConfirmation()
-    }
-
-    private func driveRecapConfirmation() {
-        guard let batch = recapConfirmation.batch, let attemptID = recapConfirmation.attemptID else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.recapConfirmation.finish(attemptID: attemptID) }
-            @MainActor func current() -> Bool {
-                self.recapConfirmation.observeSource(self.snapshotSourceID)
-                return !Task.isCancelled && self.recapConfirmation.isRunning
-                    && self.recapConfirmation.attemptID == attemptID
-                    && self.snapshotSourceID == batch.sourceID
-            }
-            guard current() else { return }
-            // Capture the retry remainder once; incoming recap entries never
-            // expand this intent, even if another device empties the recap.
-            let pending = self.recapConfirmation.pendingCompletions
-            for request in pending {
-                guard current() else { return }
-                let response = await self.store.acknowledgeCompletion(request)
-                guard current() else { return }
-                self.recapConfirmation.receiveCompletion(response.outcome, request: request, attemptID: attemptID)
-            }
-            guard current() else { return }
-            // Read first. A failed write keeps the horizon untouched and this
-            // exact batch retryable; missing/stale rounds are explicitly skipped.
-            if let request = self.recapConfirmation.pendingHorizonRequest {
-                let outcome = await self.store.advanceRecapHorizon(request)
-                guard current() else { return }
-                self.recapConfirmation.receiveHorizon(outcome, attemptID: attemptID)
-            }
-            // Receipts only describe the operation. The polling snapshot owns
-            // the recap list, unread badges, and cross-device state.
-        }
-    }
-
-    // Keep the authority clock current without invalidating every observing window.
-    // MacRecapView polls that clock; recovery and source changes publish immediately.
+    // Publish only what observing windows read; source changes publish immediately.
     func applySnapshot(_ snapshot: Snapshot, observedAt: Date) {
-        let nextAuthorityAvailable = snapshot.sourceID != nil && Date().timeIntervalSince(observedAt) <= 10
-        let authorityChanged = snapshotSourceID != snapshot.sourceID || recapAuthorityAvailable != nextAuthorityAvailable
         let currentSessionIDs = SessionCurrency.current(snapshot.sessions, now: observedAt).map(\.id)
         let nextBuddyState = BuddyState.from(SessionGroups(snapshot.sessions), now: observedAt)
-        if authorityChanged || currentSessionIDs != publishedCurrentSessionIDs || nextBuddyState != publishedBuddyState {
+        if snapshotSourceID != snapshot.sourceID || currentSessionIDs != publishedCurrentSessionIDs
+            || nextBuddyState != publishedBuddyState {
             objectWillChange.send()
         }
         publishedCurrentSessionIDs = currentSessionIDs
         publishedBuddyState = nextBuddyState
         snapshotSourceID = snapshot.sourceID
-        recapUpdatedAt = observedAt
         if sessions != snapshot.sessions { sessions = snapshot.sessions }
-        if recap != snapshot.recap { recap = snapshot.recap }
-        if let sourceID = snapshot.sourceID, let batch = recapConfirmation.batch,
-           sourceID != batch.sourceID, !recapConfirmation.sourceChanged {
-            recapConfirmation.observeSource(sourceID)
-        }
         let diagnostics = snapshot.observationDiagnostics ?? []
         if observationDiagnostics != diagnostics { observationDiagnostics = diagnostics }
         let directories = snapshot.recentDirectories ?? []

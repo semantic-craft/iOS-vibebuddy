@@ -478,12 +478,12 @@ code, and tests — don't drift to synonyms.
   (`WatchDashboardState.results`: failures and unread completions in
   **pending queue** order, ADR-0022, a subsequence of the phone's queue; at
   most six). Failures sit under *Also waiting*; unread results have their own
-  clickable rows on Watch home after Watch Recap was removed. Current working
+  clickable rows on Watch home. Current working
   sessions are also openable, whether followed or normal. A mirrored notification
   can target the same exact task. A completion
   summary is not the full result: opening it leaves the round unread and its
   reminder budget intact. **Mark as read** on a Watch task explicitly confirms the displayed
-  source/session/completion; Watch Recap and its Mark all action are deleted. Offline
+  source/session/completion. Offline
   intent remains pending until the Mac confirms; opening a wait only marks
   that wait seen (ADR-0021 and its 2026-09-14 amendment).
 - **Banner action** — a button on a notification (Approve, Deny, Reply). All
@@ -495,32 +495,10 @@ code, and tests — don't drift to synonyms.
   agent has moved on it is refused and the words stay on the card. On the phone
   it lands on the session.
   Distinct from the *default tap* on the notification body, which only opens.
-- **Recap entry** (`RecapEntry`) — a read-only record of one ended round of one
-  session: `completed` or `failed`, with agent, project, title, up to three
-  points, the moment it ended and its identity (`<sourceID>/<sessionID>/<completionID>`,
-  or `…/failed/<statusSince>` for a failure). Produced by the Mac's
-  `RecapLedger` (seven days, never a round the user stopped) and carried in
-  the snapshot; no other device ever creates one. It is not a Completion
-  notice (a wording decision) and not an Unread result (one round's reading
-  state): it is the fact that a round ended, kept long enough to be reviewed.
-  Each completed entry carries its own read mark: the session's while the
-  round is the session's current one (so Mark Unread shows again as unread),
-  the last mark recorded once a later round has replaced it.
-- **Recap horizon** — the single moment the Mac keeps as "the user last read
-  the recap": entries that ended before it are no longer in the recap. Moved
-  forward only, by explicit phone confirmation (`POST /recap-read`) or Mac
-  confirmation through SessionStore, shared by every device. It
-  changes no round's read/unread state and re-sends no cue.
-- **Recap** (`Recap`) — the ordered set of recap entries after the horizon and
-  within the last 24 hours, newest first, at most twelve; read on phone and Mac
-  through Inbox or global navigation. Watch has no Recap surface. Both phone and
-  Mac confirmation freeze the displayed entry IDs, exact completion requests
-  and horizon, retaining partial-write retry state across navigation. Phone
-  also binds the batch to its pairing epoch. A selected phone round keeps its
-  original identity and never substitutes a newer live result.
-  Reading the recap alone changes neither horizon nor completion reads. Its 24-hour window is the recap's own rule and only coincides in
-  number with *Current session*'s 24 hours: the recap decides what a recap
-  shows, `SessionCurrency` decides what a list shows and a count counts.
+- **Recap** — removed on every device (2026-09-26, ADR-0028 amendment). There
+  is no record of ended rounds, recap horizon, `/recap-read` or Recap page on
+  Mac, iPhone or Watch; unread results and *All sessions* remain the way back
+  to a round.
 - **Next pending** — an explicit navigation step through Needs you, then unread
   Done, using the same priority and stable newest-first order on Mac and iPhone.
   The iPhone and Mac detail footer follow the scope they entered from (ADR-0022): the
@@ -651,9 +629,9 @@ code, and tests — don't drift to synonyms.
   checks prevent a stale phone edit overwriting a newer choice. Voice/persona
   preferences remain independent and local to their provider.
 - **Content presentation** — derived wording generated directly from the original
-  evidence, through the summary provider. Notice, speech and recap share
-  content rules but have distinct length limits: 180, 900 and 360 characters.
-  Speech and recap use an independent bounded cache, keyed by source, exact round,
+  evidence, through the summary provider. Notice and speech share
+  content rules but have distinct length limits: 180 and 900 characters.
+  Speech uses an independent bounded cache, keyed by source, exact round,
   evidence, purpose and effective provider/language/style configuration. These
   requests never claim or redeliver notifications, acknowledge results or act on
   tasks. `/presentation` resolves evidence on the Mac and rejects stale source,
@@ -674,19 +652,13 @@ code, and tests — don't drift to synonyms.
   silent. There is no additional completion-reminder throttle.
   Automatic reading still requires its opt-in; manual reading
   can request content even when automatic completion summaries are off.
-- **Recap presentation** — selected rounds can be summarized on demand from their
-  own retained, verified result text (at most 12,000 characters, same seven-day
-  ledger retention). A prior round never borrows a newer round's result. Legacy
-  entries without original text retain their recorded points and report that
-  regeneration is unavailable. Derived text is a separate snapshot field; it does
-  not replace the recorded points or change any reading marker.
 - **Completion result evidence** — the exact source/session/completion UUID and
   its native turn identity, or Claude's observed prompt boundary. A newly
   observed authoritative Codex ending can establish its UUID-to-turn mapping
   before the start boundary or text arrives; an existing legacy UUID cannot be
-  assigned from a later ending. The recap file keeps a separate result index
-  (seven days, at most 512 records and 8 MiB encoded result data, 12,000 characters
-  per body); it creates no recap entry merely to cache a result. Reads recheck
+  assigned from a later ending. `CompletionResultLedger`
+  (`completion-results.json`) keeps the result index (seven days, at most 512
+  records and 8 MiB encoded result data, 12,000 characters per body). Reads recheck
   expiry. Codex recovery reads an explicitly named successful turn from a bounded
   transcript scan; Claude's successful Stop text can be used before its transcript
   flushes. Missing evidence remains unavailable, never the last assistant message
@@ -817,8 +789,8 @@ Notification suppression requires a positively identified task view (currently t
 ## iPhone inbox (2026-09-13, ADR-0022)
 
 - **Inbox** — the iPhone home and Mac Dashboard default entry: the mood line, **First up**, four **buckets**,
-  the **Projects** list and, on iPhone, the composer. Mac adds the shared Recap
-  overview and opens its existing task list/detail workspace. Every number is the current-session
+  the **Projects** list and, on iPhone, the composer. Mac opens its existing
+  task list/detail workspace. Every number is the current-session
   summary the Mac panel and the Watch also read. Read results have no bucket;
   they are reached through *All sessions*.
 - **Bucket** — one of the four tiles, a slice of the current sessions by

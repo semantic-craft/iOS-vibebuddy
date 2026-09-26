@@ -70,7 +70,7 @@ struct WatchHomeView: View {
         }
     }
 
-    /// Individual current results remain accessible without the deleted Recap pager.
+    /// Individual current results, each openable on its own.
     @ViewBuilder
     private var unreadResults: some View {
         taskRows(state.unreadResults, title: Text("Results"))

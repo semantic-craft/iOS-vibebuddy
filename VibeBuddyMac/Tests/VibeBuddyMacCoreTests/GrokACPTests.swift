@@ -392,9 +392,9 @@ struct GrokACPTests {
                 #expect(await rig.monitor.prompt(sessionID: session.id, text: "next"))
             }
         }
-        let ledger = RecapLedger(url: directory.appendingPathComponent("recap-ledger.json"))
+        let ledger = CompletionResultLedger(url: directory.appendingPathComponent(CompletionResultLedger.fileName))
         for (index, completion) in completions.enumerated() {
-            let key = RecapEntry.completedID(sourceID: "grok-test-source", sessionID: rig.agent.sessionID, completionID: completion)
+            let key = CompletionResults.key(sourceID: "grok-test-source", sessionID: rig.agent.sessionID, completionID: completion)
             #expect(ledger.results[key]?.text == "Result for turn \(index).")
         }
         await rig.monitor.shutdown()

@@ -676,7 +676,7 @@ public struct VibeBuddyServer: Sendable {
         authed.post("presentation") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 8192)
             guard let query = try? JSONDecoder().decode(ContentPresentationRequest.self, from: Data(buffer: buffer)),
-                  !query.sourceID.isEmpty, query.purpose == .speech || query.purpose == .recap
+                  !query.sourceID.isEmpty, query.purpose == .speech
             else { throw HTTPError(.badRequest) }
             guard let presentation = await store.presentation(query) else { throw HTTPError(.conflict) }
             let data = try JSONEncoder().encode(presentation)
@@ -728,19 +728,6 @@ public struct VibeBuddyServer: Sendable {
                   !read.sourceID.isEmpty, !read.sessionID.isEmpty else { throw HTTPError(.badRequest) }
             let accepted = await store.acknowledgeWait(read)
             return Response(status: accepted ? .ok : .conflict)
-        }
-
-        // Mark all on a recap. Moves the recap horizon forward (never back) and
-        // nothing else: rounds are still read one by one through `/acknowledge`.
-        // A repeat is 200; another Mac's source id is 409.
-        authed.post("recap-read") { request, _ -> HTTPResponse.Status in
-            let buffer = try await request.body.collect(upTo: 4096)
-            guard let read = try? JSONDecoder().decode(RecapReadRequest.self, from: Data(buffer: buffer)),
-                  !read.sourceID.isEmpty else { throw HTTPError(.badRequest) }
-            switch await store.advanceRecapHorizon(read) {
-            case .accepted: return .ok
-            case .sourceMismatch, .failed: return .conflict
-            }
         }
 
         // Blocking approval intake — bearer-token gated (the approval hook reads

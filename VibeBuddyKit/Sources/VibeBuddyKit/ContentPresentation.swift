@@ -4,7 +4,6 @@ public enum ContentPresentationTarget: Codable, Hashable, Sendable {
     case completion(sessionID: String, completionID: String)
     case waiting(sessionID: String, kind: String, pendingID: String?, since: Date)
     case failure(sessionID: String, since: Date)
-    case recap(id: String)
 
     public init?(session: AgentSession) {
         if session.status == .needsResponse {
