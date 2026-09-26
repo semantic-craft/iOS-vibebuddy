@@ -61,7 +61,7 @@
    - 另外 1 条（`a12-ck-12`）Mac 的提醒引擎根本没决定发，本地通道也没有记录，与 CloudKit 通道无关，当作观察项。
 2. **ADR-0012 去重**：App 在前台连着时，手机自己发本地通知，Mac 记 `cloudkit skipped phonePosted`，不再存记录。App 在后台、推送先到时，手机记 `phone skipped pushCovered`，没有第二条横幅。两个方向都按原设计工作。
 3. **手机按钮**：锁屏收到的 CloudKit 提醒上长按点 Approve，手机发出 `POST /decision`，`approvalId` 为 `B7333FB7…`，正是扩展从 `ck` 字段映射出来的；Mac 放行，hook 返回 `allow`。这次 App 在后台运行，不是冷启动。
-4. **手表按钮**：手机锁屏、App 已断开，CloudKit 提醒 10:03:01 发出，10:03:14 审批被放行（`approvalResolved`）。这期间手机在后台被唤醒，依次发了 `/health`、`/snapshot`、`/device`，然后是决定。你当时在手表上点的「批准」。
+4. **手表按钮**：手机锁屏、App 已断开，CloudKit 提醒 10:03:01 发出，10:03:14 审批被放行（`approvalResolved`）。这期间手机在后台被唤醒，依次发了 `/health`、`/snapshot`、`/device`，然后是决定。按当时的步骤，手机锁着没人碰，应是手表上点的「批准」；这一点还没得到你的确认。
 5. **Mac 设置**：没配 `.p8` 时，「投递健康」下多一行「iCloud 提醒」。它的状态逻辑与发送共用 `cloudKitStatus`；这次没截到设置窗口的图。
 
 **过程中修掉的两个问题**
