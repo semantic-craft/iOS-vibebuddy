@@ -118,13 +118,17 @@ public actor CloudKitCueSender {
     }
 
     /// Ask iCloud again: account state and this Mac's user record name. The
-    /// menu-bar app asks on every 2 s poll, so an answer is reused for five
-    /// minutes when iCloud is available and 30 s when it is not.
+    /// menu-bar app asks from a background task on its poll, so a complete
+    /// answer (available *and* a user) is reused for five minutes; anything
+    /// less is asked again after 30 s. The user is read afresh each time, so a
+    /// Mac that switched Apple Accounts stops filtering by the old one.
+    /// Also where expired records are swept, so they do not wait for the
+    /// next send.
     @discardableResult
     public func refreshStatus(now: Date = Date()) async -> CloudKitCueStatus {
         if let checkedAt {
-            let age = now.timeIntervalSince(checkedAt)
-            if age < (status.state == .available ? 300 : 30) { return status }
+            let complete = status.state == .available && status.userRecordName != nil
+            if now.timeIntervalSince(checkedAt) < (complete ? 300 : 30) { return status }
         }
         checkedAt = now
         do {
@@ -136,12 +140,16 @@ public actor CloudKitCueSender {
             case .temporarilyUnavailable: .temporarilyUnavailable
             default: .couldNotDetermine
             }
-            if status.state == .available, status.userRecordName == nil {
-                status.userRecordName = try await container.userRecordID().recordName
-            }
+            status.userRecordName = status.state == .available
+                ? try await container.userRecordID().recordName : nil
             status.lastError = nil
         } catch {
+            status.userRecordName = nil
             status.lastError = Self.describe(error)
+        }
+        if status.state == .available, status.userRecordName != nil {
+            if !zoneReady { try? await ensureZone() }
+            await sweep(now: now)
         }
         return status
     }
@@ -155,11 +163,15 @@ public actor CloudKitCueSender {
     public func send(_ cue: CloudKitCueOutgoing, tokens: [String], waitSince: Date?, holdForPhone: Bool,
                      validate: @escaping @Sendable () async -> Bool = { true }) async -> NotificationDeliveryClassification {
         if let receipts, !tokens.isEmpty {
-            var covered = true
-            for token in tokens where await receipts.receipt(for: cue.notificationID, since: waitSince,
-                                                                from: token, hold: holdForPhone) == nil {
-                covered = false
-                break
+            // Every phone's receipt is awaited side by side, as the APNs path does.
+            let covered = await withTaskGroup(of: Bool.self) { group -> Bool in
+                for token in tokens {
+                    group.addTask {
+                        await receipts.receipt(for: cue.notificationID, since: waitSince,
+                                               from: token, hold: holdForPhone) != nil
+                    }
+                }
+                return await group.allSatisfy { $0 }
             }
             if covered {
                 return await log(.init(outcome: .skipped, failureReason: CueSkipReason.phonePosted.rawValue), cue)
@@ -170,34 +182,48 @@ public actor CloudKitCueSender {
         }
         let now = Date()
         do {
-            try await ensureZone()
-            let id = CKRecord.ID(recordName: "\(cue.notificationID)-\(Int(now.timeIntervalSince1970 * 1000))",
-                                 zoneID: zoneID)
-            let record = CKRecord(recordType: CloudKitCue.recordType, recordID: id)
-            record[CloudKitCue.Field.kind] = cue.kind.rawValue
-            record[CloudKitCue.Field.notificationID] = cue.notificationID
-            record[CloudKitCue.Field.sessionID] = cue.sessionID
-            record[CloudKitCue.Field.requestID] = cue.requestID
-            record[CloudKitCue.Field.sentAt] = now
-            record.encryptedValues[CloudKitCue.EncryptedField.title] = cue.title
-            record.encryptedValues[CloudKitCue.EncryptedField.body] = cue.body
-            record.encryptedValues[CloudKitCue.EncryptedField.subtitle] = cue.subtitle
-            record.encryptedValues[CloudKitCue.EncryptedField.titleKey] = cue.localization?.titleKey
-            record.encryptedValues[CloudKitCue.EncryptedField.titleArgs] = cue.localization?.titleArgs
-            record.encryptedValues[CloudKitCue.EncryptedField.bodyKey] = cue.localization?.bodyKey
-            record.encryptedValues[CloudKitCue.EncryptedField.sound] = cue.sound
-            record.encryptedValues[CloudKitCue.EncryptedField.timeSensitive] = cue.timeSensitive
-            let result = try await container.privateCloudDatabase.modifyRecords(
-                saving: [record], deleting: [], savePolicy: .allKeys, atomically: false)
-            _ = try result.saveResults[id]?.get()
-            saved.append((id, now))
-            status.lastError = nil
-            await sweep(now: now)
-            return await log(.init(outcome: .accepted, failureReason: nil), cue)
+            try await save(cue, now: now)
+        } catch let error as CKError where error.code == .zoneNotFound || error.code == .userDeletedZone {
+            // The zone went away under us (a reset Development container, the
+            // user deleting the app's iCloud data): make it again, once.
+            zoneReady = false
+            do {
+                try await save(cue, now: now)
+            } catch {
+                status.lastError = Self.describe(error)
+                return await log(.init(outcome: .failed, failureReason: Self.reason(error)), cue)
+            }
         } catch {
             status.lastError = Self.describe(error)
             return await log(.init(outcome: .failed, failureReason: Self.reason(error)), cue)
         }
+        status.lastError = nil
+        await sweep(now: now)
+        return await log(.init(outcome: .accepted, failureReason: nil), cue)
+    }
+
+    private func save(_ cue: CloudKitCueOutgoing, now: Date) async throws {
+        try await ensureZone()
+        let id = CKRecord.ID(recordName: "\(cue.notificationID)-\(Int(now.timeIntervalSince1970 * 1000))",
+                             zoneID: zoneID)
+        let record = CKRecord(recordType: CloudKitCue.recordType, recordID: id)
+        record[CloudKitCue.Field.kind] = cue.kind.rawValue
+        record[CloudKitCue.Field.notificationID] = cue.notificationID
+        record[CloudKitCue.Field.sessionID] = cue.sessionID
+        record[CloudKitCue.Field.requestID] = cue.requestID
+        record[CloudKitCue.Field.sentAt] = now
+        record.encryptedValues[CloudKitCue.EncryptedField.title] = cue.title
+        record.encryptedValues[CloudKitCue.EncryptedField.body] = cue.body
+        record.encryptedValues[CloudKitCue.EncryptedField.subtitle] = cue.subtitle
+        record.encryptedValues[CloudKitCue.EncryptedField.titleKey] = cue.localization?.titleKey
+        record.encryptedValues[CloudKitCue.EncryptedField.titleArgs] = cue.localization?.titleArgs
+        record.encryptedValues[CloudKitCue.EncryptedField.bodyKey] = cue.localization?.bodyKey
+        record.encryptedValues[CloudKitCue.EncryptedField.sound] = cue.sound
+        record.encryptedValues[CloudKitCue.EncryptedField.timeSensitive] = cue.timeSensitive
+        let result = try await container.privateCloudDatabase.modifyRecords(
+            saving: [record], deleting: [], savePolicy: .allKeys, atomically: false)
+        _ = try result.saveResults[id]?.get()
+        saved.append((id, now))
     }
 
     /// Delete cue records older than `CloudKitCue.lifetime`. The first call in

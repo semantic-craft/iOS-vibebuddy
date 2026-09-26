@@ -18,7 +18,7 @@
 2. **何时走 CloudKit**：这台 Mac 没配 `.p8`、iCloud 可用、至少一台已登记的手机报告了同一个 iCloud 用户 ID。配了 `.p8` 就只走 `.p8`（按 Mac 选一路，01 条件 5）。ADR-0012 的「先等手机回执」照旧：等回执期间不存记录。
 3. **容器与环境**：正式容器 `iCloud.com.vibebuddy.app`。Developer ID 包被强制用 Production；App Store 的 iPhone 也是 Production。开发时 iPhone Debug 默认 Development。环境不一致就收不到：Mac 设置里的 CloudKit 行会写明当前环境。
 4. **记录**：zone `Cues`，类型 `Cue`。
-   - 明文字段只有 `kind`（`approval` / `question` / `done`）、`nid`（`NotificationIdentity.id`，做 collapse id）、`sid`（sessionId）、`rid`（approvalId 或 questionId）、`sentAt`。
+   - 明文字段只有 `kind`（`approval` / `question` / `other`）、`nid`（`NotificationIdentity.id`，做 collapse id）、`sid`（sessionId）、`rid`（approvalId 或 questionId）、`sentAt`。
    - 标题、正文、项目名都放 `encryptedValues`。
    - 订阅三条（每种 kind 一条，category 固定在订阅上），`desiredKeys = [nid, sid, rid]`，`collapseIDKey = nid`，通用提示文案，`shouldSendMutableContent`。
    - Mac 按 TTL（10 分钟）删除，不按回执删除，因为同账号的每台设备都会收到（01 条件 4）。
@@ -61,7 +61,7 @@
    - 另外 1 条（`a12-ck-12`）Mac 的提醒引擎根本没决定发，本地通道也没有记录，与 CloudKit 通道无关，当作观察项。
 2. **ADR-0012 去重**：App 在前台连着时，手机自己发本地通知，Mac 记 `cloudkit skipped phonePosted`，不再存记录。App 在后台、推送先到时，手机记 `phone skipped pushCovered`，没有第二条横幅。两个方向都按原设计工作。
 3. **手机按钮**：锁屏收到的 CloudKit 提醒上长按点 Approve，手机发出 `POST /decision`，`approvalId` 为 `B7333FB7…`，正是扩展从 `ck` 字段映射出来的；Mac 放行，hook 返回 `allow`。这次 App 在后台运行，不是冷启动。
-4. **手表按钮**：手机锁屏、App 已断开，CloudKit 提醒 10:03:01 发出，10:03:14 审批被放行（`approvalResolved`）。这期间手机在后台被唤醒，依次发了 `/health`、`/snapshot`、`/device`，然后是决定。按当时的步骤，手机锁着没人碰，应是手表上点的「批准」；这一点还没得到你的确认。
+4. **手表按钮**：手机锁屏、App 已断开，CloudKit 提醒 10:03:01 发出，10:03:14 审批被放行（`approvalResolved`）。这期间手机在后台被唤醒，依次发了 `/health`、`/snapshot`、`/device`，然后是决定。你确认是在手表上点的「批准」（2026-09-26）。
 5. **Mac 设置**：没配 `.p8` 时，「投递健康」下多一行「iCloud 提醒」。它的状态逻辑与发送共用 `cloudKitStatus`；这次没截到设置窗口的图。
 
 **过程中修掉的两个问题**
@@ -73,5 +73,5 @@
 - 手动上滑后的送达。
 - 按钮冷启动。
 - 专注模式下 Time Sensitive 能否穿透。
-- 同一 Apple 账号下多台手机。
+- 同一 Apple 账号下多台手机。已知限制：手机 A 自己发了本地通知、手机 B 没有时，记录照样存下，A 会再响一次（本地与远程通知不合并，ADR-0012）。
 - 不同 Apple 账号时的提示：代码已写，没有第二个账号可测。

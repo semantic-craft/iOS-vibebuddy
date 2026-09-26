@@ -11,19 +11,33 @@ import VibeBuddyKit
 actor CloudKitCues {
     static let shared = CloudKitCues()
 
-    private let container = CKContainer(identifier: CloudKitCue.containerID)
-    private let zoneID = CKRecordZone.ID(zoneName: CloudKitCue.zoneName, ownerName: CKCurrentUserDefaultName)
-    private(set) var userRecordName: String?
-    private var ready = false
+    /// `CKContainer` traps in a build without the iCloud entitlement, and the
+    /// QA scripts build the simulator app with `CODE_SIGNING_ALLOWED=NO`. A
+    /// simulator run opts in with `VIBEBUDDY_CLOUDKIT=1`; a device build is
+    /// always signed with the entitlement.
+    static var isAvailable: Bool {
+        #if targetEnvironment(simulator)
+        ProcessInfo.processInfo.environment["VIBEBUDDY_CLOUDKIT"] == "1"
+        #else
+        true
+        #endif
+    }
 
-    /// Once per launch: the account, the zone and the three subscriptions.
-    /// Returns the user record name when iCloud is usable, for the Mac.
-    @discardableResult
+    private lazy var container = CKContainer(identifier: CloudKitCue.containerID)
+    private let zoneID = CKRecordZone.ID(zoneName: CloudKitCue.zoneName, ownerName: CKCurrentUserDefaultName)
+    private var readyUser: String?
+
+    /// The account, the zone and the three subscriptions; again on every
+    /// foreground until it has all worked once. Returns this phone's iCloud
+    /// user only when the subscriptions are in place — a Mac told "reachable"
+    /// before that would write records no push ever comes from — and "" when
+    /// iCloud is not usable, so the Mac forgets what it knew.
     func setUp() async -> String? {
-        guard !ready else { return userRecordName }
+        guard Self.isAvailable else { return nil }
+        if let readyUser { return readyUser }
         do {
-            guard try await container.accountStatus() == .available else { return nil }
-            userRecordName = try await container.userRecordID().recordName
+            guard try await container.accountStatus() == .available else { return "" }
+            let user = try await container.userRecordID().recordName
             _ = try await container.privateCloudDatabase.modifyRecordZones(
                 saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
             do {
@@ -34,11 +48,11 @@ actor CloudKitCues {
                 try await seedSchema()
                 try await saveSubscriptions()
             }
-            ready = true
+            readyUser = user
+            return user
         } catch {
-            ready = false
+            return ""
         }
-        return userRecordName
     }
 
     private func saveSubscriptions() async throws {

@@ -28,9 +28,15 @@ cloudkit_identity_sha1() {
 cloudkit_profile_for() {
   local sha1; sha1="$(cloudkit_identity_sha1 "$1")"
   [[ -n "$sha1" && -d "$CLOUDKIT_PROFILE_DIR" ]] || return 0
-  /usr/bin/python3 - "$sha1" "$CLOUDKIT_PROFILE_DIR" "$CLOUDKIT_BUNDLE_ID" "$CLOUDKIT_CONTAINER" <<'PY'
+  # A development profile lists the Macs it may run on; the embedded profile
+  # must name this one or the app will not launch here.
+  local udid; udid="$(system_profiler SPHardwareDataType 2>/dev/null | sed -n 's/.*Provisioning UDID: *//p')"
+  /usr/bin/python3 - "$sha1" "$CLOUDKIT_PROFILE_DIR" "$CLOUDKIT_BUNDLE_ID" "$CLOUDKIT_CONTAINER" "$udid" <<'PY'
 import glob, hashlib, os, plistlib, subprocess, sys, datetime
-sha1, folder, bundle, container = sys.argv[1].upper(), sys.argv[2], sys.argv[3], sys.argv[4]
+sha1, folder, bundle, container, udid = sys.argv[1].upper(), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+# An embedded profile that expires makes the installed app fail to launch;
+# refuse one with less than 30 days left (the fetch script renews it).
+cutoff = datetime.datetime.now() + datetime.timedelta(days=30)
 best = None
 for path in glob.glob(os.path.join(folder, "*.provisionprofile")):
     try:
@@ -43,7 +49,9 @@ for path in glob.glob(os.path.join(folder, "*.provisionprofile")):
         continue
     if container not in ent.get("com.apple.developer.icloud-container-identifiers", []):
         continue
-    if p.get("ExpirationDate") and p["ExpirationDate"] < datetime.datetime.now():
+    if p.get("ExpirationDate") and p["ExpirationDate"] < cutoff:
+        continue
+    if not p.get("ProvisionsAllDevices") and udid not in p.get("ProvisionedDevices", []):
         continue
     certs = [hashlib.sha1(c).hexdigest().upper() for c in p.get("DeveloperCertificates", [])]
     if sha1 not in certs:

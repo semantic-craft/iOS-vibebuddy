@@ -138,6 +138,7 @@ final class MenuBarModel: ObservableObject {
     /// Registered phones signed into this Mac's Apple Account — the ones a
     /// CloudKit cue can reach.
     @Published private(set) var cloudKitPhones = 0
+    private var cloudKitRefresh: Task<Void, Never>?
     @Published private(set) var contentPresentationRevision: String?
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
     /// How many phones the Mac can push to right now, and when the newest of
@@ -512,6 +513,7 @@ final class MenuBarModel: ObservableObject {
             ?? (ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] != "1")
         cloudKit = pusher == nil && cloudKitAllowed
             ? CloudKitCueSender.makeIfEntitled(recorder: recorder, receipts: receipts) : nil
+        if cloudKit != nil { cloudKitStatus = CloudKitCueStatus(state: .couldNotDetermine) }
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // The APNs registry outlives this process. Without the file, every Mac
         // restart emptied it and no push reached a closed phone until the phone
@@ -932,11 +934,17 @@ final class MenuBarModel: ObservableObject {
     }
 
     func refreshNotificationDeliveryHealth() async {
-        if let cloudKit {
-            let status = await cloudKit.refreshStatus()
-            if cloudKitStatus != status { cloudKitStatus = status }
-            let phones = pushTargets(await deviceTokens.devices()).devices.filter(\.hasPushToken).count
-            if cloudKitPhones != phones { cloudKitPhones = phones }
+        if let cloudKit, cloudKitRefresh == nil {
+            // Off the poll: asking iCloud can wait on the network, and the
+            // snapshot, glance and pushes must not wait with it.
+            cloudKitRefresh = Task { [weak self] in
+                let status = await cloudKit.refreshStatus()
+                guard let self else { return }
+                if self.cloudKitStatus != status { self.cloudKitStatus = status }
+                let phones = self.pushTargets(await self.deviceTokens.devices()).devices.filter(\.hasPushToken).count
+                if self.cloudKitPhones != phones { self.cloudKitPhones = phones }
+                self.cloudKitRefresh = nil
+            }
         }
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
         let authorization: NotificationAuthorization

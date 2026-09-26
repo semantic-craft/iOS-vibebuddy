@@ -57,16 +57,30 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                                        macWantsSound: true, macTimeSensitive: kind.category != nil,
                                        prefs: prefs), soundFile: "default", to: content)
 
+        // An unsigned simulator build has no iCloud entitlement, and
+        // `CKContainer` would trap there.
+        #if targetEnvironment(simulator)
+        deliver()
+        #else
         guard let recordID = notification.recordID else { deliver(); return }
         Task { await self.fetchAndDeliver(recordID, identifier: identifier, prefs: prefs) }
+        #endif
     }
 
+    /// Fills a copy, then swaps it in under the lock: the system's expiry
+    /// callback may be delivering the current content on another thread.
     private func fetchAndDeliver(_ recordID: CKRecord.ID, identifier: String?, prefs: CloudKitCue.PhonePrefs) async {
         if let record = try? await CKContainer(identifier: CloudKitCue.containerID)
-            .privateCloudDatabase.record(for: recordID), let content {
-            fill(content, from: record, identifier: identifier, prefs: prefs)
-            fetched = true
-            sentAt = record[CloudKitCue.Field.sentAt] as? Date
+            .privateCloudDatabase.record(for: recordID),
+           let filled = content?.mutableCopy() as? UNMutableNotificationContent {
+            fill(filled, from: record, identifier: identifier, prefs: prefs)
+            lock.lock()
+            if contentHandler != nil {
+                content = filled
+                fetched = true
+                sentAt = record[CloudKitCue.Field.sentAt] as? Date
+            }
+            lock.unlock()
         }
         deliver()
     }
@@ -120,6 +134,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         lock.lock()
         let handler = contentHandler
         contentHandler = nil
+        let content = self.content
         lock.unlock()
         guard let handler, let content else { return }
         if let identifier {

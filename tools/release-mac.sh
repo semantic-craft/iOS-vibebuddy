@@ -202,6 +202,7 @@ note "VibeBuddyMacApp.app"
 # cue container for this certificate. Signing the entitlement without one
 # builds an app macOS refuses to launch, so without it the release ships as
 # before and iCloud cues stay off.
+CLOUDKIT_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUILT_APP/Contents/Info.plist")"
 source "$REPO/tools/mac-cloudkit-signing.sh"
 CK_PROFILE="$(cloudkit_profile_for "$IDENTITY")"
 if [[ -n "$CK_PROFILE" ]]; then

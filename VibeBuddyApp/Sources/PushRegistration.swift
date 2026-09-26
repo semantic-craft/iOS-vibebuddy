@@ -111,10 +111,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // the sound, and the in-app sound pack would never be heard.
         UNUserNotificationCenter.current().delegate = self
         LocalNotifier.registerCategories()
-        Task {
-            let user = await CloudKitCues.shared.setUp()
-            await MainActor.run { PushRegistration.shared.update(cloudKitUser: user) }
-        }
+        Self.setUpCloudKitCues()
         return true
     }
 
@@ -147,6 +144,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         Task { await PushCoverage.shared.noteActivated() }
+        Self.setUpCloudKitCues()
+    }
+
+    /// Until the subscriptions are in place, try again on every foreground
+    /// (offline at launch, Production schema not deployed yet, …).
+    private static func setUpCloudKitCues() {
+        Task {
+            guard let user = await CloudKitCues.shared.setUp() else { return }
+            await MainActor.run { PushRegistration.shared.update(cloudKitUser: user) }
+        }
     }
 
     /// A tapped banner opens its session. Both channels name the session the
