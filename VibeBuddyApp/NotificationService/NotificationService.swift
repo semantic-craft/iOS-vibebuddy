@@ -74,13 +74,13 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             .privateCloudDatabase.record(for: recordID),
            let filled = content?.mutableCopy() as? UNMutableNotificationContent {
             fill(filled, from: record, identifier: identifier, prefs: prefs)
-            lock.lock()
-            if contentHandler != nil {
+            let sent = record[CloudKitCue.Field.sentAt] as? Date
+            lock.withLock {
+                guard contentHandler != nil else { return }
                 content = filled
                 fetched = true
-                sentAt = record[CloudKitCue.Field.sentAt] as? Date
+                sentAt = sent
             }
-            lock.unlock()
         }
         deliver()
     }
