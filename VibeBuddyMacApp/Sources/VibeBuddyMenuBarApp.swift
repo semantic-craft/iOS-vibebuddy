@@ -649,15 +649,6 @@ struct MenuContent: View {
                     DashboardRoute.open(.inbox)
                 }
             MenuFooterControl(
-                label: "Recap",
-                systemImage: "clock.arrow.circlepath",
-                shortcut: "",
-                tooltip: "Open Recap",
-                showsLabel: showsLabels,
-                showsShortcut: false) {
-                    DashboardRoute.open(.recap)
-                }
-            MenuFooterControl(
                 label: model.showGlance ? "Hide Glance" : "Glance",
                 systemImage: model.showGlance ? "eye.slash" : "eye",
                 shortcut: model.toggleGlanceHotkey.displayString,

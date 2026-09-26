@@ -101,28 +101,6 @@ struct ContentPresentationTests {
         #expect(PresentationStub.state.requestCount == 1)
     }
 
-    @Test("old recap uses its own full result and presentation never acknowledges either round")
-    func oldRecapKeepsItsMaterialAndReadState() async throws {
-        let store = SessionStore(sourceID: "mac")
-        let network = await configure(store)
-        defer { network.invalidateAndCancel() }
-        await round(store, turn: "first", text: "First outcome. ORIGINAL_FIRST_DETAIL")
-        let first = try #require(await store.snapshot(now: Date()).recap?.entries.first)
-        await round(store, turn: "second", text: "Second outcome. ORIGINAL_SECOND_DETAIL")
-        let before = await store.snapshot(now: Date())
-        #expect(before.recap?.entries.count == 2)
-        let result = await store.presentation(.init(sourceID: "mac", target: .recap(id: first.id), purpose: .recap))
-        #expect(result?.generated == true)
-        #expect(result?.text == "The first round retained its original detail.")
-        let after = await store.snapshot(now: Date())
-        #expect(after.sessions.first?.hasUnreadCompletion == true)
-        #expect(after.recap?.entries.map(\.isRead) == [false, false])
-        let presented = try #require(after.recap?.entries.first(where: { $0.id == first.id }))
-        #expect(presented.contentPresentation == result)
-        #expect(presented.points == first.points)
-        #expect(after.recap?.horizon == before.recap?.horizon)
-    }
-
     @Test("hook-only completion has no spoken ending, verified completion names the conversation")
     func verifiedNamedSpeech() async throws {
         let store = SessionStore(sourceID: "mac")
@@ -229,31 +207,6 @@ struct ContentPresentationTests {
         #expect(result.text.contains("The requested drawing was saved."))
         #expect(!result.text.contains("unavailable") && !result.text.contains("摘要暂时不可用"))
     }
-
-    @Test("legacy recap without original material degrades without borrowing the newer result")
-    func legacyRecapWithoutMaterial() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("content-presentation-" + UUID().uuidString)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let date = Date().addingTimeInterval(-20)
-        let oldID = RecapEntry.completedID(sourceID: "mac", sessionID: "s", completionID: "legacy")
-        let old = RecapLedger.Stored(id: oldID, kind: .completed, sessionID: "s", completionID: "legacy",
-            agent: .codex, project: "project", title: "Old round", fallbackSummary: "Saved legacy summary.",
-            ledgerLine: nil, endedAt: date, recordedAt: date, isRead: false)
-        try JSONEncoder().encode(RecapLedger.File(horizon: nil, entries: [oldID: old]))
-            .write(to: dir.appendingPathComponent("recap-ledger.json"))
-        let store = SessionStore(sourceID: "mac", journalURL: dir.appendingPathComponent("lifecycle-journal.json"))
-        let network = await configure(store)
-        defer { network.invalidateAndCancel() }
-        await round(store, turn: "new", text: "Second outcome. ORIGINAL_SECOND_DETAIL")
-        let result = await store.presentation(.init(sourceID: "mac", target: .recap(id: oldID), purpose: .recap))
-        #expect(result?.generated == false)
-        #expect(result?.text.isEmpty == false)
-        #expect(PresentationStub.state.requestCount == 0)
-        let snapshot = await store.snapshot(now: Date())
-        #expect(snapshot.recap?.entries.first(where: { $0.id == oldID })?.points == ["Saved legacy summary."])
-        #expect(snapshot.sessions.first?.hasUnreadCompletion == true)
-    }
 }
 
 private final class PresentationStub: URLProtocol, @unchecked Sendable {
@@ -267,23 +220,8 @@ private final class PresentationStub: URLProtocol, @unchecked Sendable {
 
     func respond() {
         guard lock.withLock({ if ended { return false }; ended = true; return true }) else { return }
-        var body = request.httpBody ?? Data()
-        if body.isEmpty, let stream = request.httpBodyStream {
-            stream.open()
-            defer { stream.close() }
-            var bytes = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = stream.read(&bytes, maxLength: bytes.count)
-                guard count > 0 else { break }
-                body.append(contentsOf: bytes.prefix(count))
-            }
-        }
-        let material = String(decoding: body, as: UTF8.self)
-        let text = material.contains("ORIGINAL_FIRST_DETAIL")
-            ? "The first round retained its original detail."
-            : material.contains("ORIGINAL_SECOND_DETAIL") ? "The second round has different material." : "Choose the delivery date."
         let data = try! JSONSerialization.data(withJSONObject: ["choices": [[
-            "message": ["role": "assistant", "content": text], "finish_reason": "stop"]]])
+            "message": ["role": "assistant", "content": "Choose the delivery date."], "finish_reason": "stop"]]])
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
             headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

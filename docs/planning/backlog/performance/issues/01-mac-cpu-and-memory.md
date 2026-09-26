@@ -18,7 +18,7 @@
 ## 不做
 
 - 不改快照内容和产品行为。
-- 不合并 recap ledger 的快照组装（已知约束，见 `SessionStore` 注释与记忆 release-state-2026-09-22-mac-1.3.28）。
+- 不合并完成结果与通知的快照组装（已知约束，见 `SessionStore` 注释与记忆 release-state-2026-09-22-mac-1.3.28）。
 - 不替换 `/Applications` 里的共享 App 做测量；开发版与之并行运行（`isolated-mac-app-verification` 的做法）。
 
 ## 验收

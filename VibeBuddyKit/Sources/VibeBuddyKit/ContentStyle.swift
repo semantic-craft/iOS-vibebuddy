@@ -53,5 +53,5 @@ public struct ContentStyleConfiguration: Codable, Hashable, Sendable {
 }
 
 public enum SummaryPurpose: String, Codable, Sendable, Hashable {
-    case notice, speech, recap
+    case notice, speech
 }

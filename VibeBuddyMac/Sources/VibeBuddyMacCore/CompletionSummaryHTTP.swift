@@ -125,8 +125,6 @@ struct CompletionSummaryHTTP: Sendable {
             format = "The project title is displayed separately; do not repeat it. Write one or two complete plain-text sentences, target 60–120 Chinese characters, hard maximum 180 characters including spaces. If the record asks the user to do something now, the first sentence is that action. No line breaks, numbering or Markdown. End with sentence punctuation. When material conditions cannot fit even after grouping, return empty text rather than dropping them. This short notification limit takes precedence over the style's longer format."
         case .speech:
             format = "Start with the supplied conversation title and output only natural speech ready to read aloud. No headings, Markdown, code, tables or written numbered lists; say multi-step actions in spoken order (first, then, finally). Hard maximum 900 characters. Preserve the current state: a pending question requires an answer, permission requires a decision, and a failure is not completion. Do not imply a pending action has already been approved or performed."
-        case .recap:
-            format = "Summarize the supplied completed round for a recap. This is historical evidence; do not imply current verification and do not present that round's open work as a current obligation. Start with the project title. Preserve remaining limitations and supported decisions. Use short plain-text sentences without a closing next-step line or numbered list, maximum 360 characters."
         }
         let grounding = """
         输出前核对：材料只有“尚未发布、尚未安装、尚未试听”时，这些只是状态或验证范围，绝不据此追加“你需要决定是否发布”“请你安排试听”等任务。只有材料明确包含用户尚待回答的问题或真实的相互冲突选项，才写决策建议、取舍和下一步；否则只汇报结果与限制，省略决策段。不要编造“内部人员”“全量用户”“小范围测试”或发布计划。不要把测试数量、代码提交等技术过程写进正文，保留的限制用普通语言概括。例如：“入口已恢复，长对话也能直接找到摘要功能；实际语音效果尚未验证，当前使用的版本尚未更新。”不要说“无需你采取行动”后又要求用户作决定。
@@ -167,9 +165,8 @@ struct CompletionSummaryHTTP: Sendable {
         }
         let text = pieces.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return fail(.emptyOutput) }
-        if purpose != .notice {
-            let limit = purpose == .speech ? 900 : 360
-            guard text.count <= limit else { return fail(.outputTooLong) }
+        if purpose == .speech {
+            guard text.count <= 900 else { return fail(.outputTooLong) }
             guard !text.contains("`"), !text.contains("**"), !text.hasPrefix("#"), !text.hasPrefix("- ") else { return fail(.invalidOutput) }
             return .init(text: text, usage: usage)
         }

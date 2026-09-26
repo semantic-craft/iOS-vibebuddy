@@ -17,7 +17,7 @@ struct ContentStyleLiveTests {
         for style in ContentStyle.allCases {
             var config = CompletionSummaryConfiguration(enabled: true, provider: .qwen, modelID: "qwen3.8-flash", language: .chinese)
             config.contentStyle = .init(style: style, customPrompt: "用两句自然中文汇报。第一句讲实际改善，第二句讲尚未确认的事项。")
-            for purpose in [SummaryPurpose.speech, .notice, .recap] {
+            for purpose in [SummaryPurpose.speech, .notice] {
                 let now = Date()
                 let input = CompletionSummaryInput(sourceID: "content-style-live", sessionID: history.id,
                     completionID: UUID().uuidString, title: "VibeBuddy", finalText: final,

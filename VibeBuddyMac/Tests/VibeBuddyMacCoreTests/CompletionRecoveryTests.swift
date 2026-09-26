@@ -77,12 +77,10 @@ struct CompletionRecoveryTests {
         #expect(await store.snapshot(now: now).sessions.first?.status == .working)
         #expect(await store.snapshot(now: now).sessions.first?.completionID == nil)
         #expect(await store.completionBody(sessionID: "s", completionID: a).text == nil)
-        let key = RecapEntry.completedID(sourceID: "source", sessionID: "s", completionID: a)
-        let saved = RecapLedger(url: dir.appendingPathComponent("recap-ledger.json"))
+        let key = CompletionResults.key(sourceID: "source", sessionID: "s", completionID: a)
+        let saved = CompletionResultLedger(url: dir.appendingPathComponent(CompletionResultLedger.fileName))
         #expect(saved.results[key]?.text == "Verified A")
         #expect(saved.results[key]?.conflict == true)
-        #expect(saved.entries[key]?.resultConflict == true)
-        #expect(await store.snapshot(now: now).recap?.entries.first?.points.contains("Verified A") == false)
     }
 
     @Test func claudeStopTextDoesNotWaitForTranscript() async throws {
@@ -102,19 +100,36 @@ struct CompletionRecoveryTests {
         let now = Date()
         let record = CompletionResults.Record(sourceID: "source", sessionID: "s", completionID: "completion",
             agent: .codex, turnID: "turn", title: "Title", startedAt: now, completedAt: now)
-        var ledger = RecapLedger(url: dir.appendingPathComponent("ledger.json"))
+        var ledger = CompletionResultLedger(url: dir.appendingPathComponent("ledger.json"))
         ledger.retainResults([record.id: record], now: now)
         var results = CompletionResults(restoring: ledger)
         results.accept("First", id: record.id, now: now)
         results.accept("Other", id: record.id, now: now)
         results.accept("First", id: record.id, now: now)
         _ = results.retain(in: &ledger, now: now)
-        let restored = RecapLedger(url: ledger.url)
+        let restored = CompletionResultLedger(url: ledger.url)
         #expect(restored.results[record.id]?.text == "First")
         #expect(restored.results[record.id]?.conflict == true)
         #expect(restored.results[record.id]?.frozen(now: now) == nil)
-        #expect(RecapLedger(url: ledger.url, now: now.addingTimeInterval(RecapLedger.retention + 1)).results.isEmpty)
-        #expect(ledger.entries.isEmpty)
+        #expect(CompletionResultLedger(url: ledger.url, now: now.addingTimeInterval(CompletionResultLedger.retention + 1)).results.isEmpty)
+    }
+
+    @Test func resultsMoveOutOfTheRemovedRecapLedgerOnce() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let now = Date()
+        var record = CompletionResults.Record(sourceID: "source", sessionID: "s", completionID: "completion",
+            agent: .claudeCode, turnID: nil, title: "Title", startedAt: now, completedAt: now)
+        record.text = "Kept result"
+        let legacy = dir.appendingPathComponent(CompletionResultLedger.legacyFileName)
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record))
+        try JSONSerialization.data(withJSONObject: ["horizon": 1, "entries": [:], "results": [record.id: json]])
+            .write(to: legacy)
+        let url = dir.appendingPathComponent(CompletionResultLedger.fileName)
+        #expect(CompletionResultLedger(url: url, now: now).results[record.id]?.text == "Kept result")
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        #expect(CompletionResultLedger(url: url, now: now).results[record.id]?.text == "Kept result")
     }
 
     @Test func unchangedResultsStillAgeOutOfTheLedger() {
@@ -123,12 +138,12 @@ struct CompletionRecoveryTests {
             agent: .claudeCode, turnID: nil, title: "Old", startedAt: now, completedAt: now)
         let new = CompletionResults.Record(sourceID: "source", sessionID: "new", completionID: "c",
             agent: .claudeCode, turnID: nil, title: "New", startedAt: now, completedAt: now.addingTimeInterval(86_400))
-        var ledger = RecapLedger(url: nil)
+        var ledger = CompletionResultLedger(url: nil)
         ledger.retainResults([old.id: old, new.id: new], now: now)
         var results = CompletionResults(restoring: ledger)
         _ = results.retain(in: &ledger, now: now.addingTimeInterval(60))   // unchanged: nothing to do
         #expect(ledger.results.count == 2)
-        _ = results.retain(in: &ledger, now: now.addingTimeInterval(RecapLedger.retention + 1))
+        _ = results.retain(in: &ledger, now: now.addingTimeInterval(CompletionResultLedger.retention + 1))
         #expect(ledger.results.keys.sorted() == [new.id])
     }
 
@@ -140,7 +155,7 @@ struct CompletionRecoveryTests {
                 completedAt: end ?? now, transcriptPath: "/unused/read-request.jsonl")
         }
         let original = record()
-        var ledger = RecapLedger(url: nil)
+        var ledger = CompletionResultLedger(url: nil)
         ledger.retainResults([original.id: original], now: now)
         var results = CompletionResults(restoring: ledger)
         guard case .read(let request) = results.readPlan(key: original.id, sourceID: "source", now: now) else {
@@ -149,7 +164,7 @@ struct CompletionRecoveryTests {
         let acceptedWrongSource = results.merge(.text("Wrong source"), for: request, sourceID: "other", now: now)
         #expect(!acceptedWrongSource)
         for replaced in [record(turn: "other"), record(start: now.addingTimeInterval(-1)), record(end: now.addingTimeInterval(1))] {
-            var changedLedger = RecapLedger(url: nil)
+            var changedLedger = CompletionResultLedger(url: nil)
             changedLedger.retainResults([replaced.id: replaced], now: now)
             var changed = CompletionResults(restoring: changedLedger)
             let acceptedStaleRead = changed.merge(.text("Stale read"), for: request, sourceID: "source", now: now)
@@ -185,7 +200,7 @@ struct CompletionRecoveryTests {
             completedAt: start.addingTimeInterval(3), expectedText: nil) == nil)
     }
 
-    @Test func claudeLateFailureDoesNotEraseNewRun() {
+    @Test func claudeLateFailureDoesNotEraseNewRun() throws {
         let now = Date()
         var results = CompletionResults()
         var reducer = SessionReducer()
@@ -200,7 +215,8 @@ struct CompletionRecoveryTests {
         apply(.init(kind: .userPromptSubmit, sessionID: "s", timestamp: now.addingTimeInterval(2)))
         apply(.init(kind: .stop, sessionID: "s", timestamp: now.addingTimeInterval(1), completionSucceeded: false), authority: false)
         apply(.init(kind: .stop, sessionID: "s", timestamp: now.addingTimeInterval(3), completionText: "B", completionSucceeded: true))
-        #expect(results.recapResults(for: Array(reducer.sessions.values), sourceID: "source").values.contains("B"))
+        let session = try #require(reducer.sessions["s"])
+        #expect(results.snapshotText(for: session, sourceID: "source") == "B")
     }
 
     @Test func newerCorroboratingRunPreventsReadingOldAuthorityCompletion() async throws {
@@ -248,15 +264,14 @@ struct CompletionRecoveryTests {
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex, observationSource: .appserver,
             timestamp: now, turnID: "exact", completionSucceeded: true))
         let completion = try #require(await store.snapshot(now: now).sessions.first?.completionID)
-        let key = RecapEntry.completedID(sourceID: "source", sessionID: "s", completionID: completion)
-        #expect(RecapLedger(url: dir.appendingPathComponent("recap-ledger.json")).results[key]?.startedAt == nil)
+        let key = CompletionResults.key(sourceID: "source", sessionID: "s", completionID: completion)
+        #expect(CompletionResultLedger(url: dir.appendingPathComponent(CompletionResultLedger.fileName)).results[key]?.startedAt == nil)
         let restored = SessionStore(sourceID: "source", journalURL: journal)
         await restored.ingest(.init(kind: .stop, sessionID: "s", agent: .codex, observationSource: .rollout,
             timestamp: now, turnID: "exact", turnStartedAt: now.addingTimeInterval(-10),
             completionText: "Recovered exact ending", completionSucceeded: true))
         #expect(await restored.snapshot(now: now).sessions.first?.completionID == completion)
         #expect(await restored.completionBody(sessionID: "s", completionID: completion).text == "Recovered exact ending")
-        #expect(await restored.snapshot(now: now).recap?.entries.isEmpty == true)
         #expect(await restored.completionResult(sessionID: "s", completionID: completion) == .resultUnavailable)
     }
 
@@ -290,7 +305,7 @@ struct CompletionRecoveryTests {
             observationSource: .rollout, timestamp: now.addingTimeInterval(-1), turnID: "older",
             turnStartedAt: now.addingTimeInterval(-10), completionText: "Old result", completionSucceeded: true),
             session: session, sourceID: "source", now: now, createdCompletion: true)
-        var ledger = RecapLedger(url: nil)
+        var ledger = CompletionResultLedger(url: nil)
         _ = results.retain(in: &ledger, now: now)
         #expect(ledger.results.isEmpty)
         #expect(results.snapshotText(for: session, sourceID: "source") == nil)
@@ -400,8 +415,8 @@ struct CompletionRecoveryTests {
         }
         #expect(result.turnID == "native-a")
         #expect(result.finalText == "Verified native final")
-        let key = RecapEntry.completedID(sourceID: "source", sessionID: "s", completionID: completion)
-        #expect(RecapLedger(url: dir.appendingPathComponent("recap-ledger.json")).results[key]?.startedAt == nil)
+        let key = CompletionResults.key(sourceID: "source", sessionID: "s", completionID: completion)
+        #expect(CompletionResultLedger(url: dir.appendingPathComponent(CompletionResultLedger.fileName)).results[key]?.startedAt == nil)
         let restored = SessionStore(sourceID: "source", journalURL: journal, resultClock: { now })
         #expect(await restored.completionBody(sessionID: "s", completionID: completion).text == result.finalText)
         #expect(await restored.completionResult(sessionID: "s", completionID: completion) == .resultUnavailable)
