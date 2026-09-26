@@ -69,7 +69,7 @@ when the corresponding implementation has passed these gates and merged.
 ## Amendment 1 (2026-09-24): restart recovery, and what a leader offers
 
 **Measured** on grok 1.0.41 in disposable homes (evidence in
-[ticket 02](../planning/backlog/agent-integration-2026-09/issues/02-grok-leader-fanout-and-recovery.md)
+[ticket 02](https://github.com/semantic-craft/iOS-vibebuddy/pull/299)
 Comments):
 
 - `session/load` in a fresh `grok agent --no-leader stdio` continues a session

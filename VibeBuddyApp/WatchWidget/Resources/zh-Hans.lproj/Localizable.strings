@@ -6,7 +6,6 @@
 "%lld more" = "另有 %lld 项";
 "Unnamed task" = "未命名任务";
 "Updated" = "更新于";
-"Last known state" = "上次同步的状态";
 "Waiting for your response" = "等待你回应";
 "Task reported an error" = "任务报告了错误";
 "Open the app to view the result" = "打开应用查看结果";
@@ -31,7 +30,6 @@
 "Weekly window" = "周窗口";
 "Short window" = "短窗口";
 "Choose the allowance to show on your watch face." = "选择表盘显示的平台和额度窗口。";
-"Codex and Claude remaining allowance." = "Codex 和 Claude 的剩余额度。";
 "Wk" = "周";
 "Short" = "短";
 "Remaining" = "剩余";

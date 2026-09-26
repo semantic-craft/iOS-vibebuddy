@@ -5,7 +5,6 @@
    instrument data are intentionally not translated. */
 
 /* MARK: Connect / pairing */
-"Keep an eye on your Mac's Claude Code and Codex sessions from your phone." = "在手机上盯着 Mac 上的 Claude Code 与 Codex 会话。";
 "Scan to pair" = "扫码配对";
 "On your Mac, open Devices & connection, choose Show connection code, then scan it." = "在 Mac 打开「设备与连接」，点「显示连接二维码」，然后扫码。";
 "Enter address manually" = "手动输入地址";
@@ -35,7 +34,6 @@
 "No terminal for this session" = "该会话没有终端";
 "Couldn't reach your Mac" = "连不上你的 Mac";
 "Connecting to your Mac" = "正在连接你的 Mac";
-"No active sessions" = "没有活动会话";
 "Start a Claude Code or Codex session and it'll show up here." = "启动一个 Claude Code 或 Codex 会话，它就会出现在这里。";
 "Disconnected" = "已断开";
 "Disconnected — reconnecting…" = "已断开——正在重连…";
@@ -52,12 +50,7 @@
 /* MARK: Buddy header + voice strip */
 "Listening…" = "聆听中…";
 "Speaking…" = "说话中…";
-"Waiting for approval" = "等待批准";
-"Waiting for your answer" = "等待你的回答";
-"Been waiting a while…" = "已经等了一会儿…";
 "Working…" = "进行中…";
-"All done" = "全部完成";
-"Napping…" = "打盹中…";
 "%lld waiting" = "%lld 个等待";
 "%lld working" = "%lld 个进行中";
 "%lld done" = "%lld 个已完成";
@@ -92,7 +85,6 @@
 "Paste your %@ key" = "粘贴你的 %@ 密钥";
 
 /* MARK: Voice companion opt-in (consent gate) */
-"Voice companion off" = "语音伙伴已关闭";
 "Continue" = "继续";
 "Tap the mic to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Doubao (Volcengine)." = "点一下麦克风，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或豆包（火山引擎）。";
 "When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to that provider using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给该服务商。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
@@ -101,8 +93,6 @@
 /* MARK: Voice companion — scoped session context */
 "Buddy: all sessions" = "伙伴：全部会话";
 "Buddy: %lld selected" = "伙伴：已选 %lld 个";
-"In the buddy's context" = "已纳入伙伴的上下文";
-"Add to the buddy's context" = "加入伙伴的上下文";
 
 /* MARK: Notifications */
 "VibeBuddy is watching your sessions." = "VibeBuddy 正在盯着你的会话。";
@@ -149,7 +139,6 @@
 "Install on your Mac" = "在 Mac 上安装伴侣";
 "Open the download link on your Mac. Under Assets, download the DMG and drag the app to Applications." = "在 Mac 上打开下载链接，在 Assets 中下载 DMG，再将应用拖入“应用程序”。";
 "Show the pairing code" = "在 Mac 上显示配对码";
-"Open “Pair a phone” in the Mac menu bar. Keep your Mac and iPhone on the same local network." = "在 Mac 菜单栏打开“配对手机”（Pair a phone）。Mac 和 iPhone 需连接同一局域网。";
 "Scan with your iPhone" = "用 iPhone 扫码配对";
 "Scan the code to pair, then set up your agents in the Mac app. Keep the Mac app running and reachable for live updates." = "扫码完成配对后，在 Mac 应用中设置 Agent。请保持 Mac 伴侣运行、网络可连接，以持续接收任务动态。";
 "Get the Mac companion" = "获取 Mac 版伴侣";
@@ -160,7 +149,6 @@
 "For Apple Silicon Macs with macOS 14 or later. Install the companion on your Mac, not your iPhone." = "适用于搭载 Apple 芯片、运行 macOS 14 或更高版本的 Mac。伴侣应用需安装在 Mac 上，不能安装在 iPhone 上。";
 "Mac companion" = "Mac 版伴侣";
 "Can't find the QR code?" = "找不到二维码？";
-"Install the companion on your Mac, then open “Pair a phone” in its menu bar. Keep both devices on the same local network." = "先在 Mac 安装伴侣，再在菜单栏打开“配对手机”（Pair a phone）。请将两台设备连接到同一局域网。";
 "Download or update the Mac app" = "下载或更新 Mac 版伴侣";
 "Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings." = "请检查 Mac 伴侣是否运行、两台设备是否连接同一局域网，以及系统设置中的“本地网络”权限是否已开启。";
 "Need the Mac companion?" = "尚未安装 Mac 版伴侣？";
@@ -180,7 +168,6 @@
 "Respond in Grok Bot on your Mac. Remote response is unavailable." = "请在 Mac 的 Grok Bot 中处理。此请求无法远程作答。";
 "This request can't be verified. Wait for an updated connection and request." = "暂时无法验证此请求。请等待连接和请求更新。";
 "Can't reach your iPhone. Reconnect to verify this request." = "无法连接 iPhone。请恢复连接以验证此请求。";
-"Connection to your Mac is unavailable. Reconnect to verify this request." = "Mac 连接不可用。请恢复连接以验证此请求。";
 
 "No project" = "未归属项目";
 
@@ -188,27 +175,15 @@
 
 "Projects" = "项目";
 
-"All statuses" = "全部状态";
-
 "Task status" = "任务状态";
 
-"Agent & attention" = "Agent 与关注程度";
-
-"Clear filters" = "清除筛选";
-
 "All agents" = "全部 Agent";
-
-"All attention levels" = "全部关注程度";
 
 "Filters" = "筛选";
 
 "Active filters: %@" = "当前筛选：%@";
 
-"Showing last snapshot. Reconnect to update tasks." = "正在显示上次快照。重新连接以更新任务。";
-
 "No matching sessions" = "没有匹配的 Session";
-
-"Try another filter or clear filters to see all sessions." = "更换筛选条件，或清除筛选以查看全部 Session。";
 
 "Requires input" = "待回应";
 
@@ -225,36 +200,21 @@
 "Notifications & sounds" = "通知与声音";
 "Voice conversation" = "语音对话";
 "Connected Mac" = "连接的 Mac";
-"Connection information" = "连接信息";
-"Completion summaries" = "完成摘要";
 "Help" = "帮助";
 "Showing last diagnostics. Reconnect to update." = "正在显示上次诊断。重新连接以更新。";
 "Status" = "状态";
 "Address" = "地址";
 "Pairing and Mac setup" = "配对与 Mac 接入";
-"Pair by scanning the code from your Mac. Use the Mac menu at the top of the dashboard to reconnect or forget the current pairing." = "扫描 Mac 上的配对码进行配对。在首页顶部的 Mac 菜单中可重新连接或忘记当前配对。";
 "Demo — no Mac connected" = "演示 — 未连接 Mac";
 "Not paired" = "未配对";
-"Online" = "在线";
 "Offline" = "离线";
-"Completion summaries are configured and generated on your Mac. Choose the summary provider, model and credentials in the Mac app's Settings." = "完成摘要在 Mac 上配置和生成。请在 Mac App 的设置中选择摘要服务商、模型和凭据。";
-"Your iPhone receives the Mac's completion notice. There is no separate summary model or remote configuration control on this iPhone." = "iPhone 接收 Mac 生成的完成通知。此 iPhone 不提供独立的摘要模型或远程配置功能。";
-"Managed on your Mac" = "由 Mac 管理";
-"Voice conversation on this iPhone has its own provider and credentials. Changing voice settings does not configure Mac completion summaries or Mac read aloud." = "此 iPhone 的语音对话使用独立的服务商和凭据。更改语音设置不会配置 Mac 的完成摘要或朗读功能。";
-"Separate from iPhone voice" = "与 iPhone 语音独立";
 
 /* Doubao and independent purpose configuration */
 "Completion summary provider" = "完成摘要服务商";
 "Choose a completion summary provider before testing." = "请先选择完成摘要服务商，再进行测试。";
-"Purpose provider & shared language" = "用途服务商与共用语言";
-"Each purpose keeps its own provider. Credentials are shared only when both use the same provider; language remains shared." = "每个用途独立选择服务商。只有选择同一服务商时才共用凭据；对话语言仍共用。";
-"Changing the voice provider or shared language reconnects an active conversation. Changing the summary provider does not. Editing never starts an idle conversation or a test." = "切换语音服务商或共用语言会重连正在进行的对话。切换摘要服务商不会重连。编辑设置不会启动空闲对话或测试。";
-"This provider’s credentials are shared by the purposes that select it." = "选择此服务商的用途共用其凭据。";
 "Doubao realtime voice 3.0 · Recommended" = "豆包实时语音 3.0 · 推荐";
 "Custom realtime model" = "自定义实时语音模型";
-"The recommended model and Vivi voice are ready. Only your realtime API key is required." = "已预设推荐模型与 Vivi 音色，只需填入实时语音 API key。";
 "Your custom model or voice is retained. Review Advanced settings before testing." = "已保留你的自定义模型或音色，请在测试前检查高级设置。";
-"Checking saved configuration…" = "正在检查已保存的配置…";
 "Not configured" = "未配置";
 "Advanced settings" = "高级设置";
 "Restore recommended model and voice" = "恢复推荐模型与音色";
@@ -330,8 +290,6 @@
 "Jump" = "跳转";
 "Open thread" = "打开线程";
 "Open Grok Bot" = "打开 Grok Bot";
-"Open thread in ChatGPT" = "在 ChatGPT 中打开线程";
-"In buddy's context" = "已在伙伴的上下文中";
 "Add to buddy" = "加入伙伴的上下文";
 "Show recent output" = "显示最近输出";
 "Hide recent output" = "隐藏最近输出";
@@ -438,8 +396,6 @@
 "Couldn't save read status — reopen this result to retry" = "无法保存已读状态——重新打开此结果以重试";
 "Read — confirmed by Mac" = "已读——Mac 已确认";
 "Viewed — waiting to sync with Mac" = "已查看——等待与 Mac 同步";
-"Opened Grok Bot on your Mac — select the task in the app" = "已在 Mac 上打开 Grok Bot——请在 app 里选中该任务";
-"Couldn't open Grok Bot on your Mac" = "无法在 Mac 上打开 Grok Bot";
 "Opened the thread in ChatGPT on your Mac" = "已在 Mac 的 ChatGPT 中打开该线程";
 "Opened ChatGPT on your Mac — find the thread there" = "已在 Mac 上打开 ChatGPT——请在那里找到该线程";
 "Couldn't open the thread — is ChatGPT running on your Mac?" = "无法打开线程——Mac 上的 ChatGPT 在运行吗？";
@@ -467,7 +423,6 @@
 "%lldd" = "%lld 天";
 "Offline · showing last snapshot" = "离线 · 显示上次快照";
 "Reconnecting · showing last snapshot" = "重新连接中 · 显示上次快照";
-"Offline · reconnect to respond" = "离线 · 重新连接后可回应";
 
 /* New task editor (2026-09-13) */
 "your Mac" = "你的 Mac";
@@ -500,7 +455,6 @@
 "Your decision" = "需要你的决定";
 "Actions" = "可执行操作";
 "Activity and file changes" = "活动记录与文件变化";
-"Permission mode" = "权限模式";
 "Unknown" = "未知";
 "AI summary · this completion · agent-reported results" = "AI 摘要 · 本次完成 · 结果由 Agent 自述";
 "Completion notice · this completion" = "完成通知 · 本次完成";
@@ -511,14 +465,12 @@
 "No call identity; result cannot be linked to intent" = "缺少调用身份，无法将结果关联到执行意图";
 "Observed hook calls only; retained 50, snapshot 20" = "仅记录已观察到的 Hook 调用；保留 50 条，快照显示 20 条";
 "This completion is no longer current." = "这次完成结果已不再是当前轮次。";
-"The final result could not be verified for this completion. Recent output remains available with limited coverage." = "无法核实最终结果与本次完成的对应关系；仍可查看覆盖有限的最近输出。";
 
 "Workspace changes" = "工作区变化";
 
 /* Scoped pending navigation. */
 "Current filter: %@" = "当前筛选：%@";
 "Current list · including older tasks" = "当前列表 · 包含较早任务";
-"Current tasks" = "当前任务";
 "Next pending: %@" = "下一个待处理：%@";
 "No next pending task in this scope" = "此范围没有下一个待处理任务";
 "This task is no longer available" = "此任务已不可用";
@@ -585,21 +537,9 @@
 
 "Surge setup guide" = "Surge 配置说明";
 
-"Mac at home" = "家里的 Mac";
-
-"Mac private IP (100.x.x.x)" = "Mac 私网 IP（100.x.x.x）";
-
-"Test and use this address" = "检查并使用此地址";
-
 "Checking connection…" = "正在检查连接…";
 
-"Live Mac status received. This address is now saved. Check the Watch’s latest update next." = "已收到 Mac 的实时状态并保存此地址。接下来请核对 Watch 的最新更新时间。";
-
-"Mac refused the saved pairing. Scan its pairing code again." = "Mac 拒绝了已保存的配对。请重新扫描它的配对二维码。";
-
 "Check status away from home" = "检查外出连接";
-
-"Scan a Mac’s pairing code here to connect or replace your saved pairing. You do not need to disconnect first." = "在此扫描 Mac 的配对码，即可连接或替换已保存的配对，无需先断开连接。";
 
 "Summary & speech" = "摘要与播报";
 "Current content style" = "当前内容风格";
