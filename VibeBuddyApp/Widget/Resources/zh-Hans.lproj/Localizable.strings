@@ -38,3 +38,4 @@
 "%lldh" = "%lld小时";
 "%lldm" = "%lld分";
 "%lld%% left" = "剩余 %lld%%";
+"Every provider's allowance at a glance, one line per pool." = "一眼看全各家额度，每个额度池一行。";
