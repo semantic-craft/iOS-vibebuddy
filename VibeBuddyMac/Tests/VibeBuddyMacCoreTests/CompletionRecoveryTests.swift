@@ -158,7 +158,9 @@ struct CompletionRecoveryTests {
         bytes.append(10)
         let transcript = dir.appendingPathComponent("transcript.jsonl")
         try bytes.write(to: transcript)
-        let store = SessionStore(sourceID: "source", journalURL: dir.appendingPathComponent("journal.json"))
+        let observed = ended.addingTimeInterval(0.1)
+        let store = SessionStore(sourceID: "source", journalURL: dir.appendingPathComponent("journal.json"),
+                                 resultClock: { observed })
         let prompt = try JSONSerialization.data(withJSONObject: ["hook_event_name": "UserPromptSubmit",
             "session_id": "s", "transcript_path": transcript.path, "prompt": "Fix it"])
         await store.ingest(prompt, receivedAt: start)
