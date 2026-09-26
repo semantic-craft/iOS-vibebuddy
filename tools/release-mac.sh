@@ -198,7 +198,22 @@ HISTORY_CLI="$BUILT_APP/Contents/MacOS/vibebuddy-mcp"
 [[ -x "$HISTORY_CLI" ]] || die "missing bundled history MCP CLI"
 note "vibebuddy-mcp"; sign "$HISTORY_CLI"
 note "VibeBuddyMacApp.app"
-sign --entitlements "$ENTITLEMENTS" "$BUILT_APP"
+# iCloud cues (ADR-0013 D): only with a Developer ID profile that allows the
+# cue container for this certificate. Signing the entitlement without one
+# builds an app macOS refuses to launch, so without it the release ships as
+# before and iCloud cues stay off.
+CLOUDKIT_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUILT_APP/Contents/Info.plist")"
+source "$REPO/tools/mac-cloudkit-signing.sh"
+CK_PROFILE="$(cloudkit_profile_for "$IDENTITY")"
+if [[ -n "$CK_PROFILE" ]]; then
+  CK_ENT="$OUT_DIR/entitlements-cloudkit.plist"
+  cp "$CK_PROFILE" "$BUILT_APP/Contents/embedded.provisionprofile"
+  note "iCloud cues: on ($(cloudkit_entitlements "$CK_PROFILE" "$ENTITLEMENTS" "$CK_ENT"))"
+  sign --entitlements "$CK_ENT" "$BUILT_APP"
+else
+  note "iCloud cues: OFF — no Developer ID profile with the cue container (tools/fetch-mac-cloudkit-profiles.sh)"
+  sign --entitlements "$ENTITLEMENTS" "$BUILT_APP"
+fi
 
 # ── Verify ───────────────────────────────────────────────────────────────────
 # Notarization rejects the whole submission over one unsigned, un-timestamped or

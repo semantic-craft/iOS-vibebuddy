@@ -56,6 +56,21 @@ IDENTITY="$(pick_identity || true)"
 if [[ -n "${IDENTITY:-}" ]]; then
   echo "▸ re-signing with stable identity ${IDENTITY}…"
   codesign --force --deep --sign "$IDENTITY" "$BUILD_PROD"
+  # iCloud cues (ADR-0013 D) only with a profile that allows them for this
+  # certificate; without one the app is signed exactly as before.
+  CLOUDKIT_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUILD_PROD/Contents/Info.plist")"
+  source "$REPO/tools/mac-cloudkit-signing.sh"
+  CK_PROFILE="$(cloudkit_profile_for "$IDENTITY")"
+  if [[ -n "$CK_PROFILE" ]]; then
+    CK_ENT="$(mktemp "${TMPDIR:-/tmp}/vb-entitlements.XXXXXX")"
+    cp "$CK_PROFILE" "$BUILD_PROD/Contents/embedded.provisionprofile"
+    CK_ENV="$(cloudkit_entitlements "$CK_PROFILE" "$REPO/tools/vibebuddy-mac.entitlements" "$CK_ENT")"
+    codesign --force --sign "$IDENTITY" --entitlements "$CK_ENT" "$BUILD_PROD"
+    rm -f "$CK_ENT"
+    echo "▸ iCloud cues: on (${CK_ENV})"
+  else
+    echo "▸ iCloud cues: off — no CloudKit profile for this certificate (tools/fetch-mac-cloudkit-profiles.sh)"
+  fi
 else
   echo "⚠ no stable codesigning identity found — staying ad-hoc."
   echo "  The keychain will keep re-prompting after each rebuild."
@@ -81,6 +96,22 @@ for _ in $(seq 1 80); do
   fi
   sleep 0.5
 done
+if ! curl -fsS --max-time 2 http://127.0.0.1:9876/health >/dev/null && [[ -n "${CK_PROFILE:-}" ]]; then
+  # The one new way this script can fail: macOS refusing the iCloud
+  # entitlement. Put back an app without it rather than leave none running.
+  echo "⚠ /health not ready with iCloud cues on — redeploying without them" >&2
+  pkill -9 -x VibeBuddyMacApp 2>/dev/null || true
+  rm -f "$BUILD_PROD/Contents/embedded.provisionprofile"
+  codesign --force --sign "$IDENTITY" "$BUILD_PROD"
+  rm -rf "$DEST"; ditto "$BUILD_PROD" "$DEST"
+  xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
+  xattr -dr com.apple.provenance "$DEST" 2>/dev/null || true
+  open "$DEST"
+  for _ in $(seq 1 80); do
+    curl -fsS --max-time 1 http://127.0.0.1:9876/health >/dev/null 2>&1 && break
+    sleep 0.5
+  done
+fi
 if ! curl -fsS --max-time 2 http://127.0.0.1:9876/health >/dev/null; then
   echo "✗ app launched but /health did not become ready on :9876" >&2
   exit 1

@@ -1226,3 +1226,9 @@
 "Hide glance" = "隐藏速览";
 "Expand glance" = "展开速览";
 "Sends this answer" = "点一下即发送这个回答";
+"iCloud cues" = "iCloud 提醒";
+"Sign in to iCloud" = "请登录 iCloud";
+"iCloud unavailable" = "iCloud 不可用";
+"No iPhone on this Apple Account" = "没有 iPhone 使用这个 Apple 账号";
+"This build cannot use iCloud. Install the release from GitHub, or configure an APNs key." = "这个版本用不了 iCloud。请安装 GitHub 上的正式版，或配置 APNs 密钥。";
+"Cues reach a closed iPhone through your own iCloud. The iPhone must use the same Apple Account." = "iPhone 关着 App 时，提醒经你自己的 iCloud 送达。iPhone 必须登录同一个 Apple 账号。";

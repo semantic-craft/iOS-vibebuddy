@@ -497,7 +497,8 @@ public struct VibeBuddyServer: Sendable {
         // "systemVersion"}` (or a raw APNs token string). `token` -> APNs
         // registry; the other fields feed the paired-device display.
         authed.post("device") { request, _ -> HTTPResponse.Status in
-            let buffer = try await request.body.collect(upTo: 4096)
+            // 16 KB: the payload now carries up to 20 CloudKit cue receipts.
+            let buffer = try await request.body.collect(upTo: 16_384)
             let body = String(decoding: Data(buffer: buffer), as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let payload: DeviceRegistrationPayload

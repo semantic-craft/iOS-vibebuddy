@@ -75,6 +75,29 @@ struct DeviceRegistryTests {
         #expect(await DeviceTokens(url: url).devices().first?.supportsCompletionNotices == false)
     }
 
+    /// Reproduced on Hermes 2026-09-26: the merge dropped the phone's iCloud
+    /// user, so the Mac never found a phone to send CloudKit cues to.
+    @Test func cloudKitFieldsSurviveRegistrationAndRestart() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
+        var payload = DeviceRegistrationPayload(token: "abc", deviceID: "phone-a")
+        payload.cloudKitUser = "_user"
+        payload.cloudKitReceipts = [.init(notificationID: "s-needs_approval", receivedAt: Date(timeIntervalSince1970: 5),
+                                          fetched: true, passive: false)]
+        await tokens.register(payload)
+        await tokens.register(DeviceRegistrationPayload(token: "abc", deviceID: "phone-a", name: "Renamed"))
+        let device = await DeviceTokens(url: url).devices().first
+        #expect(device?.cloudKitUser == "_user")
+        #expect(device?.cloudKitReceipts?.first?.notificationID == "s-needs_approval")
+
+        // "" is the phone reporting it lost iCloud: the Mac forgets the user.
+        var signedOut = DeviceRegistrationPayload(token: "abc", deviceID: "phone-a")
+        signedOut.cloudKitUser = ""
+        await tokens.register(signedOut)
+        #expect(await DeviceTokens(url: url).devices().first?.cloudKitUser == nil)
+    }
+
     @Test func fileIsOwnerOnly() async throws {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

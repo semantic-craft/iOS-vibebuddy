@@ -14,6 +14,16 @@ final class PushRegistration {
 
     private var deviceToken: String?
     private(set) var pairing: PairingPayload?
+    /// This phone's iCloud user in the cue container, once `CloudKitCues` has
+    /// set up; the Mac only writes CloudKit cues for its own Apple Account.
+    private var cloudKitUser: String?
+
+    /// Called once CloudKit cues are set up (or found unavailable).
+    func update(cloudKitUser: String?) {
+        guard cloudKitUser != self.cloudKitUser else { return }
+        self.cloudKitUser = cloudKitUser
+        upload()
+    }
 
     func registerForRemoteNotifications() {
         UIApplication.shared.registerForRemoteNotifications()
@@ -61,6 +71,11 @@ final class PushRegistration {
     /// known and omitted before that, so an un-entitled build still reports its
     /// name for the Mac's "Paired: <name>" display.
     private func upload() {
+        // The extension applies these to CloudKit cues, which reach every
+        // phone on the account alike (ADR-0013 direction D).
+        CloudKitCue.PhonePrefs(playSound: SoundPrefs.playSound, manualQuiet: SoundPrefs.manualQuiet,
+                               quietHours: SoundPrefs.quietHours, categories: SoundPrefs.categories)
+            .save(to: UserDefaults(suiteName: WidgetSnapshotStore.appGroup))
         guard let pairing,
               let url = pairing.companionURL(path: "device")
         else { return }
@@ -81,6 +96,9 @@ final class PushRegistration {
             quietMode: SoundPrefs.effectiveQuiet(),
             categories: SoundPrefs.categories)
         registration.supportsCompletionNotices = true
+        registration.cloudKitUser = cloudKitUser
+        let receipts = CloudKitCue.Receipt.load(from: CloudKitCue.Receipt.url(appGroup: WidgetSnapshotStore.appGroup))
+        registration.cloudKitReceipts = receipts.isEmpty ? nil : receipts
         request.httpBody = try? JSONEncoder().encode(registration)
         Task { _ = try? await URLSession.shared.data(for: request) }
     }
@@ -93,6 +111,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // the sound, and the in-app sound pack would never be heard.
         UNUserNotificationCenter.current().delegate = self
         LocalNotifier.registerCategories()
+        Self.setUpCloudKitCues()
         return true
     }
 
@@ -125,6 +144,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         Task { await PushCoverage.shared.noteActivated() }
+        Self.setUpCloudKitCues()
+    }
+
+    /// Until the subscriptions are in place, try again on every foreground
+    /// (offline at launch, Production schema not deployed yet, …).
+    private static func setUpCloudKitCues() {
+        Task {
+            guard let user = await CloudKitCues.shared.setUp() else { return }
+            await MainActor.run { PushRegistration.shared.update(cloudKitUser: user) }
+        }
     }
 
     /// A tapped banner opens its session. Both channels name the session the

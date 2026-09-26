@@ -622,6 +622,9 @@ private struct DiagnosticsPage: View {
                         SettingsValue(verbatim: "\(model.missedThisWeek.count)")
                     }
                 ])
+                if !model.notificationDeliveryHealth.apnsConfigured {
+                    iCloudCuesRow
+                }
                 if let last = model.notificationDeliveryHealth.lastAttempt {
                     SettingsRow("Last attempt",
                                 detailText: lastAttemptDetail(last)) {
@@ -673,6 +676,34 @@ private struct DiagnosticsPage: View {
             }
         }
         .onAppear { setup.refresh() }
+    }
+
+    /// Closed-app cues for a Mac without an APNs key: saved to the user's own
+    /// iCloud private database, pushed by Apple (ADR-0013 direction D).
+    @ViewBuilder private var iCloudCuesRow: some View {
+        let status = model.cloudKitStatus
+        let detail = status.state == .notEntitled
+            ? String(localized: "This build cannot use iCloud. Install the release from GitHub, or configure an APNs key.")
+            : String(localized: "Cues reach a closed iPhone through your own iCloud. The iPhone must use the same Apple Account.")
+                + (status.lastError.map { "\n" + $0 } ?? "")
+        SettingsRow("iCloud cues", detailText: detail) {
+            switch status.state {
+            case .notEntitled:
+                SettingsValue("Unavailable")
+            case .noAccount:
+                SettingsPill("Sign in to iCloud", tone: .warn)
+            case .restricted, .temporarilyUnavailable, .couldNotDetermine:
+                SettingsPill("iCloud unavailable", tone: .warn)
+            case .available:
+                if model.cloudKitPhones > 0 {
+                    SettingsValue(verbatim: String(localized: "Ready") + " · \(model.cloudKitPhones) iPhone")
+                } else if model.deviceRegistry.count > 0 {
+                    SettingsPill("No iPhone on this Apple Account", tone: .warn)
+                } else {
+                    SettingsValue("Ready")
+                }
+            }
+        }
     }
 
     private func lastAttemptDetail(_ last: NotificationDeliveryRecord) -> String {

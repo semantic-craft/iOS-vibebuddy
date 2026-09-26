@@ -234,6 +234,9 @@ struct DeviceRegistry {
         if let v = payload.quietMode { merged.quietMode = v }
         if let v = payload.categories { merged.categories = v }
         if let v = payload.supportsCompletionNotices { merged.supportsCompletionNotices = v }
+        // An empty string is the phone saying it has no usable iCloud now.
+        if let v = payload.cloudKitUser { merged.cloudKitUser = v.isEmpty ? nil : v }
+        if let v = payload.cloudKitReceipts { merged.cloudKitReceipts = v }
         entries.removeAll { (token != nil && $0.device.token == token) || (id != nil && $0.device.deviceID == id) }
         // Re-registering does not re-prove the token: a phone that reconnects
         // keeps whatever standing it had with Apple. A *new* token starts from

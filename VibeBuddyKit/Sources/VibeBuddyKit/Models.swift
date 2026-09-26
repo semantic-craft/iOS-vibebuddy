@@ -849,6 +849,14 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     /// decode unchanged; the Mac treats a missing value as the default set.
     public var supportsCompletionNotices: Bool? = nil
     public var categories: NotificationCategoryPrefs?
+    /// The phone's CloudKit user record name in `CloudKitCue.containerID`, the
+    /// same string on every device signed into the same Apple Account. The Mac
+    /// compares it with its own before relying on CloudKit cues. Empty when
+    /// the phone checked and has no usable iCloud (the Mac clears what it
+    /// knew); nil when it has not checked yet or predates CloudKit cues.
+    public var cloudKitUser: String? = nil
+    /// The CloudKit cues this phone's extension handled most recently.
+    public var cloudKitReceipts: [CloudKitCue.Receipt]? = nil
 
     public init(token: String? = nil, deviceID: String? = nil, name: String? = nil,
                 model: String? = nil, systemVersion: String? = nil,

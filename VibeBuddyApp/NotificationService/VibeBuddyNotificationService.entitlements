@@ -2,16 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Release/Archive entitlements (App Store + TestFlight): production APNs.
-         Local Debug device runs use VibeBuddyApp-Debug.entitlements (development). -->
-    <key>aps-environment</key>
-    <string>production</string>
+    <!-- Fetches CloudKit cue records (ADR-0013 direction D) and reads the
+         phone's sound switches from the app group. -->
     <key>com.apple.security.application-groups</key>
     <array>
         <string>group.com.vibebuddy.app</string>
     </array>
-    <key>com.apple.developer.usernotifications.time-sensitive</key>
-    <true/>
     <key>com.apple.developer.icloud-container-identifiers</key>
     <array>
         <string>iCloud.com.vibebuddy.app</string>

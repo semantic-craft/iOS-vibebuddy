@@ -29,6 +29,10 @@ public enum NotificationDeliveryChannel: String, Codable, Sendable, Equatable {
     /// `skipped` (`pushCovered`) when it left the cue to a push that had
     /// already landed. Reported, not observed — it never moves this Mac's health.
     case phone
+    /// A cue record saved to the user's iCloud private database for the
+    /// phone's CloudKit subscription (ADR-0013 direction D). `accepted` means
+    /// iCloud stored it — the push itself is Apple's.
+    case cloudkit
 }
 
 public enum NotificationAuthorization: String, Sendable, Equatable {
