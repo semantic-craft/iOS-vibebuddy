@@ -24,9 +24,34 @@ public struct ContentPresentationRequest: Codable, Hashable, Sendable {
     public let sourceID: String
     public let target: ContentPresentationTarget
     public let purpose: SummaryPurpose
+    /// The persona of the device that will read the text: the wording is half
+    /// of a persona, and the phone and the Mac each keep their own. Absent on
+    /// the wire for `.standard`, so a request without a style is unchanged.
+    public let voiceStyle: VoiceStyle
 
-    public init(sourceID: String, target: ContentPresentationTarget, purpose: SummaryPurpose = .speech) {
-        self.sourceID = sourceID; self.target = target; self.purpose = purpose
+    public init(sourceID: String, target: ContentPresentationTarget, purpose: SummaryPurpose = .speech,
+                voiceStyle: VoiceStyle = .standard) {
+        self.sourceID = sourceID; self.target = target; self.purpose = purpose; self.voiceStyle = voiceStyle
+    }
+
+    private enum CodingKeys: String, CodingKey { case sourceID, target, purpose, voiceStyle }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sourceID = try c.decode(String.self, forKey: .sourceID)
+        target = try c.decode(ContentPresentationTarget.self, forKey: .target)
+        purpose = try c.decode(SummaryPurpose.self, forKey: .purpose)
+        // A persona from a newer peer reads as `.standard` rather than failing
+        // the whole request.
+        voiceStyle = VoiceStyle(stored: try c.decodeIfPresent(String.self, forKey: .voiceStyle))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sourceID, forKey: .sourceID)
+        try c.encode(target, forKey: .target)
+        try c.encode(purpose, forKey: .purpose)
+        if voiceStyle != .standard { try c.encode(voiceStyle.rawValue, forKey: .voiceStyle) }
     }
 }
 

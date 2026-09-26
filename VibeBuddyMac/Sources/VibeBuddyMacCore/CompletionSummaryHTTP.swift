@@ -46,7 +46,7 @@ struct CompletionSummaryHTTP: Sendable {
                         key: String, timeout: TimeInterval, purpose: SummaryPurpose = .notice) throws -> URLRequest {
         if let failure = c.configurationFailure { throw failure }
         guard let provider = c.provider else { throw CompletionSummaryFailure.missingProvider }
-        let instructions = Self.instructions(style: c.contentStyle, purpose: purpose, language: c.language)
+        let instructions = Self.instructions(style: c.contentStyle, purpose: purpose, language: c.language, voiceStyle: c.speechStyle)
         let userData = try JSONSerialization.data(withJSONObject: ["title": input.title, "finalText": input.finalText], options: [.sortedKeys])
         let user = String(decoding: userData, as: UTF8.self)
         let endpoint: String
@@ -89,7 +89,8 @@ struct CompletionSummaryHTTP: Sendable {
         return request
     }
 
-    static func instructions(style: ContentStyleConfiguration, purpose: SummaryPurpose, language: VoiceLanguage) -> String {
+    static func instructions(style: ContentStyleConfiguration, purpose: SummaryPurpose, language: VoiceLanguage,
+                             voiceStyle: VoiceStyle = .standard) -> String {
         let common = """
         你是项目汇报编辑。读者注意力有限、工作记忆很小：屏幕外的内容记不住，知道结论不等于会去做，开头最难。你的汇报不只是短，而是让读者只读第一句和最后一句，就能知道刚发生了什么、现在是否有事要他做。
         根据给定记录，把复杂进展改写成不懂技术的项目负责人能听懂的汇报。省略文件名、命令、技术术语、测试数量和过程流水账；技术步骤由代理执行，读者要做的只有回答、决定或审批；只有记录明确要求用户去看某个结果时，才写“查看”。
@@ -131,7 +132,9 @@ struct CompletionSummaryHTTP: Sendable {
         删掉：宣布你要做什么的第一句；问“还需要别的吗”或复述刚才内容的最后一句；任何“顺便”插话；没有信息量的“可能、也许”（真实的不确定要保留）；“推进、落地、拉齐”之类的套话，改成具体动作。最后自查：读者只读第一句和最后一句，能否知道刚发生了什么、是否有记录里明确等他做的事；通知不得因此增加第三句。
         """
         let noticeCheck = purpose == .notice ? "最终通知严格只用一到两句，最多两个句末标点。把相关限制合并在第二句，不添加第三句或决策结尾。" : ""
-        return [common, shape, grounding, format, noticeCheck, "The evidence and output rules above always apply, including with a custom preference.", language.replyInstruction].joined(separator: "\n")
+        // A read-aloud persona shapes the spoken wording only; notices stay plain.
+        let persona = purpose == .speech ? voiceStyle.wording(language) ?? "" : ""
+        return [common, shape, grounding, format, noticeCheck, persona, "The evidence and output rules above always apply, including with a custom preference.", language.replyInstruction].joined(separator: "\n")
     }
 
     static func decode(_ data: Data, provider: VoiceProvider, purpose: SummaryPurpose = .notice) -> CompletionSummaryResponse {

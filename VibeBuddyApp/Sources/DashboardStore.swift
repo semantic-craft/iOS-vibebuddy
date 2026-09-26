@@ -248,10 +248,12 @@ final class DashboardStore: ObservableObject {
               let target = ContentPresentationTarget(session: session) else { throw ContentRequestFailure.conflict }
         if state == .connected, let pairing {
             do {
-                let request = ContentPresentationRequest(sourceID: context.source, target: target)
+                let request = ContentPresentationRequest(sourceID: context.source, target: target,
+                                                         voiceStyle: PhoneReadAloudSelection.load().voiceStyle)
                 let response = try await decisionClient.presentation(pairing, request: request)
                 guard sameConnection(context), speechContext == context, state == .connected,
-                      response.request == request, response.revision == context.revision,
+                      response.request.sourceID == request.sourceID, response.request.target == request.target,
+                      response.request.purpose == request.purpose, response.revision == context.revision,
                       !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       allSessions.contains(where: target.matches) else { throw ContentRequestFailure.conflict }
                 return Announcement(text: response.text, context: context, target: target, savedFallback: !response.generated, savedCompletionNotice: nil)

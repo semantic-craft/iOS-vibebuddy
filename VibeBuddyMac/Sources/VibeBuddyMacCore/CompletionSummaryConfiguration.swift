@@ -11,6 +11,11 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
     public var qwenUseIntl: Bool
     public var qwenWorkspaceID: String?
     public var contentStyle: ContentStyleConfiguration
+    /// The reader's persona for this one request (`ContentPresentationRequest
+    /// .voiceStyle`), never loaded from defaults. Deliberately outside
+    /// `presentationRevision`: the phone and the Mac may read with different
+    /// personas, and the revision is what both compare against the snapshot.
+    public var speechStyle: VoiceStyle = .standard
 
     public init(enabled: Bool = false, provider: VoiceProvider? = nil, modelID: String = "",
                 language: VoiceLanguage = .english, qwenUseIntl: Bool = false,

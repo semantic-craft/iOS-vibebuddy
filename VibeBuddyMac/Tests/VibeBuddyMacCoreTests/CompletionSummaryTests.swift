@@ -121,6 +121,13 @@ struct CompletionSummaryTests {
         #expect(SummaryStub.state.requestCount == 3)
         #expect(await service.generate(material, purpose: .notice, configuration: config) == nil)
         #expect(SummaryStub.state.requestCount == 3)
+        // A reader's persona rewords the text, so it is its own cache entry,
+        // while leaving the revision the phone and Mac compare untouched.
+        let revision = config.presentationRevision
+        config.speechStyle = .coquettish
+        #expect(config.presentationRevision == revision)
+        #expect(await service.generate(material, purpose: .speech, configuration: config) != nil)
+        #expect(SummaryStub.state.requestCount == 4)
     }
 
     @Test func failedPresentationDoesNotAutomaticallyRetryAndLongSpeechCannotBecomeNotice() async throws {
@@ -317,7 +324,7 @@ struct CompletionSummaryTests {
         #expect(SummaryStub.state.maximumActive == 2)
     }
 
-    @Test func instructionsShapeOutputForAnActionFirstReader() {
+    @Test func instructionsShapeOutputForAnActionFirstReader() throws {
         for style in ContentStyle.allCases {
             let config = ContentStyleConfiguration(style: style, customPrompt: "只讲客户收益。")
             for purpose in [SummaryPurpose.notice, .speech] {
@@ -348,6 +355,11 @@ struct CompletionSummaryTests {
         #expect(!speech.contains("1. 2. 3."))
         let decision = CompletionSummaryHTTP.instructions(style: .init(style: .decision), purpose: .speech, language: .chinese)
         #expect(decision.contains("第一句是项目结论（没有待决选择时，不把它改成行动开头）"))
+        // The persona words spoken text only; a notice stays plain.
+        let persona = try #require(VoiceStyle.coquettish.wording(.chinese))
+        #expect(CompletionSummaryHTTP.instructions(style: .default, purpose: .speech, language: .chinese, voiceStyle: .coquettish).contains(persona))
+        #expect(!CompletionSummaryHTTP.instructions(style: .default, purpose: .notice, language: .chinese, voiceStyle: .coquettish).contains(persona))
+        #expect(!speech.contains("播报人设"))
         let custom = CompletionSummaryHTTP.instructions(style: .init(style: .custom, customPrompt: "只讲客户收益。"), purpose: .speech, language: .english)
         #expect(custom.contains("只讲客户收益。"))
         #expect(custom.contains("The evidence and output rules above always apply"))

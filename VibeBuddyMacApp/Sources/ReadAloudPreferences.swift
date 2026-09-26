@@ -104,6 +104,7 @@ private struct ReadAloudPreferenceControls: View {
                                 fallback: VoiceSettings.readAloudVoice(provider, language: spokenLanguage),
                                 voiceID: $voiceID, trailing: { EmptyView() }, showsDetails: false)
                         .frame(maxWidth: 340, alignment: .leading)
+                        .disabled(configuration.styledVoice != nil)
                 }
             }
             HStack(spacing: 12) {
@@ -126,6 +127,10 @@ private struct ReadAloudPreferenceControls: View {
                 Text("This provider uses Standard delivery. Choose another read-aloud provider to change the style.")
                     .foregroundStyle(MacTheme.ink2)
             } else {
+                if configuration.styledVoice != nil {
+                    Text("This style reads with its own voice and model, and rewords summaries. The voice and model set here apply to Standard.")
+                        .foregroundStyle(MacTheme.ink2)
+                }
                 Text("Voice and style changes apply to the next reading. Current playback continues.")
                     .foregroundStyle(MacTheme.ink2)
             }
@@ -162,7 +167,8 @@ private struct ReadAloudPreferenceControls: View {
         credential.load()
         guard credential.configured else { return tests.reportUnreadableKey(.readAloud) }
         let config = configuration, key = credential.value, reader = reader
-        let text = NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Synthetic read-aloud preview")
+        let text = config.style.previewLine(config.language)
+            ?? NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Synthetic read-aloud preview")
         tests.start(.readAloud, timeout: .seconds(35), operation: {
             switch await reader.preview(text, apiKey: key, configuration: config) {
             case .completed:

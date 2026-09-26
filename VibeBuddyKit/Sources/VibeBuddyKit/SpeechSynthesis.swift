@@ -29,6 +29,12 @@ public struct SpeechSynthesisConfiguration: Sendable, Equatable {
 
     /// The persona each synthesizer frames in its own vendor's words.
     var persona: VoicePersona? { style.persona(language) }
+    /// The style's own voice when it has one — the persona lives mostly in the
+    /// voice, so the style's pick outranks the one chosen in Settings.
+    public var styledVoice: StyledVoice? { style.voice(for: provider, language: language, qwenUseIntl: qwenUseIntl) }
+    /// What is actually sent, after the style has had its say.
+    public var effectiveVoice: String { styledVoice?.voice ?? voice }
+    public var effectiveModel: String { styledVoice?.model ?? model }
 }
 
 /// Graded so the UI can say something the user can act on without echoing a
@@ -102,7 +108,7 @@ public enum SpeechSynthesis {
             return Support(defaultModel: QwenSpeechSynthesizer.defaultModel,
                            defaultVoice: QwenSpeechSynthesizer.defaultVoice,
                            supportsStyle: true) {
-                QwenSpeechSynthesizer(model: $0.model, voice: $0.voice,
+                QwenSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice,
                                       workspaceID: $0.qwenWorkspaceID, useIntl: $0.qwenUseIntl,
                                       persona: $0.persona)
             }
@@ -117,7 +123,7 @@ public enum SpeechSynthesis {
             return Support(defaultModel: DoubaoSpeechSynthesizer.defaultModel,
                            defaultVoice: DoubaoSpeechSynthesizer.defaultVoice,
                            supportsStyle: true) {
-                DoubaoSpeechSynthesizer(model: $0.model, voice: $0.voice, persona: $0.persona)
+                DoubaoSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, persona: $0.persona)
             }
         case .deepseek:
             return nil   // Text-only: DeepSeek publishes no speech API.
@@ -132,7 +138,10 @@ public enum SpeechSynthesis {
         support(provider)?.supportsStyle == true
     }
 
+    /// Wrapped in `ChunkedSpeechSynthesizer`: a spoken summary runs to 900
+    /// characters, while one vendor request stays short enough to answer
+    /// inside its timeout (Qwen also truncates past about two minutes).
     public static func synthesizer(_ configuration: SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? {
-        support(configuration.provider)?.make(configuration)
+        support(configuration.provider).map { ChunkedSpeechSynthesizer(base: $0.make(configuration)) }
     }
 }

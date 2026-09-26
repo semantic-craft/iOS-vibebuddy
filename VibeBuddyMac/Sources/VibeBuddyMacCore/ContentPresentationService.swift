@@ -64,7 +64,8 @@ public actor ContentPresentationService {
         config.enabled = true
         if let failure = config.configurationFailure { return .failed(failure) }
         let fields = [input.sourceID, input.sessionID, input.completionID, input.turnID ?? "",
-                      input.title, input.finalText, purpose.rawValue, config.presentationRevision]
+                      input.title, input.finalText, purpose.rawValue, config.presentationRevision,
+                      purpose == .speech ? config.speechStyle.rawValue : ""]
         let data = Data(fields.map { "\($0.utf8.count):\($0)" }.joined().utf8)
         let id = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         if let result = cache[id], result.expiresAt > Date() { return result.outcome }
@@ -75,7 +76,9 @@ public actor ContentPresentationService {
             return Task.isCancelled ? .failed(.cancelled) : result
         }
         // Bound provider work as well as retained results. Failed attempts remain cached.
-        guard pending.count < 2 else { return .atCapacity }
+        // Three, not two: the phone and the Mac may word one completion in
+        // different personas, which are separate generations.
+        guard pending.count < 3 else { return .atCapacity }
         let http = self.http, key = self.key, captured = config
         guard let provider = captured.provider,
               let secret = key(provider), !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failed(.missingKey) }

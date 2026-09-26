@@ -167,9 +167,14 @@ private struct PhoneProviderSpeechSettings: View {
                 Text(selectedVoice).tag(selectedVoice)
             }
         }
+        .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
         if SpeechSynthesis.supportsStyle(provider) {
             Picker("Presenter style", selection: $style) {
                 ForEach(VoiceStyle.allCases, id: \.rawValue) { Text($0.display).tag($0) }
+            }
+            if style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil {
+                Text("This style reads with its own voice and model, and rewords summaries. The voice and model set here apply to Standard.")
+                    .foregroundStyle(.secondary)
             }
         } else {
             Text("This speech service does not support presenter styles.").foregroundStyle(.secondary)
@@ -186,11 +191,13 @@ private struct PhoneProviderSpeechSettings: View {
             Link("Get an API key", destination: provider.apiKeyURL)
             if keySaveFailed { Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.").foregroundStyle(.orange) }
             TextField("Speech model", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
             if let modelURL = provider.modelDocumentationURL(for: .speechSynthesis, model: model) {
                 Link("Speech synthesis model help", destination: modelURL)
                     .accessibilityIdentifier("phone-speech-model-help")
             }
             TextField("Voice ID", text: $selectedVoice).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
             if provider == .qwen {
                 TextField("Workspace ID", text: $workspace).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Toggle("Use Singapore (international) region", isOn: $intl)
