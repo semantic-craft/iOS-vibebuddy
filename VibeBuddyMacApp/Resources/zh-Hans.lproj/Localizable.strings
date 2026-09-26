@@ -962,7 +962,6 @@
 "Session unavailable" = "任务不可用";
 "Working sessions have no pending results in this scope." = "此范围内的进行中任务暂无待处理结果。";
 "No other pending tasks in this scope." = "此范围内没有其他待处理任务。";
-"Read" = "已读";
 
 /* Mac confirmation, routing and speech controls */
 "Open Inbox · %@" = "打开收件箱 · %@";

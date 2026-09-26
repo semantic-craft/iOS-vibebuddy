@@ -271,6 +271,21 @@ struct CompletionResults {
         return RowPresentation.firstSentence(result.finalText)
     }
 
+    /// Current rounds whose ending carried no final text but whose transcript
+    /// can still supply it. Read right away, inside the two-second window, so
+    /// the round gets its preview and its result is kept.
+    func pendingReads(for sessions: [AgentSession], sourceID: String?, now: Date) -> [String] {
+        guard let sourceID else { return [] }
+        return sessions.compactMap { session in
+            guard session.status == .done, !session.isStuck, session.historyOnly != true,
+                  let completionID = session.completionID else { return nil }
+            let key = Self.key(sourceID: sourceID, sessionID: session.id, completionID: completionID)
+            guard let record = records[key], record.readable(now: now), record.text == nil,
+                  record.transcriptPath != nil else { return nil }
+            return key
+        }
+    }
+
     mutating func accept(_ text: String, id: String, now: Date) {
         guard var record = records[id], record.readable(now: now),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

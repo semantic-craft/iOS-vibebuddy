@@ -132,6 +132,86 @@ struct CompletionRecoveryTests {
         #expect(CompletionResultLedger(url: url, now: now).results[record.id]?.text == "Kept result")
     }
 
+    @Test func leftoverLegacyFileIsRemovedOnceTheNewFileLoads() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent(CompletionResultLedger.fileName)
+        let legacy = dir.appendingPathComponent(CompletionResultLedger.legacyFileName)
+        try Data(#"{"results":{}}"#.utf8).write(to: url)
+        try Data("not json".utf8).write(to: legacy)
+        #expect(CompletionResultLedger(url: url).results.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    @Test func claudeStopWithoutTextStillPreviewsAndKeepsItsResult() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let start = Date().addingTimeInterval(-0.3)
+        let ended = Date().addingTimeInterval(-0.1)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let row: [String: Any] = ["sessionId": "s", "type": "assistant", "timestamp": formatter.string(from: start.addingTimeInterval(0.1)),
+            "message": ["role": "assistant", "stop_reason": "end_turn", "content": [["type": "text", "text": "The duplicate alert was fixed."]]]]
+        var bytes = try JSONSerialization.data(withJSONObject: row)
+        bytes.append(10)
+        let transcript = dir.appendingPathComponent("transcript.jsonl")
+        try bytes.write(to: transcript)
+        let store = SessionStore(sourceID: "source", journalURL: dir.appendingPathComponent("journal.json"))
+        let prompt = try JSONSerialization.data(withJSONObject: ["hook_event_name": "UserPromptSubmit",
+            "session_id": "s", "transcript_path": transcript.path, "prompt": "Fix it"])
+        await store.ingest(prompt, receivedAt: start)
+        let stop = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop",
+            "session_id": "s", "transcript_path": transcript.path])
+        await store.ingest(stop, receivedAt: ended)
+        let completion = try #require(await store.snapshot(now: Date()).sessions.first?.completionID)
+        var preview: String?
+        for _ in 0..<40 where preview == nil {
+            try await Task.sleep(for: .milliseconds(25))
+            preview = await store.snapshot(now: Date()).sessions.first?.completionText
+        }
+        #expect(preview == "The duplicate alert was fixed.")
+        let key = CompletionResults.key(sourceID: "source", sessionID: "s", completionID: completion)
+        #expect(CompletionResultLedger(url: dir.appendingPathComponent(CompletionResultLedger.fileName)).results[key]?.text
+            == "The duplicate alert was fixed.")
+    }
+
+    @Test func claudeStopSummaryBelongsToItsRoundBeforeTheTranscriptFlushes() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        let transcript = dir.appendingPathComponent("transcript.jsonl")
+        let oldRecord: [String: Any] = ["type": "assistant", "message": ["role": "assistant",
+            "content": [["type": "text", "text": "2 + 2 = 4."]]]]
+        var data = try JSONSerialization.data(withJSONObject: oldRecord)
+        data.append(10)
+        try data.write(to: transcript)
+        let store = SessionStore(sourceID: "mac")
+        for (index, text) in ["2 + 2 = 4.", "3 + 3 = 6."].enumerated() {
+            let offset = TimeInterval(index * 30)
+            let prompt = try JSONSerialization.data(withJSONObject: ["hook_event_name": "UserPromptSubmit",
+                "session_id": "s", "transcript_path": transcript.path, "prompt": "Next calculation"])
+            await store.ingest(prompt, receivedAt: t0.addingTimeInterval(offset))
+            let stop = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop",
+                "session_id": "s", "transcript_path": transcript.path, "last_assistant_message": text])
+            await store.ingest(stop, receivedAt: t0.addingTimeInterval(offset + 10))
+        }
+        let snapshot = await store.snapshot(now: t0.addingTimeInterval(41))
+        #expect(snapshot.sessions.first?.summary == "3 + 3 = 6.")
+        #expect(snapshot.sessions.first?.hasUnreadCompletion == true)
+
+        // Without an exact Stop summary, do not invent one from the old tail.
+        let prompt = try JSONSerialization.data(withJSONObject: ["hook_event_name": "UserPromptSubmit",
+            "session_id": "s", "transcript_path": transcript.path, "prompt": "Next calculation"])
+        await store.ingest(prompt, receivedAt: t0.addingTimeInterval(60))
+        let silentStop = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop",
+            "session_id": "s", "transcript_path": transcript.path])
+        await store.ingest(silentStop, receivedAt: t0.addingTimeInterval(70))
+        #expect(await store.snapshot(now: t0.addingTimeInterval(71)).sessions.first?.summary == nil)
+    }
+
     @Test func unchangedResultsStillAgeOutOfTheLedger() {
         let now = Date()
         let old = CompletionResults.Record(sourceID: "source", sessionID: "old", completionID: "c",

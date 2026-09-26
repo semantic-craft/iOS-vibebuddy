@@ -538,6 +538,8 @@ public actor SessionStore {
 
     private var completionResults = CompletionResults()
     private var completionReads: Set<String> = []
+    /// Rounds whose missing final text has been requested from the transcript once.
+    private var resultReadAttempts: Set<String> = []
     /// The clock the store passes to `CompletionResults`, including for the
     /// two-second notification window, and the one completion-notice
     /// deadlines are read on. Wall time in production; tests pin it so a
@@ -1656,6 +1658,11 @@ public actor SessionStore {
                 session.waitKind = nil
             }
             return session
+        }
+        let pendingReads = completionResults.pendingReads(for: snapshot.sessions, sourceID: sourceID, now: resultClock())
+        resultReadAttempts.formIntersection(pendingReads)
+        for key in pendingReads where resultReadAttempts.insert(key).inserted {
+            Task { _ = await self.readCompletionRecord(key: key) }
         }
         snapshot.contentPresentationRevision = presentationConfiguration().presentationRevision
         let active = Set(snapshot.sessions.compactMap { $0.completionNotice?.id })

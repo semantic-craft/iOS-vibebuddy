@@ -44,7 +44,11 @@ struct CompletionResultLedger {
             }
             let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: source))
             results = Self.bounded(file.results ?? [:], now: now)
+            // A migration whose delete failed earlier: the new file already holds the results.
+            if !migrating { try? FileManager.default.removeItem(at: legacy) }
         } catch {
+            // An unreadable legacy file cannot be recovered later; drop it
+            // rather than keep the new store closed over the removed feature.
             if migrating { try? FileManager.default.removeItem(at: legacy); return }
             let failure = error as NSError
             // URL resource APIs can throw NSError without a CocoaError cast.
