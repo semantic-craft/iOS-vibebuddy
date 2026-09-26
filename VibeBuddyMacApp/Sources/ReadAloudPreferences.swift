@@ -128,7 +128,7 @@ private struct ReadAloudPreferenceControls: View {
                     .foregroundStyle(MacTheme.ink2)
             } else {
                 if configuration.styledVoice != nil {
-                    Text("This style reads with its own voice and reworded summaries. The voice above is used with Standard.")
+                    Text("This style reads with its own voice and model, and rewords summaries. The voice and model set here apply to Standard.")
                         .foregroundStyle(MacTheme.ink2)
                 }
                 Text("Voice and style changes apply to the next reading. Current playback continues.")

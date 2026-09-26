@@ -76,7 +76,9 @@ public actor ContentPresentationService {
             return Task.isCancelled ? .failed(.cancelled) : result
         }
         // Bound provider work as well as retained results. Failed attempts remain cached.
-        guard pending.count < 2 else { return .atCapacity }
+        // Three, not two: the phone and the Mac may word one completion in
+        // different personas, which are separate generations.
+        guard pending.count < 3 else { return .atCapacity }
         let http = self.http, key = self.key, captured = config
         guard let provider = captured.provider,
               let secret = key(provider), !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failed(.missingKey) }

@@ -127,6 +127,10 @@ struct VoiceStyleTests {
             style: .serious, language: .english)
         #expect(english.effectiveVoice == "loongmary")
         #expect(english.effectiveModel == "m")
+        // Singapore was never verified for the persona voices, so it keeps the picked one.
+        let intl = SpeechSynthesisConfiguration(provider: .qwen, model: "m", voice: "v", qwenUseIntl: true,
+            style: .serious, language: .chinese)
+        #expect(intl.effectiveVoice == "v")
     }
 
     // MARK: Wire — the persona rides the presentation request

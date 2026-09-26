@@ -31,7 +31,7 @@ public struct SpeechSynthesisConfiguration: Sendable, Equatable {
     var persona: VoicePersona? { style.persona(language) }
     /// The style's own voice when it has one — the persona lives mostly in the
     /// voice, so the style's pick outranks the one chosen in Settings.
-    public var styledVoice: StyledVoice? { style.voice(for: provider, language: language) }
+    public var styledVoice: StyledVoice? { style.voice(for: provider, language: language, qwenUseIntl: qwenUseIntl) }
     /// What is actually sent, after the style has had its say.
     public var effectiveVoice: String { styledVoice?.voice ?? voice }
     public var effectiveModel: String { styledVoice?.model ?? model }

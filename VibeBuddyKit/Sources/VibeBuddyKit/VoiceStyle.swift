@@ -62,9 +62,12 @@ public enum VoiceStyle: String, Sendable, CaseIterable, Equatable, Hashable {
     /// replaces the voice picked in Settings while the style is on — the
     /// picked voice cannot carry a persona the tests showed an instruction
     /// cannot add. `nil` keeps the picked voice: `.standard`, a vendor with no
-    /// such voice, or a language the listed voice does not speak.
-    public func voice(for provider: VoiceProvider, language: VoiceLanguage) -> StyledVoice? {
-        guard language == .chinese else { return nil }
+    /// such voice, a language the listed voice does not speak, or Qwen's
+    /// Singapore region, where these voices were never verified.
+    public func voice(for provider: VoiceProvider, language: VoiceLanguage,
+                      qwenUseIntl: Bool = false) -> StyledVoice? {
+        // The persona voices were verified on the Beijing endpoint only.
+        guard language == .chinese, !(provider == .qwen && qwenUseIntl) else { return nil }
         switch (self, provider) {
         case (.serious, .doubao): return .init(model: DoubaoSpeechSynthesizer.defaultModel, voice: "zh_female_zhixingnv_uranus_bigtts")
         case (.coquettish, .doubao): return .init(model: DoubaoSpeechSynthesizer.defaultModel, voice: "zh_female_sajiaoxuemei_uranus_bigtts")
@@ -88,13 +91,13 @@ public enum VoiceStyle: String, Sendable, CaseIterable, Equatable, Hashable {
         case (.serious, .english):
             return "Persona: a serious newsreader. Formal, restrained sentences; no interjections, exclamation marks or tildes."
         case (.coquettish, .chinese):
-            return "播报人设：爱撒娇的小女生在向对方邀功。可以自称“人家”，句尾多用“啦、哦、嘛、呢”和“～”，偶尔用“好不好嘛”“快夸夸我”这类撒娇的话；这些只改语气，不增删事实，失败和待办照样说清楚。"
+            return "播报人设：爱撒娇的小女生在向对方邀功。可以自称“人家”，句尾多用“啦、哦、嘛、呢”和“～”，偶尔用“好不好嘛”“快夸夸我”这类撒娇的话；这些只改语气，不增删事实。说失败原因的那一句和最后一句不撒娇、不加语气词，最后一句仍是记录里等你做的事或最终结果。"
         case (.coquettish, .english):
-            return "Persona: a cutesy, pouty girl showing off her work. Playful sing-song phrasing, soft interjections like \"hehe\" and \"pretty please\"; tone only — never add or drop facts, and still state failures and pending actions plainly."
+            return "Persona: a cutesy, pouty girl showing off her work. Playful sing-song phrasing, soft interjections like \"hehe\" and \"pretty please\"; tone only — never add or drop facts. The sentence giving a failure's cause and the final sentence stay plain, and the final sentence is still what the record waits on you for, or the end result."
         case (.sultry, .chinese):
-            return "播报人设：慵懒暧昧的成熟女性在耳边低语。多用短句和“嗯……”“呢”，用省略号制造停顿，语气放慢、带点撩人；这些只改语气，不增删事实，失败和待办照样说清楚。"
+            return "播报人设：慵懒暧昧的成熟女性在耳边低语。多用短句和“嗯……”“呢”，用省略号制造停顿，语气放慢、带点撩人；这些只改语气，不增删事实。说失败原因的那一句和最后一句不加语气词，最后一句仍是记录里等你做的事或最终结果。"
         case (.sultry, .english):
-            return "Persona: a lazy, flirtatious woman murmuring close by. Short sentences, soft \"mm…\" and ellipsis pauses; tone only — never add or drop facts, and still state failures and pending actions plainly."
+            return "Persona: a lazy, flirtatious woman murmuring close by. Short sentences, soft \"mm…\" and ellipsis pauses; tone only — never add or drop facts. The sentence giving a failure's cause and the final sentence stay plain, and the final sentence is still what the record waits on you for, or the end result."
         }
     }
 

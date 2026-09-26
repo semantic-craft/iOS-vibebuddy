@@ -20,8 +20,9 @@ struct ChunkedSpeechSynthesizer: SpeechSynthesizer {
     let base: any SpeechSynthesizer
 
     func synthesize(_ text: String, apiKey: String) async throws -> Data {
+        guard text.count <= Self.totalLimit else { throw SpeechSynthesisFailure.configuration }
         let pieces = Self.pieces(text)
-        guard !pieces.isEmpty, text.count <= Self.totalLimit else { throw SpeechSynthesisFailure.configuration }
+        guard !pieces.isEmpty else { throw SpeechSynthesisFailure.configuration }
         if pieces.count == 1 { return try await base.synthesize(pieces[0], apiKey: apiKey) }
         let base = self.base
         var audio = [Data?](repeating: nil, count: pieces.count)
@@ -35,7 +36,10 @@ struct ChunkedSpeechSynthesizer: SpeechSynthesizer {
             while next < min(Self.concurrency, pieces.count) { start() }
             while let (index, data) = try await group.next() {
                 audio[index] = data
-                if next < pieces.count { start() }
+                if next < pieces.count {
+                    try Task.checkCancellation()
+                    start()
+                }
             }
         }
         var joined = Data()

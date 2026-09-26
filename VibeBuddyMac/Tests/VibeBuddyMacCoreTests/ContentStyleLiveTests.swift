@@ -68,6 +68,12 @@ struct ContentStyleLiveTests {
             let text = try #require(response.text, "\(style.rawValue): \(response.failure?.rawValue ?? "unknown")")
             #expect(text.contains("安卓"), "\(style.rawValue) dropped the failure")
             #expect(text.contains("iOS"), "\(style.rawValue) dropped the pending decision")
+            // A listener who only catches the end must still hear the decision.
+            var last = ""
+            text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .bySentences) { sentence, _, _, _ in
+                if let sentence, !sentence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { last = sentence }
+            }
+            #expect(last.contains("iOS") || last.contains("安卓"), "\(style.rawValue) ended on: \(last)")
             rows.append(["style": style.rawValue, "text": text])
         }
         if let output = env["VIBEBUDDY_CONTENT_STYLE_OUTPUT"] {
