@@ -30,7 +30,6 @@
 "… (truncated)" = "… (truncated)";
 "%lld%% used" = "%lld%% used";
 "%lld%% used, %lld%% of the window elapsed" = "%lld%% used, %lld%% of the window elapsed";
-"Respond in Grok Bot on your Mac. Remote instructions are unavailable." = "Respond in Grok Bot on your Mac. Remote instructions are unavailable.";
 "%@ sessions can't take instructions from the phone yet — use the terminal." = "%@ sessions can't take instructions from the phone yet — use the terminal.";
 "This agent can't take instructions from the phone yet — use the terminal." = "This agent can't take instructions from the phone yet — use the terminal.";
 "Your Mac isn't connected to Codex right now." = "Your Mac isn't connected to Codex right now.";
@@ -143,7 +142,6 @@
 "Your decision" = "Your decision";
 "Actions" = "Actions";
 "Activity and file changes" = "Activity and file changes";
-"Permission mode" = "Permission mode";
 "AI summary · this completion · agent-reported results" = "AI summary · this completion · agent-reported results";
 "Completion notice · this completion" = "Completion notice · this completion";
 "Latest observed activity · limited coverage" = "Latest observed activity · limited coverage";
@@ -161,11 +159,9 @@
 "Failed" = "Failed";
 "Exit %lld" = "Exit %lld";
 "Observed calls only; incomplete coverage" = "Observed calls only; incomplete coverage";
-"Observed call only; result unavailable" = "Observed call only; result unavailable";
 "No call identity; result cannot be linked to intent" = "No call identity; result cannot be linked to intent";
 "Observed hook calls only; retained 50, snapshot 20" = "Observed hook calls only; retained 50, snapshot 20";
 "This completion is no longer current." = "This completion is no longer current.";
-"The final result could not be verified for this completion. Recent output remains available with limited coverage." = "The final result could not be verified for this completion. Recent output remains available with limited coverage.";
 "Uncommitted" = "Uncommitted";
 "Staged" = "Staged";
 "Branch" = "Branch";
@@ -175,7 +171,6 @@
 "Compare" = "Compare";
 "Refresh" = "Refresh";
 "%@ · baseline: %@" = "%@ · baseline: %@";
-"Tracked files only. Untracked files are not included. Read only; no comments or changes are sent to the agent." = "Tracked files only. Untracked files are not included. Read only; no comments or changes are sent to the agent.";
 "No uncommitted changes" = "No uncommitted changes";
 "No changes in this comparison" = "No changes in this comparison";
 "Display limit reached. This is a bounded excerpt." = "Display limit reached. This is a bounded excerpt.";

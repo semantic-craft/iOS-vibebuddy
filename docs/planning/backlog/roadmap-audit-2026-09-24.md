@@ -9,7 +9,7 @@
 | 节点 | 结论 | 已有记录 | 缺什么 · 谁来做 |
 |---|---|---|---|
 | A-03 分类通知 | **部分覆盖** | 2026-09-06 基础验收：类别开关、强退后 APNs 送达、Mac 上的专注模式、跟进提醒（票 03 与 `qa-shots/notification-categories/acceptance-2026-09-06.md`，归档）。去重有 #54 的 Hermes 实测和 2026-09-21 集成发布记录（「phone channel skipped pushCovered」）。 | ① 漏接为 0：交给 H-2，在冻结候选上看漏接台账，由 agent 做。② 配额只在开关打开时推送、静音会话推无声横幅：本次跑了推送与通知相关测试（见下文「本次验证」），负载层面已确认。③ iPhone 专注模式下时效性提醒能否弹出、锁屏点批准要 Face ID：只能 owner 做，并入手表那一轮。票里「拒绝不要求解锁」这条已过时：ADR-0033 / iOS 1.3.26 起拒绝也会打开 App。 |
-| B-U #42 真机验收 | **agent 部分已验（上午，见文末）；状态行字段部分通过；Codex 的 steer 与额度推送受阻于 Codex 额度** | 回答 AskUserQuestion：真实 Claude CLI 经隔离 daemon 走通（#210、#211），模拟器上点了一次（#167）。Codex daemon 审批中继做过实测（#133）。HTTP 派活对 Claude、Codex、Cursor 都通过（#215），Codex 派活到达手机的 HTTP / WS 客户端（#216）。本机状态行转发已接上。 | 「Codex Desktop 审批到手机」不是验收缺口，是说法：Desktop 用自己的 app-server，README 已写明，不再验收。剩下：Codex 额度重置后重跑 steer、Codex 审批、`rateLimits/updated` 1 s（agent）；状态行被转录覆盖的缺陷见[票 10](agent-integration-2026-09/issues/10-transcript-overrides-statusline-window.md)。 |
+| B-U #42 真机验收 | **agent 部分已验（上午，见文末）；状态行字段部分通过；Codex 的 steer 与额度推送受阻于 Codex 额度** | 回答 AskUserQuestion：真实 Claude CLI 经隔离 daemon 走通（#210、#211），模拟器上点了一次（#167）。Codex daemon 审批中继做过实测（#133）。HTTP 派活对 Claude、Codex、Cursor 都通过（#215），Codex 派活到达手机的 HTTP / WS 客户端（#216）。本机状态行转发已接上。 | 「Codex Desktop 审批到手机」不是验收缺口，是说法：Desktop 用自己的 app-server，README 已写明，不再验收。剩下：Codex 额度重置后重跑 steer、Codex 审批、`rateLimits/updated` 1 s（agent）；状态行被转录覆盖的缺陷见[票 10](https://github.com/semantic-craft/iOS-vibebuddy/pull/296)。 |
 | M-01 手表通知路由 | **部分覆盖** | 手机锁屏、戴着手表时通知到手腕：2026-09-21 R1 / R2 与 2026-09-23 手表门（`watch-gate-2026-09-23`）。手机解锁时通知到手机：2026-09-22 R2。 | ① 「是否重复」：由 agent 按提醒逐条读投递记录。② 手表没戴、手表戴着但锁定这两格：只能 owner 做，并入手表那一轮，多两步。 |
 | M-11 跨端整体验收 | **范围已过时；agent 部分已验（上午，见文末）** | 它依赖的 M-09 已延后、M-10 已取消（2026-09-23）。已有：手机断网后恢复（`release-notes-ios-1.3.22.md`）；重复决策返回 409、已读跨端同步（`docs/qa/cross-device-1.3.5.md`）；Mac 重启后状态保留。 | agent 部分已完成。owner 做：专注模式、手表锁定、连点和 Mac 先拒，都并入手表那一轮，和 WR-06 重叠。 |
 | D-U 三家耳测 | **合成语音已验（Gemini 英文、Qwen 中文，按轮次记录，见文末）；耳测仍由 owner 做** | OpenAI（GPT-Live）在 Mac 和 Hermes + AirPods 上都测过，owner 确认中文能听清、能打断（`docs/gpt-live-1-e2e.md`）。Qwen / 豆包有真实通话，owner 确认过（#147）。 | **只能 owner 做**：「听不听得清、能不能打断」只能靠耳朵。Gemini 和 Qwen 各打一通短电话，中英文各说一句；OpenAI 补一句英文（中文已测过）。OpenAI 和豆包的合成语音这次没跑（key 在钥匙串，读取可能弹密码框）。 |
@@ -70,7 +70,7 @@ B-U、H-1、H-5、M-11、D-U 的 agent 部分已跑完，基于 main `ebd06396`�
 |---|---|---|
 | Codex 探针 `probe.py audit` | review | daemon 0.153.4，CLI 0.156.1。VibeBuddy 的 14 条 hook 全是 `modified`，等 owner 在 `/hooks` 里重新信任（「只剩你」第 2 件）；11:20 重跑的结果另存为 `bu/codex-probe-audit-rerun-1120.jsonl`。客户端方法和必填字段都齐。`~/.codex/config.toml` 的默认模型是 `gpt-6-astra`；这次 turn 失败的原因是额度用完，不是模型 |（2026-09-24 已信任，`hooks status` 显示 14 条全部运行，见 README「只剩你」第 3 件）
 | B-U 配额 1 秒内更新 | **Claude 通过；Codex 受阻** | Claude：状态行送到 `/statusline`，约 0.1 s 后快照里出现配额（10:10:39.659 → .755，50 ms 轮询）。这是第一次读数：从「Collection is turned off」变成有值，不是数值变化。Codex：额度用完，不会发 `account/rateLimits/updated`。监听了 90 s（未另存），一条都没收到（文件只记收到的事件）。启动时 `rateLimits/read` 的结果正常进了快照：剩余 0%，重置时间正确 |
-| B-U 状态行字段 | **部分通过：能写入，但会被转录覆盖** | 真实 Claude 2.1.281 会话，10:10–10:11 状态行把显示名「Opus 5.5 (1M context)」、`effort` medium、`contextWindow` 1000000、费用和增删行数写进了会话行，statusline 来源 `healthy`；5 h 和 7 天两个窗口进了 `providerQuota`。到 10:13 的快照里，同一会话变成 `claude-opus-5-5`、窗口 200000：读转录时 `SessionReducer.enrich` 用型号表把它们改掉了。1M 上下文的会话因此在两次状态行之间显示约 20% 占用，实际约 4%。开了[票 10](agent-integration-2026-09/issues/10-transcript-overrides-statusline-window.md) |
+| B-U 状态行字段 | **部分通过：能写入，但会被转录覆盖** | 真实 Claude 2.1.281 会话，10:10–10:11 状态行把显示名「Opus 5.5 (1M context)」、`effort` medium、`contextWindow` 1000000、费用和增删行数写进了会话行，statusline 来源 `healthy`；5 h 和 7 天两个窗口进了 `providerQuota`。到 10:13 的快照里，同一会话变成 `claude-opus-5-5`、窗口 200000：读转录时 `SessionReducer.enrich` 用型号表把它们改掉了。1M 上下文的会话因此在两次状态行之间显示约 20% 占用，实际约 4%。开了[票 10](https://github.com/semantic-craft/iOS-vibebuddy/pull/296) |
 | B-U / M-11 在场门控 | **通过（两种判定都验了）** | 离开：前台是 Claude 桌面 App → `away`，卡片交给手机，可回答。在场：Terminal 在前台，会话的 tmux 窗格就在这个 Terminal 里，空闲 0 s → `present`；卡片 `answerable:false`，Claude 立即在本地弹出询问。空闲超过 120 s 一律判离开；owner 不在时，用一个原位、零位移的鼠标移动事件把空闲清零（见 `bu/harness.log` 的 presence 行） |
 | B-U 新任务面板派 Claude | **通过** | 在手机「New task」面板选 Claude Code、名字填 `bu-dispatch-claude` → `claude --bg`，会话 `7eb77dae…` 出现在快照并完成 |
 | B-U `claude --bg` 后 `/jump` | **通过** | 返回 `{"outcome":"attached"}`，用时 0.27 s；Terminal 新开了 `claude attach 7eb77dae` 窗口 |
@@ -93,7 +93,7 @@ B-U、H-1、H-5、M-11、D-U 的 agent 部分已跑完，基于 main `ebd06396`�
 ### 发现（本次没有修；1 开了 realtime-verify 票 03，2 开了票 10）
 
 1. **语音模型会对没点名的任务下手，App 挡不住「另一个有效目标」**（[#297 · realtime-verify 票 03](https://github.com/semantic-craft/iOS-vibebuddy/pull/297)）。 Qwen 第 1 轮把「拒绝 grape」发成了 `deny_session(orange)`。`VoiceSessionMatch` 和 App 的复核只拦得住对不上号或不唯一的名字；模型点名另一个仍在等待的任务时，动作会被执行。第 4 轮的输入转写是「批准调整的请求」「拒绝你这个请求」，模型给出的项目名却是正确的 桃子、李子。这份转写和模型实际听到的是不是同一路输入，代码里没有说明，所以分不清模型是听对了，还是按唯一候选猜的。
-2. **转录读取覆盖状态行的上下文窗口和型号**，见[票 10](agent-integration-2026-09/issues/10-transcript-overrides-statusline-window.md)。
+2. **转录读取覆盖状态行的上下文窗口和型号**，见[票 10](https://github.com/semantic-craft/iOS-vibebuddy/pull/296)。
 3. **Qwen 会漏掉明确的指令**：第 3 轮转写正确，模型却没有发动作。
 4. **Claude 的审批和问题在手机上只停留约 25 s**（`approvalTimeout`），过了就只能在 Mac 上回答。这是设计如此，但手机端在卡片消失前没有倒计时提示。
 5. **手机任务页的标题是会话的第一条提示词**（如「Reply with just the word OK.」），卡片其实属于后面的一条命令。

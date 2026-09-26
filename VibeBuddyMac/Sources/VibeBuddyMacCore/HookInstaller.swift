@@ -4,7 +4,7 @@ import Foundation
 /// CLI — natively, so a Mac without python3 can be wired from Settings or from
 /// `vibebuddyd hooks`. It replaces the `hooks/install-*.py` scripts and keeps
 /// their tested behaviour, plus the rules learned from comparable apps
-/// (docs/planning/backlog/hook-installer/issues/01-swift-hook-installer.md):
+/// (hook-installer ticket 01, shipped in PR #266):
 ///
 /// 1. Configs only ever name the stable copy of the runtime scripts in
 ///    `<support>/bin/`, refreshed from the app bundle (or a checkout) on every

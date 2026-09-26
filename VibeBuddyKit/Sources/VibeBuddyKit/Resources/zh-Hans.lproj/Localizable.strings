@@ -48,7 +48,6 @@
 "%lld%% used, %lld%% of the window elapsed" = "已用 %lld%%，窗口已过去 %lld%%";
 
 /* MARK: SessionActionSupport — why a remote instruction cannot be sent, and notes */
-"Respond in Grok Bot on your Mac. Remote instructions are unavailable." = "请在 Mac 的 Grok Bot 中处理。此会话无法远程发送指令。";
 "%@ sessions can't take instructions from the phone yet — use the terminal." = "%@ 的会话还不能从手机接收指令，请用终端。";
 "This agent can't take instructions from the phone yet — use the terminal." = "这个代理还不能从手机接收指令，请用终端。";
 "Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
@@ -172,7 +171,6 @@
 "Your decision" = "需要你的决定";
 "Actions" = "可执行操作";
 "Activity and file changes" = "活动记录与文件变化";
-"Permission mode" = "权限模式";
 "AI summary · this completion · agent-reported results" = "AI 摘要 · 本次完成 · 结果由 Agent 自述";
 "Completion notice · this completion" = "完成通知 · 本次完成";
 "Latest observed activity · limited coverage" = "最近观察到的活动 · 覆盖有限";
@@ -190,12 +188,10 @@
 "Failed" = "执行失败";
 "Exit %lld" = "退出码 %lld";
 "Observed calls only; incomplete coverage" = "仅记录已观察到的调用；覆盖不完整";
-"Observed call only; result unavailable" = "仅观察到调用；结果不可用";
 
 "No call identity; result cannot be linked to intent" = "缺少调用身份，无法将结果关联到执行意图";
 "Observed hook calls only; retained 50, snapshot 20" = "仅记录已观察到的 Hook 调用；保留 50 条，快照显示 20 条";
 "This completion is no longer current." = "这次完成结果已不再是当前轮次。";
-"The final result could not be verified for this completion. Recent output remains available with limited coverage." = "无法核实最终结果与本次完成的对应关系；仍可查看覆盖有限的最近输出。";
 
 "Uncommitted" = "未提交";
 "Staged" = "已暂存";
@@ -206,7 +202,6 @@
 "Compare" = "比较";
 "Refresh" = "刷新";
 "%@ · baseline: %@" = "%@ · 基线：%@";
-"Tracked files only. Untracked files are not included. Read only; no comments or changes are sent to the agent." = "仅包含已跟踪文件，不含未跟踪文件。此处只读，不会向 Agent 回传评论或修改。";
 "No uncommitted changes" = "没有未提交的变化";
 "No changes in this comparison" = "此比较范围内没有变化";
 "Display limit reached. This is a bounded excerpt." = "已达到显示上限；这里仅为有限摘录。";

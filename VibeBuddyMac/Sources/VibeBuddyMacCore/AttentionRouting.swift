@@ -13,7 +13,7 @@ import VibeBuddyKit
 ///   showing it.
 /// A Focus that silences the app is not visible here: the only public reader,
 /// `INFocusStatusCenter`, needs a permission prompt of its own and says only
-/// that some Focus is on (docs/planning/backlog/voiceover-alerts/issues/01).
+/// that some Focus is on (voiceover-alerts ticket 01, shipped in PR #318).
 public enum BannerVisibility {
     public static func appears(
         authorization: UNAuthorizationStatus,

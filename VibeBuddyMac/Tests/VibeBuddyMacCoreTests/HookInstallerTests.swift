@@ -5,7 +5,7 @@ import VibeBuddyKit
 
 /// The native hook installer. The first suite is the port of the retired
 /// `hooks/test_install_agent_hooks.py` (its behaviour spec); the rest cover
-/// the eight requirements in docs/planning/backlog/hook-installer/issues/01.
+/// the eight requirements in hook-installer ticket 01, shipped in PR #266.
 /// Every test runs against a throwaway home; nothing touches the real one.
 @Suite("HookInstaller")
 struct HookInstallerTests {
