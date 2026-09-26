@@ -268,8 +268,9 @@
 /* Read-aloud voice style — a persona sent as a delivery instruction */
 "Voice style" = "语音风格";
 "Standard" = "标准";
-"Girl next door" = "邻家小妹";
-"Fiery girl" = "火辣少女";
+"Serious" = "严肃";
+"Coquettish" = "撒娇";
+"Sultry" = "诱惑";
 "Reads the summary with no extra direction." = "按音色本身朗读摘要，不附加风格指令。";
 "Sent to %@ as a delivery instruction alongside each reading." = "每次朗读都会把该风格指令一并发给 %@。";
 
@@ -1204,3 +1205,4 @@
 "No iPhone on this Apple Account" = "没有 iPhone 使用这个 Apple 账号";
 "This build cannot use iCloud. Install the release from GitHub, or configure an APNs key." = "这个版本用不了 iCloud。请安装 GitHub 上的正式版，或配置 APNs 密钥。";
 "Cues reach a closed iPhone through your own iCloud. The iPhone must use the same Apple Account." = "iPhone 关着 App 时，提醒经你自己的 iCloud 送达。iPhone 必须登录同一个 Apple 账号。";
+"This style reads with its own voice and reworded summaries. The voice above is used with Standard." = "这个风格使用专属音色，播报文字也会按风格改写。上面选的音色只在“标准”风格下使用。";

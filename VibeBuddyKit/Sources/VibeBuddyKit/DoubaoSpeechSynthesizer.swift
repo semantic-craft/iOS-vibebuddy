@@ -39,10 +39,12 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
         return try Self.audio(from: data)
     }
 
-    /// Volcengine's style lever is 语音指令 — `additions.context_texts`, which
-    /// the docs describe as an aid to 对话式合成 and illustrate with requests
-    /// ("你可以用特别特别痛心的语气说话吗?"), so the persona goes in as one.
-    /// Only the list's first value takes effect, and its text is not billed.
+    /// Volcengine's style lever is 语音指令 — `additions.context_texts`. Their
+    /// best-practice page frames it as a stage direction before the line
+    /// ("用最悲伤的语气演绎下面这句话："), so the persona goes in as one. Only
+    /// the list's first value takes effect, and its text is not billed. On its
+    /// own it barely moves a neutral voice; the style's voice and wording do
+    /// most of the work (see `VoiceStyle`).
     ///
     /// Two documented limits shape this: `additions` is a **jsonstring**, not
     /// an object, and `context_texts` is TTS-2.0-only — which the read-aloud
@@ -53,7 +55,7 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
         var params: [String: Any] = ["text": text, "speaker": voice,
                                      "audio_params": ["format": "mp3", "sample_rate": 24_000]]
         if let persona,
-           let additions = try? JSONSerialization.data(withJSONObject: ["context_texts": [persona.request]]) {
+           let additions = try? JSONSerialization.data(withJSONObject: ["context_texts": [persona.cue]]) {
             params["additions"] = String(decoding: additions, as: UTF8.self)
         }
         return ["req_params": params]

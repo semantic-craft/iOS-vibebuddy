@@ -46,7 +46,8 @@ public actor SessionStore {
             ContentPresentationService.diagnose(stage: "target", reason: "staleOrRejectedEvidence")
             return nil
         }
-        let config = presentationConfiguration()
+        var config = presentationConfiguration()
+        config.speechStyle = request.voiceStyle
         var input = await presentationInput(request)
         if request.purpose == .speech, case .completion = request.target {
             for _ in 0..<8 {

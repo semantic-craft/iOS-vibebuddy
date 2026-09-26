@@ -344,6 +344,12 @@ public enum VoiceSettings {
         return VoiceStyle(stored: defaults.string(forKey: readAloudStyleKey(p)))
     }
 
+    /// The persona of whichever provider reads aloud right now, for asking the
+    /// summary to be worded in it. `.standard` when read-aloud is unavailable.
+    public static func activeReadAloudStyle(defaults: UserDefaults = .standard) -> VoiceStyle {
+        readAloudStatus(defaults: defaults).provider.map { readAloudStyle($0, defaults: defaults) } ?? .standard
+    }
+
     public static func readAloudConfiguration(_ p: VoiceProvider,
                                               defaults: UserDefaults = .standard) -> SpeechSynthesisConfiguration {
         let workspace = (defaults.string(forKey: qwenWorkspaceIDKey) ?? "")

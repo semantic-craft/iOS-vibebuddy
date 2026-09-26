@@ -264,7 +264,9 @@ final class PhoneAnnouncer: ObservableObject {
         let previewGeneration = generation
         previewTask = Task { [weak self] in
             guard let self, !Task.isCancelled, self.generation == previewGeneration else { return }
-            let text = VoiceSettings.conversationLanguage() == .chinese ? "这是本机播报试听。任务已经完成，下一步请查看结果。" : "This is a voice preview. The task is complete. Please review the result."
+            let language = VoiceSettings.conversationLanguage()
+            let text = PhoneReadAloudSelection.load().voiceStyle.previewLine(language)
+                ?? (language == .chinese ? "这是本机播报试听。任务已经完成，下一步请查看结果。" : "This is a voice preview. The task is complete. Please review the result.")
             let item = AnnouncementPlan.Item(sessionID: "preview", title: "", sound: .agentDone, round: "preview")
             await self.play(text: text, item: item, position: nil, remember: false, validate: { true })
             guard !Task.isCancelled, self.generation == previewGeneration else { return }

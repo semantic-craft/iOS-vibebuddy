@@ -48,4 +48,30 @@ struct ContentStyleLiveTests {
         try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: output))
         print("Verified \(rows.count) real Qwen outputs; saved to \(output)")
     }
+
+    /// Each read-aloud persona rewords the same record without losing the
+    /// failure or the pending action. Run with VIBEBUDDY_CONTENT_STYLE_OUTPUT
+    /// to keep the texts for a listening pass.
+    @Test func voicePersonasRewordWithoutLosingFacts() async throws {
+        let env = ProcessInfo.processInfo.environment
+        let secret = try #require(env["DASHSCOPE_API_KEY"])
+        let http = CompletionSummaryHTTP(session: CompletionSummaryHTTP.session(timeout: 45))
+        let record = "已把登录页改成手机号验证码登录，老用户也能直接用原手机号登录。安卓端的验证码短信在部分机型上收不到，原因是短信模板还没通过运营商审核，已提交审核，预计明天出结果。需要用户决定：审核通过前，是先只给 iOS 用户开放新登录，还是等安卓一起上线？"
+        var rows: [[String: String]] = []
+        for style in VoiceStyle.allCases {
+            var config = CompletionSummaryConfiguration(enabled: true, provider: .qwen, modelID: "qwen3.8-flash", language: .chinese)
+            config.speechStyle = style
+            let now = Date()
+            let input = CompletionSummaryInput(sourceID: "voice-style-live", sessionID: "voice-style", completionID: UUID().uuidString,
+                title: "登录改版", finalText: record, completedAt: now, observedAt: now)
+            let response = await http.generate(input: input, configuration: config, key: secret, timeout: 45, purpose: .speech)
+            let text = try #require(response.text, "\(style.rawValue): \(response.failure?.rawValue ?? "unknown")")
+            #expect(text.contains("安卓"), "\(style.rawValue) dropped the failure")
+            #expect(text.contains("iOS"), "\(style.rawValue) dropped the pending decision")
+            rows.append(["style": style.rawValue, "text": text])
+        }
+        if let output = env["VIBEBUDDY_CONTENT_STYLE_OUTPUT"] {
+            try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: output))
+        }
+    }
 }

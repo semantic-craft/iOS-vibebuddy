@@ -666,8 +666,9 @@
 "Could not prepare this announcement" = "未能准备此条播报";
 "Mac content style unavailable" = "尚未读取 Mac 内容风格";
 "Regenerate with current style" = "按当前风格重新生成";
-"Girl next door" = "邻家小妹";
-"Fiery girl" = "火辣少女";
+"Serious" = "严肃";
+"Coquettish" = "撒娇";
+"Sultry" = "诱惑";
 "Standard" = "标准";
 
 "Preview finished" = "试听结束";
@@ -827,3 +828,4 @@
 "Starts a new voice call without the earlier conversation" = "开始新的语音通话，不带之前的对话";
 "Sends this answer" = "点一下即发送这个回答";
 "Voice call ended" = "语音通话已结束";
+"This style reads with its own voice and reworded summaries. The voice above is used with Standard." = "这个风格使用专属音色，播报文字也会按风格改写。上面选的音色只在“标准”风格下使用。";

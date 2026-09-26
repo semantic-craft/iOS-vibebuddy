@@ -288,7 +288,8 @@ final class MenuBarModel: ObservableObject {
         readAloud.speak(text, id: identity, title: original.displayTitle, manual: manual,
             priority: !manual && sound != .agentDone, prepareText: { [weak self] in
             guard let self, let target = ContentPresentationTarget(session: original) else { return nil }
-            let request = ContentPresentationRequest(sourceID: sourceID, target: target)
+            let request = ContentPresentationRequest(sourceID: sourceID, target: target,
+                                                     voiceStyle: VoiceSettings.activeReadAloudStyle())
             let result = await self.store.presentation(request)
             preparedRevision = result?.revision
             return result?.text
@@ -324,7 +325,8 @@ final class MenuBarModel: ObservableObject {
 
     func replayResult(_ original: AgentSession, body: CompletionBody? = nil) {
         guard let sourceID = snapshotSourceID, let target = ContentPresentationTarget(session: original) else { return }
-        let request = ContentPresentationRequest(sourceID: sourceID, target: target)
+        let request = ContentPresentationRequest(sourceID: sourceID, target: target,
+                                                 voiceStyle: VoiceSettings.activeReadAloudStyle())
         var preparedRevision: String?
         readAloud.speak(original.displayTitle, id: "replay/" + UUID().uuidString, manual: true, remember: false,
             prepareText: { [weak self] in

@@ -29,4 +29,13 @@ enum PhoneReadAloudSelection: Equatable {
         defaults.set(selection.rawValue, forKey: defaultsKey)
         return selection
     }
+
+    /// The persona the Mac should word this phone's summaries in. System
+    /// speech takes no persona, so its text stays plain.
+    var voiceStyle: VoiceStyle {
+        switch self {
+        case .system: .standard
+        case .provider(let provider): VoiceSettings.readAloudStyle(provider)
+        }
+    }
 }

@@ -4,6 +4,9 @@ import Foundation
 public struct QwenSpeechSynthesizer: SpeechSynthesizer {
     public static let defaultModel = "qwen-audio-3.0-tts-flash"
     public static let defaultVoice = "longanfengyue"
+    /// The persona voices (`anyuqing_v3.1`, `xiaoxingzhi_v3.1`, …) are listed
+    /// for 3.1 only; it takes the same run-task shape and `instruction`.
+    public static let styledModel = "qwen-audio-3.1-tts-flash"
 
     let model: String
     let voice: String
@@ -21,17 +24,18 @@ public struct QwenSpeechSynthesizer: SpeechSynthesizer {
     }
 
     /// `run-task` parameters. Alibaba's style lever is 指令控制 — the
-    /// `instruction` field, which controls 方言、情感或角色 and which
-    /// `qwen-audio-3.0-tts-plus` / `-flash` accept for any voice, system or
-    /// cloned. Their examples are directives ("请用河南话表达。"), so the
-    /// persona goes in as one. The name matters: `instruction` is the
-    /// Qwen-Audio-TTS / CosyVoice spelling, while the older Qwen-TTS family
+    /// `instruction` field, which Qwen-Audio-TTS 3.0 / 3.1 accept for any
+    /// voice, system or cloned. Their guidance is to describe the speaker
+    /// concretely and along several dimensions (性别/年龄/音调/语速/情感), so
+    /// the persona goes in as a speaker description, capped at 100 characters
+    /// with each Han character counting two. The name matters: `instruction`
+    /// is the Qwen-Audio-TTS / CosyVoice spelling, while the Qwen3-TTS family
     /// spells it `instructions` — the docs warn against mixing them.
     func parameters() -> [String: Any] {
         var parameters: [String: Any] = ["text_type": "PlainText", "voice": voice, "format": "mp3",
                                          "sample_rate": 22050, "volume": 50, "rate": 1, "pitch": 1,
                                          "enable_ssml": false]
-        if let persona { parameters["instruction"] = persona.directive }
+        if let persona { parameters["instruction"] = persona.speaker }
         return parameters
     }
 

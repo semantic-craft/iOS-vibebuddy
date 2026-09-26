@@ -167,9 +167,14 @@ private struct PhoneProviderSpeechSettings: View {
                 Text(selectedVoice).tag(selectedVoice)
             }
         }
+        .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language) != nil)
         if SpeechSynthesis.supportsStyle(provider) {
             Picker("Presenter style", selection: $style) {
                 ForEach(VoiceStyle.allCases, id: \.rawValue) { Text($0.display).tag($0) }
+            }
+            if style.voice(for: provider, language: configuration.language) != nil {
+                Text("This style reads with its own voice and reworded summaries. The voice above is used with Standard.")
+                    .foregroundStyle(.secondary)
             }
         } else {
             Text("This speech service does not support presenter styles.").foregroundStyle(.secondary)
@@ -191,6 +196,7 @@ private struct PhoneProviderSpeechSettings: View {
                     .accessibilityIdentifier("phone-speech-model-help")
             }
             TextField("Voice ID", text: $selectedVoice).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language) != nil)
             if provider == .qwen {
                 TextField("Workspace ID", text: $workspace).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Toggle("Use Singapore (international) region", isOn: $intl)
