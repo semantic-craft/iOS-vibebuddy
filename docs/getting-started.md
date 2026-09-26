@@ -59,6 +59,10 @@ No Cloudflare account, public domain or router port forwarding is needed.
    that a current task appears. Test a supported action and check its receipt;
    saving an address alone does not establish a connection.
 
+Switching the Mac to a different Tailscale client (App Store, standalone or
+Homebrew) registers a new device, which usually gets a new `100.x.x.x`
+address: open **Away from Mac** again and pair or **Sync to iPhone**.
+
 Use the Mac's `100.x.x.x` IPv4 address. MagicDNS names are not accepted in
 the pairing screens, and a Headscale control-server URL is never the
 VibeBuddy address. Existing LAN pairings remain unchanged; to return to LAN,

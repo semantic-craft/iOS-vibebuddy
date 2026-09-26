@@ -101,10 +101,14 @@ struct RemoteConnectionView: View {
                             .foregroundStyle(CompanionPalette.ink2)
                         Link("Headscale setup", destination: URL(string: "https://headscale.net/stable/usage/connect/apple/#ios")!)
                     }
-                    Label(phoneOnTailnet ? LocalizedStringKey("This iPhone is on your tailnet") : LocalizedStringKey("This iPhone is not on a tailnet yet"),
-                          systemImage: phoneOnTailnet ? "checkmark.circle.fill" : "circle.dashed")
-                        .foregroundStyle(phoneOnTailnet ? CompanionPalette.accent : CompanionPalette.ink2)
-                        .accessibilityIdentifier("remote-phone-tailnet")
+                    // Only for Tailscale: whether Surge's policy puts a tailnet
+                    // address on this phone's tunnel has not been verified.
+                    if provider == .tailscale {
+                        Label(phoneOnTailnet ? LocalizedStringKey("This iPhone is on your tailnet") : LocalizedStringKey("This iPhone is not on a tailnet yet"),
+                              systemImage: phoneOnTailnet ? "checkmark.circle.fill" : "circle.dashed")
+                            .foregroundStyle(phoneOnTailnet ? CompanionPalette.accent : CompanionPalette.ink2)
+                            .accessibilityIdentifier("remote-phone-tailnet")
+                    }
                     Text("Keep VibeBuddy and Tailscale running on the Mac, with incoming connections allowed. Sign-in happens in your network app; VibeBuddy checks the connection.")
                         .foregroundStyle(CompanionPalette.ink2)
                 }
@@ -214,6 +218,7 @@ struct RemoteConnectionView: View {
     /// in to the network app and comes back.
     private func refreshNetwork() {
         bothInstalled = NetworkApp.allCases.allSatisfy(\.isInstalled)
+        if !bothInstalled { provider = NetworkApp.preferred(saved: savedProvider) }
         phoneOnTailnet = PhoneNetwork.hasTailnetAddress()
     }
 
@@ -221,6 +226,8 @@ struct RemoteConnectionView: View {
         guard let candidate else { return }
         let original = connection.pairing
         check.start(candidate, connection: connection) {
+            // Remember the road that just worked, so the failure card opens it.
+            if bothInstalled { savedProvider = provider.rawValue }
             if original == nil { dashboard.confirmPairing() }
             if candidate == original { dashboard.start(candidate) }
         }

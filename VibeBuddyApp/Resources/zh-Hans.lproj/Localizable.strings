@@ -669,13 +669,11 @@
 "Scan again" = "重新扫码";
 "On your Mac, open Devices & connection, choose Away from Mac, then Show connection code. VibeBuddy detects the remote address automatically; enter it manually if needed." = "在 Mac 打开「设备与连接」，选择「在外连接」，再点「显示连接二维码」。VibeBuddy 会自动识别远程地址，必要时可手动设置。";
 "Pairing info received. Check the connection to finish." = "已取得配对信息，检查连接后才完成。";
-"Mac private IP" = "Mac 远程 IP";
 "Scan the Mac’s code to get pairing authorization. You can continue here after scanning." = "扫描 Mac 的配对码以取得授权，扫码后可直接在此继续。";
 "This Mac’s pairing authorization will be reused." = "继续使用这台 Mac 的配对授权。";
 "Enter the Mac’s address from 100.64.0.0 to 100.127.255.255 and a valid port. A local Wi-Fi address cannot be used here." = "请填写 Mac 在 100.64.0.0 至 100.127.255.255 范围内的地址及有效端口。这里不能使用局域网地址。";
 "2. Prepare your phone’s network" = "2. 准备手机网络";
 "Network app" = "网络 App";
-"Network setup steps" = "网络设置步骤";
 "In Surge, add a Tailscale policy with your Headscale control-url and sign in. Confirm the Mac’s private IP uses this policy. Current Surge versions add routes for discovered devices automatically." = "在 Surge 中添加 Tailscale 策略，填写 Headscale 的 control-url 并登录。确认 Mac 的私网 IP 通过该策略连接。新版 Surge 会自动为已发现的设备添加路由。";
 "Keep VibeBuddy and Tailscale running on the Mac, with incoming connections allowed. Sign-in happens in your network app; VibeBuddy checks the connection." = "Mac 需保持 VibeBuddy 和 Tailscale 运行，并允许传入连接。登录授权在网络 App 中完成，VibeBuddy 负责检查连接。";
 "Check and save" = "检查并保存";

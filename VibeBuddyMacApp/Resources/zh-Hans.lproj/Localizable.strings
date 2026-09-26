@@ -582,7 +582,6 @@
 "Forget" = "忘记";
 "Stops pushes and forgets all registered phones until you choose Pair a phone again." = "停止推送并忘记所有已注册的手机，直到你再次选择“配对手机”。";
 "Connection" = "连接";
-"100.x.x.x or Mac name.ts.net" = "100.x.x.x 或 Mac 名称.ts.net";
 
 /* MARK: Settings — Agent CLIs (ADR-0017) */
 "Hooks" = "Hook";

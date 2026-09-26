@@ -26,8 +26,7 @@ enum NetworkApp: String, CaseIterable, Identifiable {
     @MainActor
     static func preferred(saved: String?) -> NetworkApp {
         let installed = allCases.filter(\.isInstalled)
-        if let saved = saved.flatMap(NetworkApp.init(rawValue:)),
-           installed.isEmpty || installed.contains(saved) {
+        if let saved = saved.flatMap(NetworkApp.init(rawValue:)), installed.contains(saved) {
             return saved
         }
         return installed == [.surge] ? .surge : .tailscale
@@ -35,15 +34,18 @@ enum NetworkApp: String, CaseIterable, Identifiable {
 }
 
 /// The one tap that fixes a `tailnetOff`: open the VPN app that is here,
-/// the one chosen on the remote-setup page first.
+/// the one chosen or verified on the remote-setup page first. With both
+/// installed and nothing saved, Surge goes first as it always has: turning
+/// on Tailscale would push a working Surge tunnel off (iOS runs one VPN).
 enum VPNAppOpener {
     /// Returns false when neither app is installed; the caller then shows
     /// the remote-setup page instead.
     @MainActor
     @discardableResult
     static func open() -> Bool {
-        let first = NetworkApp.preferred(saved: UserDefaults.standard.string(forKey: NetworkApp.storageKey))
-        guard let app = ([first] + NetworkApp.allCases).first(where: \.isInstalled) else { return false }
+        let saved = UserDefaults.standard.string(forKey: NetworkApp.storageKey).flatMap(NetworkApp.init(rawValue:))
+        let order: [NetworkApp] = (saved.map { [$0] } ?? []) + [.surge, .tailscale]
+        guard let app = order.first(where: \.isInstalled) else { return false }
         UIApplication.shared.open(app.openURL)
         return true
     }
