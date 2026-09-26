@@ -70,7 +70,7 @@ struct ConnectView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Label("Connect away from home", systemImage: "network")
                                 .font(CompanionType.font(15, .medium))
-                            Text("Scan your Mac’s remote code, then check your connection. Works with Headscale, Tailscale or Surge.")
+                            Text("Scan your Mac’s remote code, then check your connection. Works with Tailscale, Headscale or Surge.")
                                 .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

@@ -53,7 +53,7 @@ enum ConnectionFailureCopy {
         let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? macName! : String(localized: "your Mac")
         switch reason {
-        case .tailnetOff: return String(localized: "Surge or Tailscale is off on this iPhone")
+        case .tailnetOff: return String(localized: "Tailscale or Surge is off on this iPhone")
         case .macUnreachable(let host): return String(localized: "Can't reach \(mac) at \(host)")
         case .authentication: return String(localized: "Access refused by \(mac)")
         case .invalidAddress: return String(localized: "The saved Mac address is not usable")
@@ -64,7 +64,7 @@ enum ConnectionFailureCopy {
     static func detail(_ reason: ConnectionFailureReason) -> String {
         switch reason {
         case .tailnetOff(let host):
-            return String(localized: "\(host) is a private network address. Turn on Surge or Tailscale on this iPhone to reach it.")
+            return String(localized: "\(host) is a private network address. Turn on Tailscale or Surge on this iPhone to reach it.")
         case .macUnreachable:
             return String(localized: "Check that the Mac is awake and VibeBuddy is running on it.")
         case .authentication:
@@ -77,7 +77,7 @@ enum ConnectionFailureCopy {
     }
 
     /// Where a tap should go to fix it, when one tap can.
-    static var vpnHint: String { String(localized: "Turn on Surge or Tailscale") }
+    static var vpnHint: String { String(localized: "Turn on Tailscale or Surge") }
 }
 
 /// Runs notification-center work strictly in the order it was asked for. A

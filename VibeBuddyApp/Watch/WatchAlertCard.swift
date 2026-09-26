@@ -310,7 +310,7 @@ enum WatchLinkCopy {
     static func held(_ reason: ConnectionFailureReason?) -> LocalizedStringResource {
         switch reason {
         case .tailnetOff:
-            return "Your iPhone is holding this — Surge or Tailscale is off on it. It will be sent when your Mac is reachable."
+            return "Your iPhone is holding this — Tailscale or Surge is off on it. It will be sent when your Mac is reachable."
         case .macUnreachable, .dropped, nil:
             return "Your iPhone is holding this — it can't reach your Mac right now. It will be sent when it can."
         case .authentication, .invalidAddress:
@@ -320,7 +320,7 @@ enum WatchLinkCopy {
 
     static func failed(_ reason: ConnectionFailureReason) -> LocalizedStringResource {
         switch reason {
-        case .tailnetOff: return "Not sent: Surge or Tailscale is off on your iPhone."
+        case .tailnetOff: return "Not sent: Tailscale or Surge is off on your iPhone."
         case .macUnreachable: return "Not sent: your iPhone can't reach your Mac."
         case .authentication: return "Not sent: your Mac refused the pairing. Fix it on your iPhone."
         case .invalidAddress: return "Not sent: the Mac address on your iPhone is not usable."

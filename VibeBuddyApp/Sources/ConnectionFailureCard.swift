@@ -2,25 +2,49 @@ import SwiftUI
 import UIKit
 import VibeBuddyKit
 
-/// The one tap that fixes a `tailnetOff`: open the VPN app that is here.
-enum VPNAppOpener {
+/// The app that puts this phone on the tailnet. Official Tailscale is the
+/// default path; Surge's Tailscale policy is the variant for people who
+/// already route through Surge.
+enum NetworkApp: String, CaseIterable, Identifiable {
+    case tailscale, surge
+
+    static let storageKey = "remote.networkApp"
+
+    var id: String { rawValue }
+    var name: String { self == .tailscale ? "Tailscale" : "Surge" }
+
     /// Surge's documented scheme starts the tunnel; Tailscale's opens the
     /// app, where the toggle is the first control.
-    static let candidates: [URL] = [URL(string: "surge:///start")!, URL(string: "tailscale://")!]
+    var openURL: URL { URL(string: self == .tailscale ? "tailscale://" : "surge:///start")! }
 
-    /// Whether either app answers to its scheme on this phone.
     @MainActor
-    static var isAvailable: Bool {
-        candidates.contains { UIApplication.shared.canOpenURL($0) }
-    }
+    var isInstalled: Bool { UIApplication.shared.canOpenURL(openURL) }
 
+    /// The person's saved choice while that app is still here; otherwise
+    /// Surge only when it is the one installed, and Tailscale in every
+    /// other case.
+    @MainActor
+    static func preferred(saved: String?) -> NetworkApp {
+        let installed = allCases.filter(\.isInstalled)
+        if let saved = saved.flatMap(NetworkApp.init(rawValue:)),
+           installed.isEmpty || installed.contains(saved) {
+            return saved
+        }
+        return installed == [.surge] ? .surge : .tailscale
+    }
+}
+
+/// The one tap that fixes a `tailnetOff`: open the VPN app that is here,
+/// the one chosen on the remote-setup page first.
+enum VPNAppOpener {
     /// Returns false when neither app is installed; the caller then shows
     /// the remote-setup page instead.
     @MainActor
     @discardableResult
     static func open() -> Bool {
-        guard let url = candidates.first(where: { UIApplication.shared.canOpenURL($0) }) else { return false }
-        UIApplication.shared.open(url)
+        let first = NetworkApp.preferred(saved: UserDefaults.standard.string(forKey: NetworkApp.storageKey))
+        guard let app = ([first] + NetworkApp.allCases).first(where: \.isInstalled) else { return false }
+        UIApplication.shared.open(app.openURL)
         return true
     }
 }

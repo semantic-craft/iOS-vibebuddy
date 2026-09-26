@@ -43,7 +43,7 @@ targets:
         # the Mac cannot be reached.
         UIBackgroundModes:
           - remote-notification
-        # The "Turn on Surge or Tailscale" hint opens whichever is installed.
+        # The "Turn on Tailscale or Surge" hint opens whichever is installed.
         LSApplicationQueriesSchemes:
           - surge
           - tailscale

@@ -53,7 +53,7 @@ struct ConnectionCenterView: View {
             .disabled(model.pairingInProgress || model.changingPairing || model.synchronizingConnection)
             .accessibilityIdentifier("mac-connection-method")
             Text(model.useTailscale
-                 ? "Headscale / Tailscale · Bring the remote address to your iPhone."
+                 ? "Tailscale · Bring the remote address to your iPhone."
                  : "Connect both devices to the same network, then scan this Mac’s code.")
                 .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -79,11 +79,14 @@ struct ConnectionCenterView: View {
                 Text("The address is ready. Your iPhone still needs to check the connection.")
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
             } else {
-                Text("Connect the Tailscale app on this Mac to your Headscale network and allow incoming connections. Surge alone cannot receive connections to this Mac.")
+                Text("Install Tailscale on this Mac and sign in; VibeBuddy finds its 100.x.x.x address automatically. Keep incoming connections allowed. Surge alone cannot receive connections to this Mac.")
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
-                Link("Mac network setup", destination: URL(string: "https://headscale.net/stable/usage/connect/apple/#macos")!)
-                    .font(MacTheme.font(11))
+                HStack(spacing: 14) {
+                    Link("Download Tailscale for Mac", destination: URL(string: "https://tailscale.com/download/mac")!)
+                    Link("Using Headscale?", destination: URL(string: "https://headscale.net/stable/usage/connect/apple/#macos")!)
+                }
+                .font(MacTheme.font(11))
             }
             if model.detectedRemoteAddresses.count > 1 {
                 Text("Choose this Mac’s remote address:").font(MacTheme.font(11))
@@ -136,7 +139,7 @@ struct ConnectionCenterView: View {
                     .accessibilityIdentifier("mac-show-connection-code")
             }
             if model.useTailscale {
-                Text("If needed, finish Headscale sign-in in Surge or Tailscale on your iPhone, then check again.")
+                Text("If needed, sign in to Tailscale on your iPhone with the same account as this Mac, then check again.")
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -267,7 +270,7 @@ struct ConnectionCenterView: View {
                 .textFieldStyle(.roundedBorder)
                 .disabled(model.pairingInProgress || model.changingPairing || model.synchronizingConnection)
                 .accessibilityIdentifier("mac-remote-address")
-            Text("Use this Mac’s 100.x address, not the Headscale server URL.")
+            Text("Use the 100.x.x.x address Tailscale shows for this Mac, not a server URL.")
                 .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
         }
     }

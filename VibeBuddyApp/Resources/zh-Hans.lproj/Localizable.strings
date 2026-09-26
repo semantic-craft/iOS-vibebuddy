@@ -389,7 +389,6 @@
 "Last signal %@" = "最近信号 %@";
 "Coverage: configured %@; received this launch %@" = "覆盖：已配置 %@；本次启动已收到 %@";
 "Enter a valid Mac host, port and pairing token." = "请输入有效的 Mac 主机、端口和配对令牌。";
-"Away from home? Join the same Tailscale network on your Mac and iPhone, then use your Mac’s Tailscale address." = "不在家？让 Mac 和 iPhone 加入同一个 Tailscale 网络，然后使用 Mac 的 Tailscale 地址。";
 "Install the companion on your Mac, open Devices & connection, then choose Show connection code. Use the same local network or connect both devices to Tailscale." = "先在 Mac 安装伴侣，打开「设备与连接」，再点「显示连接二维码」。使用同一局域网，或把两台设备都连到 Tailscale。";
 "Access refused. Check your pairing token, then reconnect." = "访问被拒绝。请检查配对令牌后重新连接。";
 "Invalid Mac address. Pair again with a valid host and port." = "Mac 地址无效。请用有效的主机和端口重新配对。";
@@ -584,19 +583,9 @@
 "Open the voice page" = "打开语音页";
 "Paused while the voice call is live" = "语音通话中 · 已暂停";
 
-"Headscale & Surge" = "Headscale 与 Surge";
-
-"iPhone with Surge" = "手机使用 Surge";
-
-"In Surge, add a Tailscale policy and set its control-url to your Headscale server. Sign in there and route the Mac’s private IP through that policy. Keep Surge running on cellular." = "在 Surge 添加 Tailscale 策略，将 control-url 设为你的 Headscale 服务地址，完成登录，并让 Mac 的私网 IP 通过该策略连接。使用蜂窝网络时保持 Surge 开启。";
-
 "Surge setup guide" = "Surge 配置说明";
 
 "Mac at home" = "家里的 Mac";
-
-"Keep VibeBuddy and the Tailscale app running on your Mac, joined to the same Headscale server with incoming connections allowed. Surge can stay on; its Tailscale policy alone cannot receive connections to your Mac." = "Mac 上保持 VibeBuddy 和 Tailscale 客户端运行，接入同一个 Headscale 服务并允许传入连接。Mac 可以继续开 Surge；仅靠 Surge 的 Tailscale 策略无法接收对 Mac 的访问。";
-
-"Headscale Mac setup" = "Mac 接入 Headscale";
 
 "Mac private IP (100.x.x.x)" = "Mac 私网 IP（100.x.x.x）";
 
@@ -604,23 +593,10 @@
 
 "Checking connection…" = "正在检查连接…";
 
-"Pair with your Mac first by scanning its code. Return here to switch the saved connection to Headscale without entering the pairing token again." = "先扫描 Mac 的二维码完成配对，再回到这里切换到 Headscale 地址，无需重新输入配对令牌。";
-
-"Headscale address" = "Headscale 地址";
-
-"Use the Mac’s Tailscale IPv4 address, not the Headscale server URL or Surge node address. Your current pairing stays saved if the check fails." = "填写 Mac 的 Tailscale IPv4 地址，不是 Headscale 服务网址或 Surge 节点地址。检查失败时保留当前配对。";
-
-"Your Watch receives status through this iPhone. Turn off Wi-Fi, keep Surge connected and open VibeBuddy to check a live task on both devices. A suspended iPhone may leave the Watch showing its last update; background alerts depend on push delivery." = "Watch 通过这台 iPhone 获取状态。关闭 Wi-Fi，保持 Surge 连接，打开 VibeBuddy，在手机和手表上核对实时任务。iPhone 应用被挂起时，手表可能只显示上次更新；后台提醒依赖推送送达。";
-
 "Live Mac status received. This address is now saved. Check the Watch’s latest update next." = "已收到 Mac 的实时状态并保存此地址。接下来请核对 Watch 的最新更新时间。";
 
 "Mac refused the saved pairing. Scan its pairing code again." = "Mac 拒绝了已保存的配对。请重新扫描它的配对二维码。";
 
-"Could not receive Mac status. Check Surge’s Headscale connection and route, the Mac’s Tailscale incoming connections, and permission to reach this port. The saved address has not changed." = "未收到 Mac 状态。请检查 Surge 的 Headscale 连接与路由、Mac 的 Tailscale 传入连接，以及此端口的访问权限。已保存的地址未改变。";
-
-"Away from home? Use Tailscale or Headscale. If your iPhone uses Surge, route your Mac’s private IP through its Tailscale policy." = "不在家？可以使用 Tailscale 或 Headscale。手机使用 Surge 时，让 Mac 私网 IP 通过 Surge 的 Tailscale 策略连接。";
-
-"Set up Surge and your Mac" = "配置 Surge 与 Mac";
 "Check status away from home" = "检查外出连接";
 
 "Scan a Mac’s pairing code here to connect or replace your saved pairing. You do not need to disconnect first." = "在此扫描 Mac 的配对码，即可连接或替换已保存的配对，无需先断开连接。";
@@ -679,7 +655,6 @@
 "Your Mac" = "你的 Mac";
 "Connection" = "连接方式";
 "Connect away from home" = "在外连接";
-"Use your Mac on cellular with Headscale, Tailscale or Surge." = "通过 Headscale、Tailscale 或 Surge，用蜂窝网络连接 Mac。";
 "Manage" = "管理";
 "Connection details & more" = "连接详情与更多操作";
 "Forget this Mac?" = "要忘记这台 Mac 吗？";
@@ -687,7 +662,6 @@
 "Keep this Mac" = "保留";
 "This phone stops showing %@'s sessions and alerts. To connect again you need the pairing code from that Mac." = "这台手机将不再显示 %@ 的会话和提醒。要重新连接，需要那台 Mac 上的配对码。";
 "Remote connection active" = "远程已连接";
-"Scan your Mac’s remote code, then check your connection. Works with Headscale, Tailscale or Surge." = "扫描 Mac 的远程配对码，再检查连接。支持 Headscale、Tailscale 和 Surge。";
 "Your Mac, wherever you are" = "不在 Mac 身边，也能跟进任务";
 "Scan your Mac’s remote code, prepare your phone’s network, then check and save. Your current pairing stays saved until live status arrives." = "扫描 Mac 的远程配对码，准备手机网络，再检查并保存。收到实时状态前，保留现有配对。";
 "1. Get your Mac’s connection info" = "1. 获取 Mac 连接信息";
@@ -696,7 +670,6 @@
 "On your Mac, open Devices & connection, choose Away from Mac, then Show connection code. VibeBuddy detects the remote address automatically; enter it manually if needed." = "在 Mac 打开「设备与连接」，选择「在外连接」，再点「显示连接二维码」。VibeBuddy 会自动识别远程地址，必要时可手动设置。";
 "Pairing info received. Check the connection to finish." = "已取得配对信息，检查连接后才完成。";
 "Mac private IP" = "Mac 远程 IP";
-"Use the Mac’s Tailscale IPv4 address, not the Headscale server URL or Surge node address." = "填写 Mac 的 Tailscale IPv4 地址，这里不填 Headscale 服务器网址或 Surge 节点地址。";
 "Scan the Mac’s code to get pairing authorization. You can continue here after scanning." = "扫描 Mac 的配对码以取得授权，扫码后可直接在此继续。";
 "This Mac’s pairing authorization will be reused." = "继续使用这台 Mac 的配对授权。";
 "Enter the Mac’s address from 100.64.0.0 to 100.127.255.255 and a valid port. A local Wi-Fi address cannot be used here." = "请填写 Mac 在 100.64.0.0 至 100.127.255.255 范围内的地址及有效端口。这里不能使用局域网地址。";
@@ -704,8 +677,6 @@
 "Network app" = "网络 App";
 "Network setup steps" = "网络设置步骤";
 "In Surge, add a Tailscale policy with your Headscale control-url and sign in. Confirm the Mac’s private IP uses this policy. Current Surge versions add routes for discovered devices automatically." = "在 Surge 中添加 Tailscale 策略，填写 Headscale 的 control-url 并登录。确认 Mac 的私网 IP 通过该策略连接。新版 Surge 会自动为已发现的设备添加路由。";
-"In the Tailscale app, sign in to the same network as your Mac. If you use Headscale, choose your Headscale server before signing in. Keep Tailscale connected." = "在 Tailscale App 中登录与 Mac 相同的网络。使用 Headscale 时，先选择你的 Headscale 服务器再登录，并保持 Tailscale 连接。";
-"Tailscale and Headscale setup" = "Tailscale 与 Headscale 设置指南";
 "Keep VibeBuddy and Tailscale running on the Mac, with incoming connections allowed. Sign-in happens in your network app; VibeBuddy checks the connection." = "Mac 需保持 VibeBuddy 和 Tailscale 运行，并允许传入连接。登录授权在网络 App 中完成，VibeBuddy 负责检查连接。";
 "Check and save" = "检查并保存";
 "Cancel check" = "取消检查";
@@ -829,3 +800,14 @@
 "Sends this answer" = "点一下即发送这个回答";
 "Voice call ended" = "语音通话已结束";
 "This style reads with its own voice and model, and rewords summaries. The voice and model set here apply to Standard." = "这个风格使用专属音色和模型，播报文字也会按风格改写。这里设置的音色和模型只在“标准”风格下使用。";
+"Mac’s Tailscale IP" = "Mac 的 Tailscale IP";
+"Mac’s Tailscale IP (100.x.x.x)" = "Mac 的 Tailscale IP（100.x.x.x）";
+"Use the 100.x.x.x address Tailscale shows for your Mac, not a server URL." = "填写 Tailscale 里显示的 Mac 地址（100.x.x.x），不是服务器网址。";
+"Install Tailscale on this iPhone and sign in with the same account as your Mac. Keep it connected." = "在这台 iPhone 上安装 Tailscale，用与 Mac 相同的账号登录，并保持连接。";
+"Get Tailscale on the App Store" = "在 App Store 获取 Tailscale";
+"Self-hosted Headscale? In Tailscale, choose your own server before signing in." = "自建 Headscale？在 Tailscale 里先选择你自己的服务器，再登录。";
+"Headscale setup" = "Headscale 设置指南";
+"This iPhone is on your tailnet" = "这台 iPhone 已接入 tailnet";
+"This iPhone is not on a tailnet yet" = "这台 iPhone 尚未接入 tailnet";
+"Use your Mac on cellular with Tailscale. Headscale and Surge work too." = "通过 Tailscale 用蜂窝网络连接 Mac，也支持 Headscale 和 Surge。";
+"Scan your Mac’s remote code, then check your connection. Works with Tailscale, Headscale or Surge." = "扫描 Mac 的远程配对码，再检查连接。支持 Tailscale、Headscale 和 Surge。";

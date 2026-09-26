@@ -34,72 +34,76 @@ directly to the public internet. Treat the pairing QR as a credential.
 
 ## Remote access with Tailscale
 
-Use the official Tailscale apps on your Mac and iPhone and sign both into the
-same tailnet. VibeBuddy does not install, log in to or manage the VPN. No
-Cloudflare account, public domain or router port forwarding is needed.
+Official Tailscale on both devices is all you need. Sign the Mac and the iPhone
+into the same tailnet; VibeBuddy does not install, log in to or manage the VPN.
+No Cloudflare account, public domain or router port forwarding is needed.
 
-1. In Tailscale on the Mac, copy its IPv4 address (`100.x.x.x`) or full MagicDNS
-   name (`your-mac.your-tailnet.ts.net`).
-2. Open VibeBuddy's phone details on the Mac, enable **Use Tailscale for remote
-   access**, and paste that address without a URL scheme, path or port.
-3. Choose **Pair a phone** to open the two-minute pairing window. Scan the QR on
-   iPhone, or use manual entry with the same host, the Mac service port (normally
-   `9876`), and pairing token. Keep the QR and token private.
-4. With Tailscale connected on iPhone, turn off Wi-Fi and check that a current
-   task appears. Test a supported action and check its receipt; saving an address
-   alone does not establish a connection.
+1. **Mac:** install [Tailscale for Mac](https://tailscale.com/download/mac) and
+   sign in. The App Store, standalone and Homebrew clients all work, since
+   VibeBuddy only needs the Mac's tailnet address and incoming connections to
+   its service port. For a Mac that stays on unattended, prefer the Homebrew
+   client registered with `sudo brew services start tailscale`: it runs as a
+   system daemon and reconnects at boot without anyone opening an app.
+2. In VibeBuddy on the Mac, open **Devices & connection** and choose **Away
+   from Mac**. VibeBuddy reads the Mac's `100.x.x.x` address from its network
+   interfaces; enter it under **Advanced connection settings** only if it is
+   not detected.
+3. **iPhone:** install [Tailscale](https://apps.apple.com/app/tailscale/id1470499037)
+   and sign in with the same account. Keep it connected.
+4. On the Mac, choose **Show connection code**. On iPhone, open **Connect away
+   from home** (from the first screen, or **Settings → Device & connection**),
+   scan the code and choose **Check and save**. The phone saves the address
+   only after it receives live status from the Mac over that address. Step 2
+   of that page shows whether this iPhone currently has a tailnet address.
+5. For acceptance, turn off Wi-Fi with Tailscale still connected and check
+   that a current task appears. Test a supported action and check its receipt;
+   saving an address alone does not establish a connection.
 
-Existing LAN pairings remain unchanged. To return to LAN, select that connection
-on the Mac and pair using its LAN address. There is one selected connection, with
-no automatic fallback between addresses. The app uses HTTP/WS inside Tailscale's
-protected network; it does not expose the daemon publicly or add HTTPS support.
-MagicDNS requires Tailscale DNS resolution; the app permits HTTP to `*.ts.net`
-for this private-network flow, without disabling transport security globally.
+Use the Mac's `100.x.x.x` IPv4 address. MagicDNS names are not accepted in
+the pairing screens, and a Headscale control-server URL is never the
+VibeBuddy address. Existing LAN pairings remain unchanged; to return to LAN,
+choose **Same Wi-Fi** on the Mac and pair again. There is one selected
+connection, with no automatic fallback between addresses. The app uses
+HTTP/WS inside the private network; it does not expose the daemon publicly or
+add HTTPS support.
 
-If access is refused, check the pairing token and explicitly reconnect. If a
-connection times out, check both Tailscale clients, the Mac's running state and
-whether tailnet rules permit the service port. A timeout does not identify which
-of these failed. The app reconnects after ordinary network interruptions but
-never resends an uncertain task action automatically.
+If access is refused, scan the Mac's current code again. If a connection
+times out, check both Tailscale clients, whether the Mac is awake with
+VibeBuddy running, and whether tailnet rules permit the service port. A
+timeout does not identify which of these failed. The app reconnects after
+ordinary network interruptions but never resends an uncertain task action
+automatically.
 
 Apple Watch continues to use the paired iPhone connection; this does not enable
 independent Watch networking. Background notifications still need the separate
-APNs setup below. The Mac must remain running and reachable. Other VPNs on iPhone
-may conflict with Tailscale; see the official [VPN compatibility notes](https://tailscale.com/docs/reference/faq/other-vpns)
-and [MagicDNS guide](https://tailscale.com/docs/features/magicdns).
+APNs setup below. The Mac must remain running and reachable. iOS runs one VPN
+at a time, so Tailscale and another VPN app cannot both be active; see the
+official [VPN compatibility notes](https://tailscale.com/docs/reference/faq/other-vpns).
 
-### Headscale with Surge on iPhone
+### Variant: self-hosted Headscale
 
-The iPhone can use **Surge's built-in Tailscale policy** to join Headscale;
-it does not need a second active VPN. In Surge's policy editor, configure a
-Tailscale policy with your Headscale `control-url`, authorize it, and ensure
-traffic to the Mac's private IPv4 address selects that policy. Consult the
-[Surge Tailscale guide](https://manual.nssurge.com/policies/tailscale.html)
-for version requirements, sign-in and routing options.
+Everything above applies. In the Tailscale apps on the Mac and the iPhone,
+choose your own control server before signing in; see
+[Headscale's Apple setup](https://headscale.net/stable/usage/connect/apple/).
+The Headscale ACL and the Mac firewall must permit the VibeBuddy service port.
 
-The **receiving Mac needs the system Tailscale client**, connected to the same
-Headscale server with incoming connections allowed. Its Surge proxy can keep
-running. Surge's Tailscale policy handles outbound connections only and does
-not expose services on the Mac. Use the system client's IP, not the Surge
-node's IP. See [Headscale's Apple setup](https://headscale.net/stable/usage/connect/apple/).
-The private network ACL and Mac firewall must permit the VibeBuddy service port.
+### Variant: Surge on iPhone
 
-After pairing, on iPhone open **Settings → Connect your Mac → Headscale & Surge**.
-Enter the Mac's `100.64.0.0/10` IPv4 address and service port, then choose
-**Test and use this address**. The phone uses its saved pairing bearer to request
-a live WebSocket snapshot. Only success saves the replacement address; failure
-or leaving the screen keeps the current pairing. This checks the app's data
-path, not just whether the VPN says connected. Custom Headscale DNS suffixes
-are not covered by the app's HTTP domain exceptions, so use the private IPv4
-address here. The Headscale control-server URL is never the VibeBuddy address.
+If the iPhone already routes through Surge, it can join the tailnet with
+**Surge's built-in Tailscale policy** instead of a second VPN. In Surge's
+policy editor, configure a Tailscale policy (for Headscale, its
+`control-url`), sign in, and make sure traffic to the Mac's `100.x.x.x`
+address selects that policy. See the
+[Surge Tailscale guide](https://manual.nssurge.com/policies/tailscale.html).
+When both Surge and Tailscale are installed, **Connect away from home** lets
+you choose which one you use, and **Turn on Tailscale or Surge** opens that
+one.
 
-For acceptance, disable iPhone Wi-Fi while keeping Surge on. Open VibeBuddy,
-verify a real running task changes, and check the same task and update time on
-the paired Watch. Repeat after a network interruption. A local simulator test
-does not establish cellular reachability. The Watch gets snapshots through
-the iPhone; iOS suspension can leave an older snapshot visible, and background
-alerts still depend on APNs. This setup does not keep the iPhone process alive
-indefinitely or give the Watch an independent VPN.
+The **Mac still needs a Tailscale client**, connected to the same tailnet with
+incoming connections allowed. Surge on the Mac can keep running, but its
+Tailscale policy handles outbound connections only and cannot receive
+connections to the Mac. Use the Mac's Tailscale client address, not a Surge
+node's address.
 
 ## Connect an agent to handoff facts and transcripts
 
