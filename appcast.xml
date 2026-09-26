@@ -3,6 +3,17 @@
     <channel>
         <title>VibeBuddyMacApp</title>
         <item>
+            <title>1.3.36</title>
+            <pubDate>Sat, 26 Sep 2026 22:19:42 +0800</pubDate>
+            <link>https://github.com/semantic-craft/iOS-vibebuddy</link>
+            <sparkle:version>54</sparkle:version>
+            <sparkle:shortVersionString>1.3.36</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <sparkle:releaseNotesLink>https://semantic-craft.github.io/iOS-vibebuddy/vibebuddy-mac-v1.3.36.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.36/vibebuddy-mac-v1.3.36.dmg" length="18391410" type="application/octet-stream" sparkle:edSignature="QjyG8zoi/GmvI+KbgjKZZkJ0B469EkdOPC3dk5J1UTbUK6HBdA/g3uvotQGfYceFmUMvf6Tooxp1wLVuHTtyCw=="/>
+        </item>
+        <item>
             <title>1.3.35</title>
             <pubDate>Sat, 26 Sep 2026 16:09:40 +0800</pubDate>
             <link>https://github.com/semantic-craft/iOS-vibebuddy</link>
