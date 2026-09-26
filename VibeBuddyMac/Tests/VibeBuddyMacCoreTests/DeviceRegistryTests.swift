@@ -90,6 +90,12 @@ struct DeviceRegistryTests {
         let device = await DeviceTokens(url: url).devices().first
         #expect(device?.cloudKitUser == "_user")
         #expect(device?.cloudKitReceipts?.first?.notificationID == "s-needs_approval")
+
+        // "" is the phone reporting it lost iCloud: the Mac forgets the user.
+        var signedOut = DeviceRegistrationPayload(token: "abc", deviceID: "phone-a")
+        signedOut.cloudKitUser = ""
+        await tokens.register(signedOut)
+        #expect(await DeviceTokens(url: url).devices().first?.cloudKitUser == nil)
     }
 
     @Test func fileIsOwnerOnly() async throws {

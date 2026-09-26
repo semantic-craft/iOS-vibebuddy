@@ -30,8 +30,9 @@ actor CloudKitCues {
     /// The account, the zone and the three subscriptions; again on every
     /// foreground until it has all worked once. Returns this phone's iCloud
     /// user only when the subscriptions are in place — a Mac told "reachable"
-    /// before that would write records no push ever comes from — and "" when
-    /// iCloud is not usable, so the Mac forgets what it knew.
+    /// before that would write records no push ever comes from — "" when
+    /// iCloud is definitely not usable, so the Mac forgets what it knew, and
+    /// nil after a transient error, so it does not.
     func setUp() async -> String? {
         guard Self.isAvailable else { return nil }
         if let readyUser { return readyUser }
@@ -50,9 +51,21 @@ actor CloudKitCues {
             }
             readyUser = user
             return user
+        } catch let error as CKError where Self.isTransient(error) {
+            // Offline, throttled, iCloud busy: say nothing, so the Mac keeps
+            // the user it knew; the next foreground tries again.
+            return nil
         } catch {
+            // A definite failure — no subscriptions can exist (e.g. the
+            // Production schema lacks the `Cue` type): the Mac must not count
+            // on this phone.
             return ""
         }
+    }
+
+    private static func isTransient(_ error: CKError) -> Bool {
+        [.networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited,
+         .zoneBusy, .notAuthenticated, .accountTemporarilyUnavailable].contains(error.code)
     }
 
     private func saveSubscriptions() async throws {

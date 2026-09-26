@@ -75,3 +75,4 @@
 - 专注模式下 Time Sensitive 能否穿透。
 - 同一 Apple 账号下多台手机。已知限制：手机 A 自己发了本地通知、手机 B 没有时，记录照样存下，A 会再响一次（本地与远程通知不合并，ADR-0012）。
 - 不同 Apple 账号时的提示：代码已写，没有第二个账号可测。
+- 已知小窗口：Mac App 刚启动、iCloud 状态还没查回来的那几秒里，触发的提醒会记成 `cloudkit skipped apnsNotConfigured`，不会补发。

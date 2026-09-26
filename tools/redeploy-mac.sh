@@ -105,6 +105,7 @@ if ! curl -fsS --max-time 2 http://127.0.0.1:9876/health >/dev/null && [[ -n "${
   codesign --force --sign "$IDENTITY" "$BUILD_PROD"
   rm -rf "$DEST"; ditto "$BUILD_PROD" "$DEST"
   xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
+  xattr -dr com.apple.provenance "$DEST" 2>/dev/null || true
   open "$DEST"
   for _ in $(seq 1 80); do
     curl -fsS --max-time 1 http://127.0.0.1:9876/health >/dev/null 2>&1 && break
