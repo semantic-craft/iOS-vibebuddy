@@ -55,11 +55,13 @@ actor CloudKitCues {
             // Offline, throttled, iCloud busy: say nothing, so the Mac keeps
             // the user it knew; the next foreground tries again.
             return nil
-        } catch {
+        } catch is CKError {
             // A definite failure — no subscriptions can exist (e.g. the
             // Production schema lacks the `Cue` type): the Mac must not count
             // on this phone.
             return ""
+        } catch {
+            return nil
         }
     }
 
