@@ -54,9 +54,37 @@ public struct ClaudeRateLimitProbe: AccountUsageProviding {
         guard let binary = executable() else { throw AccountUsageError.providerUnavailable }
         let workDir = FileManager.default.temporaryDirectory.appendingPathComponent("vibebuddy-claude-probe")
         try? FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
-        let output = try await Self.run(binary, environment: Self.environment(for: binary),
-                                        cwd: workDir, timeout: timeout)
-        return try ClaudeRateLimitEventDecoder.decode(streamJSON: output, fetchedAt: Date())
+        let environment = Self.environment(for: binary)
+        let timeout = timeout
+        // The supervisor owns the whole process group: a timeout, a cancelled
+        // collector or a descendant still holding stdout after `claude` exits
+        // ends in SIGTERM→SIGKILL for all of it, never in a hung refresh loop.
+        let supervisor = try POSIXCommandSupervisor()
+        let output = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(with: Result {
+                        do {
+                            return try supervisor.run(executableURL: binary, arguments: Self.arguments,
+                                                      environment: environment, workingDirectory: workDir,
+                                                      timeout: timeout, outputLimit: 4 * 1024 * 1024).standardOutput
+                        } catch POSIXCommandError.timedOut {
+                            throw AccountUsageError.timedOut
+                        } catch POSIXCommandError.spawnFailed {
+                            throw AccountUsageError.providerUnavailable
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            throw AccountUsageError.unknown
+                        }
+                    })
+                }
+            }
+        } onCancel: {
+            supervisor.cancel()
+        }
+        return try ClaudeRateLimitEventDecoder.decode(streamJSON: String(decoding: output, as: UTF8.self),
+                                                      fetchedAt: Date())
     }
 
     static func environment(
@@ -70,49 +98,11 @@ public struct ClaudeRateLimitProbe: AccountUsageProviding {
         if kept["USER"]?.isEmpty ?? true { kept["USER"] = NSUserName() }
         if kept["LOGNAME"]?.isEmpty ?? true { kept["LOGNAME"] = kept["USER"] }
         kept["PATH"] = environment["PATH"]
+        // No self-update or telemetry side trips: they add children and time
+        // to a call that only needs its response headers.
+        kept["DISABLE_AUTOUPDATER"] = "1"
+        kept["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
         return ClaudeExecutable.runEnvironment(for: binary, environment: kept, home: home)
-    }
-
-    private final class Once: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<String, Error>?
-        init(_ c: CheckedContinuation<String, Error>) { continuation = c }
-        func finish(_ result: Result<String, Error>) {
-            lock.lock(); defer { lock.unlock() }
-            continuation?.resume(with: result)
-            continuation = nil
-        }
-    }
-
-    private static func run(_ executable: URL, environment: [String: String], cwd: URL,
-                            timeout: TimeInterval) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            let once = Once(continuation)
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = arguments
-            process.currentDirectoryURL = cwd
-            process.environment = environment
-            let out = Pipe()
-            process.standardOutput = out
-            process.standardError = FileHandle.nullDevice
-            process.standardInput = FileHandle.nullDevice
-            do { try process.run() } catch {
-                once.finish(.failure(AccountUsageError.providerUnavailable)); return
-            }
-            // Drained off the termination path so a long `init` line can never
-            // fill the pipe and stall the CLI.
-            DispatchQueue.global().async {
-                let data = out.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                once.finish(.success(String(decoding: data, as: UTF8.self)))
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                guard process.isRunning else { return }
-                process.terminate()
-                once.finish(.failure(AccountUsageError.timedOut))
-            }
-        }
     }
 }
 
@@ -143,6 +133,7 @@ public enum ClaudeRateLimitEventDecoder {
             }
         }
         if let info, let snapshot = snapshot(from: info, fetchedAt: fetchedAt) { return snapshot }
+        if info?["status"] as? String == "rejected" { throw AccountUsageError.rateLimited }
         if authFailed { throw AccountUsageError.notLoggedIn }
         if let resultError { throw AccountUsageError.classify(message: resultError) }
         throw AccountUsageError.incompatibleFormat

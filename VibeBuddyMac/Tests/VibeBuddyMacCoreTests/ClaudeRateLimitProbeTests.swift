@@ -32,6 +32,17 @@ struct ClaudeRateLimitProbeTests {
         }
     }
 
+    @Test("a rejected event with no windows (older CLI) is rate-limited, not unknown")
+    func rejectedWithoutWindows() {
+        let output = """
+        {"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"five_hour","resetsAt":1790500800}}
+        {"type":"result","is_error":true,"result":"usage limit reached"}
+        """
+        #expect(throws: AccountUsageError.rateLimited) {
+            try ClaudeRateLimitEventDecoder.decode(streamJSON: output, fetchedAt: Date())
+        }
+    }
+
     @Test("the probe's environment names the login account and drops agent switches")
     func environment() {
         let env = ClaudeRateLimitProbe.environment(

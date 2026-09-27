@@ -130,9 +130,8 @@ struct AccountUsageTests {
         #expect(invalid.primary == nil)
     }
 
-    /// Claude has no headless command that reports the account allowance, so
-    /// its collector has no provider at all: it bootstraps from cache and then
-    /// only ever learns from the status line's live samples.
+    /// A collector with no provider bootstraps from cache and then only ever
+    /// learns from live samples.
     @Test("a collector without a pull source waits for a live sample instead of polling")
     func liveOnlyCollector() async {
         let cache = MemoryUsageCache()
