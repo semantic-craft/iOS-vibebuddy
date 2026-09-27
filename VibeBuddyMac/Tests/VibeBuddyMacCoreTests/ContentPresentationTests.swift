@@ -204,7 +204,7 @@ struct ContentPresentationTests {
         let result = try #require(await store.presentation(.init(sourceID: "mac",
             target: .completion(sessionID: "s", completionID: completionID), purpose: .speech)))
         #expect(result.generated == false)
-        #expect(result.text.contains(session.displayTitle))
+        #expect(result.text.hasPrefix("The project project finished a turn."))
         #expect(result.text.contains("The requested drawing was saved."))
         #expect(!result.text.contains("unavailable") && !result.text.contains("摘要暂时不可用"))
     }
