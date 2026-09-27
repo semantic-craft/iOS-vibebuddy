@@ -47,7 +47,7 @@ struct ContentPresentationTests {
         let current = try #require(await store.snapshot(now: date.addingTimeInterval(3)).sessions.first)
         let result = await store.presentation(.init(sourceID: "mac", target: try #require(ContentPresentationTarget(session: current))))
         #expect(result?.generated == true)
-        #expect(result?.text == waiting.displayTitle + ". Choose the delivery date.")
+        #expect(result?.text == "An update from the project project. Choose the delivery date.")
     }
 
     @Test("a result arriving after the waiting task resumes is discarded")
@@ -101,7 +101,7 @@ struct ContentPresentationTests {
         #expect(PresentationStub.state.requestCount == 1)
     }
 
-    @Test("hook-only completion has no spoken ending, verified completion names the conversation")
+    @Test("hook-only completion has no spoken ending, verified completion names the project, not the conversation")
     func verifiedNamedSpeech() async throws {
         let store = SessionStore(sourceID: "mac")
         let network = await configure(store)
@@ -121,11 +121,11 @@ struct ContentPresentationTests {
         let request = ContentPresentationRequest(sourceID: "mac", target: try #require(ContentPresentationTarget(session: main)))
         let result = await store.presentation(request)
         #expect(result?.generated == true)
-        #expect(result?.text.hasPrefix("Draw a harbor. ") == true)
-        #expect(result?.text.hasPrefix("project") == false)
+        #expect(result?.text.hasPrefix("An update from the project project. ") == true)
+        #expect(result?.text.contains("Draw a harbor") == false)
     }
 
-    @Test("Claude and Cursor wait for settled native evidence and name the conversation", arguments: [AgentKind.claudeCode, .cursor])
+    @Test("Claude and Cursor wait for settled native evidence and name the project folder", arguments: [AgentKind.claudeCode, .cursor])
     func settledAgentSpeech(_ agent: AgentKind) async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -175,7 +175,8 @@ struct ContentPresentationTests {
         } else { try append(["type": "turn_ended", "status": "success"]) }
         let result = await pending.value
         #expect(result?.generated == true)
-        #expect(result?.text.hasPrefix(title + ". ") == true)
+        #expect(result?.text.hasPrefix("An update from the Agora project. ") == true)
+        #expect(result?.text.contains(title) == false)
         #expect(result?.text.contains("unavailable") == false)
         if agent == .cursor {
             await store.noteCursorFollowupHandoff(sessionID: "s", loopCount: 0, source: .hook, at: end.addingTimeInterval(0.1))

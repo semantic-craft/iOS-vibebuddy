@@ -73,8 +73,10 @@ public actor SessionStore {
             return nil
         }
         var spokenText = text ?? presentationFallback(request, language: config.language)
-        if request.purpose == .speech, let title = input?.title, !spokenText.contains(title) {
-            spokenText = title + (config.language == .chinese ? "。" : ". ") + spokenText
+        // Speech must let the listener know which project this is; the model
+        // phrases it freely, and only a text that never names it gets a lead.
+        if request.purpose == .speech, let project = input?.title, !spokenText.contains(project) {
+            spokenText = SpokenProjectName.lead(project, language: config.language) + spokenText
         }
         return ContentPresentation(request: request, revision: config.presentationRevision,
             text: spokenText, generated: text != nil)
@@ -106,13 +108,13 @@ public actor SessionStore {
                 return nil
             }
             sessionID = id; identity = completionID
-            title = session.displayTitle
+            title = spokenProject(session)
             material = "This round ended. The final answer reports the following; ending is not proof of project completion.\n" + original
         case .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return nil }
             sessionID = id
             identity = String(decoding: (try? encoder.encode(request.target)) ?? Data(), as: UTF8.self)
-            title = session.displayTitle
+            title = spokenProject(session)
             if session.status == .needsResponse {
                 let question = session.pendingQuestion.flatMap { try? encoder.encode($0) }
                 let approval = session.pendingApproval.flatMap { try? encoder.encode($0) }
@@ -128,22 +130,35 @@ public actor SessionStore {
             completionID: identity, title: title, finalText: material, completedAt: now, observedAt: now)
     }
 
+    private var spokenProjectNames: [String: String] = [:]
+
+    /// The main checkout's folder, said aloud; cached per path because a
+    /// worktree lookup reads its `.git` file.
+    private func spokenProject(_ session: AgentSession) -> String {
+        let path = workingDirectories[session.id] ?? session.checkoutPath
+        let key = (path ?? "") + "\u{0}" + session.project
+        if let cached = spokenProjectNames[key] { return cached }
+        let name = SpokenProjectName.resolve(checkoutPath: path, fallback: session.project)
+        spokenProjectNames[key] = name
+        return name
+    }
+
     private func presentationFallback(_ request: ContentPresentationRequest, language: VoiceLanguage) -> String {
         let chinese = language == .chinese
         switch request.target {
         case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return "" }
-            let title = session.displayTitle
+            let title = spokenProject(session)
             if session.status == .needsResponse {
-                return chinese ? "\(title)，请打开任务查看待你决定的事项。当前无法生成详细摘要。" : "\(title). Open the task to review the pending decision. A detailed summary is unavailable."
+                return chinese ? "\(title) 项目在等你决定，请打开任务查看。当前无法生成详细摘要。" : "The \(title) project is waiting for your decision. Open the task to review it. A detailed summary is unavailable."
             }
             if session.isStuck {
-                return chinese ? "\(title)，任务因问题停止。请打开任务查看原因。" : "\(title). The task stopped with an issue. Open it to review the cause."
+                return chinese ? "\(title) 项目因问题停下了，请打开任务查看原因。" : "The \(title) project stopped with an issue. Open it to review the cause."
             }
             if case .completion(_, let completionID) = request.target,
                let key = resultKey(sessionID: id, completionID: completionID),
                let excerpt = completionResults.resultExcerpt(key: key) {
-                return chinese ? "\(title)，结果摘录：\(excerpt)" : "\(title). Result excerpt: \(excerpt)"
+                return chinese ? "\(title) 项目这一轮结束了，结果摘录：\(excerpt)" : "The \(title) project finished a turn. Result excerpt: \(excerpt)"
             }
             return ""
         }
