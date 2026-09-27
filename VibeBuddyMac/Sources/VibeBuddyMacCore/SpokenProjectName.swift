@@ -47,7 +47,8 @@ enum SpokenProjectName {
                 else { return dir.lastPathComponent }
                 let commonDir = URL(fileURLWithPath: common, relativeTo: gitDir).standardizedFileURL
                 let name = commonDir.lastPathComponent
-                if name == ".git" { return commonDir.deletingLastPathComponent().lastPathComponent }
+                // `.git`, or a hidden bare repo such as `proj/.bare`, is named by its folder.
+                if name.hasPrefix(".") { return commonDir.deletingLastPathComponent().lastPathComponent }
                 return name.hasSuffix(".git") ? String(name.dropLast(4)) : name // bare repository
             }
             dir.deleteLastPathComponent()
