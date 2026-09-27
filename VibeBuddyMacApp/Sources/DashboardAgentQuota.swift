@@ -26,9 +26,6 @@ struct AgentQuotaReading: Identifiable {
     let isStale: Bool
     /// When the reading was taken; what "stale" is measured from.
     let observedAt: Date?
-    /// No status-line forwarder means no future sample will ever arrive, so a
-    /// stale number is not "waiting", it is off.
-    let statusLineUnwired: Bool
 
     var remainingPercent: Int { max(0, 100 - usedPercent) }
     var tint: Color { QuotaPresentation.severity(usedPercent: usedPercent).tint }
@@ -40,9 +37,8 @@ struct AgentQuotaReading: Identifiable {
     }
 
     /// Why the number should not be trusted as of now, if it should not: the
-    /// forwarder is off, or the reading has an age. Nil while it is live.
+    /// reading has an age. Nil while it is live.
     func warningText(now: Date) -> String? {
-        if statusLineUnwired { return String(localized: "Status line off") }
         if isStale, let observedAt { return QuotaPresentation.age(from: observedAt, now: now) }
         return nil
     }
@@ -78,8 +74,7 @@ struct AgentQuotaReading: Identifiable {
             AgentQuotaReading(provider: provider, usedPercent: window.usedPercent,
                               windowName: windowLabel(window, provider: provider),
                               resetsAt: window.resetsAt, isStale: state.isStale,
-                              observedAt: snapshot.fetchedAt,
-                              statusLineUnwired: model.usageStatusLineUnwired(provider))
+                              observedAt: snapshot.fetchedAt)
         }
     }
 
@@ -104,10 +99,7 @@ struct AgentQuotaReading: Identifiable {
     /// provider that has a reading but no live window has not failed — its
     /// window reset and the source has not reported the new one yet, which is
     /// a different thing from "loading" and from "unavailable".
-    static func shortReason(_ state: AccountUsageState, filtered: AccountUsageSnapshot?,
-                            unwiredStatusLine: Bool = false) -> String {
-        // No forwarder means no future sample, so "waiting" would be a lie.
-        if unwiredStatusLine { return String(localized: "Status line off") }
+    static func shortReason(_ state: AccountUsageState, filtered: AccountUsageSnapshot?) -> String {
         if state.snapshot != nil, filtered?.displayWindows.isEmpty ?? true,
            state.unavailableReason == nil || state.unavailableReason == .cachedData {
             return String(localized: "Awaiting reset")

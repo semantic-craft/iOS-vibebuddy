@@ -63,6 +63,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         executableURL: URL,
         arguments: [String],
         environment: [String: String],
+        workingDirectory: URL? = nil,
         timeout: TimeInterval,
         outputLimit: Int
     ) throws -> POSIXCommandResult {
@@ -73,7 +74,8 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         let child = try Self.spawn(
             executableURL: executableURL,
             arguments: arguments,
-            environment: environment
+            environment: environment,
+            workingDirectory: workingDirectory
         )
         var standardOutput = Data()
         var standardError = Data()
@@ -217,7 +219,8 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
     private static func spawn(
         executableURL: URL,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        workingDirectory: URL?
     ) throws -> SpawnedCommand {
         var stdoutDescriptors = [Int32](repeating: -1, count: 2)
         var stderrDescriptors = [Int32](repeating: -1, count: 2)
@@ -292,11 +295,14 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
                     | POSIX_SPAWN_CLOEXEC_DEFAULT)
             ),
         ]
-        let actionResults = [
+        var actionResults = [
             posix_spawn_file_actions_adddup2(&actions, nullDescriptor, STDIN_FILENO),
             posix_spawn_file_actions_adddup2(&actions, stdoutDescriptors[1], STDOUT_FILENO),
             posix_spawn_file_actions_adddup2(&actions, stderrDescriptors[1], STDERR_FILENO),
         ]
+        if let workingDirectory {
+            actionResults.append(posix_spawn_file_actions_addchdir_np(&actions, workingDirectory.path))
+        }
         guard attributeResults.allSatisfy({ $0 == 0 }),
               actionResults.allSatisfy({ $0 == 0 }) else {
             closeIfOpen(&stdoutDescriptors[0])

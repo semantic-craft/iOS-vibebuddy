@@ -515,9 +515,8 @@ public actor AccountUsageFileCache: AccountUsageCaching {
 /// Refresh/cache policy for account usage. This actor has no reference to
 /// SessionStore or SessionReducer; failures only change `AccountUsageState`.
 public actor AccountUsageCollector {
-    /// Nil for a provider with no pull source of its own: Claude Code has no
-    /// headless command that reports the account allowance, so its collector
-    /// only ever learns from `acceptLive` (the status line forwarder).
+    /// Nil for a provider with no pull source of its own, whose collector only
+    /// ever learns from `acceptLive`. Every shipped provider has one today.
     private let provider: (any AccountUsageProviding)?
     private let cache: any AccountUsageCaching
     private let refreshInterval: TimeInterval

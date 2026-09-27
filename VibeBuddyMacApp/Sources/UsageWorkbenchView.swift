@@ -66,8 +66,7 @@ struct UsageWorkbenchView: View {
                 }
             }
             if windows.isEmpty {
-                Text(AgentQuotaReading.shortReason(state, filtered: snapshot,
-                                                   unwiredStatusLine: model.usageStatusLineUnwired(provider)))
+                Text(AgentQuotaReading.shortReason(state, filtered: snapshot))
                     .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
             } else {
                 ForEach(windows) { window in

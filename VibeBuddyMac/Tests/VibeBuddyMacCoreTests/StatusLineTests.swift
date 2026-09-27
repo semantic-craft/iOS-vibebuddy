@@ -78,6 +78,15 @@ struct StatusLineTests {
         #expect(quota.otherWindows == nil)
     }
 
+    @Test("a spend_limit past 100% reads as fully spent rather than being dropped")
+    func spendLimitOverrun() throws {
+        let sample = try #require(StatusLineSample.decode([
+            "session_id": "s1",
+            "rate_limits": ["spend_limit": ["used_percentage": 112.5, "resets_at": 1788857600]],
+        ]))
+        #expect(sample.extraWindows.first?.usedPercent == 100)
+    }
+
     @Test("without rate_limits there is no usage snapshot, and without a session id no sample")
     func decodeEdges() {
         var doc = json(statusLineJSON)
