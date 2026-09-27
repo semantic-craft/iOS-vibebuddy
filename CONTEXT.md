@@ -351,6 +351,11 @@ code, and tests — don't drift to synonyms.
   (status line `rate_limits`, the Codex daemon's `account/rateLimits/*`). The
   usage coordinator treats a live sample like a fetch and holds the spawning
   collector off while samples stay fresh (Claude 15 min, Codex 20 min).
+- **Claude rate-limit probe** — `ClaudeRateLimitProbe`: Claude's pull source
+  for when no status line runs (desktop app, IDE, web, idle). One headless
+  `claude -p` on Haiku with no tools, hooks, plugins or transcript; its
+  `stream-json` `rate_limit_event` carries the unified five-hour and seven-day
+  windows. The CLI keeps its own login; VibeBuddy never reads Claude tokens.
 - **Native always-allow** — a phone "Always allow" on a Claude Code approval
   echoes Claude's own `permission_suggestions` back as `updatedPermissions`, so
   Claude Code persists the rule where its terminal dialog would; the card shows
@@ -561,7 +566,7 @@ code, and tests — don't drift to synonyms.
   Identified phones can be saved before APNs registration; push counts include
   only records with a token. Expiring a push token retains the phone identity,
   so push availability never decides whether that phone is paired.
-- **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI,
+- **AccountUsage** — provider quota (Codex app-server RPC, Claude rate-limit probe,
   Cursor/Grok local sources): window, remaining, reset, freshness, `stale` /
   unavailable reason, plus extra named windows (Claude model-week, Codex Spark),
   credits remaining, and extra-usage spend when the local source reports them.

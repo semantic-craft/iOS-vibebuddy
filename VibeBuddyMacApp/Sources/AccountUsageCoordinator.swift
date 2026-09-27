@@ -32,8 +32,9 @@ final class AccountUsageCoordinator: ObservableObject {
     private let liveFeed: AccountUsageLiveFeed?
     private var liveTask: Task<Void, Never>?
     /// How long a live sample keeps the spawning collector idle. Claude's
-    /// status line reports on every event, so 15 minutes of silence means no
-    /// session is running; the Codex monitor re-reads every 10 minutes while
+    /// status line reports on every event of a terminal session, so 15 minutes
+    /// of silence means none is running and the headless probe takes over; the
+    /// Codex monitor re-reads every 10 minutes while
     /// connected, so 20 minutes of silence means it disconnected.
     static func liveHold(for provider: AccountUsageProvider) -> TimeInterval {
         switch provider {
@@ -48,23 +49,6 @@ final class AccountUsageCoordinator: ObservableObject {
     private var tasks: [AccountUsageProvider: Task<Void, Never>] = [:]
     private var generations: [AccountUsageProvider: UInt64] = [:]
     private static let alertedWindowsKey = "accountUsageAlertedWindows"
-    /// Claude's only quota source is the status line forwarder, so "waiting for
-    /// a session" is only the truth while that forwarder is installed; without
-    /// it no session will ever report and the row must say so instead. Cached:
-    /// it is one small JSON file and the plinth redraws on a 30-second tick.
-    private var statusLineWiring: (wired: Bool, checkedAt: Date)?
-
-    func isClaudeStatusLineWired(now: Date = Date()) -> Bool {
-        guard E2ERunConfiguration.current == nil else { return true }
-        if let cached = statusLineWiring, now.timeIntervalSince(cached.checkedAt) < 60 {
-            return cached.wired
-        }
-        let wired = EnvironmentDetector.statusLineWired(
-            at: NSHomeDirectory() + "/.claude/settings.json", fileManager: .default)
-        statusLineWiring = (wired, now)
-        return wired
-    }
-
     init(store: SessionStore, notifier: UserNotificationsNotifier, liveFeed: AccountUsageLiveFeed? = nil) {
         self.store = store
         self.notifier = notifier
@@ -87,7 +71,7 @@ final class AccountUsageCoordinator: ObservableObject {
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
             .claude: claudeEnabled
-                ? .unavailable(.awaitingLiveSample, lastAttemptAt: nil, nextRefreshAt: nil)
+                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
             .grok: grokEnabled
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
@@ -103,11 +87,11 @@ final class AccountUsageCoordinator: ObservableObject {
                 cache: AccountUsageFileCache(provider: .codex),
                 enabled: codexEnabled
             ),
-            // Claude has no pull source. `claude -p /usage` answers with the
-            // session cost summary, not the account allowance, and there is no
-            // other headless command for it; the supported source is the status
-            // line's `rate_limits`, which arrives through the live feed.
+            // A terminal session's status line (live feed) is the cheap source;
+            // the probe covers the desktop app, IDE and idle hours, where no
+            // status line runs.
             .claude: AccountUsageCollector(
+                provider: ClaudeRateLimitProbe(),
                 cache: AccountUsageFileCache(provider: .claude),
                 enabled: claudeEnabled
             ),
@@ -151,9 +135,6 @@ final class AccountUsageCoordinator: ObservableObject {
                 guard self.isCollectionEnabled(provider), let collector = self.collectors[provider] else { continue }
                 let state = await collector.acceptLive(snapshot, holdFor: Self.liveHold(for: provider))
                 guard !Task.isCancelled, self.isCollectionEnabled(provider) else { continue }
-                // A sample is proof the forwarder is installed, whatever the
-                // last file read concluded.
-                if provider == .claude { self.statusLineWiring = (true, Date()) }
                 self.states[provider] = state
                 self.checkAlert(state)
             }
