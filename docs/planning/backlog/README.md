@@ -1,6 +1,6 @@
 # 施工清单（2026-09-28 更新）
 
-这里只列**未完成**的施工项。已完成的改动看 `git log` 和已合并的 PR；各版本做了什么看 [GitHub Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases)。票据做完就删文件和行（见 `docs/agents/issue-tracker.md`）。
+这里只列**未完成**的施工项。已完成的改动看 `git log` 和已合并的 PR；各版本做了什么：Mac 看 [GitHub Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases)，iOS 看 App Store 的 What's New。票据做完就删文件和行（见 `docs/agents/issue-tracker.md`）。
 
 优先级（2026-09-23 起）：先完善本机 GitHub 公开版的性能和已知问题；Mac App Store 版延后。领取一张票时先核对当前源码。
 
@@ -23,12 +23,22 @@
 - **远程连接只用官方 Tailscale**（NET-01）：手机关 Wi-Fi 走一遍。
 - **通话到顶提示与重拨按钮**（D-1）：只有 Qwen / OpenAI 的 60–120 分钟长通话才会出现，碰上时看一眼。
 - **真机 VoiceOver**（G-4 / G-4b）：没人实际听过。
+- **A-12 Production 端到端**：没配 `.p8` 的公证版 Mac → App Store 版 iPhone 送达一次（Production schema 已部署，复测没有记录）。
+- **手表停下真实 Codex 会话**：Codex 走 `monitor.interrupt`，只验过托管 Cursor；重复点、断线、会话已结束各一次，结果符合 accepted / refused / failed。
+- **长显示触觉**：手机锁屏、戴着手表时，抬腕展开的横幅是否播自定义节奏（「需要你」是 5 个长拍）。稳定则触觉文案可写「抬腕即分辨」，否则改成「打开 VibeBuddy 时」。
+- **Double Tap**：允许、发送、停下确认三处各一次。
 
 ## 观察项（暂不动手）
 
 - **AI-07**：Codex 从 rollout 文件迁到 SQLite 后的降级预案，见 [07](agent-integration-2026-09/issues/07-codex-rollout-degradation.md)。
 - **活跃时的写盘**：每个 hook 事件都整份写回日志和最近目录（PERF-02 留下的建议），真实使用中出现卡顿再开票。
 - **推送已被苹果接受但手表没出现**：2026-09-24 出现过 2 次，原因未查明，再出现再查。
+- **WR-08 余留**：手机锁屏时，刷新成功后中继状态仍显示「连不上 Mac」；手表下拉刷新不发请求（`DashboardStore.relayToWatch`）。
+- **WR-11 余留**：Esc 打断后卡片 60 s 内仍可作答，答案被丢弃。
+- **AI-02 未做**：以 leader 身份挂上终端里的 Grok，让它也能远程批准。
+- **AI-10**：真实 1M 上下文会话复核一次上下文窗口显示。
+- **RV-03**：真机语音时留意有没有误扣动作。
+- **Codex steer 与额度推送**：额度重置后没重跑。
 - **Antigravity hooks**：上游有 bug，已记录在 `docs/multi-cli-hook-setup.md`。
 - **Claude `Stop` 的后台任务类型**：子代理起的后台 shell 与 monitor 都报 `type:"shell"`，只影响「还有 N 项后台任务」的计数口径。
 

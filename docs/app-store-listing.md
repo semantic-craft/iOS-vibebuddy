@@ -34,46 +34,19 @@ Tip: tap "查看演示 / View Demo" on the connect screen to explore the interfa
 **Support URL:** https://github.com/semantic-craft/iOS-vibebuddy
 **Marketing URL (optional):** same
 
-**What's New (1.0):** First release.
+**What's New:** the current `docs/release-notes-ios-<version>.md`.
+
+**Age rating:** 4+ ("None" to every questionnaire item). **Availability:** keep the existing 147 regions; China mainland and the 27 EU regions stay unavailable (verified 2026-09-05).
 
 ---
 
-## Privacy policy (host this at a public URL — e.g. GitHub Pages)
+## Privacy policy
 
-**vibebuddy — Privacy Policy**
-_Last updated: 2026-09-15_
+URL: the published `docs/privacy-policy.md`. Keep that file as the single source; do not paste a copy here.
 
-vibebuddy ("the app") is a companion to the vibebuddy Mac application. Session connections go directly to your paired Mac; optional push and voice processing use the services described below.
+## App Privacy (App Store Connect answers)
 
-**What the app accesses**
-- **Local network:** the app connects directly to the vibebuddy Mac app running on your own Mac, over your local network, to display session status and send your approve/deny decisions. This data is exchanged only between your iPhone and your Mac.
-- **Camera:** used solely to scan the pairing QR code shown by the Mac app. No images are stored or transmitted.
-- **Push notifications:** if you enable notifications, Apple issues a device token that the app sends to your Mac app so it can notify you when a session needs attention. The token is used only for this purpose. When APNs is configured, your Mac sends notification payloads, including titles and bodies, through Apple's push service to the registered device.
-- **Microphone & voice (optional):** the voice companion is **off by default**. It only starts after you choose a provider — OpenAI, Alibaba (DashScope / Qwen), or Volcengine (Doubao) — enter your own provider API key, accept the in-app disclosure, grant microphone permission, and tap again to start a voice conversation. When you use it, your microphone audio and selected session context (project names, agent type, status, and optional summaries) are streamed over an encrypted connection **directly to the provider you choose**, authenticated with **your own key**, which is stored only in your device Keychain. That data is processed by the chosen provider under **their** privacy policy and your account with them; it does **not** pass through any vibebuddy server. The app is fully usable without ever enabling voice.
-
-- **Summaries and read-aloud (optional):** your Mac sends the relevant task text and selected content-style prompt directly to its configured language-model provider to generate notifications or spoken scripts. iPhone can read and update the connected Mac's content style; it does not receive the Mac's provider key. For cloud read-aloud, the phone sends the spoken script directly to the speech provider configured on that phone and receives synthesized audio. System speech uses the operating system's speech engine without a cloud speech-provider request from VibeBuddy. Read-aloud does not start the microphone. Provider processing and retention follow your chosen providers' terms; provider charges may apply.
-
-**What we do NOT do**
-- We do not operate servers that receive your voice audio or voice-companion session context; there is no vibebuddy cloud account.
-- We do not collect analytics, advertising identifiers, or location.
-- We do not sell your data. When enabled, notifications pass through Apple's push service; the optional voice companion sends microphone audio and selected session context directly to your chosen provider with your own key. We operate neither service and receive neither payload.
-- We do not track you across apps or websites.
-
-**Data retention**
-Pairing details (your Mac's address and access token) are stored locally on your device and removed when you disconnect.
-
-**Contact:** https://github.com/semantic-craft/iOS-vibebuddy/issues
-
----
-
-## App Privacy nutrition label (App Store Connect answers)
-- Data used to track you: **None**.
-- Data linked to you: **None**.
-- Data not linked to you:
-  - **Identifiers — Device ID** (the APNs device token), purpose **App Functionality** only.
-  - **Audio Data** — only if you choose to declare the optional voice companion (see the note below). Purpose **App Functionality**, not linked, not for tracking.
-
-**Voice/audio — how to answer the questionnaire (human decision).** The voice companion streams audio **directly to the provider you, the user, configure with your own API key**; vibebuddy operates no server and never receives or stores the audio (ADR-0002). Under Apple's definition, data your app does not access isn't "collected" — so one defensible answer is **not to declare Audio Data at all**. The more conservative, transparent answer — **recommended** — is to declare **Audio Data → App Functionality → Not linked to you → Not used for tracking**, since audio does leave the device. Both are accurate; pick one and be consistent. Do **not** declare any third-party SDK — there is none; it's a direct, user-authorized connection. Either way: no analytics, no advertising, no tracking.
+**Live declarations — keep them as they are:** Device ID, Other User Content and Audio Data, each for **App Functionality**, **linked to identity**, not used for tracking. No third-party SDK, analytics or advertising. These match `docs/privacy-policy.md`; change both together or neither.
 
 ---
 
@@ -94,10 +67,3 @@ Camera permission is only for scanning the pairing QR; Local Network permission 
 **Voice companion (optional).** Tapping the pet can start a real-time voice conversation with the agent companion. It is entirely optional and off by default. It only starts after the user selects a provider (Qwen/DashScope, OpenAI, or Doubao/Volcengine), enters their own provider API key in Settings, accepts the in-app disclosure, grants iOS microphone permission, and taps again to start. When started, the app sends microphone audio plus selected coding-session context (project names, agent type, status, and optional summaries) directly from the device to the selected provider over an encrypted connection using the user's own key. It does not pass through any vibebuddy server. The dashboard, notifications, and approvals are fully usable without voice, so the app can be evaluated end-to-end without setting up a provider key.
 
 Demo credentials: none required (Demo mode needs no login; voice needs no key to review).
-
----
-
-## Production push checklist (Mac side, for when it ships)
-- Create an APNs Auth Key (.p8) in the developer portal (one key works for sandbox + production).
-- Put `~/Library/Application Support/vibebuddy/apns.json` with `teamID`, `keyID`, `bundleID: com.vibebuddy.app`, `keyPath` (to the .p8), and **`"sandbox": false`** (production endpoint — App Store / TestFlight builds get production device tokens).
-- The iOS Release/Archive build already uses `aps-environment = production` (Debug device runs use development).
