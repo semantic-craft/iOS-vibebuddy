@@ -47,7 +47,7 @@ Teardown is **Cleanup** below. Keep the daemon up for the whole drive; do not re
 
 **Host gap:** `VibeBuddyMac/Package.swift` is `platforms: [.macOS(.v14)]`. Linux cannot compile or run `vibebuddyd`, the menu-bar app, or the iPhone/Watch apps. If `launch` prints `blocked: host is Linux`, stop. Do not invent a web/CLI stand-in. Report that acceptance gap.
 
-**Do not** launch the installed menu-bar app, `open VibeBuddyMacApp.xcodeproj` Run, or a second production instance. A second production Mac app takes the `SingleInstanceLock` and returns to the existing dashboard (`docs/qa/mac-1.3.3.md`). Isolated E2E GUI requires bundle id `com.vibebuddy.e2e.<id>` plus `VIBEBUDDY_E2E_*` (`VibeBuddyKit` `E2ERunConfiguration`) and is out of this skill's default path.
+**Do not** launch the installed menu-bar app, `open VibeBuddyMacApp.xcodeproj` Run, or a second production instance. A second production Mac app takes the `SingleInstanceLock` and returns to the existing dashboard. Isolated E2E GUI requires bundle id `com.vibebuddy.e2e.<id>` plus `VIBEBUDDY_E2E_*` (`VibeBuddyKit` `E2ERunConfiguration`) and is out of this skill's default path.
 
 ## Doctor
 
@@ -123,7 +123,7 @@ Proof standards:
 - Exercise the real user path: hook ingest + snapshot (what the dashboard shows), `/decision` (what **Approve** sends), `/device` (what pairing registration sends). Do not poke `SessionStore` in-process or call test-only endpoints.
 - Capture the action **and** the resulting snapshot (status / `pendingApproval` / registry), not only the final screen.
 - Side effects: `sessions[]` in `/snapshot`, `device-registry.json` after a paired `POST /device`, `/approval` response body containing `permissionDecision` after a decision.
-- UI proof on a Mac: screenshot of the isolated iPhone Demo or isolated daemon-backed simulator with the app identity visible (`Demo` or the seeded project name). Menu-bar pixels are not reachable from CUA without extra setup (`docs/qa/mac-1.3.3.md`).
+- UI proof on a Mac: screenshot of the isolated iPhone Demo or isolated daemon-backed simulator with the app identity visible (`Demo` or the seeded project name). Menu-bar pixels are not reachable from CUA without extra setup.
 - Never paste pairing tokens, QR payloads, or API keys into issues, PR bodies, or screenshots (`CONTRIBUTING.md`).
 - iPhone Demo (`VIBEBUDDY_DEMO=1` / **See the demo**) proves chrome only. It does not prove a live Mac, APNs, or a real agent.
 - Mocks only at production boundaries the app already isolates (no VibeBuddy cloud). Do not stub `/health` or `/snapshot`.

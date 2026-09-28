@@ -256,9 +256,6 @@ public enum VoiceSettings {
     /// phrased for one vendor's instruction channel, so it does not follow the
     /// user across a provider switch.
     public static func readAloudStyleKey(_ p: VoiceProvider) -> String { "readAloud.style.\(p.rawValue)" }
-    /// The Qwen-only keys read-aloud used before it became a purpose provider.
-    public static let legacyReadAloudModelKey = "qwenReadAloudModel"
-    public static let legacyReadAloudVoiceKey = "qwenReadAloudVoice"
 
     /// What read-aloud can do right now, so callers never have to re-derive it
     /// (and never have to guess a provider when there is none).
@@ -365,18 +362,6 @@ public enum VoiceSettings {
         VoiceLanguage(rawValue: defaults.string(forKey: conversationLanguageKey) ?? "") ?? .english
     }
 
-    /// Move the Qwen-only read-aloud model / voice onto the per-provider keys.
-    /// Runs at launch: it never overwrites a value the new keys already hold, and
-    /// drops the legacy keys so nothing can read them again.
-    public static func migrateLegacyReadAloudKeys(defaults: UserDefaults = .standard) {
-        for (legacy, modern) in [(legacyReadAloudModelKey, readAloudModelKey(.qwen)),
-                                 (legacyReadAloudVoiceKey, readAloudVoiceKey(.qwen))] {
-            guard let value = defaults.string(forKey: legacy) else { continue }
-            if defaults.object(forKey: modern) == nil { defaults.set(value, forKey: modern) }
-            defaults.removeObject(forKey: legacy)
-        }
-    }
-
     /// Gemini was removed on 2026-09-25 (ADR-0001 amendment). A setting that
     /// still names it would sit on a value no picker lists, so each purpose
     /// falls back explicitly, never to another vendor on the user's behalf:
@@ -384,7 +369,7 @@ public enum VoiceSettings {
     /// (the consent was given for Gemini), summaries become not configured,
     /// and read-aloud stops pinning and follows summaries. Gemini's own model,
     /// voice and style values and its Keychain key go too. Idempotent; runs at
-    /// launch beside `migrateLegacyReadAloudKeys`. The Keychain delete is tried
+    /// launch. The Keychain delete is tried
     /// **once**: on the Mac an item written by a differently signed build can
     /// raise an authorization prompt, and a denied prompt must not return at
     /// every launch — the orphaned key has no reader left.

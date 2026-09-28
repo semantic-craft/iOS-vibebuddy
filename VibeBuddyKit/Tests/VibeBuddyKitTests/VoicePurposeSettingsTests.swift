@@ -89,30 +89,6 @@ struct ReadAloudPurposeSettingsTests {
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.openai))
     }
 
-    @Test func migrationMovesLegacyKeysOnceAndNeverOverwrites() throws {
-        let (defaults, name) = try suite()
-        defer { defaults.removePersistentDomain(forName: name) }
-        // Absent legacy keys: no side effect, and the provider default still applies.
-        VoiceSettings.migrateLegacyReadAloudKeys(defaults: defaults)
-        #expect(defaults.object(forKey: VoiceSettings.readAloudModelKey(.qwen)) == nil)
-        // No legacy key and nothing stored: the language decides, not a constant.
-        #expect(VoiceSettings.readAloudVoice(.qwen, language: .chinese, defaults: defaults)
-                == QwenSpeechSynthesizer.defaultVoice)
-
-        defaults.set("custom-model", forKey: VoiceSettings.legacyReadAloudModelKey)
-        defaults.set("longanlingxi", forKey: VoiceSettings.legacyReadAloudVoiceKey)
-        defaults.set("kept-voice", forKey: VoiceSettings.readAloudVoiceKey(.qwen))
-        VoiceSettings.migrateLegacyReadAloudKeys(defaults: defaults)
-        #expect(VoiceSettings.readAloudModel(.qwen, defaults: defaults) == "custom-model")
-        #expect(VoiceSettings.readAloudVoice(.qwen, defaults: defaults) == "kept-voice")
-        #expect(defaults.object(forKey: VoiceSettings.legacyReadAloudModelKey) == nil)
-        #expect(defaults.object(forKey: VoiceSettings.legacyReadAloudVoiceKey) == nil)
-
-        VoiceSettings.migrateLegacyReadAloudKeys(defaults: defaults) // Idempotent.
-        #expect(VoiceSettings.readAloudModel(.qwen, defaults: defaults) == "custom-model")
-        #expect(VoiceSettings.readAloudVoice(.qwen, defaults: defaults) == "kept-voice")
-    }
-
     @Test func readAloudReportsATextOnlySummaryProviderInsteadOfFollowingIt() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }

@@ -3,8 +3,8 @@ import Foundation
 /// Which provider signals mean "this connection reached its per-connection
 /// limit" (`RealtimeVoiceEvent.providerLimitReached`, ADR-0001 §Provider limit).
 /// Each rule needs an explicit provider signal; a network drop, an auth or quota
-/// error, or a server fault stays a failure. Sources and the verified behavior
-/// are recorded in `docs/planning/backlog/realtime-verify/issues/02-provider-limit-redial.md`.
+/// error, or a server fault stays a failure. The per-provider table is in
+/// ADR-0001.
 enum ProviderLimitSignal {
     /// Qwen's realtime endpoint closes a session after 120 minutes (documented
     /// for the Omni-Realtime models on the same `/api-ws/v1/realtime` endpoint;

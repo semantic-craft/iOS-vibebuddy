@@ -13,7 +13,7 @@ Related: ADR-0011（Codex app-server）、ADR-0016（Cursor 观测与控制，AC
 
 ## Solution
 
-按价值顺序拆成独立工单，每张都能单独交付与验收：
+按价值顺序拆成独立工单，每张都能单独交付与验收（2026-09-28：除观察项 07 外都已完成，票据已删；本文保留 Grok ACP 探针事实）：
 
 1. **Grok Build ACP 托管**（01）：像 `CursorACPMonitor` 托管 `cursor-agent acp` 一样，用 `grok agent --no-leader stdio` 托管 vibebuddy 派发的 Grok 会话，一条管道拿到审批（`session/request_permission`）、答问（`_x.ai/ask_user_question`）、续接（`session/prompt`）、停止（`session/cancel`）、派活（`session/new`），`ControlChannel.acp` 上桩。hooks 继续给用户自己开的 TUI 会话当状态灯。
 2. **Grok 两项实测与恢复**（02）：leader 模式是否把权限请求扇出到第二个 client（决定能否旁路挂上用户自己的 TUI 会话）；托管会话在 daemon 重启后的恢复（`session/load`）与终端续接（`grok -r <id>`）。
