@@ -1,8 +1,8 @@
 # How the APNs provider key reaches the Mac
 
-**Status:** Accepted direction D for the public path (2026-09-23); prototype gate passed 2026-09-26 (`docs/planning/backlog/public-push/issues/01-cloudkit-alert-push-prototype.md`); C rejected (2026-09-06); A rejected (2026-09-23); B stays the owner's path
+**Status:** Accepted direction D for the public path (2026-09-23); prototype gate passed 2026-09-26; A-12 code shipped in Mac 1.3.35 / iOS 1.3.30 (Production schema deployed; the Production end-to-end rerun is not yet recorded); C rejected (2026-09-06); A rejected (2026-09-23); B stays the owner's path
 
-**Ticket:** DEC-APNS decided 2026-09-23 (direction D); CloudKit prototype gate passed 2026-09-26; A-12 is next
+**Ticket:** DEC-APNS decided 2026-09-23 (direction D); CloudKit prototype gate passed 2026-09-26; A-12 code shipped 2026-09-26
 
 **Executor:** cursor-grok-4.6 · 分支 claude/a-11-apns-key-delivery · 2026-09-06 04:12 +0800
 

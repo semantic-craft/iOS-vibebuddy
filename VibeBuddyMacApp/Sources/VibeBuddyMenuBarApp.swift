@@ -24,9 +24,6 @@ struct VibeBuddyMenuBarApp: App {
         let role = AppRuntime.role
         self.role = role
         placementRecovery = MenuBarPlacementRecovery(enabled: role == .primary)
-        // Read-aloud used to be Qwen-only; move its saved model and voice onto the
-        // per-provider keys before any view reads them. Idempotent.
-        VoiceSettings.migrateLegacyReadAloudKeys()
         // Gemini was removed; its settings fall back before any view reads them.
         // The Keychain delete runs off the launch path so a Keychain prompt can
         // never hold the menu bar up.

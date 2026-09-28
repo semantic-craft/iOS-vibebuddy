@@ -360,7 +360,6 @@ cat <<UPLOAD
   Either way the build needs a few minutes of processing before it shows up
   under TestFlight.
 
-  Everything you must paste into the App Store Connect web forms, in field order:
-  docs/app-store-paste-sheet.md
+  Listing copy, privacy labels and reviewer notes: docs/app-store-listing.md
 
 UPLOAD

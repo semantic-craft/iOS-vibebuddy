@@ -77,7 +77,7 @@ run the dry run below.
    `iCloud.com.vibebuddy.app` container is on disk (made once by
    `tools/fetch-mac-cloudkit-profiles.sh`), the script embeds it and adds the
    iCloud entitlements, environment `Production`, so a Mac without an APNs key
-   can send iCloud cues (ADR-0013 D, `docs/planning/backlog/public-push/`).
+   can send iCloud cues (ADR-0013 D).
    Without the profile it prints `iCloud cues: OFF` and signs as before — an
    iCloud entitlement without a matching profile makes macOS refuse to launch
    the app.

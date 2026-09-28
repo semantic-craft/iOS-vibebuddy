@@ -77,8 +77,6 @@ meaningful outcome or blocker and supported next action within the existing
 two-sentence/180-character contract. Voice time and backend requests have separate
 billing; no new server, credentials, consent defaults or installation are implied.
 
-Official contracts and validation are recorded in [GPT-Live assessment](../gpt-live-1.md).
-
 ## A text-only summary provider (2026-09-13)
 
 DeepSeek joins as the first vendor with **no voice side**: it serves completion
@@ -139,8 +137,7 @@ tool state or provider session carries over. Continuing a call across the cap
 
 Only an explicit provider signal maps to the limit; a network drop, an auth,
 quota or rate-limit error, or a server fault stays `failed`. The rules
-(`ProviderLimitSignal`, verified 2026-09-23; sources in
-`docs/planning/backlog/realtime-verify/issues/02-provider-limit-redial.md`):
+(`ProviderLimitSignal`, verified 2026-09-23):
 
 | Provider | Documented cap | Signal mapped to the limit |
 | --- | --- | --- |
