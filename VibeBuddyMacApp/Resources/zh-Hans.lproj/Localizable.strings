@@ -1103,3 +1103,8 @@
 "The phone kept its previous address. Check that the selected network is available on iPhone and that this Mac allows incoming connections, then retry on iPhone or sync again." = "手机保留了原地址。请检查手机能否使用所选网络，以及 Mac 是否允许传入连接，然后在手机上重试或重新发送。";
 "Last address update" = "上次地址更新";
 "Keep both devices on the same network while checking and using this address." = "检查和使用这个地址时，请让两台设备保持在同一网络。";
+
+/* App language */
+"Language" = "语言";
+"App language" = "应用语言";
+"Changes are saved automatically. Quit and reopen VibeBuddy to apply the language to all windows, menus and notifications." = "更改会自动保存。退出并重新打开 VibeBuddy 后，所有窗口、菜单和通知将使用所选语言。";

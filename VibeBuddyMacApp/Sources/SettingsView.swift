@@ -261,6 +261,8 @@ private struct GeneralPage: View {
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.general.title, subtitle: SettingsPageID.general.subtitle) {
+            AppLanguagePreferences()
+
             SettingsSection("Startup & menu bar",
                             footnote: showHideIconNote
                             ? "Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button."
