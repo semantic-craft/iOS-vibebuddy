@@ -19,6 +19,19 @@ struct CompanionEndpointTests {
         #expect(lan.usingTailnetIPv4("100.64.0.8", port: 0) == nil)
     }
 
+    @Test func handoffAcceptsPrivateRoutesOnly() {
+        let pairing = PairingPayload(host: "100.64.0.8", port: 9876, token: "fixture", macName: "Mac")
+        for host in ["10.0.0.2", "172.16.0.2", "172.31.0.2", "192.168.1.20", "100.64.0.8"] {
+            let candidate = pairing.usingPrivateConnectionIPv4(host, port: 18765)
+            #expect(candidate?.host == host)
+            #expect(candidate?.token == pairing.token)
+            #expect(candidate?.macName == pairing.macName)
+        }
+        for host in ["127.0.0.1", "169.254.1.2", "8.8.8.8", "172.32.0.1", "mac.local", "10.0.0.2.example", "100.128.0.1"] {
+            #expect(pairing.usingPrivateConnectionIPv4(host, port: 18765) == nil)
+        }
+    }
+
     @Test func privateAddressAndQueries() throws {
         let endpoint = try #require(CompanionEndpoint(host: " My-Mac.example.ts.net ", port: 9876))
         #expect(endpoint.isTailscale)

@@ -123,12 +123,17 @@ code, and tests — don't drift to synonyms.
   Distinct from an observation source, which says how a session is *seen*.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
-- **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
+- **Glance** — the Mac status surface at the top of the preferred visible screen, drawn
   with the Dynamic Island's grammar (ADR-0011). On a notch Mac it never draws
-  into the camera housing: **idle** (the physical housing only), **compact** (compact status wings
-  beside the camera, at the physical housing height), **card** (a cue unfolded below the
+  into the camera housing: **idle** (the physical housing only), **compact** (a 28 pt status strip
+  below the camera, exactly the system-reported housing width), **card** (a cue unfolded below the
   housing), **expanded** (hover/click: mic + mood line, then approval or session list).
-  Without a notch the same content is a **pill** hanging under the menu bar.
+  All notch states remain exactly as wide as the system-reported camera housing;
+  cards and lists extend downward and scroll instead of widening.
+  Prefer a visible hardware-notch screen; otherwise use the main menu-bar screen
+  with a **pill** hanging below its menu bar. Display changes reselect and resize
+  the content; keyboard focus does not move it. No available screen hides the
+  panel until a display returns, without overriding the user’s visibility choice.
 - **Glance card** — the glance's event layer: one `SoundPolicy` cue at a time
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the

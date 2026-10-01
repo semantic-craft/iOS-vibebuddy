@@ -43,6 +43,17 @@ public struct CompanionEndpoint: Sendable, Equatable {
         return parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
     }
 
+    /// Addresses eligible for an authenticated handoff to the same Mac.
+    /// Deliberately excludes public, loopback, link-local and DNS destinations.
+    public var isPrivateConnectionIPv4: Bool {
+        if isTailnetIPv4 { return true }
+        let labels = host.split(separator: ".")
+        let parts = labels.compactMap { UInt8($0) }
+        guard labels.count == 4, parts.count == 4 else { return false }
+        return parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1]))
+            || (parts[0] == 192 && parts[1] == 168)
+    }
+
     public func url(path: String, webSocket: Bool = false, queryItems: [URLQueryItem] = []) -> URL? {
         var components = URLComponents()
         components.scheme = webSocket ? "ws" : "http"
@@ -59,6 +70,16 @@ public extension PairingPayload {
     /// Use an IP so custom Headscale DNS does not require a global ATS exception.
     func usingTailnetIPv4(_ host: String, port: Int) -> PairingPayload? {
         guard let endpoint = CompanionEndpoint(host: host, port: port), endpoint.isTailnetIPv4 else { return nil }
+        var result = self
+        result.host = endpoint.host
+        result.port = endpoint.port
+        return result.isValidConnection ? result : nil
+    }
+
+    /// Shared LAN/tailnet handoff; the receiver must still verify sourceID
+    /// and the current proposal before persisting this candidate.
+    func usingPrivateConnectionIPv4(_ host: String, port: Int) -> PairingPayload? {
+        guard let endpoint = CompanionEndpoint(host: host, port: port), endpoint.isPrivateConnectionIPv4 else { return nil }
         var result = self
         result.host = endpoint.host
         result.port = endpoint.port

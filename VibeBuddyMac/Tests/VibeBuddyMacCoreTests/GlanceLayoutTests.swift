@@ -5,6 +5,17 @@ import VibeBuddyKit
 
 @Suite("GlanceLayout — notch geometry from NSScreen metrics")
 struct GlanceLayoutTests {
+    @Test("external primary → closed lid → reopen preserves hardware-notch preference")
+    func displayTransitions() {
+        let external = GlanceLayout.pill(menuBarHeight: 24)
+        let builtIn = GlanceLayout.notch(NotchGeometry(width: 185, height: 32))
+        #expect(GlanceLayout.preferredScreenIndex(in: [external, builtIn]) == 1)
+        #expect(GlanceLayout.preferredScreenIndex(in: [external]) == 0)
+        #expect(GlanceLayout.preferredScreenIndex(in: []) == nil)
+        #expect(GlanceLayout.preferredScreenIndex(in: [external, builtIn]) == 1)
+        #expect(GlanceLayout.preferredScreenIndex(in: [external, external]) == 0)
+    }
+
     @Test("14-inch MacBook Pro: the housing is what the auxiliary areas leave uncovered")
     func fourteenInch() {
         let notch = NotchGeometry.from(screenWidth: 1512, topInset: 32,

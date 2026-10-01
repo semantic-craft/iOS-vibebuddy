@@ -67,16 +67,16 @@ targets:
         # Both are produced by tools/release-mac.sh; see docs/sparkle-setup.md.
         SUFeedURL: "https://semantic-craft.github.io/iOS-vibebuddy/appcast.xml"
         # EdDSA public key; private key lives in the login Keychain under
-        # service "https://sparkle-project.org", account "ed25519". Generated 2026-06-06.
-        SUPublicEDKey: "3Ze0A+sHbvkQ8CLlDUIcYvm7BJS4IJLU1rNEX66F9R4="
+        # service "https://sparkle-project.org", account "ed25519". Rotated 2026-10-01.
+        SUPublicEDKey: "lwr8Uv2vLk5q4IOem6pjd3V5/EF9aHb2kx/4pzIfKJc="
         # SUEnableAutomaticChecks intentionally absent: Sparkle asks the user once on
         # launch whether to check automatically. There is no in-app toggle, so forcing
         # either value would take the choice away from the user.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.mac
-        MARKETING_VERSION: "1.3.37"
-        CURRENT_PROJECT_VERSION: "55"
+        MARKETING_VERSION: "1.3.38"
+        CURRENT_PROJECT_VERSION: "56"
         SWIFT_VERSION: "6.0"
         # Build signs ad-hoc; tools/redeploy-mac.sh re-signs the built .app with a
         # stable local Apple Development identity so Keychain ACLs / TCC grants

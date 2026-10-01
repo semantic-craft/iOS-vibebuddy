@@ -213,16 +213,30 @@ private struct CompactTrailingCount: View {
     }
 }
 
-/// Minimal island: one slot, so it keeps the status mark.
+/// Minimal island: the accepted prototype's state ring, not a progress meter.
+/// iOS owns the black shell and chooses attached or detached placement when
+/// activities coexist; this view supplies only the inset, concentric content.
 private struct CompactStatusMark: View {
     let project: String?
     let summary: TaskPresentationSummary
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         let state = summary.primaryState
-        TaskStatusIndicator(state, size: 10)
-            .accessibilityLabel(LiveActivityPresentation.compactAccessibilityLabel(
-                project: project, state: state))
+        ZStack {
+            Circle()
+                .strokeBorder(lineWidth: contrast == .increased ? 3 : 2.5)
+            Image(systemName: state.symbolName)
+                .font(.system(size: 13, weight: .heavy))
+        }
+        // The fixed system slot needs a fixed mark (ADR-0017 §8). Keep margin
+        // around it rather than drawing our own detached background or gap.
+        .frame(width: 25, height: 25)
+        .foregroundStyle(CompanionPalette.status(state))
+        .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(LiveActivityPresentation.compactAccessibilityLabel(
+            project: project, state: state))
     }
 }
 

@@ -23,3 +23,22 @@ Transfers are in memory and disappear at daemon restart. Forgetting phones cance
 Surge/Tailscale login remains in the network app. A copied Surge interactive-login configuration does not carry its locally stored identity. Mac must support inbound connections; Surge's outbound policy alone does not do so. The UI links to Headscale's Apple setup instructions.
 
 A successful private-address check proves the current path, not cellular access. The completion copy asks the owner to turn off Wi-Fi and check again. Reverse scanning (Mac camera scans iPhone), multiple addresses in PairingPayload, and automatic Headscale enrollment were not selected.
+
+## Amendment — LAN return path (2026-10-01)
+
+The existing authenticated handoff also accepts RFC1918 IPv4 destinations,
+so **Same Wi-Fi** and **Away from Mac** share the same send/check/save flow.
+The schema and endpoint names remain unchanged. Public, loopback, link-local
+and DNS destinations are not accepted for handoff. Manual remote setup keeps
+its tailnet-only validation. All sourceID, device, expiry, cancellation and
+receipt checks remain in force; a failed check preserves the old pairing.
+
+The method picker selects the address to send, not the phone's live route.
+Opening a QR locks the picker until the code is closed, with an inline reason.
+Saved pairing is not presented as proof of a live connection. Confirmation
+copy describes the proposal's address, even if the picker has since changed.
+LAN confirmation never asks the user to disable Wi-Fi.
+
+Sending requires a working existing phone connection. If it is unavailable,
+or the installed phone version does not support LAN handoff, scan a new code.
+No automatic route fallback or new pairing authority is introduced.

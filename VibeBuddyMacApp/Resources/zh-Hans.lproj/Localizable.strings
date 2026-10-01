@@ -1087,5 +1087,19 @@
 "Install Tailscale on this Mac and sign in; VibeBuddy finds its 100.x.x.x address automatically. Keep incoming connections allowed. Surge alone cannot receive connections to this Mac." = "在这台 Mac 上安装并登录 Tailscale，VibeBuddy 会自动找到它的 100.x.x.x 地址。请保持允许传入连接。仅靠 Surge 无法接收对这台 Mac 的连接。";
 "Download Tailscale for Mac" = "下载 Mac 版 Tailscale";
 "Using Headscale?" = "使用 Headscale？";
-"If needed, sign in to Tailscale on your iPhone with the same account as this Mac, then check again." = "如尚未入网，请在 iPhone 的 Tailscale 中用与这台 Mac 相同的账号登录，再检查连接。";
+"Connect your iPhone to the same private network as this Mac using Tailscale, Headscale, or Surge, then check again." = "请通过 Tailscale、Headscale 或 Surge，让 iPhone 接入这台 Mac 所在的同一私有网络，再检查连接。";
 "Use the 100.x.x.x address Tailscale shows for this Mac, not a server URL." = "填写 Tailscale 里显示的这台 Mac 的 100.x.x.x 地址，不是服务器网址。";
+
+// LAN and Tailscale connection switching
+"Address to send to iPhone" = "准备发送给 iPhone 的地址";
+"Close the pairing code below before changing the connection method." = "先关闭下方配对码，再切换连接方式。";
+"Selecting a method does not change your iPhone’s saved connection. Send the address or scan a new code to apply it." = "选择连接方式不会更改 iPhone 已保存的连接。发送地址或重新扫码后才会应用。";
+"Pairing saved · current connection not confirmed here" = "已保存配对 · 此处未确认当前连接";
+"Send the selected address over your iPhone’s existing connection. Keep VibeBuddy open on iPhone; it saves the address only after checking this Mac." = "通过 iPhone 现有连接发送所选地址。请保持手机上的 VibeBuddy 打开；确认能连到这台 Mac 后才会保存。";
+"Send selected address to iPhone" = "将所选地址发送到 iPhone";
+"If your iPhone cannot reach its saved address, scan a new connection code instead." = "如果 iPhone 无法连接已保存的地址，请重新扫描配对码。";
+"Waiting for iPhone to receive this Mac’s authenticated task status through the selected address." = "等待 iPhone 通过所选地址取得这台 Mac 已验证的任务状态。";
+"iPhone checked and saved the local address. Keep both devices on the same network. This does not verify access away from home." = "iPhone 已检查并保存局域网地址。请让两台设备保持在同一网络；这不代表在外也能连接。";
+"The phone kept its previous address. Check that the selected network is available on iPhone and that this Mac allows incoming connections, then retry on iPhone or sync again." = "手机保留了原地址。请检查手机能否使用所选网络，以及 Mac 是否允许传入连接，然后在手机上重试或重新发送。";
+"Last address update" = "上次地址更新";
+"Keep both devices on the same network while checking and using this address." = "检查和使用这个地址时，请让两台设备保持在同一网络。";

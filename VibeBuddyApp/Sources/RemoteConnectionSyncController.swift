@@ -60,7 +60,7 @@ final class RemoteConnectionSyncController: ObservableObject {
 
         var message: String {
             switch self {
-            case .unavailable: String(localized: "Could not reach the remote address. Check your phone’s remote network, then retry.")
+            case .unavailable: String(localized: "Could not reach the selected address. Check that your phone is on the selected Wi-Fi or Tailscale network, then retry.")
             case .unauthorized: String(localized: "The Mac refused this pairing. Scan its current pairing code to update authorization.")
             case .wrongMac: String(localized: "This address returned a different Mac. Your saved connection has not changed.")
             case .expired: String(localized: "This connection update expired. Send it again from your Mac.")
@@ -200,7 +200,7 @@ final class RemoteConnectionSyncController: ObservableObject {
                 guard !proposal.requestID.isEmpty, proposal.deviceID == deviceID,
                       !proposal.sourceID.isEmpty, proposal.expiresAt > now(),
                       proposal.expiresAt.timeIntervalSince(now()) <= 300,
-                      let candidate = pairing.usingTailnetIPv4(proposal.host, port: proposal.port) else { return true }
+                      let candidate = pairing.usingPrivateConnectionIPv4(proposal.host, port: proposal.port) else { return true }
                 seenRequests[proposal.requestID] = proposal.expiresAt
                 update = Update(proposal: proposal, original: pairing, candidate: candidate)
                 state = .received

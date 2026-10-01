@@ -749,3 +749,10 @@
 "This iPhone is not on a tailnet yet" = "这台 iPhone 尚未接入 tailnet";
 "Use your Mac on cellular with Tailscale. Headscale and Surge work too." = "通过 Tailscale 用蜂窝网络连接 Mac，也支持 Headscale 和 Surge。";
 "Scan your Mac’s remote code, then check your connection. Works with Tailscale, Headscale or Surge." = "扫描 Mac 的远程配对码，再检查连接。支持 Tailscale、Headscale 和 Surge。";
+
+// LAN and Tailscale connection switching
+"Connection address received. Waiting to check." = "已收到连接地址，等待检查。";
+"Checking your Mac’s selected address…" = "正在检查所选的 Mac 地址…";
+"Selected connection verified" = "所选连接已验证";
+"The selected address is saved, but your Mac did not confirm the update. Send a new update from your Mac if needed." = "所选地址已保存，但 Mac 尚未确认更新。如有需要，请从 Mac 重新发送。";
+"Could not reach the selected address. Check that your phone is on the selected Wi-Fi or Tailscale network, then retry." = "无法连接所选地址。请检查手机是否已接入所选的 Wi-Fi 或 Tailscale 网络，然后重试。";

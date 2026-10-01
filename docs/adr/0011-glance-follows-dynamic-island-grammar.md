@@ -116,3 +116,44 @@ their existing behavior.
 
 References inspected: [DynamicNotchKit compact layout](https://github.com/MrKai77/DynamicNotchKit/blob/cd0b3e52d537db115ad3a9d89601f20e0bee8d27/Sources/DynamicNotchKit/Views/NotchView.swift)
 and [Boring Notch screen sizing](https://github.com/TheBoredTeam/boring.notch/blob/85af174f3b3894996152c5402f6569a987d86694/boringNotch/sizing/matters.swift).
+
+
+## Amendment (2026-10-01): every notch state matches the housing width
+
+The owner reports that the expanded black notch is too wide on the new MacBook
+Pro and requests a design based on Apple's guidance. This supersedes September
+15's lateral wings: idle remains housing-only; compact reserves the entire
+system-reported camera area and puts status in a 28 pt strip immediately below
+it, exactly as wide as the housing, with no horizontal flare or offset. Status
+and voice keep their existing accessible labels. The owner explicitly requires
+**all states** to match the hardware width: cards and expanded lists also use
+that exact width, with vertically stacked actions and scrollable content below
+the camera. The shape and voice outline are clipped to that width; no flare,
+shadow or size preference may widen it. Notchless pills retain their layout.
+
+Apple's [Layout HIG](https://developer.apple.com/design/human-interface-guidelines/layout)
+and [NSScreen.safeAreaInsets](https://developer.apple.com/documentation/appkit/nsscreen/safeareainsets)
+require avoiding obscured content; [auxiliaryTopLeftArea](https://developer.apple.com/documentation/appkit/nsscreen/auxiliarytopleftarea-uglc)
+describes the usable area beside the camera. These APIs supply geometry in
+points for the current screen configuration. The app continues deriving housing
+width from those areas and height from the top inset, without model/year pixel
+constants. The 28 pt strip and no-widening choice are this app's design, not an
+Apple-prescribed notch size. The tradeoff is added height while tasks are active.
+
+
+## Amendment (2026-10-01): prefer a visible hardware-notch display
+
+The owner accepted the display-adaptation prototype. This supersedes decision
+1's fixed menu-bar-screen anchor: choose the first available screen with valid
+NSScreen camera geometry; if none exists, choose NSScreen.screens.first and use
+the existing floating capsule below its menu bar. Keyboard focus does not move
+the Glance. Screen-parameter changes reselect the screen and recompute geometry,
+so closing the lid falls back to an external screen and reopening restores the
+hardware notch. With no available screens, hide the panel until one returns;
+a user-hidden Glance stays hidden through these changes. Keep one panel only.
+
+The fake-notch QA override changes rendering only, never hardware selection.
+The accepted prototype is preserved on branch `codex/prototype-glance-adaptation`
+(commit `bbce9efc4107`) at
+`VibeBuddyMacApp/Prototypes/GlanceAdaptation.prototype.html`. It is a throwaway
+reference kept out of main, not an app resource or runtime dependency.

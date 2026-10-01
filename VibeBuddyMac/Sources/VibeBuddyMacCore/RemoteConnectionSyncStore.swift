@@ -17,7 +17,7 @@ public actor RemoteConnectionSyncStore {
     public func propose(deviceID: String, sourceID: String, host: String, port: Int,
                         now: Date = Date()) -> RemoteConnectionProposal? {
         guard !deviceID.isEmpty, !sourceID.isEmpty,
-              let endpoint = CompanionEndpoint(host: host, port: port), endpoint.isTailnetIPv4 else { return nil }
+              let endpoint = CompanionEndpoint(host: host, port: port), endpoint.isPrivateConnectionIPv4 else { return nil }
         let proposal = RemoteConnectionProposal(requestID: UUID().uuidString, deviceID: deviceID,
             sourceID: sourceID, host: endpoint.host, port: port, expiresAt: now.addingTimeInterval(300))
         transfers[deviceID] = Transfer(proposal: proposal, outcome: nil, updatedAt: now)
