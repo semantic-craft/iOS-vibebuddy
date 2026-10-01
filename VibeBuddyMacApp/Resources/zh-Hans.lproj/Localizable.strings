@@ -1346,4 +1346,4 @@
 "Then turn off Wi-Fi and your phone VPN, check live updates and an action on cellular. Keep this Mac and cloudflared running. This guide does not check or manage the Tunnel." = "然后关闭手机 Wi-Fi 和 VPN，在蜂窝网络检查实时更新和一次操作。保持 Mac 和 cloudflared 运行。本指引不会检测或管理 Tunnel。";
 
 "Could not update the key in Keychain. Your draft is kept. Unlock Keychain and try again." = "无法更新钥匙串中的密钥，草稿已保留。请解锁钥匙串后重试。";
-"Cursor's Cloud Agents API cannot be reached. Check the API key in Agent integration." = "无法连接 Cursor Cloud Agents API。请在 Agent 集成中检查 API 密钥。";
+"Cursor's Cloud Agents API cannot be reached. Check the API key in Agent integration." = "无法连接 Cursor Cloud Agents API。请在 Agent 接入中检查 API 密钥。";

@@ -542,9 +542,8 @@ private struct ConversationFeatureRow: View {
     private func test() {
         guard let configuration, credential.configured, configuration.failure == nil,
               !tests.isBusy, !reader.busy else { return }
-        credential.load()
-        guard credential.configured else { return tests.reportUnreadableKey(.voice) }
-        guard let session = configuration.makeSession(apiKey: credential.value) else { return }
+        guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.voice) }
+        guard let session = configuration.makeSession(apiKey: key) else { return }
         tests.start(.voice, timeout: .seconds(15), operation: {
             await SettingsModelTestOperations.handshake(session: session, voice: configuration.voice)
         }, cleanup: { await session.close() })
@@ -648,9 +647,7 @@ private struct SummaryFeatureRow: View {
         guard let configuration, credential.configured, configuration.configurationFailure == nil,
               configuration.contentStyle.isValid,
               !tests.isBusy, !reader.busy else { return }
-        credential.load()
-        guard credential.configured else { return tests.reportUnreadableKey(.summary) }
-        let key = credential.value
+        guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.summary) }
         tests.start(.summary, timeout: .seconds(13), operation: {
             await SettingsModelTestOperations.summary(configuration: configuration, apiKey: key)
         })

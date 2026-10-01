@@ -47,6 +47,13 @@ final class SettingsCredential: ObservableObject {
         value = savedValue
         loaded = true
     }
+    /// A configured account is not proof that Keychain returned its value.
+    /// Callers must use this gate before starting a provider request.
+    func loadForUse() -> String? {
+        load()
+        guard loaded, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return value
+    }
     /// Replacement starts blank; opening an editor need not decrypt the old key.
     func beginEditing() {
         refresh()

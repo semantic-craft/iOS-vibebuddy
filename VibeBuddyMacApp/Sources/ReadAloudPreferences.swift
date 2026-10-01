@@ -164,9 +164,8 @@ private struct ReadAloudPreferenceControls: View {
     private func preview() {
         if isPreviewing { tests.cancel(); return }
         guard previewFailure == nil, !tests.isBusy, !reader.busy else { return }
-        credential.load()
-        guard credential.configured else { return tests.reportUnreadableKey(.readAloud) }
-        let config = configuration, key = credential.value, reader = reader
+        guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.readAloud) }
+        let config = configuration, reader = reader
         let text = config.style.previewLine(config.language)
             ?? NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Synthetic read-aloud preview")
         tests.start(.readAloud, timeout: .seconds(35), operation: {

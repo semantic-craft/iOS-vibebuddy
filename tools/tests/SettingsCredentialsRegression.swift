@@ -20,10 +20,10 @@ struct SettingsCredentialsRegression {
                 return true
             }))
 
-        credential.load()
+        precondition(credential.loadForUse() == nil, "Cancelled reads must block provider requests")
         precondition(credential.configured && !credential.loaded && credential.value.isEmpty, "Cancelled reads must preserve configured state and allow retry")
         readCancelled = false
-        credential.load()
+        precondition(credential.loadForUse() == stored, "Successful retry supplies the saved key")
         precondition(credential.loaded && credential.value == stored)
         credential.beginEditing()
         credential.edit("cancelled-draft")
