@@ -71,3 +71,17 @@ and exposes separate Cursor key field/save/remove accessibility identifiers. E2E
 mode disables real credential writes; denied writes were not manually induced in the
 production Keychain. Build 65 uploaded successfully but is superseded by build 66
 for these review fixes; it must not be selected for submission.
+
+Final Grok review of `9c71598b`: **FIXED / MERGE**. Provider calls now use
+`loadForUse()` and stop before requests on cancelled/empty reads. Regression passed.
+A cosmetic missing-sourceID message remains generic/unavailable; the routes are
+preserved, so expanding the connection result model was deferred. All actionable
+findings are fixed; Chinese “Agent 接入” now matches the destination page.
+
+- Generic iOS Simulator build-for-testing passed for the app, extensions, Watch
+  and the three targeted test classes. No simulator runtime is installed, so this
+  does not claim iOS test execution.
+- Actual shared DecisionClient/BannerActionRunner production code and retained
+  tests ran in an isolated macOS package: 13 tests passed.
+- iOS build 66 archive/export succeeded. Phone, notification extension, Widget,
+  Watch and Watch Widget all carry 1.3.32 (66) and pass strict signature checks.
