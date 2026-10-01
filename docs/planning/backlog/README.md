@@ -13,6 +13,9 @@
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
 | SET-01 | macOS 设置易用性与 Agent 可操作性 | [工单、清单与实施计划](mac-settings-usability/issues/01-settings-ux-dx-ax.md) | needs-triage | 已用 Computer Use 遍历 11 个分类；10 项问题待确认实施，保留现有语言与连接改动 |
 | WEB-01 | 跨项目 Web 工作台：项目分类、任务与 agent 看板 | [PRD](web-workbench/PRD.md) · [接入设计](web-workbench/issues/01-integration-contract.md) | needs-triage | 2026-10-01 用户提出方向；整合 Anamra 信息分类、Writing Infra 进度驱动安排及 VibeBuddy 执行；优先评估 Cloudflare Access 入口 |
+| GROK-01 | Grok Build 自动接入、活跃会话发现与就地状态反馈 | [工单](grok-build-onboarding/issues/01-automatic-connection.md) | ready-for-agent | 用户已确认方向；修复额度开关已开但会话不可见的体验，开启监控后自动配置并提示必要重载 |
+| GROK-02 | Grok Build 一键接入与状态反馈 | [工单](grok-build-onboarding/issues/02-one-switch-connection.md) | ready-for-agent | 无依赖；自动配置、状态和重试，区分额度与监控 |
+| GROK-03 | 自动显示已运行的 Grok 会话 | [工单](grok-build-onboarding/issues/03-discover-live-sessions.md) | ready-for-agent | 依赖 GROK-02；注册表发现、卡片状态与事件去重 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后** | 代码已丢失，重启时从 09 重做，见下节 |
 
 
