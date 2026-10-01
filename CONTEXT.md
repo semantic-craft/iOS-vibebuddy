@@ -219,11 +219,13 @@ code, and tests — don't drift to synonyms.
   visible, explained once), the Mac panel's command row, the Mac dashboard's
   sidebar (its Voice row) and the expanded Glance. Its glyph follows the voice phase.
 - **VoiceProvider** — a vendor the companion talks to: `qwen`, `openai`,
-  `doubao` or `deepseek`. Each has its own key. (Gemini was removed on
+  `doubao`, `deepseek` or `minimax`. Each has its own key. (Gemini was removed on
   2026-09-25, ADR-0001; the agent source `gemini` is Antigravity, not a
   VoiceProvider.) The realtime backends
   also have a model, voice and input sample rate; `supportsVoice` says which
-  ones those are, and `deepseek` is **text-only** (`voiceProviders` excludes it).
+  ones those are. `deepseek` is **text-only**; `minimax` supports summaries and
+  TTS but not realtime conversation. `voiceProviders` excludes both;
+  `readAloudProviders` includes MiniMax.
   Qwen additionally takes an optional Bailian **workspace ID**
   (workspace-specific `maas.aliyuncs.com` endpoint) and a Beijing/Singapore
   region switch; those belong to Qwen alone and move no other endpoint.

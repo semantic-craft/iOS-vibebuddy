@@ -36,7 +36,7 @@ public struct CompletionSummaryIdentity: Hashable, Sendable {
 public enum CompletionSummaryFailure: String, Error, Sendable, Equatable {
     case disabled, missingProvider, missingModel, invalidModel, invalidWorkspace, missingKey
     case invalidInput, resultTooLong, duplicate, expired, cancelled
-    case network, unauthorized, rateLimited, httpError, invalidResponse, incompleteOutput
+    case network, unauthorized, rateLimited, quotaExceeded, httpError, invalidResponse, incompleteOutput
     case emptyOutput, outputTooLong, invalidOutput
 }
 

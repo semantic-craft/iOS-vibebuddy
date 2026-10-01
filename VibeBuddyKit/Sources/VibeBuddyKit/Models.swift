@@ -715,6 +715,9 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Mac-side source diagnostics, mirrored to iOS. Optional preserves wire
     /// compatibility with snapshots emitted before observability v2.
     public var observationDiagnostics: [AgentObservationDiagnostic]?
+    /// Optional metadata-only Cursor CLI discovery result: available / unavailable.
+    /// Kept outside ObservationSource so older phones can decode the snapshot.
+    public var cursorPersistentDiscovery: String? = nil
     /// Account allowance per provider, already normalized to percent remaining.
     /// It rides the same authenticated channel as sessions so there is one
     /// Mac-to-iPhone state path, but it is composed *outside* the session
@@ -762,7 +765,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sourceID, sessions, serverTime, observationDiagnostics
+        case sourceID, sessions, serverTime, observationDiagnostics, cursorPersistentDiscovery
         case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels, handoffs, contentPresentationRevision
     }
 
@@ -773,6 +776,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         serverTime = try c.decode(Date.self, forKey: .serverTime)
         observationDiagnostics = try c.decodeIfPresent(
             [AgentObservationDiagnostic].self, forKey: .observationDiagnostics)
+        cursorPersistentDiscovery = try c.decodeIfPresent(String.self, forKey: .cursorPersistentDiscovery)
         if c.contains(.providerQuota), try c.decodeNil(forKey: .providerQuota) == false {
             var unkeyed = try c.nestedUnkeyedContainer(forKey: .providerQuota)
             let rows = try ProviderQuota.decodeWireArray(from: &unkeyed)
@@ -794,6 +798,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         try c.encode(sessions, forKey: .sessions)
         try c.encode(serverTime, forKey: .serverTime)
         try c.encodeIfPresent(observationDiagnostics, forKey: .observationDiagnostics)
+        try c.encodeIfPresent(cursorPersistentDiscovery, forKey: .cursorPersistentDiscovery)
         try c.encodeIfPresent(providerQuota, forKey: .providerQuota)
         try c.encodeIfPresent(recentDirectories, forKey: .recentDirectories)
         try c.encodeIfPresent(dispatchAgents, forKey: .dispatchAgents)

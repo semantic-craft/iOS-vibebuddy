@@ -343,7 +343,7 @@ struct CursorHooks {
         let forward = quoted("vibebuddy-forward.sh") + " cursor"
         var result: [(String, [OrderedJSON])] = Self.statusEvents.map { ($0, [entry(forward)]) }
         result[0].1.append(entry(quoted("capture-terminal.sh") + " cursor", timeout: 10))
-        result.append(("preToolUse", [approval ? entry(quoted("approval-hook.sh") + " cursor", timeout: 30) : entry(forward)]))
+        result.append(("preToolUse", [approval ? entry(quoted("approval-hook.sh") + " cursor", timeout: 35) : entry(forward)]))
         result.append(("stop", [entry(quoted("cursor-followup.sh"), timeout: 5, loopLimitNull: true)]))
         return result
     }

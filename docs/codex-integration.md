@@ -59,3 +59,36 @@ The source probe records only selected-task metadata and declares a failed
 subscription explicitly. It never treats unavailable app-server events as a
 negative event observation. Keep evidence before changing a product capability
 claim. Read-only probes do not grant hook trust or change Codex configuration.
+
+## 2026-10-01 compatibility and bounded observation
+
+A completed real Desktop rollout identified its own producer as `Codex Desktop`,
+`source: vscode`, `cli_version: 0.159.2`. A minimized replay retains the observed
+turn, custom tool, token usage and terminal result shapes, replacing user text,
+IDs and paths. Its parser and health regression certifies exactly 0.159.2;
+0.159.3 remains unverified. CLI installation metadata did not supply this verdict.
+
+Static schema auditing runs independently of the shared socket. Runtime
+connection and hook trust remain distinct reported results. The generated
+experimental contract is checked because subscription already opts into it.
+
+The monitor opts out of unused text, plan, reasoning and tool-output deltas and
+also filters those exact notification names locally. Lifecycle, completed items,
+usage, approvals and resolutions remain. The event queue holds at most 256
+messages; a message/frame is capped at 1 MiB. An overflow closes the connection
+and marks observation unreadable, rather than silently continuing after a lost
+event. Disconnect immediately releases the store's app-server progress/control
+lease so rollout and hooks can cover the gap.
+
+Reconnect retains reducer identities and de-duplication, rediscovers subscribed
+threads, and reads persisted turns for previously active tasks (four pages of 50
+maximum), merging a terminal result missed during the gap. If the connection
+attached mid-turn without an ID, it reads that task's newest persisted turn.
+Unavailable or incomplete recovery remains an explicit source failure.
+Unobserved task activity is still subject to daemon ownership and history
+availability; no other writer is resumed to take it over.
+
+Only explicitly whitelisted read RPCs retry overload `-32001`: at most three
+attempts with bounded jitter. Subscription, approval responses and turn/thread
+writes never enter that retry path. Repeated completion/usage messages and
+repeated request IDs are suppressed without discarding an enriched final item.

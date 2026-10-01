@@ -264,6 +264,9 @@ public actor CursorACPMonitor {
                 signedIn = nil
                 return .unavailable("The Cursor CLI is not signed in — run `cursor-agent login` on this Mac")
             }
+            // [] adds no client-supplied servers. Cursor still discovers approved
+            // project/user .cursor/mcp.json itself from this process/session cwd.
+            // Do not auto-approve servers or translate credentials into ACP params.
             let created = try await client.request("session/new", params: ["cwd": request.cwd, "mcpServers": []])
             guard let sessionID = created["sessionId"] as? String, !sessionID.isEmpty else {
                 client.close()

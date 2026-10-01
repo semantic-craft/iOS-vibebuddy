@@ -1,4 +1,4 @@
-# 施工清单（2026-09-28 更新）
+# 施工清单（2026-10-01 更新）
 
 这里只列**未完成**的施工项。已完成的改动看 `git log` 和已合并的 PR；各版本做了什么：Mac 看 [GitHub Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases)，iOS 看 App Store 的 What's New。票据做完就删文件和行（见 `docs/agents/issue-tracker.md`）。
 
@@ -11,7 +11,9 @@
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
 | SET-01 | macOS 设置易用性与 Agent 可操作性 | [工单、清单与实施计划](mac-settings-usability/issues/01-settings-ux-dx-ax.md) | needs-triage | 已用 Computer Use 遍历 11 个分类；10 项问题待确认实施，保留现有语言与连接改动 |
+| WEB-01 | 跨项目 Web 工作台：项目分类、任务与 agent 看板 | [PRD](web-workbench/PRD.md) · [接入设计](web-workbench/issues/01-integration-contract.md) | needs-triage | 2026-10-01 用户提出方向；整合 Anamra 信息分类、Writing Infra 进度驱动安排及 VibeBuddy 执行；优先评估 Cloudflare Access 入口 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后** | 代码已丢失，重启时从 09 重做，见下节 |
+
 
 ## 只剩真机或本人能确认的
 

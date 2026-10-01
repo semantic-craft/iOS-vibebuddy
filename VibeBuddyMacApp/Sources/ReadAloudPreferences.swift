@@ -102,7 +102,8 @@ private struct ReadAloudPreferenceControls: View {
                     VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
                                 language: spokenLanguage,
                                 fallback: VoiceSettings.readAloudVoice(provider, language: spokenLanguage),
-                                voiceID: $voiceID, trailing: { EmptyView() }, showsDetails: false)
+                                voiceID: Binding(get: { configuration.styledVoice?.voice ?? voiceID },
+                                                 set: { voiceID = $0 }), trailing: { EmptyView() }, showsDetails: false)
                         .frame(maxWidth: 340, alignment: .leading)
                         .disabled(configuration.styledVoice != nil)
                 }

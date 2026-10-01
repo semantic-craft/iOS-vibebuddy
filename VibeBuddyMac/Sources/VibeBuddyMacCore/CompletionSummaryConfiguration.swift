@@ -35,6 +35,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         case .qwen: "qwen3.8-flash"
         case .openai: "gpt-5.6-luna"
         case .deepseek: "deepseek-flash"
+        case .minimax: "MiniMax-M3.1-Flash-Preview"
         case .doubao: ""
         }
     }
@@ -76,6 +77,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
             case .qwen: name = "DASHSCOPE_API_KEY"
             case .openai: name = "OPENAI_API_KEY"
             case .deepseek: name = "DEEPSEEK_API_KEY"
+            case .minimax: name = "MINIMAX_API_KEY"
             case .doubao: return nil
             }
             return ProcessInfo.processInfo.environment[name]

@@ -5,6 +5,38 @@ import VibeBuddyKit
 
 @Suite(.serialized)
 struct CompletionSummaryTests {
+    @Test func miniMaxDefaultUsesLowReasoningInsteadOfRejectedDisabledMode() throws {
+        let config = CompletionSummaryConfiguration(enabled: true, provider: .minimax,
+            modelID: CompletionSummaryConfiguration.recommendedModel(.minimax))
+        #expect(config.modelID == "MiniMax-M3.1-Flash-Preview")
+        let request = try CompletionSummaryHTTP.request(input: input(), configuration: config, key: "test", timeout: 12)
+        let data = try #require(request.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((body["thinking"] as? [String: String])?["type"] == "adaptive")
+        #expect(body["reasoning_effort"] as? String == "low")
+        #expect(body["max_completion_tokens"] as? Int == 4096)
+        let truncated = CompletionSummaryHTTP.decode(Data(#"{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"","reasoning_content":"still thinking"}}]}"#.utf8), provider: .minimax)
+        #expect(truncated.failure == .incompleteOutput)
+        let exhausted = CompletionSummaryHTTP.decode(Data(#"{"base_resp":{"status_code":2056}}"#.utf8), provider: .minimax)
+        #expect(exhausted.failure == .quotaExceeded)
+        #expect(body["reasoning_split"] as? Bool == true)
+    }
+
+    @Test func miniMaxSummaryDisablesThinkingAndDecodesOnlyAnswer() throws {
+        let config = CompletionSummaryConfiguration(enabled: true, provider: .minimax, modelID: "MiniMax-M3")
+        let request = try CompletionSummaryHTTP.request(input: input(), configuration: config, key: "test", timeout: 12)
+        #expect(request.url?.absoluteString == "https://api.minimax.cn/v1/chat/completions")
+        let data = try #require(request.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((body["thinking"] as? [String: String])?["type"] == "disabled")
+        #expect(body["max_completion_tokens"] as? Int == 512)
+        #expect(body["reasoning_split"] as? Bool == true)
+        let response = CompletionSummaryHTTP.decode(Data(#"{"base_resp":{"status_code":0},"choices":[{"finish_reason":"stop","message":{"role":"assistant","reasoning_content":"Private reasoning","content":"The task is complete."}}]}"#.utf8), provider: .minimax)
+        #expect(response.text == "The task is complete.")
+        let error = CompletionSummaryHTTP.decode(Data(#"{"base_resp":{"status_code":1002}}"#.utf8), provider: .minimax)
+        #expect(error.failure == .rateLimited)
+    }
+
     @Test func liveModelsCannotBeSentToTextSummaries() throws {
         let invalid = CompletionSummaryConfiguration(enabled: true, provider: .openai, modelID: "gpt-live-1")
         #expect(invalid.configurationFailure == .invalidModel)

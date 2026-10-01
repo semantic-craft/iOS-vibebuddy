@@ -169,15 +169,18 @@ public struct CursorCloudAgentClient: Sendable {
     private let apiKey: @Sendable () -> String?
     private let transport: CursorCloudTransport
     private let timeout: TimeInterval
+    private let streamTransport: CursorCloudStreamTransport
 
     public init(baseURL: URL = defaultBaseURL,
                 apiKey: @escaping @Sendable () -> String? = { CursorCloudAPIKeyStore.load() },
                 transport: CursorCloudTransport = URLSession.shared,
-                timeout: TimeInterval = 15) {
+                timeout: TimeInterval = 15,
+                streamTransport: CursorCloudStreamTransport = CursorCloudURLStreamTransport()) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.transport = transport
         self.timeout = timeout
+        self.streamTransport = streamTransport
     }
 
     public var isConfigured: Bool { apiKey() != nil }
@@ -208,6 +211,18 @@ public struct CursorCloudAgentClient: Sendable {
                                         method: "GET")
         guard let run = Self.run(from: dto) else { throw CursorCloudError.undecodable }
         return run
+    }
+
+    public func stream(agentID: String, runID: String, lastEventID: String?,
+                       receive: @escaping @Sendable (CursorCloudStreamEvent) async throws -> Void) async throws {
+        guard let key = apiKey() else { throw CursorCloudError.missingKey }
+        let path = "/v1/agents/\(encoded(agentID))/runs/\(encoded(runID))/stream"
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.timeoutInterval = 300
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if let lastEventID { request.setValue(lastEventID, forHTTPHeaderField: "Last-Event-ID") }
+        try await streamTransport.consume(request, receive: receive)
     }
 
     /// Start a new run on an existing agent — v1's follow-up.

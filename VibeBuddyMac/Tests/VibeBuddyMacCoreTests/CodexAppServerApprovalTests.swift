@@ -89,6 +89,20 @@ struct CodexAppServerApprovalTests {
         #expect(await h.session("thr-1")?.status == .working)
     }
 
+    @Test("duplicate approval delivery creates one hold and one response")
+    func duplicateApproval() async throws {
+        let h = await Harness()
+        defer { await h.stop() }
+        await h.startThread("duplicate")
+        h.pushCommandApproval(thread: "duplicate", requestID: 7, command: "npm test")
+        h.pushCommandApproval(thread: "duplicate", requestID: 7, command: "npm test")
+        #expect(await waitFor { await h.session("duplicate")?.pendingApproval != nil })
+        await h.registry.resolve(id: "card-1", with: .allow)
+        #expect(await waitFor { h.connection.decisions == ["accept"] })
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(h.connection.decisions == ["accept"])
+    }
+
     @Test("deny answers decline; allow-for-session answers acceptForSession and skips the next card")
     func denyAndSession() async throws {
         let h = await Harness()

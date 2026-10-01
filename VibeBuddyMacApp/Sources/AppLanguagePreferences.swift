@@ -29,21 +29,41 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 
 struct AppLanguagePreferences: View {
     @State private var language = AppLanguage.selected()
+    @State private var isRestarting = false
+    @State private var restartFailed = false
 
     var body: some View {
         SettingsSection("Language",
-                        footnote: "Changes are saved automatically. Quit and reopen VibeBuddy to apply the language to all windows, menus and notifications.") {
+                        footnote: "Changes are saved automatically. Restart VibeBuddy to apply the language to all windows, menus and notifications.") {
             SettingsRow("App language") {
-                Picker("App language", selection: $language) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Text(verbatim: language.title).tag(language)
+                HStack(spacing: 12) {
+                    Picker("App language", selection: $language) {
+                        ForEach(AppLanguage.allCases) { language in
+                            Text(verbatim: language.title).tag(language)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityIdentifier("appLanguage")
+                    .onChange(of: language) { _, newValue in newValue.save() }
+                    Button("Restart VibeBuddy") {
+                        do {
+                            try AppRelaunch.schedule()
+                            isRestarting = true
+                            NSApplication.shared.terminate(nil)
+                        } catch {
+                            restartFailed = true
+                        }
+                    }
+                    .disabled(isRestarting)
+                    .accessibilityIdentifier("restartForAppLanguage")
                 }
-                .labelsHidden()
-                .fixedSize()
-                .accessibilityIdentifier("appLanguage")
-                .onChange(of: language) { _, newValue in newValue.save() }
             }
+        }
+        .alert("Could not restart VibeBuddy", isPresented: $restartFailed) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Your language preference is saved. Quit and reopen VibeBuddy to apply it.")
         }
     }
 }

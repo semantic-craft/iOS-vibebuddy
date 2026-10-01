@@ -118,3 +118,21 @@ transcript. Decisions 1, 5, 6 and 9 no longer have a history side; the
 open-transcript watcher (3), newest-page opening (4), the dock, the jump (7)
 and ADR-0020's read semantics (8) are unchanged. Export Markdown and Show
 source now act on the transcript the pane has open.
+
+## Amendment (2026-10-01): Codex history pages and read-only task details
+
+For a selected Codex session without a transcript search target, the Mac reader
+first requests a bounded newest-first `thread/items/list` page. Earlier pages
+are requested only by the reader; opaque cursors and exact thread IDs are
+preserved. The local transcript and bounded excerpt remain fallback sources
+when the connection, storage or protocol cannot serve item pages. The source
+label states which path was used. Search targets still use the existing exact
+local transcript so a record sequence is not confused with an app-server item ID.
+
+These reads do not resume, start, steer or acknowledge a thread. The existing
+completion result card remains the only automatic acknowledgement surface.
+The Activity pane also reads the selected thread's goal and background terminal
+list, with periodic refresh while visible and explicit unavailable states.
+A goal's token usage is not a completion percentage. The terminal view is
+read-only: no spawn, terminate or clean method is exposed. Responses are
+scoped to selection; they neither establish progress authority nor add controls.

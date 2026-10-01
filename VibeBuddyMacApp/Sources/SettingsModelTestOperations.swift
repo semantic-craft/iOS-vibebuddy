@@ -36,7 +36,7 @@ enum SettingsModelTestOperations {
             case .qwen: QwenRealtimeSession(apiKey: apiKey, model: model, workspaceID: workspace, useIntl: international)
             case .openai: OpenAIVoiceSession.make(apiKey: apiKey, model: model)
             case .doubao: DoubaoRealtimeSession(apiKey: apiKey, model: model)
-            case .deepseek: nil
+            case .deepseek, .minimax: nil
             }
         }
     }
@@ -91,6 +91,7 @@ enum SettingsModelTestOperations {
         case .invalidModel: "The text model ID contains unsupported characters."
         case .invalidWorkspace: "Check the Qwen workspace ID in Provider connection."
         case .unauthorized: "The provider rejected access. Check the key, model and region."
+        case .quotaExceeded: "The provider’s plan quota or balance is exhausted. Check your account before retrying."
         case .rateLimited: "The provider rate-limited this request. No automatic retry was made."
         case .network: "Could not reach the provider. Check your connection."
         case .expired: "The 12-second deadline elapsed. No automatic retry was made."

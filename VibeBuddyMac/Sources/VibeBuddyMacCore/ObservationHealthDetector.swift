@@ -878,6 +878,8 @@ public enum ObservationHealthDetector {
         // explicit allowlist so a future semver is not mistaken for evidence.
         // H2-R real Desktop replay verified 0.153.3 turn/tool/model/token shapes.
         // Admit only that observed release, not every unverified 0.153 patch.
-        return (major == 0 && minor == 151) || version == "0.153.3"
+        // 2026-10-01: real Desktop producer metadata + turn/tool/usage/terminal
+        // records replayed in ObservationHealthDetectorTests.desktop1592Compatibility.
+        return (major == 0 && minor == 151) || ["0.153.3", "0.159.2"].contains(version)
     }
 }

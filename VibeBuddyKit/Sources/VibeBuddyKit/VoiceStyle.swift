@@ -69,6 +69,9 @@ public enum VoiceStyle: String, Sendable, CaseIterable, Equatable, Hashable {
         // The persona voices were verified on the Beijing endpoint only.
         guard language == .chinese, !(provider == .qwen && qwenUseIntl) else { return nil }
         switch (self, provider) {
+        case (.serious, .minimax): return .init(model: MiniMaxSpeechSynthesizer.defaultModel, voice: "Chinese (Mandarin)_News_Anchor")
+        case (.coquettish, .minimax): return .init(model: MiniMaxSpeechSynthesizer.defaultModel, voice: "diadia_xuemei")
+        case (.sultry, .minimax): return .init(model: MiniMaxSpeechSynthesizer.defaultModel, voice: "wumei_yujie")
         case (.serious, .doubao): return .init(model: DoubaoSpeechSynthesizer.defaultModel, voice: "zh_female_zhixingnv_uranus_bigtts")
         case (.coquettish, .doubao): return .init(model: DoubaoSpeechSynthesizer.defaultModel, voice: "zh_female_sajiaoxuemei_uranus_bigtts")
         case (.sultry, .doubao): return .init(model: DoubaoSpeechSynthesizer.defaultModel, voice: "zh_female_meilinvyou_uranus_bigtts")
