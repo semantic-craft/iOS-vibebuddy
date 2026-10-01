@@ -8,6 +8,7 @@
 #   - "Mac Team Direct Provisioning Profile: com.vibebuddy.mac"  (Developer ID)
 # into ~/Library/Developer/Xcode/UserData/Provisioning Profiles, where
 # tools/mac-cloudkit-signing.sh finds them. Needs the Xcode account signed in.
+# Registers this Mac if needed when refreshing development profiles after a move.
 set -euo pipefail
 # An E2E acceptance copy (com.vibebuddy.e2e.<id>) needs its own development
 # profile: BUNDLE_ID=com.vibebuddy.e2e.<id> DEVELOPMENT_ONLY=1 tools/fetch-mac-cloudkit-profiles.sh
@@ -44,11 +45,11 @@ cd "$WORK"
 xcodegen generate >/dev/null
 echo "▸ development profile (Apple Development)…"
 xcodebuild -project Stub.xcodeproj -scheme Stub -configuration Debug -derivedDataPath dd \
-  -allowProvisioningUpdates build -quiet
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build -quiet
 if [[ "${DEVELOPMENT_ONLY:-}" == 1 ]]; then echo "✓ development profile for $BUNDLE_ID"; exit 0; fi
 echo "▸ Developer ID profile…"
 xcodebuild -project Stub.xcodeproj -scheme Stub -configuration Release -derivedDataPath dd \
-  -archivePath Stub.xcarchive -allowProvisioningUpdates archive -quiet
+  -archivePath Stub.xcarchive -allowProvisioningUpdates -allowProvisioningDeviceRegistration archive -quiet
 cat > export.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

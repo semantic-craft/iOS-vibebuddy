@@ -50,6 +50,8 @@ tools/store-notary-credentials.sh
 It verifies the stored profile against Apple before reporting success, so a typo in
 the Key ID surfaces immediately rather than halfway through a release.
 
+For a new Mac or a lost Sparkle key, follow [signing recovery](mac-signing-recovery.md).
+
 ## What the script does
 
 Preflight runs first (see above): it checks the certificate, the Sparkle key, and
@@ -153,39 +155,9 @@ instead (`docs/agents/skills/verify-vibebuddy/SKILL.md`): its own port, its own
 
 ## Verify the DMG, not the installed copy
 
-After `tools/redeploy-mac.sh` the installed app is a local Developer ID build —
-that script re-signs for a stable designated requirement
-(`codesign --force --deep --sign`), it does not harden the runtime and it does
-not notarize. So this is **expected** and is not a release defect:
-
-```console
-$ spctl -a -vv /Applications/VibeBuddyMacApp.app
-/Applications/VibeBuddyMacApp.app: rejected
-source=Unnotarized Developer ID
-```
-
-The installed copy therefore proves nothing about what shipped. Check the
-published asset instead:
-
-```bash
-# --repo: this runs from a scratch dir, and the release lives on that repo
-# whatever this checkout's gh default resolves to.
-gh release download v<version> --repo semantic-craft/iOS-vibebuddy \
-  -p 'vibebuddy-mac-v<version>.dmg'
-stapler validate vibebuddy-mac-v<version>.dmg   # The validate action worked!
-
-hdiutil attach -nobrowse vibebuddy-mac-v<version>.dmg   # /Volumes/vibebuddy <version>
-spctl -a -vv "/Volumes/vibebuddy <version>/VibeBuddyMacApp.app"
-# accepted, source=Notarized Developer ID
-hdiutil detach "/Volumes/vibebuddy <version>"
-```
-
-`xcrun notarytool history --keychain-profile xw-notary` is not a substitute for
-this. An `Accepted` row means Apple accepted the submission and nothing more;
-`stapler validate` is what shows the ticket actually made it into the file you
-are holding. An unstapled DMG still passes Gatekeeper *online*, so that gap does
-not surface on the release machine — it surfaces on a first launch with no
-network, which is why § What the script does staples both the app and the DMG.
+The installed app may be an unnotarized local build. Validate the published DMG
+and the app inside it using the [artifact checks](mac-signing-recovery.md#verify-the-dmg-not-the-installed-copy).
+An Accepted notary submission alone does not prove the tickets were stapled.
 
 ## Per release
 
