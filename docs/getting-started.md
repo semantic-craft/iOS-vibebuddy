@@ -211,7 +211,7 @@ establish permission coverage or task-control access. Read the
 
 ### Grok Build
 
-In **Settings → Agent connections**, enable **Monitor Grok Build**. VibeBuddy
+In **Settings → Agent integration**, enable **Monitor Grok Build**. VibeBuddy
 installs its activity hooks and shows configuration errors with a retry button.
 Running terminal sessions appear as **Discovered, waiting to connect** until
 Grok reports a real event. The card and settings explain any required reload:

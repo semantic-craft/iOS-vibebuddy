@@ -311,7 +311,7 @@ struct UsageSourcesPage: View {
             }
 
             SettingsSection("Grok Build session monitoring") {
-                SettingsRow("Session connection", detail: "Account quota does not connect Grok Build sessions. Enable monitoring in Agent connections.") {
+                SettingsRow("Session connection", detail: "Account quota does not connect Grok Build sessions. Enable monitoring in Agent integration.") {
                     Button("Set up Grok Build monitoring", action: openAgentSettings)
                         .accessibilityIdentifier("open-grok-monitoring")
                 }

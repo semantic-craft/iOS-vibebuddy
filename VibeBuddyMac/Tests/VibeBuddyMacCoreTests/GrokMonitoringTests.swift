@@ -23,6 +23,11 @@ struct GrokMonitoringTests {
         // The old CLI install path remains an explicit opt-in too.
         #expect(home.installer.install([.grok]).failures == 0)
         #expect(home.installer.grokMonitoringConfiguration.enabled)
+        #expect(home.installer.install([.grok], approval: true).failures == 0)
+        try FileManager.default.removeItem(at: home.installer.paths.script("approval-hook.sh"))
+        #expect(!home.installer.grokMonitoringConfiguration.configured)
+        #expect(home.installer.setGrokMonitoring(true).failures == 0)
+        #expect(home.installer.grokMonitoringConfiguration.configured)
     }
 
     @Test("failed setup retains intent and a retryable error, never claims configured")

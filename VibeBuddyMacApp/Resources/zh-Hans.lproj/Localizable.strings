@@ -1414,7 +1414,7 @@
 "Show Grok Build account quota" = "显示 Grok Build 账户额度";
 "Grok Build session monitoring" = "Grok Build 会话监控";
 "Session connection" = "会话接入";
-"Account quota does not connect Grok Build sessions. Enable monitoring in Agent connections." = "账户额度开关不会接入 Grok Build 会话。请在「Agent 接入」中开启监控。";
+"Account quota does not connect Grok Build sessions. Enable monitoring in Agent integration." = "账户额度开关不会接入 Grok Build 会话。请在「Agent 接入」中开启监控。";
 "Set up Grok Build monitoring" = "设置 Grok Build 监控";
 "Monitors terminal sessions. Account quota is controlled separately. Tasks started by VibeBuddy keep their own connection." = "监控终端中的会话，账户额度单独控制。由 VibeBuddy 发起的任务保留自身连接。";
 "Monitor Grok Build" = "监控 Grok Build";
@@ -1430,5 +1430,5 @@
 "Connected: %lld sessions" = "已连接：%lld 个会话";
 "Configured. Waiting for a Grok Build session to report activity." = "已配置，等待 Grok Build 会话上报活动。";
 "Grok Build · Discovered, waiting to connect" = "Grok Build · 已发现，等待接入";
-"Open Agent connections" = "打开 Agent 接入";
+"Open Agent integration" = "打开 Agent 接入";
 "Installs hooks for every detected CLI. Grok Build can also be connected using its monitoring switch above." = "为已检测到的 CLI 安装 hooks。Grok Build 也可通过上方监控开关接入。";
