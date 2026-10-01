@@ -168,7 +168,7 @@ struct GetStartedCard: View {
             Text("Reporting: \(hooked.map(\.name).joined(separator: ", "))")
                 .font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Agent CLIs") { openSettings(.agentCLIs) }
+            Button("Agent integration") { openSettings(.agentCLIs) }
                 .font(MacTheme.font(11))
         }
     }

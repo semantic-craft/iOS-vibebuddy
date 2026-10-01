@@ -115,7 +115,7 @@ node's address.
 
 ## Connect an agent to handoff facts and transcripts
 
-In the Mac app, open **Settings → Connect**. Copy the bundled executable path or
+In the Mac app, open **Settings → Agent tools (MCP)**. This page configures read-only agent tools; **Agent integration** configures monitoring and Cursor cloud tasks, while **Devices & connection** connects your phone. Copy the bundled executable path or
 the configuration for Claude Code, Codex or Cursor. The path refers to this app's
 `Contents/MacOS/vibebuddy-mcp`; keep the app at that location while clients use it.
 No alias or separate installation is required.

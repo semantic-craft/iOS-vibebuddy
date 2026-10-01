@@ -2,44 +2,94 @@ import Foundation
 import Combine
 import VibeBuddyKit
 
-/// One in-memory edit state per existing Keychain account. Loads never write.
-///
-/// Presence and value are separate on purpose: the accounts table reports
-/// "key saved" for every provider, and reading four secrets to do that would
-/// raise a Keychain authorization prompt for each account this build was not
-/// granted. `refresh()` asks only whether an item exists; `load()` decrypts,
-/// and is called when the user opens the account or runs a test.
+/// Saved values and drafts are separate: only explicit successful writes change
+/// runtime configuration. Metadata refreshes never decrypt a secret.
 @MainActor
 final class SettingsCredential: ObservableObject {
+    @MainActor
+    struct Storage {
+        var exists: (String) -> Bool
+        var read: (String) -> String?
+        /// Must preserve the old value on failure (KeychainStore updates in place).
+        var write: (String?, String) -> Bool
+
+        static let live = Storage(
+            exists: { KeychainStore.exists($0) },
+            read: { KeychainStore.get($0) },
+            write: { KeychainStore.set($0, for: $1) == 0 })
+    }
+
     let provider: VoiceProvider
+    private let storage: Storage
     @Published private(set) var value = ""
     @Published private(set) var loaded = false
     @Published private(set) var present = false
+    @Published private(set) var draft = ""
+    @Published private(set) var editing = false
     @Published private(set) var saveFailed = false
+    @Published private(set) var removalFailed = false
     @Published private(set) var revision = 0
-    init(_ provider: VoiceProvider) { self.provider = provider }
-    var configured: Bool {
-        guard !saveFailed else { return false }
-        return loaded ? !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : present
+
+    init(_ provider: VoiceProvider, storage: Storage = .live) {
+        self.provider = provider
+        self.storage = storage
     }
-    /// Metadata only — never prompts.
-    func refresh() { present = provider.hasAPIKey }
-    /// Decrypt the stored key. A previous read that came back empty — a failed
-    /// or cancelled Keychain authorization — is retried, and leaves `configured`
-    /// false so the row reports a missing key rather than sending an empty one.
+    var configured: Bool {
+        loaded ? !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : present
+    }
+    var canSave: Bool { editing && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    func refresh() { present = storage.exists(provider.keychainAccount) }
+    /// Explicit tests load only the saved key. A cancelled/failed read is retried.
     func load() {
         refresh()
         guard !loaded || value.isEmpty else { return }
-        value = provider.apiKey ?? ""
+        value = storage.read(provider.keychainAccount) ?? ""
         loaded = true
-        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { present = false }
     }
-    func edit(_ value: String) {
-        self.value = value
+    /// Replacement starts blank; opening an editor need not decrypt the old key.
+    func beginEditing() {
+        refresh()
+        draft = ""
+        saveFailed = false
+        removalFailed = false
+        editing = true
+    }
+    func edit(_ value: String) { draft = value }
+    func cancel() {
+        draft = ""
+        editing = false
+        saveFailed = false
+        removalFailed = false
+    }
+    @discardableResult
+    func save() -> Bool {
+        guard canSave else { return false }
+        let candidate = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard storage.write(candidate, provider.keychainAccount) else {
+            saveFailed = true
+            removalFailed = false
+            return false
+        }
+        value = candidate
         loaded = true
+        present = true
         revision += 1
-        saveFailed = KeychainStore.set(value, for: provider.keychainAccount) != 0
-        present = !saveFailed && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        cancel()
+        return true
+    }
+    @discardableResult
+    func remove() -> Bool {
+        guard storage.write(nil, provider.keychainAccount) else {
+            removalFailed = true
+            saveFailed = false
+            return false
+        }
+        value = ""
+        loaded = true
+        present = false
+        revision += 1
+        cancel()
+        return true
     }
 }
 @MainActor

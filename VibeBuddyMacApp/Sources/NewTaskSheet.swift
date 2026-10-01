@@ -178,7 +178,7 @@ struct NewTaskSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("No agent can start from this Mac yet.").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink)
             requirement("Claude Code", "needs a `claude` that supports background sessions.")
-            requirement("Codex", "needs the app-server connection from Settings › Agent CLIs.")
+            requirement("Codex", "needs the app-server connection from Settings › Agent integration.")
             requirement("Cursor", "needs the Cursor CLI, or ACP, on this Mac.")
         }
         .padding(12)

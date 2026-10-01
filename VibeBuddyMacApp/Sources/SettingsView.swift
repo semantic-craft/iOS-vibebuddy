@@ -23,6 +23,8 @@ struct SettingsView: View {
     /// Which provider's key row is open on the Provider keys page. A feature
     /// row's "No API key yet" pill sets both this and `selection`.
     @State private var expandedAccount: VoiceProvider?
+    @State private var voiceSetupSource: VoiceFeature?
+    @State private var voiceReturnTarget: VoiceFeature?
 
     init(model: MenuBarModel, navigation: SettingsNavigation) {
         self.model = model
@@ -42,6 +44,12 @@ struct SettingsView: View {
         // every switch and segmented selection falls back to the system accent.
         .tint(MacTheme.accent)
         .modifier(SettingsTestLifecycle(tests: tests))
+        .onChange(of: navigation.selection) { _, page in
+            if page != .voice && page != .providerKeys {
+                voiceSetupSource = nil
+                voiceReturnTarget = nil
+            }
+        }
     }
 
     @ViewBuilder private var page: some View {
@@ -51,11 +59,16 @@ struct SettingsView: View {
         case .notifications:
             NotificationsPage(model: model)
         case .voice:
-            VoiceFeaturesPage(model: model, tests: tests, credentials: credentials, reveal: reveal)
+            VoiceFeaturesPage(model: model, tests: tests, credentials: credentials, reveal: reveal,
+                              returnTo: voiceReturnTarget)
         case .providerKeys:
-            ProviderKeysPage(tests: tests, credentials: credentials, expanded: $expandedAccount)
+            ProviderKeysPage(tests: tests, credentials: credentials, expanded: $expandedAccount,
+                             source: voiceSetupSource, returnToFeature: {
+                voiceReturnTarget = voiceSetupSource
+                navigation.selection = .voice
+            })
         case .phone:
-            PhonePage(model: model, setup: hookSetup, showDiagnostics: showDiagnostics)
+            PhonePage(model: model, showDiagnostics: showDiagnostics)
         case .agentCLIs:
             AgentCLIsPage(model: model, setup: hookSetup)
         case .connect:
@@ -72,8 +85,9 @@ struct SettingsView: View {
     }
 
     /// A feature row asking for a key it does not have: go to the key, opened.
-    private func reveal(_ provider: VoiceProvider) {
-        credentials[provider].load()
+    private func reveal(_ provider: VoiceProvider, from feature: VoiceFeature) {
+        voiceSetupSource = feature
+        voiceReturnTarget = nil
         expandedAccount = provider
         navigation.selection = .providerKeys
     }
@@ -126,9 +140,9 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .voice: "Voice"
         case .providerKeys: "Provider keys"
         case .phone: "Devices & connection"
-        case .agentCLIs: "Agent CLIs"
-        case .connect: "Connect"
-        case .quota: "Plan & quota"
+        case .agentCLIs: "Agent integration"
+        case .connect: "Agent tools (MCP)"
+        case .quota: "Quota alerts"
         case .tokenSpend: "Estimated token cost"
         case .usageSources: "Usage sources"
         case .diagnostics: "Diagnostics"
@@ -142,7 +156,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .voice: "Conversation, summaries and reading aloud"
         case .providerKeys: "One key per provider, shared by every feature"
         case .phone: "Connect at home or away"
-        case .agentCLIs: "Hooks, daemons and who answers first"
+        case .agentCLIs: "Monitor local agents and connect Cursor cloud tasks"
         case .connect: "Handoff facts and live transcripts for your agents"
         case .quota: "When an allowance should warn you"
         case .tokenSpend: "Local token usage at list prices, not your actual bill"
@@ -246,6 +260,7 @@ private struct SettingsSidebar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.page.\(page.rawValue)")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
@@ -268,47 +283,72 @@ private struct GeneralPage: View {
                             ? "Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button."
                             : nil) {
                 SettingsRow("Launch at Login") {
-                    Toggle("", isOn: Binding(get: { model.launchAtLogin },
+                    Toggle("Launch at Login", isOn: Binding(get: { model.launchAtLogin },
                                              set: { model.setLaunchAtLogin($0) }))
                         .labelsHidden().toggleStyle(.switch)
+                        .accessibilityLabel("Launch at Login")
+                        .accessibilityIdentifier("settings.general.launchAtLogin")
                 }
                 SettingsRow("Show icon in menu bar",
                             detail: "A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance.") {
-                    Toggle("", isOn: Binding(
+                    Toggle("Show icon in menu bar", isOn: Binding(
                         get: { showMenuBarIcon },
                         set: { on in showMenuBarIcon = on; if !on { showHideIconNote = true } }))
                         .labelsHidden().toggleStyle(.switch)
+                        .accessibilityLabel("Show icon in menu bar")
+                        .accessibilityIdentifier("settings.general.showMenuBarIcon")
                 }
                 SettingsRow("Show task status in menu bar",
-                            detail: "Add a status dot and the primary task count beside the cat icon.") {
-                    Toggle("", isOn: $showMenuBarTaskStatus)
+                            detail: showMenuBarIcon
+                            ? "Add a status dot and the primary task count beside the cat icon."
+                            : "Turn on Show icon in menu bar to display task status.") {
+                    Toggle("Show task status in menu bar", isOn: $showMenuBarTaskStatus)
                         .labelsHidden().toggleStyle(.switch)
+                        .accessibilityLabel("Show task status in menu bar")
+                        .accessibilityIdentifier("settings.general.showMenuBarTaskStatus")
                         .disabled(!showMenuBarIcon)
+                        .accessibilityHint(showMenuBarIcon
+                            ? "Add a status dot and the primary task count beside the cat icon."
+                            : "Turn on Show icon in menu bar to display task status.")
                 }
             }
 
             SettingsSection("Shortcuts") {
                 SettingsRow("Open Dashboard",
                             detail: "Works from any app. Hyper (⌃⌥⇧⌘) combos recommended.") {
-                    HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
+                    HotkeyRecorderView(current: model.openDashboardHotkey,
+                                       recordLabel: "Record shortcut for Open Dashboard",
+                                       cancelLabel: "Cancel recording shortcut for Open Dashboard",
+                                       identifier: "settings.general.shortcut.openDashboard",
+                                       onRecord: model.setHotkey)
                 }
                 SettingsRow("Next pending task", detail: "Needs you, then unread results.") {
-                    HotkeyRecorderView(current: model.nextPendingHotkey, onRecord: model.setNextPendingHotkey)
+                    HotkeyRecorderView(current: model.nextPendingHotkey,
+                                       recordLabel: "Record shortcut for Next pending task",
+                                       cancelLabel: "Cancel recording shortcut for Next pending task",
+                                       identifier: "settings.general.shortcut.nextPendingTask",
+                                       onRecord: model.setNextPendingHotkey)
                 }
                 SettingsRow("Toggle Glance",
                             detail: "Show or hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.") {
-                    HotkeyRecorderView(current: model.toggleGlanceHotkey, onRecord: model.setGlanceHotkey)
+                    HotkeyRecorderView(current: model.toggleGlanceHotkey,
+                                       recordLabel: "Record shortcut for Toggle Glance",
+                                       cancelLabel: "Cancel recording shortcut for Toggle Glance",
+                                       identifier: "settings.general.shortcut.toggleGlance",
+                                       onRecord: model.setGlanceHotkey)
                 }
             }
 
             SettingsSection("Glance") {
                 SettingsRow("Show glance", detail: "The floating status card that sits near the notch.") {
-                    Toggle("", isOn: Binding(get: { model.showGlance },
+                    Toggle("Show glance", isOn: Binding(get: { model.showGlance },
                                              set: { model.setShowGlance($0) }))
                         .labelsHidden().toggleStyle(.switch)
+                        .accessibilityLabel("Show glance")
+                        .accessibilityIdentifier("settings.general.showGlance")
                 }
-                SettingsRow("Size") {
-                    Picker("", selection: Binding(get: { model.glanceScale },
+                SettingsRow("Size", detail: model.showGlance ? nil : "Turn on Show glance to change its size.") {
+                    Picker("Glance size", selection: Binding(get: { model.glanceScale },
                                                   set: { model.setGlanceScale($0) })) {
                         Text("Small").tag(CGFloat(0.8))
                         Text("Medium").tag(CGFloat(1.0))
@@ -317,6 +357,8 @@ private struct GeneralPage: View {
                     .labelsHidden().pickerStyle(.segmented).fixedSize()
                     .disabled(!model.showGlance)
                     .accessibilityLabel("Glance size")
+                    .accessibilityIdentifier("settings.general.glanceSize")
+                    .accessibilityHint(model.showGlance ? "" : "Turn on Show glance to change its size.")
                 }
             }
 
@@ -355,12 +397,11 @@ private struct NotificationsPage: View {
                              subtitle: SettingsPageID.notifications.subtitle) {
             SettingsSection("Delivery",
                             footnote: "A short, built-in cue for each state change — needs you, approval, finished, or stuck. Only boundaries ring; ongoing work stays silent.") {
-                SettingsRow("Show notifications") {
-                    Toggle("", isOn: $notify).labelsHidden().toggleStyle(.switch)
-                }
                 SettingsRow("macOS notification permission",
                             detail: model.notificationDeliveryHealth.authorization.settingsExplanation) {
-                    SettingsValue(model.notificationDeliveryHealth.authorization.settingsTitle)
+                    SettingsPill(model.notificationDeliveryHealth.authorization.settingsTitle,
+                                 tone: authorizationTone)
+                        .accessibilityIdentifier("settings.notifications.authorization")
                 }
                 SettingsRow("System notification settings",
                             detail: "Open System Settings > Notifications > VibeBuddy. This controls notifications on this Mac; iPhone push delivery has separate settings.") {
@@ -375,41 +416,64 @@ private struct NotificationsPage: View {
                         EmptyView()
                     }
                 }
+                SettingsRow("Show notifications",
+                            detail: "Save notification preferences for this Mac. Delivery also requires macOS permission.") {
+                    Toggle("Show notifications", isOn: $notify).labelsHidden().toggleStyle(.switch)
+                        .accessibilityIdentifier("settings.notifications.enabled")
+                }
+                if !notify {
+                    SettingsBlockRow {
+                        Text("Turn on Show notifications to change sound, categories and quiet settings.")
+                            .font(SettingsChrome.font(12.5))
+                            .foregroundStyle(MacTheme.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 SettingsRow("Play sound") {
-                    Toggle("", isOn: $sound).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                    Toggle("Play sound", isOn: $sound).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                        .accessibilityIdentifier("settings.notifications.sound")
+                        .accessibilityHint(disabledHint)
                 }
             }
 
-            SettingsSection("Notify me about",
-                            footnote: "Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts ignore Quiet mode and Quiet hours. Their sound follows each device's Sound setting.") {
-                SettingsGrid(items: NotificationCategoryPrefs.displayOrder.map { category in
+            SettingsSection("Notify me about", footnote: "Disabled categories never notify.") {
+                SettingsGrid(items: NotificationCategoryPrefs.displayOrder.filter { $0 != .quota }.map { category in
                     SettingsGrid.Item(id: category.rawValue, text: Text(category.categoryTitle)) {
-                        Toggle("", isOn: Binding(
-                            get: { categories.isEnabled(category) },
-                            set: { categories.set(category, enabled: $0) }))
-                            .labelsHidden().toggleStyle(.switch)
+                        categoryToggle(category)
                     }
                 })
-                .disabled(!notify)
+                SettingsRow(verbatim: String(localized: NotificationCategory.quota.categoryTitle),
+                            detail: String(localized: "When enabled, usage and budget alerts ignore Quiet mode and Quiet hours. Their sound follows Play sound on this Mac.")) {
+                    categoryToggle(.quota)
+                }
             }
 
-            SettingsSection("Quiet",
-                            footnote: "Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts ignore Quiet mode and Quiet hours. Their sound follows each device's Sound setting.") {
+            SettingsSection("Quiet") {
                 SettingsRow("Quiet mode",
-                            detail: "Approvals and questions stay silent; other session alerts are suppressed.") {
-                    Toggle("", isOn: $quiet).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                            detail: "Approvals, questions and plan decisions keep silent banners. Errors stay in Notification Center; completion and still-waiting alerts are suppressed.") {
+                    Toggle("Quiet mode", isOn: $quiet).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                        .accessibilityIdentifier("settings.notifications.quietMode")
+                        .accessibilityHint(disabledHint)
                 }
-                SettingsRow("Quiet hours", detail: "Enter Quiet mode automatically each night.") {
-                    Toggle("", isOn: $quietHours.enabled).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                SettingsRow("Quiet hours", detail: "Apply the same quiet rules during this daily window, using local time.") {
+                    Toggle("Quiet hours", isOn: $quietHours.enabled).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                        .accessibilityIdentifier("settings.notifications.quietHours")
+                        .accessibilityHint(disabledHint)
                 }
                 if quietHours.enabled {
-                    SettingsRow("Window") {
+                    SettingsRow("Window", detail: quietHours.startHour == quietHours.endHour
+                                ? "Matching start and end times mean Quiet hours is inactive."
+                                : "The window can continue past midnight.") {
                         HStack(spacing: 8) {
                             Picker("", selection: $quietHours.startHour) { hourTags }
                                 .labelsHidden().fixedSize().accessibilityLabel("Quiet hours start")
-                            Text(verbatim: "→").foregroundStyle(MacTheme.ink3)
+                                .accessibilityIdentifier("settings.notifications.quietHours.start")
+                                .accessibilityHint(disabledHint)
+                            Text(verbatim: "→").foregroundStyle(MacTheme.ink3).accessibilityHidden(true)
                             Picker("", selection: $quietHours.endHour) { hourTags }
                                 .labelsHidden().fixedSize().accessibilityLabel("Quiet hours end")
+                                .accessibilityIdentifier("settings.notifications.quietHours.end")
+                                .accessibilityHint(disabledHint)
                         }
                         .disabled(!notify)
                     }
@@ -422,6 +486,30 @@ private struct NotificationsPage: View {
         }
         .onChange(of: quietHours) { _, q in NotificationsPage.saveQuietHours(q) }
         .onChange(of: categories) { _, c in c.save() }
+    }
+
+    private var authorizationTone: SettingsPill.Tone {
+        switch model.notificationDeliveryHealth.authorization {
+        case .authorized: .ok
+        case .denied: .critical
+        case .notDetermined, .unknown: .warn
+        }
+    }
+
+    private var disabledHint: LocalizedStringKey {
+        notify ? "" : "Turn on Show notifications to change this setting."
+    }
+
+    private func categoryToggle(_ category: NotificationCategory) -> some View {
+        Toggle(isOn: Binding(
+            get: { categories.isEnabled(category) },
+            set: { categories.set(category, enabled: $0) })) {
+                Text(category.categoryTitle)
+            }
+            .labelsHidden().toggleStyle(.switch)
+            .disabled(!notify)
+            .accessibilityIdentifier("settings.notifications.category.\(category.rawValue)")
+            .accessibilityHint(disabledHint)
     }
 
     private var hourTags: some View {
@@ -443,7 +531,6 @@ private struct NotificationsPage: View {
 
 private struct PhonePage: View {
     @ObservedObject var model: MenuBarModel
-    @ObservedObject var setup: HookSetup
     let showDiagnostics: () -> Void
 
     var body: some View {
@@ -451,7 +538,7 @@ private struct PhonePage: View {
             ConnectionCenterView(model: model)
 
             DisclosureGroup("Notifications & delivery") {
-                ConnectionAndDeliverySection(model: model, setup: setup, showDiagnostics: showDiagnostics)
+                PhoneDeliverySection(model: model, showDiagnostics: showDiagnostics)
             }
             .font(SettingsChrome.font(12.5))
             .padding(.top, 20)
@@ -520,11 +607,11 @@ private struct AgentCLIsPage: View {
                 ForEach([AgentKind.claudeCode, AgentKind.codex, AgentKind.cursor], id: \.rawValue) { (agent: AgentKind) in
                     let latest = model.sessions.filter { $0.agent == agent }
                         .max { ($0.permissionObservedAt ?? $0.updatedAt) < ($1.permissionObservedAt ?? $1.updatedAt) }
-                    SettingsRow(verbatim: agent.displayName) {
-                        SettingsValue(verbatim: latest?.permissionDescription ?? "Unknown")
-                    }
+                    AgentPermissionSettingsRow(agent: agent, session: latest)
                 }
             }
+
+            CursorCloudSettingsSection()
 
             SettingsSection("Maintenance",
                             footnote: "Wires (or removes) the VibeBuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.") {
@@ -532,8 +619,14 @@ private struct AgentCLIsPage: View {
                             detail: "Touches the CLI configs on this Mac, so it only ever runs from this button.") {
                     HStack(spacing: 8) {
                         if setup.running { ProgressView().controlSize(.small) }
-                        Button("Install / repair") { setup.install() }.disabled(setup.running)
-                        Button("Uninstall") { setup.uninstall() }.disabled(setup.running)
+                        Button("Install / repair") { setup.install() }
+                            .accessibilityLabel("Install / repair all agent hooks")
+                            .disabled(setup.running || E2ERunConfiguration.current != nil)
+                            .accessibilityIdentifier("install-all-agent-hooks")
+                        Button("Uninstall") { setup.uninstall() }
+                            .accessibilityLabel("Remove all agent hooks")
+                            .disabled(setup.running || E2ERunConfiguration.current != nil)
+                            .accessibilityIdentifier("remove-all-agent-hooks")
                     }
                 }
             }
@@ -541,14 +634,16 @@ private struct AgentCLIsPage: View {
             SettingsSection("Behaviour") {
                 SettingsRow("Always ask the phone first",
                             detail: "Off: while you are at the Mac the agent's own prompt takes the answer and the phone shows a read-only card. On: every prompt waits for the phone even at the desk.") {
-                    Toggle("", isOn: Binding(get: { model.alwaysAskPhone },
+                    Toggle("Always ask the phone first", isOn: Binding(get: { model.alwaysAskPhone },
                                              set: { model.setAlwaysAskPhone($0) }))
+                        .accessibilityIdentifier("always-ask-phone-first")
                         .labelsHidden().toggleStyle(.switch)
                 }
                 SettingsRow("Use the Codex app-server daemon",
                             detail: "Reads every Codex thread (Desktop, CLI, agents) from the shared local app-server over its unix control socket, read-only. When off, the rollout stream and hooks cover Codex as before.") {
-                    Toggle("", isOn: Binding(get: { model.codexAppServerEnabled },
+                    Toggle("Use the Codex app-server daemon", isOn: Binding(get: { model.codexAppServerEnabled },
                                              set: { model.setCodexAppServerEnabled($0) }))
+                        .accessibilityIdentifier("codex-app-server-enabled")
                         .labelsHidden().toggleStyle(.switch)
                 }
             }
@@ -566,7 +661,8 @@ private struct DiagnosticsPage: View {
     var body: some View {
         SettingsPageScaffold(SettingsPageID.diagnostics.title,
                              subtitle: SettingsPageID.diagnostics.subtitle) {
-            SettingsSection("Observation health") {
+            SettingsSection("Observation health",
+                            footnote: "Each row describes one source, not the whole agent. Check the other sources and their last signals before concluding monitoring has stopped.") {
                 if model.observationDiagnostics.isEmpty {
                     SettingsRow("Sources") { SettingsValue("Checking Claude and Codex sources…") }
                 } else {
@@ -580,7 +676,7 @@ private struct DiagnosticsPage: View {
                 }
             }
 
-            SettingsSection("Codex daemon") {
+            SettingsSection("Codex daemon", footnote: "The app-server is one Codex source. Rollout and Hook have separate diagnostics above; a missing daemon does not mean all Codex monitoring has stopped.") {
                 SettingsBlockRow {
                     Text(verbatim: codexAppServerStatus)
                         .font(SettingsChrome.font(12.5))
@@ -725,13 +821,13 @@ private struct DiagnosticsPage: View {
 
     private var codexAppServerStatus: String {
         let d = model.codexAppServerDiagnostics
-        guard d.enabled else { return "Off — Codex is observed from the rollout stream and hooks." }
+        guard d.enabled else { return String(localized: "Off — Codex is observed from the rollout stream and hooks.") }
         if d.connected {
-            var text = "Connected"
+            var text = String(localized: "Connected")
             if let agent = d.serverUserAgent { text += " · \(agent.split(separator: " (").first.map(String.init) ?? agent)" }
-            text += " · \(d.subscribedThreads) thread\(d.subscribedThreads == 1 ? "" : "s") subscribed"
+            text += " · " + String(localized: "Subscribed threads: \(d.subscribedThreads)")
             if !d.serverRequestsSeen.isEmpty {
-                text += " · approval requests seen: \(Set(d.serverRequestsSeen).sorted().joined(separator: ", "))"
+                text += " · " + String(localized: "Approval requests seen: \(Set(d.serverRequestsSeen).sorted().joined(separator: ", "))")
             }
             // A daemon left running across a Codex update speaks an older
             // protocol than this Mac expects, and nothing else says so.
@@ -742,8 +838,8 @@ private struct DiagnosticsPage: View {
             }
             return text
         }
-        if let error = d.lastError { return "Not connected — \(error)" }
-        return "Waiting for the daemon (start Codex Desktop or the CLI)."
+        if let error = d.lastError { return String(localized: "Not connected — \(error)") }
+        return String(localized: "Waiting for the daemon (start Codex Desktop or the CLI).")
     }
 
     @ViewBuilder
@@ -766,17 +862,17 @@ private struct DiagnosticsPage: View {
                 .foregroundStyle(issue != nil ? MacTheme.status(.requiresInput) : source.diagnosticColor)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(verbatim: agent.displayName)
                         .font(SettingsChrome.font(13, .semibold))
                     Text(verbatim: "· \(source.source.displayName)")
                         .font(SettingsChrome.font(13))
                         .foregroundStyle(MacTheme.ink2)
-                    Text(verbatim: "· \(issue?.displayName ?? source.diagnosticTitle)")
+                    Text(verbatim: "· \(issue?.displayName ?? AgentSourceSettingsPresentation.title(source))")
                         .font(SettingsChrome.font(12.5))
                         .foregroundStyle(MacTheme.ink2)
                 }
-                Text(verbatim: issue?.explanation ?? source.diagnosticExplanation)
+                Text(verbatim: issue?.explanation ?? AgentSourceSettingsPresentation.explanation(source))
                     .font(SettingsChrome.font(11.5))
                     .foregroundStyle(MacTheme.ink3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -786,16 +882,18 @@ private struct DiagnosticsPage: View {
                         .foregroundStyle(MacTheme.ink3)
                 }
                 if source.source == .statusline, source.reasonCode == "optionalSourceNotConfigured" {
-                    Button("Enable status line information") { setup.enableStatusLine() }
-                        .disabled(setup.running)
+                    Button("Enable Claude status line information") { setup.enableStatusLine() }
+                        .disabled(setup.running || E2ERunConfiguration.current != nil)
+                        .accessibilityIdentifier("enable-claude-status-line")
                         .help("Preserves your current status line and its backup.")
                 }
             }
             Spacer(minLength: 8)
             if source.source == .hook, issue == nil, source.canRepairConfiguration {
-                Button("Repair") { setup.repair(agent) }
-                    .disabled(setup.running)
-                    .help("Runs the bundled idempotent installer and preserves your other hooks.")
+                Button("Repair \(agent.displayName) hooks") { setup.repair(agent) }
+                    .disabled(setup.running || E2ERunConfiguration.current != nil)
+                    .accessibilityIdentifier("repair-\(agent.rawValue)-hooks")
+                    .help("Updates VibeBuddy hooks for this agent on this Mac and preserves other hooks. It does not repair Rollout or the app-server.")
             }
         }
     }
@@ -843,6 +941,9 @@ private extension LifecycleJournalEntry {
 /// so the shortcut can't shadow ordinary typing; Esc cancels.
 struct HotkeyRecorderView: View {
     let current: Hotkey
+    let recordLabel: LocalizedStringKey
+    let cancelLabel: LocalizedStringKey
+    let identifier: String
     let onRecord: (Hotkey) -> Void
     @State private var recording = false
     @State private var monitor: Any?
@@ -861,6 +962,12 @@ struct HotkeyRecorderView: View {
                 .overlay(RoundedRectangle(cornerRadius: 7)
                     .stroke(recording ? MacTheme.accent : MacTheme.line, lineWidth: 1))
             Button(recording ? "Cancel" as LocalizedStringKey : "Record") { recording ? stop() : start() }
+                .accessibilityLabel(recording ? cancelLabel : recordLabel)
+                .accessibilityIdentifier(identifier)
+                .accessibilityValue(recording ? Text("Recording shortcut") : Text(verbatim: current.displayString))
+                .accessibilityHint(recording
+                    ? "Press a key combination with a modifier, or Escape to cancel."
+                    : "Record a shortcut that works from any app.")
         }
         .onDisappear { stop() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in

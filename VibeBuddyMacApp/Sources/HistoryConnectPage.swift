@@ -11,13 +11,14 @@ struct HistoryConnectPage: View {
     }
 
     var body: some View {
-        SettingsPageScaffold("Connect", subtitle: "Handoff facts and live transcripts for your agents") {
+        SettingsPageScaffold(SettingsPageID.connect.title, subtitle: SettingsPageID.connect.subtitle) {
             SettingsSection("Bundled executable", boxed: false) {
                 Text(verbatim: setup.executablePath)
                     .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Copy path") { copy(setup.executablePath, label: "Path") }
+                Button("Copy path") { copy(setup.executablePath, label: String(localized: "Path")) }
+                    .accessibilityIdentifier("mcp-copy-executable-path")
                     .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             }
             SettingsSection("Client configuration", boxed: false) {
@@ -25,10 +26,11 @@ struct HistoryConnectPage: View {
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(client.title).font(SettingsChrome.font(13, .semibold))
-                            Text(client.instruction).font(SettingsChrome.font(11.5)).foregroundStyle(MacTheme.ink2)
+                            Text(LocalizedStringKey(client.instruction)).font(SettingsChrome.font(11.5)).foregroundStyle(MacTheme.ink2)
                         }
                         Spacer(minLength: 8)
                         Button("Copy \(client.title)") { copy(setup.configuration(for: client), label: client.title) }
+                            .accessibilityIdentifier("mcp-copy-\(client.rawValue)-configuration")
                             .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                     }
                     .padding(.vertical, 8)

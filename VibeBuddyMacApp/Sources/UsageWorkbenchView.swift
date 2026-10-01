@@ -12,21 +12,17 @@ struct UsageWorkbenchView: View {
     private var providers: [AccountUsageProvider] {
         AccountUsageProvider.allCases.filter { model.isUsageCollectionEnabled($0) }
     }
-    private var selected: AccountUsageProvider? { selection ?? providers.first }
+    private var selected: AccountUsageProvider? {
+        if let selection, providers.contains(selection) { return selection }
+        return providers.first
+    }
 
     var body: some View {
-        if providers.isEmpty {
-            ContentUnavailableView("No usage sources are on",
-                                   systemImage: "gauge.with.dots.needle.0percent",
-                                   description: Text("Turn a provider on in Settings › Usage to collect its account quota."))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(MacTheme.bg)
-        } else {
-            HSplitView {
-                providerRail
-                detail
-            }
+        HSplitView {
+            if !providers.isEmpty { providerRail }
+            detail
         }
+        .background(MacTheme.bg)
     }
 
     private var providerRail: some View {
@@ -39,6 +35,7 @@ struct UsageWorkbenchView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(selected == provider ? .isSelected : [])
+                        .accessibilityIdentifier("usage-report-provider-\(provider.rawValue)")
                     }
                 }
                 .padding(12)
@@ -119,10 +116,15 @@ struct UsageWorkbenchView: View {
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .companionCard(radius: MacTheme.panelRadius)
+                } else {
+                    ContentUnavailableView("No usage sources are on",
+                                           systemImage: "gauge.with.dots.needle.0percent",
+                                           description: Text("Account quota collection is off. Local token estimates remain available below."))
                 }
                 section("Local token spend",
                         note: String(localized: "Estimated from local Claude Code and Codex logs — not an invoice, and not the same thing as account allowance."))
                 TokenConsumptionSummaryView(snapshot: model.tokenConsumption)
+                    .accessibilityIdentifier("local-token-usage-report")
                     .font(MacTheme.font(12))
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,7 +138,7 @@ struct UsageWorkbenchView: View {
     private func section(_ title: String, note: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(title).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
+                Text(LocalizedStringKey(title)).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
                     .textCase(.uppercase).kerning(0.6)
                 Rectangle().fill(MacTheme.line).frame(height: 1)
             }
