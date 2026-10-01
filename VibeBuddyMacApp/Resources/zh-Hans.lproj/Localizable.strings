@@ -1326,3 +1326,21 @@
 "Handoff facts for a session, one session's transcript by its exact key, and optional live status. Nothing is archived or indexed." = "按会话精确标识读取交接事实、对话记录，以及可选的实时状态。不归档或索引内容。";
 
 "The setup command prints these configurations and an optional AGENTS.md rule. Copying does not change client settings." = "setup 命令会输出这些配置及可选的 AGENTS.md 规则。复制操作不会更改客户端设置。";
+
+/* Cloudflare Access */
+"Connect without a phone VPN" = "无需开启手机 VPN 即可连接";
+"Use Cloudflare to reach this Mac through a protected HTTPS address." = "通过 Cloudflare 提供的受保护 HTTPS 地址访问这台 Mac。";
+"2. Connect this Mac with cloudflared" = "2. 使用 cloudflared 连接这台 Mac";
+"1. Allow your iPhone with Service Auth" = "1. 使用 Service Auth 授权你的 iPhone";
+"3. Check and save on iPhone" = "3. 在 iPhone 上检查并保存";
+"View Cloudflare setup guide" = "查看 Cloudflare 配置指引";
+"Pair your iPhone first using Same Wi-Fi or Away from Mac. Keep this Mac awake. Only the iPhone’s live connection check confirms remote access." = "请先通过“同一 Wi-Fi”或“远离 Mac”完成手机配对，并保持 Mac 唤醒。远程访问是否可用，以手机的实时连接检查为准。";
+"Cloudflare connection" = "Cloudflare 连接";
+"Create a named Cloudflare Tunnel for this Mac using the official cloudflared connector. Publish the dedicated HTTPS hostname only after its Access policy is saved." = "使用官方 cloudflared 为这台 Mac 创建具名 Tunnel，先保存专用域名的 Access 保护策略，再发布该 HTTPS 域名的路由。";
+"Local service" = "本机服务";
+"Cloudflare Tunnel instructions" = "Cloudflare Tunnel 官方指引";
+"Protect the entire hostname with an Access self-hosted application. Use a Service Auth policy that includes only this device’s service token. Do not use Bypass. Save the Client ID and Client Secret securely." = "创建 Access 自托管应用保护整个域名。使用 Service Auth 策略，仅允许这台设备的服务令牌，不使用 Bypass。妥善保存 Client ID 和 Client Secret。";
+"Access service token instructions" = "Access 服务令牌官方指引";
+"After pairing normally, open Device & connection → Cloudflare connection on iPhone. Enter the HTTPS address, Client ID and Client Secret. Check and save only after receiving this Mac’s live status." = "完成正常配对后，在 iPhone 打开“设备与连接 → Cloudflare 连接”，输入 HTTPS 地址、Client ID 和 Client Secret。收到这台 Mac 的实时状态后才保存。";
+"The Access service token is different from the Tunnel token and the existing Mac pairing token. Enter the device secret only on your iPhone; do not paste it into a command, QR code or support message." = "Access 服务令牌、Tunnel 令牌和已有 Mac 配对令牌是不同的凭据。设备 Secret 只在 iPhone 输入，不要粘贴到命令、二维码或求助消息中。";
+"Then turn off Wi-Fi and your phone VPN, check live updates and an action on cellular. Keep this Mac and cloudflared running. This guide does not check or manage the Tunnel." = "然后关闭手机 Wi-Fi 和 VPN，在蜂窝网络检查实时更新和一次操作。保持 Mac 和 cloudflared 运行。本指引不会检测或管理 Tunnel。";

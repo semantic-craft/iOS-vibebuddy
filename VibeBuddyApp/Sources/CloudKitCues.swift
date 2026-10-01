@@ -16,10 +16,13 @@ actor CloudKitCues {
     /// simulator run opts in with `VIBEBUDDY_CLOUDKIT=1`; a device build is
     /// always signed with the entitlement.
     static var isAvailable: Bool {
+        // Remote-notification callbacks can arrive even when the QA launch
+        // skips registration. Do not initialize CloudKit in that launch.
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] == "1" { return false }
         #if targetEnvironment(simulator)
-        ProcessInfo.processInfo.environment["VIBEBUDDY_CLOUDKIT"] == "1"
+        return ProcessInfo.processInfo.environment["VIBEBUDDY_CLOUDKIT"] == "1"
         #else
-        true
+        return true
         #endif
     }
 

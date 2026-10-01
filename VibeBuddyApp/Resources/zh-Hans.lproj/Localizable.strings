@@ -756,3 +756,33 @@
 "Selected connection verified" = "所选连接已验证";
 "The selected address is saved, but your Mac did not confirm the update. Send a new update from your Mac if needed." = "所选地址已保存，但 Mac 尚未确认更新。如有需要，请从 Mac 重新发送。";
 "Could not reach the selected address. Check that your phone is on the selected Wi-Fi or Tailscale network, then retry." = "无法连接所选地址。请检查手机是否已接入所选的 Wi-Fi 或 Tailscale 网络，然后重试。";
+
+/* Cloudflare connection */
+"Cloudflare Access" = "Cloudflare Access";
+"Connect to your paired Mac without a phone VPN. First configure a Cloudflare Tunnel and a Service Auth policy on your Mac." = "无需开启手机 VPN，即可连接已配对的 Mac。请先在 Mac 端配置 Cloudflare Tunnel 和 Service Auth 策略。";
+"Cloudflare setup guide" = "Cloudflare 配置指引";
+"Connect to your Mac once using Wi-Fi or Tailscale before setting up Cloudflare. Live Mac status is needed to verify its identity." = "设置 Cloudflare 前，请先通过 Wi-Fi 或 Tailscale 连接 Mac 一次，取得实时状态以核对身份。";
+"Cloudflare connection" = "Cloudflare 连接";
+"HTTPS address" = "HTTPS 地址";
+"Client ID" = "Client ID";
+"Client Secret" = "Client Secret";
+"Use a dedicated HTTPS domain without a path or custom port. Credentials stay in this iPhone’s Keychain." = "使用专用 HTTPS 域名，不含路径或自定义端口。凭据保存在本机钥匙串中。";
+"Live Mac status verified. Cloudflare connection saved." = "已核对 Mac 实时状态，并保存 Cloudflare 连接。";
+"Saved Cloudflare credentials could not be read. Unlock your iPhone or enter replacement credentials and check again." = "无法读取已保存的 Cloudflare 凭据。请解锁 iPhone，或填写新凭据后重新检查。";
+"Your saved connection stays unchanged until live status from the same Mac is verified." = "收到同一台 Mac 的实时状态并核对成功后才会保存，否则保留原连接。";
+"Saved connections" = "已保存的连接";
+"Switch to saved direct connection" = "切回已保存的直连方式";
+"Use saved Cloudflare connection" = "使用已保存的 Cloudflare 连接";
+"Remove Cloudflare connection" = "移除 Cloudflare 连接";
+"Enter a valid HTTPS domain, Client ID and Client Secret. Paths and custom ports are not supported." = "请填写有效的 HTTPS 域名、Client ID 和 Client Secret，不支持路径或自定义端口。";
+"Cloudflare credentials could not be saved or read. Unlock your iPhone and try again. Your saved connection has not changed." = "无法保存或读取 Cloudflare 凭据。请解锁 iPhone 后重试，原连接保持不变。";
+"Connection authentication was refused. Check the Cloudflare Service Auth policy, device token and Mac pairing. Your saved connection has not changed." = "连接认证被拒绝。请检查 Cloudflare Service Auth 策略、设备令牌及 Mac 配对，原连接保持不变。";
+"Could not receive live Mac status. Check the HTTPS address, Tunnel and Mac availability. Your saved connection has not changed." = "未收到 Mac 实时状态。请检查 HTTPS 地址、Tunnel，以及 Mac 是否在线，原连接保持不变。";
+"This address returned a different Mac. Check the Tunnel destination. Your saved connection has not changed." = "此地址返回了另一台 Mac 的状态。请检查 Tunnel 指向的服务，原连接保持不变。";
+
+"Current connection" = "当前连接";
+"Cloudflare" = "Cloudflare";
+"Direct connection" = "直连";
+"Cloudflare connection active" = "已通过 Cloudflare 连接";
+
+"Could not remove saved credentials. Unlock your iPhone and try again. The connection is unchanged." = "无法移除已保存的凭据。请解锁 iPhone 后重试，原连接保持不变。";

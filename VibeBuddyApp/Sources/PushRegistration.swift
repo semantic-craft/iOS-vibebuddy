@@ -60,11 +60,10 @@ final class PushRegistration {
               let url = pairing.companionURL(path: "notified") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(NotifiedPayload(
             token: token, posted: posted, coveredByPush: coveredByPush))
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await CompanionTransport.data(for: request, pairing: pairing)
     }
 
     /// The single `POST /device` path. The APNs token is included once it is
@@ -82,7 +81,6 @@ final class PushRegistration {
         let token = deviceToken
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var registration = DeviceRegistrationPayload(
             token: token,
@@ -100,7 +98,7 @@ final class PushRegistration {
         let receipts = CloudKitCue.Receipt.load(from: CloudKitCue.Receipt.url(appGroup: WidgetSnapshotStore.appGroup))
         registration.cloudKitReceipts = receipts.isEmpty ? nil : receipts
         request.httpBody = try? JSONEncoder().encode(registration)
-        Task { _ = try? await URLSession.shared.data(for: request) }
+        Task { _ = try? await CompanionTransport.data(for: request, pairing: pairing) }
     }
 }
 

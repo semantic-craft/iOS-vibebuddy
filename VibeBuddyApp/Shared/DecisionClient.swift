@@ -116,8 +116,7 @@ struct HTTPDecisionClient: DecisionClient {
         if let cursor { parts.queryItems?.append(URLQueryItem(name: "cursor", value: cursor)) }
         guard let endpoint = parts.url else { throw HistoryFailure("invalid_request") }
         var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CompanionTransport.data(for: request, pairing: pairing)
         guard let http = response as? HTTPURLResponse else { throw HistoryFailure("source_unavailable") }
         guard http.statusCode == 200 else {
             if http.statusCode == 401 { throw HistoryFailure("unauthorized") }
@@ -145,9 +144,8 @@ struct HTTPDecisionClient: DecisionClient {
         request.httpMethod = method
         request.httpBody = body
         request.timeoutInterval = path == "presentation" ? 45 : 10
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CompanionTransport.data(for: request, pairing: pairing)
         switch (response as? HTTPURLResponse)?.statusCode {
         case 200: return try JSONDecoder().decode(T.self, from: data)
         case 409: throw ContentRequestFailure.conflict
@@ -160,8 +158,7 @@ struct HTTPDecisionClient: DecisionClient {
         guard let url = pairing.companionURL(path: "snapshot") else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await CompanionTransport.data(for: request, pairing: pairing),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }
@@ -183,9 +180,12 @@ struct HTTPDecisionClient: DecisionClient {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 6)
         request.httpMethod = "GET"
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await CompanionTransport.data(for: request, pairing: pairing)
             if (response as? HTTPURLResponse)?.statusCode == 200 { return .reachable }
             return .unreachable(.macUnreachable(host: pairing.host))
+        } catch let error as CompanionTransportError {
+            let kind: ConnectionFailureKind = error == .credentialsUnavailable ? .cloudflareCredentialsUnavailable : .cloudflareAuthentication
+            return .unreachable(ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: kind, phoneHasTailnet: false))
         } catch {
             return .unreachable(ConnectionDiagnosis.diagnose(
                 endpoint: pairing.endpoint, kind: .unreachable, phoneHasTailnet: PhoneNetwork.hasTailnetAddress()))
@@ -217,12 +217,13 @@ struct HTTPDecisionClient: DecisionClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.httpBody = data
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         do {
-            let (payload, _) = try await URLSession.shared.data(for: request)
+            let (payload, _) = try await CompanionTransport.data(for: request, pairing: pairing)
             let fields = (try? JSONDecoder().decode([String: String].self, from: payload)) ?? [:]
             return StopDelivery(status: fields["status"])
+        } catch is CompanionTransportError {
+            return .failed
         } catch let error as URLError {
             switch error.code {
             case .notConnectedToInternet, .cannotFindHost, .cannotConnectToHost: return .failed
@@ -239,11 +240,12 @@ struct HTTPDecisionClient: DecisionClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.httpBody = data
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await CompanionTransport.data(for: request, pairing: pairing)
             return PhoneActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        } catch is CompanionTransportError {
+            return .failed
         } catch let error as URLError {
             switch error.code {
             case .notConnectedToInternet, .cannotFindHost, .cannotConnectToHost: return .failed
@@ -256,10 +258,9 @@ struct HTTPDecisionClient: DecisionClient {
         guard let url = pairing.companionURL(path: "acknowledge-wait") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONEncoder().encode(request)
-        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return false }
+        guard let (_, response) = try? await CompanionTransport.data(for: req, pairing: pairing) else { return false }
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
@@ -268,10 +269,9 @@ struct HTTPDecisionClient: DecisionClient {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 15
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONEncoder().encode(request)
-        guard let (data, response) = try? await URLSession.shared.data(for: req),
+        guard let (data, response) = try? await CompanionTransport.data(for: req, pairing: pairing),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let result = try? JSONDecoder().decode(CompletionReadResponse.self, from: data)
         else { return .failed }
@@ -282,11 +282,10 @@ struct HTTPDecisionClient: DecisionClient {
         guard let url = pairing.companionURL(path: "attention") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body: [String: Any] = ["sessionId": sessionId, "attention": level?.rawValue ?? NSNull()]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: req)
+        _ = try? await CompanionTransport.data(for: req, pairing: pairing)
     }
 
     @discardableResult
@@ -304,7 +303,6 @@ struct HTTPDecisionClient: DecisionClient {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 15
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body = ["approvalId": approvalId, "decision": decision.rawValue, "requestId": requestID]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -313,8 +311,16 @@ struct HTTPDecisionClient: DecisionClient {
         // went out is a lost receipt: the Mac may have acted, so it is
         // reported as failed-to-confirm rather than replayed.
         do {
-            let (_, response) = try await URLSession.shared.data(for: req)
+            let (_, response) = try await CompanionTransport.data(for: req, pairing: pairing)
             return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        } catch let error as CompanionTransportError {
+            switch error {
+            case .invalidAddress, .credentialsUnavailable, .credentialOriginMismatch:
+                // Transport preparation failed before URLSession sent the POST.
+                return .unreachable
+            case .authentication, .keychainWriteFailed:
+                return .failed
+            }
         } catch let error as URLError {
             switch error.code {
             case .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet, .dnsLookupFailed:
@@ -329,14 +335,21 @@ struct HTTPDecisionClient: DecisionClient {
         guard let url = pairing.companionURL(path: "answer") else { return .failed }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 15
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answer": answer])
         do {
-            let (_, response) = try await URLSession.shared.data(for: req)
+            let (_, response) = try await CompanionTransport.data(for: req, pairing: pairing)
             let status = (response as? HTTPURLResponse)?.statusCode
             return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
+        } catch let error as CompanionTransportError {
+            switch error {
+            case .invalidAddress, .credentialsUnavailable, .credentialOriginMismatch:
+                // Transport preparation failed before URLSession sent the POST.
+                return .unreachable
+            case .authentication, .keychainWriteFailed:
+                return .failed
+            }
         } catch let error as URLError {
             // Same rule as `decideResult`: only a POST that never left may be held.
             switch error.code {
@@ -352,12 +365,11 @@ struct HTTPDecisionClient: DecisionClient {
         guard let url = pairing.companionURL(path: "dispatch") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["agent": request.agent.rawValue, "cwd": request.cwd, "prompt": request.prompt]
         if let name = request.name { body["name"] = name }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await CompanionTransport.data(for: req, pairing: pairing),
               let http = resp as? HTTPURLResponse else { return nil }
         let fields = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
         switch http.statusCode {
@@ -375,8 +387,7 @@ struct HTTPDecisionClient: DecisionClient {
         if let file { items.append(URLQueryItem(name: "file", value: file)) }
         guard let url = pairing.companionURL(path: "changes", queryItems: items) else { return nil }
         var request = URLRequest(url: url); request.timeoutInterval = 30
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await CompanionTransport.data(for: request, pairing: pairing),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return try? JSONDecoder().decode(WorkspaceChanges.self, from: data)
     }
@@ -387,8 +398,7 @@ struct HTTPDecisionClient: DecisionClient {
         components.queryItems = [URLQueryItem(name: "sessionId", value: sessionId), URLQueryItem(name: "completionId", value: completionId)]
         guard let url = components.url else { return nil }
         var request = URLRequest(url: url); request.timeoutInterval = 10
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await CompanionTransport.data(for: request, pairing: pairing),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return try? JSONDecoder().decode(CompletionBody.self, from: data)
     }
@@ -396,8 +406,7 @@ struct HTTPDecisionClient: DecisionClient {
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {
         guard let url = pairing.companionURL(path: "recent-output", queryItems: [URLQueryItem(name: "sessionId", value: sessionId)]) else { return nil }
         var req = URLRequest(url: url)
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await CompanionTransport.data(for: req, pairing: pairing),
               let http = resp as? HTTPURLResponse, http.statusCode == 200
         else { return nil }
         return try? JSONDecoder().decode(RecentOutput.self, from: data)
@@ -407,10 +416,9 @@ struct HTTPDecisionClient: DecisionClient {
         guard let url = pairing.companionURL(path: "jump") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId])
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await CompanionTransport.data(for: req, pairing: pairing),
               let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let body = try? JSONDecoder().decode([String: String].self, from: data),
               let raw = body["outcome"] else { return nil }   // nil → unreachable / refused

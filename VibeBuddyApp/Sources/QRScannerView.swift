@@ -15,7 +15,7 @@ struct QRScannerView: UIViewControllerRepresentable {
     /// cannot disturb the Mac already saved on this phone.
     nonisolated static func pairing(from code: String) -> PairingPayload? {
         guard let payload = try? JSONDecoder().decode(PairingPayload.self, from: Data(code.utf8)),
-              payload.isValidConnection else { return nil }
+              payload.isValidConnection, !payload.isCloudflare else { return nil }
         return payload
     }
 

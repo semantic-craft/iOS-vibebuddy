@@ -46,8 +46,7 @@ struct HTTPRemoteConnectionSyncClient: RemoteConnectionSyncClient {
     private func send(_ request: URLRequest, pairing: PairingPayload) async throws -> (Data, Int) {
         var request = request
         request.timeoutInterval = 15
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CompanionTransport.data(for: request, pairing: pairing)
         guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         return (data, response.statusCode)
     }
@@ -82,6 +81,7 @@ final class RemoteConnectionSyncController: ObservableObject {
         let proposal: RemoteConnectionProposal
         let original: PairingPayload
         let candidate: PairingPayload
+        let revision: Int
         var saved = false
         var pendingReceipt: RemoteConnectionReceipt.Outcome? = .received
         var retryRequested = false
@@ -120,7 +120,7 @@ final class RemoteConnectionSyncController: ObservableObject {
     }
 
     func run(connection: ConnectionStore, enabled: Bool, currentSourceID: @escaping () -> String?) async {
-        guard connection.pairing != nil, !connection.demo else {
+        guard connection.pairing != nil, connection.pairing?.isCloudflare != true, !connection.demo else {
             pause()
             update = nil
             state = .idle
@@ -149,7 +149,14 @@ final class RemoteConnectionSyncController: ObservableObject {
 
     @discardableResult
     func poll(connection: ConnectionStore, currentSourceID: @escaping () -> String?) async -> Bool {
+        guard connection.pairing?.isCloudflare != true else {
+            pause()
+            update = nil
+            state = .idle
+            return false
+        }
         guard let pairing = connection.pairing, !connection.demo, !Task.isCancelled else { return true }
+        let revision = connection.revision
         guard let deviceID = deviceID(), !deviceID.isEmpty else {
             generation = UUID()
             if state == .checking || state == .received {
@@ -186,7 +193,7 @@ final class RemoteConnectionSyncController: ObservableObject {
         }
         do {
             let result = try await client.proposal(pairing, deviceID: deviceID)
-            guard isCurrent(id), connection.pairing == pairing, !connection.demo else { return true }
+            guard isCurrent(id), connection.pairing == pairing, connection.revision == revision, !connection.demo else { return true }
             switch result {
             case .empty, .unconfirmed:
                 invalidateUpdate()
@@ -202,7 +209,7 @@ final class RemoteConnectionSyncController: ObservableObject {
                       proposal.expiresAt.timeIntervalSince(now()) <= 300,
                       let candidate = pairing.usingPrivateConnectionIPv4(proposal.host, port: proposal.port) else { return true }
                 seenRequests[proposal.requestID] = proposal.expiresAt
-                update = Update(proposal: proposal, original: pairing, candidate: candidate)
+                update = Update(proposal: proposal, original: pairing, candidate: candidate, revision: revision)
                 state = .received
                 if let source = currentSourceID(), source != proposal.sourceID {
                     fail(.wrongMac, outcome: .unauthorized)
@@ -248,7 +255,11 @@ final class RemoteConnectionSyncController: ObservableObject {
                 await deliverReceipt(connection: connection, id: id)
                 return
             }
-            connection.save(update.candidate)
+            guard connection.saveVerifiedDirect(update.candidate, sourceID: update.proposal.sourceID) else {
+                fail(.unavailable, outcome: nil)
+                await deliverReceipt(connection: connection, id: id)
+                return
+            }
             self.update?.saved = true
             self.update?.pendingReceipt = .confirmed
             state = .connected(.pending)
@@ -310,7 +321,9 @@ final class RemoteConnectionSyncController: ObservableObject {
     }
 
     private func owns(_ update: Update, connection: ConnectionStore) -> Bool {
-        !connection.demo && deviceID() == update.proposal.deviceID
+        !connection.demo && connection.pairing?.isCloudflare != true
+            && (update.saved || connection.revision == update.revision)
+            && deviceID() == update.proposal.deviceID
             && connection.pairing == (update.saved ? update.candidate : update.original)
     }
 

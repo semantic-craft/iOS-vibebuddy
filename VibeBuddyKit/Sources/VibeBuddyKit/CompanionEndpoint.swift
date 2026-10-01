@@ -5,11 +5,13 @@ import Foundation
 public struct CompanionEndpoint: Sendable, Equatable {
     public let host: String
     public let port: Int
+    public let usesTLS: Bool
 
-    public init?(host: String, port: Int) {
+    public init?(host: String, port: Int, usesTLS: Bool = false) {
         guard (1...65535).contains(port), let host = Self.normalizedHost(host) else { return nil }
         self.host = host
         self.port = port
+        self.usesTLS = usesTLS
     }
 
     /// The address check without a port: trims, lower-cases, and answers nil
@@ -32,7 +34,7 @@ public struct CompanionEndpoint: Sendable, Equatable {
     }
 
     public var isTailscale: Bool {
-        host.hasSuffix(".ts.net") || isTailnetIPv4
+        !usesTLS && (host.hasSuffix(".ts.net") || isTailnetIPv4)
     }
 
     /// Headscale's usual private range, independent of its custom DNS suffix.
@@ -56,7 +58,7 @@ public struct CompanionEndpoint: Sendable, Equatable {
 
     public func url(path: String, webSocket: Bool = false, queryItems: [URLQueryItem] = []) -> URL? {
         var components = URLComponents()
-        components.scheme = webSocket ? "ws" : "http"
+        components.scheme = usesTLS ? (webSocket ? "wss" : "https") : (webSocket ? "ws" : "http")
         components.host = host
         components.port = port
         components.path = "/" + path
@@ -71,6 +73,7 @@ public extension PairingPayload {
     func usingTailnetIPv4(_ host: String, port: Int) -> PairingPayload? {
         guard let endpoint = CompanionEndpoint(host: host, port: port), endpoint.isTailnetIPv4 else { return nil }
         var result = self
+        result.cloudflareCredentialID = nil
         result.host = endpoint.host
         result.port = endpoint.port
         return result.isValidConnection ? result : nil
@@ -81,12 +84,26 @@ public extension PairingPayload {
     func usingPrivateConnectionIPv4(_ host: String, port: Int) -> PairingPayload? {
         guard let endpoint = CompanionEndpoint(host: host, port: port), endpoint.isPrivateConnectionIPv4 else { return nil }
         var result = self
+        result.cloudflareCredentialID = nil
         result.host = endpoint.host
         result.port = endpoint.port
         return result.isValidConnection ? result : nil
     }
 
-    var endpoint: CompanionEndpoint? { CompanionEndpoint(host: host, port: port) }
+    var isCloudflare: Bool { cloudflareCredentialID != nil }
+    func usingCloudflare(origin: String, credentialID: String) -> PairingPayload? {
+        guard let origin = CloudflareCredentials.normalizedOrigin(origin),
+              let host = URLComponents(string: origin)?.host, !credentialID.isEmpty else { return nil }
+        var result = self
+        result.host = host
+        result.port = 443
+        result.cloudflareCredentialID = credentialID
+        return result.isValidConnection ? result : nil
+    }
+    var endpoint: CompanionEndpoint? {
+        guard !isCloudflare || (port == 443 && cloudflareCredentialID?.isEmpty == false) else { return nil }
+        return CompanionEndpoint(host: host, port: port, usesTLS: isCloudflare)
+    }
     var isValidConnection: Bool {
         endpoint != nil && !token.isEmpty && !token.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }

@@ -24,7 +24,10 @@ struct ConnectView: View {
             return
         }
         connectionError = nil
-        connection.save(payload)
+        guard connection.save(payload) else {
+            connectionError = String(localized: "Could not remove saved credentials. Unlock your iPhone and try again. The connection is unchanged.")
+            return
+        }
         dashboard.confirmPairing()
     }
 

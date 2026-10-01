@@ -313,6 +313,8 @@ enum WatchLinkCopy {
             return "Your iPhone is holding this — Tailscale or Surge is off on it. It will be sent when your Mac is reachable."
         case .macUnreachable, .dropped, nil:
             return "Your iPhone is holding this — it can't reach your Mac right now. It will be sent when it can."
+        case .cloudflareCredentialsUnavailable, .cloudflareAuthentication:
+            return "Your iPhone is holding this. Check Cloudflare credentials and the Mac connection on your iPhone."
         case .authentication, .invalidAddress:
             return "Your iPhone is holding this. Check the pairing on your iPhone."
         }
@@ -322,6 +324,8 @@ enum WatchLinkCopy {
         switch reason {
         case .tailnetOff: return "Not sent: Tailscale or Surge is off on your iPhone."
         case .macUnreachable: return "Not sent: your iPhone can't reach your Mac."
+        case .cloudflareCredentialsUnavailable: return "Not sent: unlock your iPhone or update Cloudflare credentials."
+        case .cloudflareAuthentication: return "Not sent: connection authentication was refused. Check Cloudflare and pairing on your iPhone."
         case .authentication: return "Not sent: your Mac refused the pairing. Fix it on your iPhone."
         case .invalidAddress: return "Not sent: the Mac address on your iPhone is not usable."
         case .dropped: return "Not sent: the connection dropped. Try again."
