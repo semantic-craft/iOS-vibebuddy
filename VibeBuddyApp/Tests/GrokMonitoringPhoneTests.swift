@@ -18,7 +18,7 @@ final class GrokMonitoringPhoneTests: XCTestCase {
             var snapshot = Snapshot(sessions: [], serverTime: Date(), sourceID: "mac")
             snapshot.grokMonitoring = .init(enabled: true, configured: true, available: true,
                 connectedSessionCount: 0, discoveredSessions: [.init(id: "grok-live", cwd: "/tmp/project")])
-    
+
             func send(_ snapshot: Snapshot) async {
                 let applied = expectation(description: "Snapshot installed")
                 let subscription = store.$groups.dropFirst().sink { _ in applied.fulfill() }
@@ -26,7 +26,7 @@ final class GrokMonitoringPhoneTests: XCTestCase {
                 await fulfillment(of: [applied], timeout: 5)
                 subscription.cancel()
             }
-    
+
             await send(snapshot)
             XCTAssertEqual(store.grokMonitoring?.discoveredSessions.first?.project, "project")
             XCTAssertTrue(store.allSessions.isEmpty)
@@ -37,6 +37,9 @@ final class GrokMonitoringPhoneTests: XCTestCase {
             XCTAssertNil(store.grokMonitoring, "A legacy Mac must not retain an earlier status")
             snapshot.serverTime.addTimeInterval(2)
             await send(snapshot)
+            snapshot.sourceID = "new-mac"
+            await send(snapshot)
+            XCTAssertNotNil(store.grokMonitoring, "The new Mac's first frame survives source cleanup")
             store.stop()
             XCTAssertNotNil(store.grokMonitoring, "Disconnect preserves the labeled last snapshot")
             switch reset {

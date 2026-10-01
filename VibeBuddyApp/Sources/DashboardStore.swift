@@ -1657,7 +1657,6 @@ final class DashboardStore: ObservableObject {
         // Snapshot handling above suspends; a newer stream/refresh may have
         // committed meanwhile. Do not replace it with this older reading.
         guard sourceID != snapshot.sourceID || snapshot.serverTime >= lastServerTime else { return }
-        grokMonitoring = snapshot.grokMonitoring
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         recentDirectories = snapshot.recentDirectories ?? []
         dispatchAgents = snapshot.dispatchAgents ?? []
@@ -1690,6 +1689,7 @@ final class DashboardStore: ObservableObject {
         if sourceID != snapshot.sourceID { completionReads.pause() }
         if sourceID != snapshot.sourceID { recentOutputs = [:] }
         if let previousSource = speechAuthoritySourceID, previousSource != snapshot.sourceID { clearContentSource() }
+        grokMonitoring = snapshot.grokMonitoring
         speechAuthoritySourceID = snapshot.sourceID
         let refreshStyle = sourceID != snapshot.sourceID || contentPresentationRevision != snapshot.contentPresentationRevision
             || wasDisconnected
