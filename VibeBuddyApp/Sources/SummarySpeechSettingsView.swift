@@ -182,7 +182,7 @@ private struct PhoneProviderSpeechSettings: View {
         editingKey = false
         keySaved = value != nil
         providerWithKey = keySaved ? provider : nil
-        keyMessage = String(localized: "API key updated on this iPhone")
+        keyMessage = value == nil ? String(localized: "API key deleted from this iPhone") : String(localized: "API key updated on this iPhone")
         announcer.cancelPreview()
     }
 
@@ -190,14 +190,20 @@ private struct PhoneProviderSpeechSettings: View {
         let configuration = VoiceSettings.readAloudConfiguration(provider, language: language)
         let voices = VoiceCatalog.voices(.readAloud, provider)
         let styledVoice = style.voice(for: provider, language: configuration.language, qwenUseIntl: intl)
-        let displayedVoice = styledVoice?.voice ?? selectedVoice
-        let voiceSelection = Binding(get: { styledVoice?.voice ?? selectedVoice }, set: { selectedVoice = $0 })
+        let standardVoice = selectedVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? configuration.voice : selectedVoice
+        let displayedVoice = styledVoice?.voice ?? standardVoice
+        let voiceSelection = Binding(get: { styledVoice?.voice ?? standardVoice }, set: { value in
+            selectedVoice = value
+            UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudVoiceKey(provider))
+            announcer.cancelPreview()
+        })
         Picker("Voice tone", selection: voiceSelection) {
             ForEach(voices, id: \.id) { Text($0.name).tag($0.id) }
             if !displayedVoice.isEmpty, !voices.contains(where: { $0.id == displayedVoice }) {
                 Text(displayedVoice).tag(displayedVoice)
             }
         }
+        .accessibilityIdentifier("phone-reading-voice")
         .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
         if SpeechSynthesis.supportsStyle(provider) {
             Picker("Presenter style", selection: $style) {
@@ -247,17 +253,14 @@ private struct PhoneProviderSpeechSettings: View {
         }
         .onAppear {
             model = configuration.model
-            selectedVoice = configuration.voice
+            // Keep an absent override absent so changing language recomputes its default.
+            selectedVoice = UserDefaults.standard.string(forKey: VoiceSettings.readAloudVoiceKey(provider)) ?? ""
             style = configuration.style
             keySaved = provider.hasAPIKey
             providerWithKey = keySaved ? provider : nil
         }
         .onChange(of: model) { _, value in
             UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudModelKey(provider))
-            announcer.cancelPreview()
-        }
-        .onChange(of: selectedVoice) { _, value in
-            UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudVoiceKey(provider))
             announcer.cancelPreview()
         }
         .onChange(of: style) { _, value in

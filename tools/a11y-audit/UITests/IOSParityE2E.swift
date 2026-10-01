@@ -40,6 +40,10 @@ final class IOSParityE2E: XCTestCase {
         XCTAssertTrue(app.staticTexts["Codex 服务历史不可用 · 已改用本地记录或近期片段。"].waitForExistence(timeout: 5))
         let message = app.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "phone-history-message-")).firstMatch
         XCTAssertTrue(message.waitForExistence(timeout: 5))
+        let retry = app.buttons["重试 Codex 历史"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 3)); retry.tap()
+        XCTAssertTrue(app.staticTexts["Codex 服务未连接。"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(message.exists, "Retry must preserve the real local fallback while Codex remains disconnected")
         capture(app, "real-history-fallback")
         app.terminate()
     }
@@ -52,7 +56,7 @@ final class IOSParityE2E: XCTestCase {
         for large in [false, true] {
             let app = XCUIApplication(bundleIdentifier: "com.vibebuddy.app")
             app.launchEnvironment = ["VIBEBUDDY_HOST": "127.0.0.1", "VIBEBUDDY_PORT": port, "VIBEBUDDY_TOKEN": token]
-            app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "-phone.readAloud.selection", "minimax"]
+            app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "-phone.readAloud.selection", "minimax", "-phone.readAloud.language", "en", "-readAloud.voice.minimax", "", "-readAloud.style.minimax", "standard"]
             if large { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
             app.launch()
             let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -77,6 +81,10 @@ final class IOSParityE2E: XCTestCase {
             language.tap()
             let chinese = button(app, ["简体中文"])
             XCTAssertTrue(chinese.waitForExistence(timeout: 2)); chinese.tap()
+            let voice = app.buttons["phone-reading-voice"]
+            reveal(voice, in: app)
+            XCTAssertTrue(voice.exists)
+            XCTAssertTrue((voice.value as? String ?? voice.label).contains("新闻女声"), "Default voice must follow the newly selected Chinese reading language")
             let service = button(app, ["Service settings", "服务设置"])
             reveal(service, in: app); XCTAssertTrue(service.isHittable); service.tap()
             let draft = app.secureTextFields["phone-api-key-draft"]

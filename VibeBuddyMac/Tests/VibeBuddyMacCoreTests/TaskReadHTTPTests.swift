@@ -7,6 +7,27 @@ import VibeBuddyKit
 
 @Suite("Read-only phone task boundaries")
 struct TaskReadHTTPTests {
+    @Test(arguments: [TaskReadKind.history, .terminals])
+    func repeatedNativeCursorFailsWithoutMintingAnotherPage(kind: TaskReadKind) async throws {
+        let reader = TaskReadHTTP()
+        let sessions = [AgentSession(id: "one", agent: .codex, project: "p", status: .working, statusSince: Date(), updatedAt: Date())]
+        let uri = "/task-read?sourceID=mac&sessionID=one&kind=\(kind.rawValue)"
+        let fetch: TaskReadHTTP.Fetch = { id, kind, _ in
+            var result = TaskReadResponse(sourceID: "", sessionID: id, kind: kind)
+            result.nextCursor = "stalled-native-cursor"
+            return result
+        }
+        let first = await reader.read(uri: uri, sourceID: "mac", sessions: sessions, fetch: fetch)
+        let page = try JSONDecoder().decode(TaskReadResponse.self, from: first.data)
+        let cursor = try #require(page.nextCursor)
+        let stalled = await reader.read(uri: uri + "&cursor=" + cursor, sourceID: "mac", sessions: sessions, fetch: fetch)
+        #expect(stalled.status == 409)
+        let failure = try JSONDecoder().decode(HistoryFailure.self, from: stalled.data)
+        #expect(failure.reason == "cursor_did_not_advance")
+        // Refresh starts a fresh page even if the upstream cursor has not changed.
+        #expect(await reader.read(uri: uri, sourceID: "mac", sessions: sessions, fetch: fetch).status == 200)
+    }
+
     @Test func cursorBindsSourceSessionAndKind() async throws {
         let reader = TaskReadHTTP()
         let sessions = ["one", "two"].map { AgentSession(id: $0, agent: .codex, project: "p", status: .working, statusSince: Date(), updatedAt: Date()) }

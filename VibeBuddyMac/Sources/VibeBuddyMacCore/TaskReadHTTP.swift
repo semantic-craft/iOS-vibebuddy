@@ -29,6 +29,8 @@ public actor TaskReadHTTP {
         var result = await fetch(id, kind, native)
         result.sourceID = sourceID; result.sessionID = id; result.kind = kind
         if let next = result.nextCursor {
+            // Check upstream progress before an opaque token hides the repeated cursor.
+            guard next != native else { return failure(409, "cursor_did_not_advance") }
             let token = UUID().uuidString
             if cursors.count >= 256, let oldest = cursors.min(by: { $0.value.issued < $1.value.issued })?.key { cursors.removeValue(forKey: oldest) }
             cursors[token] = Cursor(source: sourceID, session: id, kind: kind, native: next, issued: Date())

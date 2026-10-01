@@ -111,6 +111,53 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.2)
     }
 
+    func testFailedPlayerResumeKeepsCurrentAndNextItemPaused() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "qwen"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        let data = silence()
+        var playAttempts = 0
+        let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" },
+                                       makeSynthesizer: { _ in SilentPhoneSynthesizer(data: data) },
+                                       playAudio: { player in
+            playAttempts += 1
+            return playAttempts == 2 ? false : player.play()
+        })
+        defer { announcer.stop() }
+        let sessions = ["first", "second"].map { id -> AgentSession in
+            var session = AgentSession(id: id, agent: .codex, project: "test", status: .done,
+                                       hasUnreadCompletion: true, statusSince: Date(), updatedAt: Date())
+            session.completionID = "round-1"
+            return session
+        }
+        let source = UUID()
+        var prepared = 0
+        announcer.announce(sessions, live: { sessions }, source: { source }, content: { item in
+            prepared += 1
+            return DashboardStore.Announcement(text: "Verified result", context: .init(source: "mac", epoch: "1", generation: source, revision: nil), target: .completion(sessionID: item.sessionID, completionID: item.round), savedFallback: false, savedCompletionNotice: nil)
+        }, validate: { _ in true })
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while player(announcer)?.isPlaying != true, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let audio = try XCTUnwrap(player(announcer))
+        XCTAssertTrue(audio.isPlaying)
+        announcer.pause()
+        announcer.resume() // The injected second play fails.
+        try await Task.sleep(for: .milliseconds(250)) // Past the playback loop's poll.
+        XCTAssertEqual(playAttempts, 2)
+        XCTAssertTrue(announcer.isPaused)
+        XCTAssertTrue(announcer.isBusy)
+        XCTAssertFalse(audio.isPlaying)
+        XCTAssertEqual(announcer.spokenCount, 0)
+        XCTAssertEqual(prepared, 1, "A failed resume must not release the next paid request")
+        XCTAssertEqual(announcer.current?.item.sessionID, "first")
+        announcer.resume()
+        XCTAssertEqual(playAttempts, 3, "The failed player must remain eligible for explicit retry")
+        XCTAssertFalse(announcer.isPaused)
+        XCTAssertTrue(audio.isPlaying)
+    }
+
     func testDeniedVoiceTakeoverReleasesReaderAudioOwnership() async throws {
         let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "qwen"], forName: UserDefaults.argumentDomain)

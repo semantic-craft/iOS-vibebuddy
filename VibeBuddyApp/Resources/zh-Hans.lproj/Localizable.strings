@@ -899,3 +899,8 @@
 "Refresh terminal list" = "刷新终端列表";
 
 "Conversation history" = "对话历史";
+
+"API key deleted from this iPhone" = "已删除这台 iPhone 的 API 密钥";
+
+"Retry Codex history" = "重试 Codex 历史";
+"This page is no longer available. Refresh to load the latest data." = "此分页已不可用。请刷新以读取最新数据。";

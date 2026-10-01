@@ -130,6 +130,7 @@ final class PhoneAnnouncer: ObservableObject {
     private let queue = CompletionSpeechQueue()
     private let providerKey: @MainActor (VoiceProvider) -> String?
     private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)?
+    private let playAudio: @MainActor (AVAudioPlayer) -> Bool
     private var player: AVAudioPlayer? {
         didSet { playerNeedsResume = false }
     }
@@ -152,9 +153,11 @@ final class PhoneAnnouncer: ObservableObject {
     private var runTotal = 0
 
     init(providerKey: @escaping @MainActor (VoiceProvider) -> String? = { $0.apiKey },
-         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? = SpeechSynthesis.synthesizer) {
+         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? = SpeechSynthesis.synthesizer,
+         playAudio: @escaping @MainActor (AVAudioPlayer) -> Bool = { $0.play() }) {
         self.providerKey = providerKey
         self.makeSynthesizer = makeSynthesizer
+        self.playAudio = playAudio
         queue.onBusyChanged = { [weak self] busy in
             guard let self else { return }
             self.isBusy = busy || self.recovery != nil || self.player?.isPlaying == true || self.systemVoice?.isSpeaking == true
@@ -240,14 +243,19 @@ final class PhoneAnnouncer: ObservableObject {
             do { try activateAudioSession() }
             catch { status = String(localized: "Could not play the audio."); return }
         }
+        if let player, playerNeedsResume {
+            // Do not release the playback loop or the next queued item until
+            // the player actually accepts the resume. Failure remains retryable.
+            guard playAudio(player) else {
+                status = String(localized: "Could not play the audio.")
+                return
+            }
+            playerNeedsResume = false
+        }
+        systemVoice?.continueSpeaking()
         isPaused = false
         status = String(localized: "Reading…")
         queue.resume()
-        if let player, playerNeedsResume {
-            playerNeedsResume = false
-            if !player.play() { status = String(localized: "Could not play the audio.") }
-        }
-        systemVoice?.continueSpeaking()
     }
 
     /// Skips the item being spoken. The result stays unread.
@@ -413,7 +421,7 @@ final class PhoneAnnouncer: ObservableObject {
                 try activateAudioSession()
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
-                guard player.play() else { self.player = nil; throw SpeechSynthesisFailure.transport }
+                guard playAudio(player) else { self.player = nil; throw SpeechSynthesisFailure.transport }
                 status = label ?? String(localized: "Reading…")
                 if remember, let source = sourceIdentity?() { latest = (text, item, source); canReplay = true }
                 while (player.isPlaying || isPaused) && !Task.isCancelled && generation == current {

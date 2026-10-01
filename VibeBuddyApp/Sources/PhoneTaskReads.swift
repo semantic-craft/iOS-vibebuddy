@@ -12,6 +12,8 @@ struct PhoneTaskDetails: View {
     @State private var terminals: TaskReadResponse?
     @State private var preservesTerminalPages = false
     @State private var failure: String?
+    @State private var goalFailure: String?
+    @State private var terminalFailure: String?
     @State private var loading = false
     @State private var terminalTask: Task<Void, Never>?
     private var current: Bool { dashboard.readerAuthorityIsCurrent(scope: scope) }
@@ -26,6 +28,7 @@ struct PhoneTaskDetails: View {
                 if dashboard.state != .connected { Text("Offline · task details may be out of date.") }
                 if loading && goal == nil { ProgressView("Loading task details…") }
                 if let failure { Text(taskReadFailureText(failure)).foregroundStyle(.secondary) }
+                if let goalFailure { Text(taskReadFailureText(goalFailure)).foregroundStyle(.secondary) }
                 if let goal {
                     if let error = goal.failure { Text(taskReadFailureText(error)) }
                     else if let value = goal.goal {
@@ -38,6 +41,7 @@ struct PhoneTaskDetails: View {
                     Text("Source: Codex app-server").font(.caption).foregroundStyle(.secondary)
                     Text(goal.observedAt, style: .time).font(.caption)
                 }
+                if let terminalFailure { Text(taskReadFailureText(terminalFailure)).foregroundStyle(.secondary) }
                 if let terminals {
                     Text("Background terminals").font(.headline).accessibilityAddTraits(.isHeader)
                     if preservesTerminalPages {
@@ -75,10 +79,10 @@ struct PhoneTaskDetails: View {
         }
         .onDisappear { terminalTask?.cancel() }
         .onChange(of: current) { _, valid in
-            if !valid { terminalTask?.cancel(); goal = nil; terminals = nil; preservesTerminalPages = false; failure = "source_changed" }
+            if !valid { terminalTask?.cancel(); goal = nil; terminals = nil; preservesTerminalPages = false; goalFailure = nil; terminalFailure = nil; failure = "source_changed" }
         }
         .onChange(of: active) { _, value in if !value { terminalTask?.cancel() } }
-        .onChange(of: scope + "/" + session.id) { _, _ in goal = nil; terminals = nil; preservesTerminalPages = false; failure = nil }
+        .onChange(of: scope + "/" + session.id) { _, _ in goal = nil; terminals = nil; preservesTerminalPages = false; goalFailure = nil; terminalFailure = nil; failure = nil }
     }
     private func refresh() async {
         guard !loading else { return }
@@ -87,18 +91,28 @@ struct PhoneTaskDetails: View {
         do {
             let capabilities = try await dashboard.taskReadCapabilities(scope: scope)
             guard capabilities.supported.contains(.goal), capabilities.supported.contains(.terminals) else { throw HistoryFailure("unsupported_mac") }
+            failure = nil
             async let readGoal = dashboard.taskRead(for: session, scope: scope, kind: .goal)
             // A timer must not discard pages the reader explicitly loaded.
             // Once paged, only the explicit refresh button replaces this window.
             if !preservesTerminalPages {
-                let result = try await dashboard.taskRead(for: session, scope: scope, kind: .terminals)
-                try Task.checkCancellation()
-                terminals = result
+                do {
+                    let result = try await dashboard.taskRead(for: session, scope: scope, kind: .terminals)
+                    try Task.checkCancellation()
+                    terminals = result; terminalFailure = nil
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    terminalFailure = (error as? HistoryFailure)?.reason ?? "source_unavailable"
+                }
             }
-            let result = try await readGoal
-            try Task.checkCancellation()
-            goal = result
-            if !preservesTerminalPages { failure = nil }
+            do {
+                let result = try await readGoal
+                try Task.checkCancellation()
+                goal = result; goalFailure = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                goalFailure = (error as? HistoryFailure)?.reason ?? "source_unavailable"
+            }
         } catch {
             guard !Task.isCancelled else { return }
             failure = (error as? HistoryFailure)?.reason ?? "source_unavailable"
@@ -110,9 +124,9 @@ struct PhoneTaskDetails: View {
         do {
             let result = try await dashboard.taskRead(for: session, scope: scope, kind: .terminals)
             try Task.checkCancellation()
-            guard result.failure == nil else { failure = result.failure; return }
-            terminals = result; preservesTerminalPages = false; failure = nil
-        } catch { if !Task.isCancelled { failure = (error as? HistoryFailure)?.reason ?? "source_unavailable" } }
+            if let reason = result.failure { throw HistoryFailure(reason) }
+            terminals = result; preservesTerminalPages = false; terminalFailure = nil
+        } catch { if !Task.isCancelled { recordTerminalFailure(error) } }
     }
     private func loadTerminals() async {
         guard let cursor = terminals?.nextCursor, !loading, active, expanded, current,
@@ -120,12 +134,22 @@ struct PhoneTaskDetails: View {
         loading = true; defer { loading = false }
         do {
             var result = try await dashboard.taskRead(for: session, scope: scope, kind: .terminals, cursor: cursor)
-            guard active, expanded, result.failure == nil else { failure = result.failure; return }
+            try Task.checkCancellation()
+            guard active, expanded, current else { return }
+            if let reason = result.failure { throw HistoryFailure(reason) }
             let previous = terminals?.terminals ?? []
             let ids = Set(previous.map(\.id))
             result.terminals = previous + (result.terminals ?? []).filter { !ids.contains($0.id) }
-            terminals = result; preservesTerminalPages = true; failure = nil
-        } catch { if !Task.isCancelled { failure = (error as? HistoryFailure)?.reason ?? "source_unavailable" } }
+            terminals = result; preservesTerminalPages = true; terminalFailure = nil
+        } catch { if !Task.isCancelled { recordTerminalFailure(error) } }
+    }
+    private func recordTerminalFailure(_ error: Error) {
+        let reason = (error as? HistoryFailure)?.reason ?? "source_unavailable"
+        terminalFailure = reason
+        if ["cursor_expired", "cursor_did_not_advance"].contains(reason) {
+            terminals?.nextCursor = nil
+            preservesTerminalPages = true
+        }
     }
 }
 
@@ -136,6 +160,7 @@ struct PhoneCodexHistoryView: View {
     @EnvironmentObject private var dashboard: DashboardStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var fallback = false
+    @State private var fallbackReason: String?
     @State private var messages: [HistoryMessage] = []
     @State private var cursor: String?
     @State private var loading = false
@@ -150,6 +175,12 @@ struct PhoneCodexHistoryView: View {
                 VStack(spacing: 0) {
                     Text("Codex service history unavailable · using the local transcript or recent excerpt.")
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                    if let failure { Text(taskReadFailureText(failure)).font(.caption).foregroundStyle(.secondary) }
+                    if fallbackReason != "unsupported_mac" {
+                        Button("Retry Codex history") { Task { await load(earlier: false) } }
+                            .disabled(loading || !current || dashboard.state != .connected || scenePhase != .active)
+                        if loading { ProgressView("Reading transcript…") }
+                    }
                     PhoneHistoryView(session: session, scope: scope, newTask: newTask)
                 }
             } else {
@@ -205,11 +236,14 @@ struct PhoneCodexHistoryView: View {
                 let ids = Set(messages.map(\.id)); messages = incoming.filter { !ids.contains($0.id) } + messages
             } else { messages = incoming }
             cursor = result.nextCursor; observedAt = result.observedAt; loaded = true; failure = nil
+            fallback = false; fallbackReason = nil
         } catch {
             guard attempt == ticket, !Task.isCancelled else { return }
             let reason = (error as? HistoryFailure)?.reason ?? "source_unavailable"
-            if !loaded && ["unsupported_mac", "unsupported", "unavailable", "disconnected", "malformed"].contains(reason) { fallback = true }
-            else { failure = reason; if reason == "cursor_expired" { cursor = nil } }
+            failure = reason
+            if !loaded && ["unsupported_mac", "unsupported", "unavailable", "disconnected", "malformed"].contains(reason) {
+                fallback = true; fallbackReason = reason
+            } else if ["cursor_expired", "cursor_did_not_advance"].contains(reason) { cursor = nil }
         }
     }
 }
@@ -219,7 +253,7 @@ private func taskReadFailureText(_ reason: String) -> String {
     case "unsupported_mac": String(localized: "This Mac version does not support task details. Update VibeBuddy on the Mac.")
     case "unsupported": String(localized: "This Codex version does not support this view.")
     case "disconnected": String(localized: "Codex service is not connected.")
-    case "cursor_expired": String(localized: "This page expired. Refresh to load the latest history.")
+    case "cursor_expired", "cursor_did_not_advance": String(localized: "This page is no longer available. Refresh to load the latest data.")
     case "source_changed": String(localized: "The connected source changed. Return to the task list.")
     default: String(localized: "Task details are unavailable. Try again when connected to the Mac.")
     }
