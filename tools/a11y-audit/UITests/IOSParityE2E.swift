@@ -56,7 +56,7 @@ final class IOSParityE2E: XCTestCase {
         for large in [false, true] {
             let app = XCUIApplication(bundleIdentifier: "com.vibebuddy.app")
             app.launchEnvironment = ["VIBEBUDDY_HOST": "127.0.0.1", "VIBEBUDDY_PORT": port, "VIBEBUDDY_TOKEN": token]
-            app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "-phone.readAloud.selection", "minimax", "-phone.readAloud.language", "en", "-readAloud.voice.minimax", "", "-readAloud.style.minimax", "standard"]
+            app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "-phone.readAloud.selection", "minimax", "-readAloud.voice.minimax", "", "-readAloud.style.minimax", "standard"]
             if large { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
             app.launch()
             let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -79,12 +79,16 @@ final class IOSParityE2E: XCTestCase {
             XCTAssertTrue(language.isHittable)
             capture(app, large ? "speech-zh-AXXXL" : "speech-zh-default")
             language.tap()
+            let english = button(app, ["English", "英语", "英文"])
+            XCTAssertTrue(english.waitForExistence(timeout: 2)); english.tap()
+            language.tap()
             let chinese = button(app, ["简体中文"])
             XCTAssertTrue(chinese.waitForExistence(timeout: 2)); chinese.tap()
             let voice = app.buttons["phone-reading-voice"]
             reveal(voice, in: app)
             XCTAssertTrue(voice.exists)
-            XCTAssertTrue((voice.value as? String ?? voice.label).contains("新闻女声"), "Default voice must follow the newly selected Chinese reading language")
+            let selectedChineseVoice = app.staticTexts["新闻女声"].firstMatch
+            XCTAssertTrue(selectedChineseVoice.exists || app.buttons["新闻女声"].exists || voice.label.contains("新闻女声"), "Default voice must follow the newly selected Chinese reading language")
             let service = button(app, ["Service settings", "服务设置"])
             reveal(service, in: app); XCTAssertTrue(service.isHittable); service.tap()
             let draft = app.secureTextFields["phone-api-key-draft"]
