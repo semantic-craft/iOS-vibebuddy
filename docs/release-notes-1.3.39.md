@@ -7,7 +7,7 @@
 - 支持 Cloudflare Access 连接方式，保留同一 Wi-Fi 与私有网络连接。
 - 修复高级设置展开时可能触发的无障碍崩溃。
 
-Mac build 57；配套 iPhone / Apple Watch 1.3.32（65）。
+Mac build 57；配套 iPhone / Apple Watch 1.3.32（66）。
 
 ## English
 

@@ -1,6 +1,6 @@
 # Release integration — macOS 1.3.39 / iOS 1.3.32
 
-2026-10-01 (Asia/Shanghai). Mac build 57; iPhone / Watch build 65.
+2026-10-01 (Asia/Shanghai). Mac build 57; iPhone / Watch build 66.
 Branch: `codex/settings-cloudflare-release`.
 
 ## Scope
@@ -56,3 +56,18 @@ This run did not repeat that live Tunnel/device setup after its authorized clean
 Exact minimum-window sizing, paid provider success, and physical phone/Watch
 notification delivery are not established by the checks above. Review, notarization,
 publishing, and installed-update results are appended as they finish.
+
+## Independent review follow-up
+
+Grok's initial verdict was MERGE WITH FIXES. All five actionable findings were
+accepted: Cursor writes now check Keychain status, cancelled reads remain retryable,
+missing direct-source identity cannot silently discard a Cloudflare route, unsent
+credential failures retain their diagnosis and use the existing bounded queue, and
+Mac Cloud diagnostics name Agent integration. No credentials or new retry loop were
+introduced. The retained credential regression and 42 focused Kit tests pass.
+
+The rebuilt isolated Mac GUI launches, retains Chinese, shows the real Codex modes,
+and exposes separate Cursor key field/save/remove accessibility identifiers. E2E
+mode disables real credential writes; denied writes were not manually induced in the
+production Keychain. Build 65 uploaded successfully but is superseded by build 66
+for these review fixes; it must not be selected for submission.
