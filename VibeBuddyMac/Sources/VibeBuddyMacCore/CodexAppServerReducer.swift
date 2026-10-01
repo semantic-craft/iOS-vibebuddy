@@ -106,13 +106,13 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         case "turn/completed":
             guard let id = params["threadId"] as? String else { return [] }
             let turn = params["turn"] as? [String: Any] ?? [:]
-            inactiveThreads.insert(id)
-            threads[id]?.activeTurnID = nil
-            if let turnID = turn["id"] as? String { endedTurns[id, default: []].insert(turnID) }
+            let completedTurnID = turn["id"] as? String
+            // A replay from an earlier turn cannot change the current turn's
+            // activity or recovery identity, even if it adds result detail.
+            if let active = threads[id]?.activeTurnID, let completedTurnID, active != completedTurnID { return [] }
+            if let completedTurnID, endedTurns[id]?.contains(completedTurnID) == true,
+               lastCompletion[id]?.turnID != completedTurnID { return [] }
             let status = turn["status"] as? String ?? "completed"
-            if turn["status"] as? String == "completed", let turnID = turn["id"] as? String {
-                if endings[id]?.turnID != turnID { endings[id] = Ending(turnID: turnID, at: receivedAt) }
-            } else { endings[id] = nil }
             let message: String?
             switch status {
             case "failed":
@@ -130,6 +130,12 @@ public struct CodexAppServerReducer: Sendable, Equatable {
                 guard lastCompletion[id] != signature else { return [] }
                 lastCompletion[id] = signature
             }
+            inactiveThreads.insert(id)
+            threads[id]?.activeTurnID = nil
+            if let completedTurnID { endedTurns[id, default: []].insert(completedTurnID) }
+            if turn["status"] as? String == "completed", let completedTurnID {
+                if endings[id]?.turnID != completedTurnID { endings[id] = Ending(turnID: completedTurnID, at: receivedAt) }
+            } else { endings[id] = nil }
             return [event(.stop, threadID: id, receivedAt: receivedAt, message: message?.trimmingCharacters(in: .whitespacesAndNewlines),
                           turnID: turn["id"] as? String,
                           completionText: status == "completed" && turn["status"] != nil

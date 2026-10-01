@@ -8,8 +8,8 @@ control action is exposed.
 ## Evidence
 
 - `swift test --package-path VibeBuddyMac -j 4 --filter CodexTaskReadsTests`:
-  3 tests pass. Protocol-boundary tests verify exact thread IDs/cursors, descending
-  requests, chronological output, overlap deduplication, malformed responses,
+  4 tests pass. Protocol-boundary tests verify exact thread IDs/cursors, descending
+  requests, chronological output, overlap deduplication, refresh retention of previously loaded pages, malformed responses,
   nil goals, unavailable connection, and absence of resume/start/goal writes or
   process termination calls from the read views.
 - Mac app Debug build passed with Xcode, signing disabled.

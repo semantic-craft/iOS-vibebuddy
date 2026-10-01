@@ -25,6 +25,8 @@ public actor CodexAppServerMonitor {
         public var lastError: String?
         public var lastEventAt: Date?
         public var subscribedThreads: Int
+        /// Tasks whose terminal observation could not be recovered.
+        public var uncertainThreads: Int
         /// Methods of server-initiated requests seen on this connection, most
         /// recent last (bounded). Empty means the daemon never routed an
         /// approval or user-input request to a second subscriber.
@@ -35,13 +37,14 @@ public actor CodexAppServerMonitor {
 
         public init(enabled: Bool = true, connected: Bool = false, serverUserAgent: String? = nil,
                     lastError: String? = nil, lastEventAt: Date? = nil, subscribedThreads: Int = 0,
-                    serverRequestsSeen: [String] = [], hookTrust: CodexHookTrust? = nil) {
+                    serverRequestsSeen: [String] = [], hookTrust: CodexHookTrust? = nil, uncertainThreads: Int = 0) {
             self.enabled = enabled
             self.connected = connected
             self.serverUserAgent = serverUserAgent
             self.lastError = lastError
             self.lastEventAt = lastEventAt
             self.subscribedThreads = subscribedThreads
+            self.uncertainThreads = uncertainThreads
             self.serverRequestsSeen = serverRequestsSeen
             self.hookTrust = hookTrust
         }
@@ -214,8 +217,9 @@ public actor CodexAppServerMonitor {
         state.lastError = nil
         state.serverUserAgent = hello["userAgent"] as? String
         state.serverRequestsSeen = []
-        try await recover(client: client, store: store)
-        await store.recordSourceSignal(agent: .codex, source: .appserver, health: .healthy, at: Date())
+        await recover(client: client, store: store)
+        await store.recordSourceSignal(agent: .codex, source: .appserver,
+            health: recoveryTurns.isEmpty ? .healthy : .sourceUnreadable, at: Date())
         try await discover(client: client, store: store)
         await readUsage(client: client)
         await readHookTrust(client: client)
@@ -256,6 +260,7 @@ public actor CodexAppServerMonitor {
                 break
             }
             let now = Date()
+            await resolveRecoveryFromLiveTerminal(message, store: store, at: now)
             let events = reducer.handle(message, receivedAt: now)
             if !events.isEmpty {
                 state.lastEventAt = now
@@ -645,6 +650,12 @@ public actor CodexAppServerMonitor {
             let ours = now.timeIntervalSince(asked) < Self.stopClaimWindow
             await store.ingest(ours ? event.markingUserStop() : event)
         }
+        // Live events from another task must not certify a missing terminal
+        // observation or renew a global lease that blocks rollout fallback.
+        if !recoveryTurns.isEmpty {
+            await store.recordSourceSignal(agent: .codex, source: .appserver,
+                                           health: .sourceUnreadable, at: now)
+        }
     }
 
     /// The running turn this connection knows about — set by `turn/started`,
@@ -930,30 +941,53 @@ public actor CodexAppServerMonitor {
         throw CodexAppServerClient.ClientError.closed
     }
 
-    private func recover(client: any CodexAppServerConnecting, store: SessionStore) async throws {
+    private func recover(client: any CodexAppServerConnecting, store: SessionStore) async {
         for (threadID, turnID) in recoveryTurns {
-            var cursor: String?
-            var found = false
-            // Bounded pages, and an explicit failure if the lost turn cannot
-            // be recovered; do not certify an incomplete observation as healthy.
-            for _ in 0..<4 {
-                var params: [String: Any] = ["threadId": threadID, "limit": 50,
-                                            "sortDirection": "desc", "itemsView": "full"]
-                if let cursor { params["cursor"] = cursor }
-                let page = try await readWithRetry(client: client, method: "thread/turns/list", params: params)
-                if let turn = (page["data"] as? [[String: Any]])?.first(where: { turnID.isEmpty || $0["id"] as? String == turnID }) {
-                    let now = Date()
-                    if ["completed", "failed", "interrupted"].contains(turn["status"] as? String ?? "") {
-                        await forward(reducer.handle(["method": "turn/completed", "params": ["threadId": threadID, "turn": turn]], receivedAt: now), to: store, now: now)
+            do {
+                var cursor: String?
+                var found = false
+                for _ in 0..<4 {
+                    var params: [String: Any] = ["threadId": threadID, "limit": 50,
+                                                "sortDirection": "desc", "itemsView": "full"]
+                    if let cursor { params["cursor"] = cursor }
+                    let page = try await readWithRetry(client: client, method: "thread/turns/list", params: params)
+                    if let turn = (page["data"] as? [[String: Any]])?.first(where: { turnID.isEmpty || $0["id"] as? String == turnID }) {
+                        let now = Date()
+                        if ["completed", "failed", "interrupted"].contains(turn["status"] as? String ?? "") {
+                            await forward(reducer.handle(["method": "turn/completed", "params": ["threadId": threadID, "turn": turn]], receivedAt: now), to: store, now: now)
+                        }
+                        found = true
+                        break
                     }
-                    found = true
-                    break
+                    cursor = page["nextCursor"] as? String
+                    if cursor == nil { break }
                 }
-                cursor = page["nextCursor"] as? String
-                if cursor == nil { break }
+                if found { recoveryTurns.removeValue(forKey: threadID) }
+            } catch {
+                // A missing/deleted/unreadable task is local uncertainty, not
+                // a reason to keep every other task out of discovery forever.
+                // Keep its identity for a later reconnect; never fabricate stop.
             }
-            guard found else { throw CodexAppServerClient.ClientError.observationOverflow }
-            recoveryTurns.removeValue(forKey: threadID)
+        }
+        state.uncertainThreads = recoveryTurns.count
+        if !recoveryTurns.isEmpty {
+            state.lastError = "Recovery incomplete for \(recoveryTurns.count) task(s); rollout fallback remains active"
+        }
+    }
+
+    private func resolveRecoveryFromLiveTerminal(_ message: [String: Any], store: SessionStore, at now: Date) async {
+        guard message["method"] as? String == "turn/completed",
+              let params = message["params"] as? [String: Any],
+              let threadID = params["threadId"] as? String,
+              let turn = params["turn"] as? [String: Any],
+              let turnID = turn["id"] as? String, !turnID.isEmpty,
+              recoveryTurns[threadID] == turnID,
+              ["completed", "failed", "interrupted"].contains(turn["status"] as? String ?? "") else { return }
+        recoveryTurns.removeValue(forKey: threadID)
+        state.uncertainThreads = recoveryTurns.count
+        if recoveryTurns.isEmpty {
+            if state.lastError?.hasPrefix("Recovery incomplete") == true { state.lastError = nil }
+            await store.recordSourceSignal(agent: .codex, source: .appserver, health: .healthy, at: now)
         }
     }
 

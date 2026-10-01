@@ -1403,3 +1403,5 @@
 "Discovery reads terminal metadata only. Live task progress and controls require Cursor events." = "这里只读取终端信息。任务进度和控制功能需要 Cursor 的实时事件。";
 "Discovery" = "发现状态";
 "Unavailable — requires Cursor CLI persist support and tmux" = "不可用：需要支持 persist 的 Cursor CLI 和 tmux";
+
+"Recovery incomplete for %lld tasks; other sources remain available." = "%lld 个任务尚未完成状态恢复；仍可使用其他观测来源。";

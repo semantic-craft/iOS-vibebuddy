@@ -77,6 +77,68 @@ struct CodexReliabilityTests {
         try FileManager.default.removeItem(at: directory)
     }
 
+    @Test("an unrecoverable old turn does not block discovery or fabricate completion", arguments: [false, true])
+    func recoveryFailureIsolation(readFails: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socket = directory.appendingPathComponent("socket")
+        FileManager.default.createFile(atPath: socket.path, contents: Data())
+        let store = SessionStore(journalURL: directory.appendingPathComponent("journal.json"))
+        let first = FakeConnection(results: fakeDaemonResults())
+        let newThread: [String: Any] = ["id": "new", "source": "cli", "cwd": "/test", "status": ["type": "idle"]]
+        var results = fakeDaemonResults()
+        results["thread/list"] = ["data": [newThread]]
+        results["thread/resume"] = ["thread": newThread]
+        // Empty pages with a cursor exhaust the four-page bound. The alternate
+        // case returns an RPC error for a deleted/unreadable thread instead.
+        if !readFails { results["thread/turns/list"] = ["data": [], "nextCursor": "more"] }
+        let second = FakeConnection(results: results)
+        let factory = ReconnectFactory(first: first, second: second)
+        let monitor = CodexAppServerMonitor(socketPath: socket.path, minimumBackoff: .milliseconds(10), maximumBackoff: .milliseconds(20), makeClient: { _ in factory.next() })
+        let run = Task { await monitor.run(store: store) }
+        #expect(await waitFor { await monitor.diagnostics().connected })
+        first.push(["method": "turn/started", "params": ["threadId": "old", "turn": ["id": "lost-turn"]]])
+        #expect(await waitFor { await store.snapshot(now: Date()).sessions.first(where: { $0.id == "old" })?.status == .working })
+        first.close()
+        #expect(await waitFor { await monitor.diagnostics().subscribedThreads == 1 })
+        #expect(await monitor.diagnostics().uncertainThreads == 1)
+        #expect(second.params(of: "thread/list").count == 1)
+        #expect(second.params(of: "thread/turns/list").count == (readFails ? 1 : 4))
+        second.push(["method": "turn/started", "params": ["threadId": "new", "turn": ["id": "new-turn"]]])
+        #expect(await waitFor { await store.snapshot(now: Date()).sessions.first(where: { $0.id == "new" })?.status == .working })
+        let old = await store.snapshot(now: Date()).sessions.first(where: { $0.id == "old" })
+        #expect(old?.status == .working)
+        #expect(old?.completionID == nil)
+        #expect(old?.completionText == nil)
+        second.push(["method": "turn/completed", "params": ["threadId": "new", "turn": ["id": "new-turn", "status": "completed", "items": []]]])
+        #expect(await waitFor { await store.snapshot(now: Date()).sessions.first(where: { $0.id == "new" })?.status == .done })
+        #expect(await monitor.diagnostics().uncertainThreads == 1)
+        // Other tasks' live events must not restore the stale global lease.
+        await store.ingest(HookEvent(kind: .stop, sessionID: "old", agent: .codex,
+            observationSource: .rollout, timestamp: Date(), turnID: "lost-turn",
+            completionText: "Fallback observed the real ending", completionSucceeded: true))
+        #expect(await store.snapshot(now: Date()).sessions.first(where: { $0.id == "old" })?.status == .done)
+        // An actual terminal message for this exact lost turn discharges the
+        // uncertainty even when the earlier history read failed.
+        second.push(["method": "turn/completed", "params": ["threadId": "old", "turn": ["id": "lost-turn", "status": "completed", "items": []]]])
+        #expect(await waitFor { await monitor.diagnostics().uncertainThreads == 0 })
+        run.cancel(); second.close(); await run.value
+        try FileManager.default.removeItem(at: directory)
+    }
+
+    @Test("an old completion replay preserves the newer turn and its recovery identity")
+    func oldCompletionCannotEndNewTurn() {
+        var reducer = CodexAppServerReducer()
+        let first: [String: Any] = ["method": "turn/completed", "params": ["threadId": "t", "turn": ["id": "r1", "status": "completed", "items": []]]]
+        #expect(reducer.handle(first, receivedAt: Date()).count == 1)
+        _ = reducer.handle(["method": "turn/started", "params": ["threadId": "t", "turn": ["id": "r2"]]], receivedAt: Date())
+        #expect(reducer.handle(first, receivedAt: Date()).isEmpty)
+        #expect(reducer.threads["t"]?.activeTurnID == "r2")
+        #expect(reducer.activeThreadIDs.contains("t"))
+        let tool = reducer.handle(["method": "item/started", "params": ["threadId": "t", "turnId": "r2", "item": ["id": "item", "type": "commandExecution", "command": "true"]]], receivedAt: Date())
+        #expect(tool.count == 1)
+    }
+
     @Test("read overload retries at most three times; write methods never enter retry")
     func selectiveRetries() async throws {
         let client = OverloadedConnection()

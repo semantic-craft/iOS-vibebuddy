@@ -22,7 +22,7 @@
 
 保留生命周期、完整 item、usage、审批和 resolution。initialize 只 opt-out 六个确切的未消费 delta 名称，客户端对这些无 id 的通知再过滤；同名 server request 不能被过滤。AsyncStream 最大 256 条，每条及 WebSocket 聚合 payload 最大 1 MiB，payload 缓冲理论上限 256 MiB，实际通常远低于此。
 
-溢出显式设置 requiresResynchronization 并关闭连接。consumer 消化已保留记录后报告 observationOverflow / sourceUnreadable；断线立刻撤销 store 的 progress/control lease，hooks 与 rollout 可接续。重连保留 reducer 及完成/usage 去重，读取曾 active 的实际 turn（最多 4 × 50），合并断线期间漏掉的完整终态。接入中途只有 active status、无 turn ID 时，读取该任务最新持久 turn。找不到或无法读取则持续报告恢复失败，不把它认证为 healthy。审批旧连接的 card 被撤下；重复 request ID 一次 hold / 一次响应。
+溢出显式设置 requiresResynchronization 并关闭连接。consumer 消化已保留记录后报告 observationOverflow / sourceUnreadable；断线立刻撤销 store 的 progress/control lease，hooks 与 rollout 可接续。重连保留 reducer 及完成/usage 去重，读取曾 active 的实际 turn（最多 4 × 50），合并断线期间漏掉的完整终态。接入中途只有 active status、无 turn ID 时，读取该任务最新持久 turn。找不到或无法读取时，仅对应任务保留未恢复标记，继续其他任务与 discovery；连接显示 uncertainThreads，sourceUnreadable 保留 rollout fallback，不伪造终态。只有匹配该丢失 turn ID 的真实 live 终态或后续成功恢复才解除标记。审批旧连接的 card 被撤下；重复 request ID 一次 hold / 一次响应。
 
 仅白名单读 RPC 对 -32001 最多三次、短退避加抖动。thread/resume、thread/turn 创建、steer、interrupt 和审批响应不走该重试路径。
 
@@ -57,5 +57,23 @@ swift test --skip-build --package-path VibeBuddyMac --scratch-path .scratch/buil
 
 - 真实生产者 rollout 回放与隔离 VibeBuddy HTTP snapshot 有证据。
 - app-server 协议使用真实安装 schema；恢复/过载/重复审批为 transport 边界回归，未虚构共享服务在线。
-- 大于 1 MiB 的消息或超出恢复分页范围会明确中止观测并交给 fallback；没有把截断结果当完整结果。
+- 大于 1 MiB 的消息会断开并重同步；超出恢复分页范围则明确保留该任务的恢复不足，其他任务继续观测，fallback 保持可用。没有把截断结果当完整结果。
 - Desktop 私有 writer、真实手机、通知投递延迟和生产安装没有在本票中获得新增覆盖。
+
+## 独立评审修复（2026-10-01）
+
+评审复现两个可靠性错误，已在 `33139836` 之后的修复提交中处理：
+
+1. 原 recover 在任一任务历史读取失败或四页内找不到旧 turn 时抛错，阻止所有新任务 discovery；未清理的 pending 又导致每次重连重复阻塞。现在逐任务隔离失败，保留未恢复身份但继续 discovery/live 消费；Diagnostics.uncertainThreads 明确报告数量。其他任务的新事件不能把这段缺失观察重新认证为 healthy，rollout 能立即接续。该任务实际匹配 turn ID 的 live completed/failed/interrupted 终态可以解除 pending，全部解除后恢复健康；其他任务或其他 turn 的终态不能清除它。
+2. 原 reducer 在 completion 去重前先写 inactive 并清 activeTurnID；r1 完成、r2 开始后重放 r1 完成虽返回空事件，却破坏 r2 的恢复身份。现在先核对当前 turn 身份及重复指纹，再改活动状态；旧终态不会结束或隐藏正在运行的新 turn。
+
+最后局部回归：
+
+```sh
+swift test --package-path VibeBuddyMac --scratch-path .scratch/build-codex-reliability \
+  --filter 'CodexReliabilityTests|CodexAppServerReducerTests|CodexAppServerApprovalTests'
+```
+
+39 tests / 6 suites 通过，日志 `.scratch/reliability-review-fixes.log`。新增测试实际驱动双连接 monitor + 独立 SessionStore：分别让历史分页耗尽和 RPC 失败，验证新任务仍被 discovery/subscription 且能消费真实边界注入的 live 生命周期；旧任务仍 working、无 completionID/完成文本，其他任务终态不清 uncertainty；实际 rollout 终态可以结束旧任务，而正确 turn ID 的随后 live 终态清除 uncertainty。另纯 reducer 回归验证 r1→r2→重放 r1 后 r2 turn ID、activeThreadIDs 与新工具事件都保留。`git diff --check` 通过。
+
+本段不把 transport fake 回归称为真实上游故障注入；之前的真实生产者回放和 HTTP snapshot 验收仍按上文界定。

@@ -14,15 +14,6 @@
 | WEB-01 | 跨项目 Web 工作台：项目分类、任务与 agent 看板 | [PRD](web-workbench/PRD.md) · [接入设计](web-workbench/issues/01-integration-contract.md) | needs-triage | 2026-10-01 用户提出方向；整合 Anamra 信息分类、Writing Infra 进度驱动安排及 VibeBuddy 执行；优先评估 Cloudflare Access 入口 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后** | 代码已丢失，重启时从 09 重做，见下节 |
 
-| AI10-01 | Codex 新版事件兼容与接入诊断 | [工单](agent-integration-2026-10/issues/01-codex-compatibility.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-02 | Cursor 审批 Hook 失败时保持预期行为 | [工单](agent-integration-2026-10/issues/02-cursor-approval-failures.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-03 | Codex 高负载与断线后的可靠观测 | [工单](agent-integration-2026-10/issues/03-codex-event-recovery.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-04 | Codex 会话历史按需分页 | [工单](agent-integration-2026-10/issues/04-codex-history.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-05 | 展示 Codex 长任务目标进度 | [工单](agent-integration-2026-10/issues/05-codex-goal.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-06 | 展示 Codex 后台终端 | [工单](agent-integration-2026-10/issues/06-codex-background-terminals.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-07 | Cursor 托管会话可靠使用已有 MCP | [工单](agent-integration-2026-10/issues/07-cursor-mcp.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-08 | Cursor 云任务实时通知与续连 | [工单](agent-integration-2026-10/issues/08-cursor-cloud-stream.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
-| AI10-09 | Cursor 持久会话断开后持续可见 | [工单](agent-integration-2026-10/issues/09-cursor-persistent-observation.md) | ready-for-agent | 无前置工单；协调会话分配写入范围 |
 
 ## 只剩真机或本人能确认的
 

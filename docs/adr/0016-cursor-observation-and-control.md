@@ -60,8 +60,10 @@ any contract for returning a tool *result* from a hook.
 commands and MCP calls included — before Cursor's own permission check. Wiring
 `beforeShellExecution` as well would raise two cards for one command, so it is
 deliberately left unwired. The reply is Cursor's own flat `{"permission": …}`;
-`ask` is never sent, because an empty body already means that and is what a
-timeout answers with.
+`ask` is not sent. A successful daemon reply carries `allow` or `deny`;
+transport failure or an empty reply supplies no permission decision and exits
+with code 1, leaving Cursor's native check in charge (amendment 3). An empty
+body is not a portable equivalent of `ask`.
 
 **A question is answered by denying it.** Cursor's `AskQuestion` arrives on the
 same `preToolUse` gate. `updated_input` only rewrites a call, so there is no way
@@ -106,8 +108,9 @@ a terminal keeps the ordinary terminal jump.
   the phone; a question can be answered from the phone; a supplement reaches a
   running turn at its next boundary; a finished chat can be continued; and the
   jump lands in Cursor.
-- Nothing vibebuddy installs can block Cursor: no hook sets `failClosed`, and
-  every failure path prints nothing, which Cursor reads as no opinion.
+- No approval transport failure supplies a permission decision: no hook sets
+  `failClosed`, and Cursor failures print nothing and exit 1. An explicit deny
+  still blocks its tool. Cursor's own permissions remain a separate check.
 - Two sources describing one conversation is now a normal state, so the
   transcript's authority window (two minutes of hook silence) is a real tuning
   knob. Too long and a long single tool call loses transcript coverage; too short
@@ -185,3 +188,50 @@ exits; a recorded PID and process start time block another host after an unclean
 A normally released lease clears its process identity. Cancelling or losing a process
 withdraws all open cards and queued follow-ups. Each handshake RPC is bounded
 by 60 seconds, with no automatic background retries.
+
+
+## Amendment 3 (2026-10-01): failure contracts, local MCP and persistent CLI discovery
+
+Cursor CLI `2026.09.28-64d2043` accepted empty stdout with exit 0 as a no-op
+in an actual shell run. It also allowed the baseline hook's HTTP-401 JSON error
+body under `--force`; neither probe reproduced an unexpected tool block. This
+is narrower than the current [Hooks documentation](https://cursor.com/docs/hooks),
+which says invalid success output can block permission hooks. The IDE was not
+independently exercised, so its empty-output behavior remains unverified.
+
+The approval forwarder now drops non-success HTTP and incomplete/failed curl
+responses. Empty or failed Cursor responses print nothing and exit 1, the
+documented default fail-open exit; other agents retain exit 0. Cursor's installed
+hook deadline is 35 seconds, above curl's 30-second budget. Actual CLI empty,
+unreachable, 401 and timeout probes continued; valid allow executed and valid
+deny blocked. Even a valid hook allow did not make a headless run without
+`--force` execute its write, preserving the CLI's native permission boundary.
+The blocking gate remains `preToolUse` alone; no second shell/MCP gate is added.
+
+`mcpServers: []` in `session/new` / `session/load` supplies no extra client
+servers; it does not disable Cursor's own project/user configuration. Actual
+authenticated ACP sessions discovered and called separate local stdio MCP
+servers from project `.cursor/mcp.json` and user `~/.cursor/mcp.json`, returning
+unique markers through completed tool calls. Project servers still require
+Cursor approval. VibeBuddy does not auto-approve servers, copy authentication,
+translate MCP credentials into ACP parameters or support dashboard team MCP.
+The process and session cwd stay the project/recovered cwd. Existing recovery
+and ownership contracts are unchanged.
+
+External `agent persist` conversations are discovered read-only using the
+installed CLI's `persist list`; this release has no JSON list format. Only
+complete native blocks with validated chat UUIDs and workspace paths count.
+Unavailable/changed output is distinct from a successful empty list. The
+snapshot's optional `cursorPersistentDiscovery` field and the Mac diagnostics
+page report availability separately, without adding a new ObservationSource
+wire enum that older phones would fail to decode.
+
+Attached/detached is terminal transport metadata, not a turn state. A newly
+discovered conversation gets a quiet `historyOnly` row and `controlChannel:
+none`, with no completion, notification, recovery grant or ACP takeover. Hooks
+and the transcript retain lifecycle authority and suppress duplicate rows. A
+real persistent task remained working after terminal detach, completed through
+hooks/transcript, and reattached under the same chat ID without changing its
+completion ID. A fresh isolated daemon discovered that existing terminal as
+metadata only, without replaying the finished turn. Stop/attach remain explicit
+Cursor CLI terminal actions; discovery never invokes them.

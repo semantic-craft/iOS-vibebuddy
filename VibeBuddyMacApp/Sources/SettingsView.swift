@@ -869,6 +869,9 @@ private struct DiagnosticsPage: View {
             if !d.serverRequestsSeen.isEmpty {
                 text += " · " + String(localized: "Approval requests seen: \(Set(d.serverRequestsSeen).sorted().joined(separator: ", "))")
             }
+            if d.uncertainThreads > 0 {
+                text += "\n" + String(localized: "Recovery incomplete for \(d.uncertainThreads) tasks; other sources remain available.")
+            }
             // A daemon left running across a Codex update speaks an older
             // protocol than this Mac expects, and nothing else says so.
             if let drift = ObservationHealthDetector.codexAppServerVersionDrift(

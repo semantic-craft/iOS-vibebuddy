@@ -7,3 +7,5 @@
 研究依据：../../../research/codex-cursor-official-docs-2026-10-01.md
 
 完成时保留验收记录；按项目约定删除已完成工单及索引行。
+
+九项实施及可用验收已完成；原始工单保存在提交 `aec5edda`。结果与明确的验收边界见 [验收汇总](acceptance.md)。
