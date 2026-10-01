@@ -164,6 +164,7 @@ struct InboxHomeView: View {
     let showOlder: () -> Void
     /// "Read pending": the queue above, spoken in order (ticket 04).
     let readPending: () -> Void
+    var grokMonitoring: GrokMonitoringStatus? = nil
     /// Decisions this phone accepted and is holding until it can reach the
     /// Mac (ADR-0032). Shown above the queue: they are the person's own
     /// unfinished business, and the reason nothing below has moved.
@@ -180,6 +181,10 @@ struct InboxHomeView: View {
         typeSize.isAccessibilitySize
             ? [GridItem(.flexible(), spacing: 12)]
             : [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    }
+
+    private var hasGrokDiscovery: Bool {
+        (agent == nil || agent == .grok) && !(grokMonitoring?.discoveredSessions.isEmpty ?? true)
     }
 
     var body: some View {
@@ -199,12 +204,17 @@ struct InboxHomeView: View {
             .padding(.top, 2)
             PhoneAgentStrip(items: roster, quotas: quotas, selection: $agent, now: now)
                 .padding(.top, 10)
+            if let grokMonitoring, agent == nil || agent == .grok {
+                PhoneGrokMonitoring(status: grokMonitoring)
+                    .padding(.horizontal, PhoneMetrics.gutter)
+                    .padding(.top, 12)
+            }
             if !held.isEmpty {
                 heldStrip
                     .padding(.horizontal, PhoneMetrics.gutter)
                     .padding(.top, 12)
             }
-            if !projection.hasCurrent {
+            if !projection.hasCurrent && !hasGrokDiscovery {
                 // One agent being quiet is not the fleet being quiet, and the
                 // strip above is the way back out, so say which one this is.
                 PhoneEmptyState(symbol: "moon.zzz",
@@ -224,7 +234,7 @@ struct InboxHomeView: View {
                         .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
                     }
                 }
-            } else {
+            } else if projection.hasCurrent {
                 if let first = projection.firstUp {
                     firstUpRow(first)
                         .padding(.horizontal, PhoneMetrics.gutter)
