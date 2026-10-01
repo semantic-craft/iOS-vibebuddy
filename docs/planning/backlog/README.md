@@ -8,12 +8,7 @@
 
 | ID | 内容 | 票据 | 状态 | 说明 |
 |---|---|---|---|---|
-| IOSP-01 | 手机朗读配置与明确保存 | [ticket](ios-companion-parity/issues/01-speech-configuration.md) | ready-for-agent | None (can start immediately) |
-| IOSP-02 | 能力识别与只读任务目标 | [ticket](ios-companion-parity/issues/02-capabilities-goal.md) | ready-for-agent | None (can start immediately) |
-| IOSP-03 | Codex 分页历史与后台终端 | [ticket](ios-companion-parity/issues/03-history-terminals.md) | ready-for-agent | 02: 能力识别与只读任务目标 |
-| IOSP-04 | 手机状态、语言与无障碍 | [ticket](ios-companion-parity/issues/04-status-accessibility.md) | ready-for-agent | None (can start immediately) |
-| IOSP-05 | 朗读播放反馈与恢复 | [ticket](ios-companion-parity/issues/05-playback-recovery.md) | ready-for-agent | 01: 手机朗读配置与明确保存 |
-| IOSP-06 | 整体验收与双轴评审 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-agent | 01, 02, 03, 04, 05 |
+| IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 真机、MiniMax 凭据及可操作的模拟器图形界面 |
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
 | SET-01 | macOS 设置易用性与 Agent 可操作性 | [工单、清单与实施计划](mac-settings-usability/issues/01-settings-ux-dx-ax.md) | needs-triage | 已用 Computer Use 遍历 11 个分类；10 项问题待确认实施，保留现有语言与连接改动 |

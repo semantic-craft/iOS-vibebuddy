@@ -1,4 +1,5 @@
 import SwiftUI
+import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// Only the selected task is queried. No state or control capability is inferred from these reads.

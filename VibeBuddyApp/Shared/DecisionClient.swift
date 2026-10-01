@@ -3,6 +3,8 @@ import VibeBuddyKit
 
 /// POSTs an approve/deny decision back to the Mac.
 protocol DecisionClient: Sendable {
+    func taskReadCapabilities(_ pairing: PairingPayload) async throws -> TaskReadCapabilities
+    func taskRead(_ pairing: PairingPayload, sourceID: String, sessionID: String, kind: TaskReadKind, cursor: String?) async throws -> TaskReadResponse
     func history(_ pairing: PairingPayload, sourceID: String, key: String, cursor: String?) async throws -> HistoryPage
     func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState
     func updateContentStyle(_ pairing: PairingPayload, update: ContentStyleUpdate) async throws -> ContentStyleState
@@ -71,6 +73,8 @@ protocol DecisionClient: Sendable {
 enum ContentRequestFailure: Error { case unavailable, conflict, invalid }
 
 extension DecisionClient {
+    func taskReadCapabilities(_ pairing: PairingPayload) async throws -> TaskReadCapabilities { throw HistoryFailure("unsupported_mac") }
+    func taskRead(_ pairing: PairingPayload, sourceID: String, sessionID: String, kind: TaskReadKind, cursor: String?) async throws -> TaskReadResponse { throw HistoryFailure("unsupported_mac") }
     func history(_ pairing: PairingPayload, sourceID: String, key: String, cursor: String?) async throws -> HistoryPage { throw HistoryFailure("source_unavailable") }
     func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState { throw ContentRequestFailure.unavailable }
     func updateContentStyle(_ pairing: PairingPayload, update: ContentStyleUpdate) async throws -> ContentStyleState { throw ContentRequestFailure.unavailable }
@@ -110,6 +114,27 @@ extension DecisionClient {
 }
 
 struct HTTPDecisionClient: DecisionClient {
+    func taskReadCapabilities(_ pairing: PairingPayload) async throws -> TaskReadCapabilities {
+        try await taskReadRequest(pairing, path: "task-read-capabilities", query: [])
+    }
+    func taskRead(_ pairing: PairingPayload, sourceID: String, sessionID: String, kind: TaskReadKind, cursor: String?) async throws -> TaskReadResponse {
+        var query = [URLQueryItem(name: "sourceID", value: sourceID), URLQueryItem(name: "sessionID", value: sessionID), URLQueryItem(name: "kind", value: kind.rawValue)]
+        if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return try await taskReadRequest(pairing, path: "task-read", query: query)
+    }
+    private func taskReadRequest<T: Decodable>(_ pairing: PairingPayload, path: String, query: [URLQueryItem]) async throws -> T {
+        guard let url = pairing.companionURL(path: path), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw HistoryFailure("source_unavailable") }
+        parts.queryItems = query
+        guard let endpoint = parts.url else { throw HistoryFailure("invalid_request") }
+        let request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        let (data, response) = try await CompanionTransport.data(for: request, pairing: pairing)
+        guard let http = response as? HTTPURLResponse else { throw HistoryFailure("source_unavailable") }
+        if http.statusCode == 404 && path == "task-read-capabilities" { throw HistoryFailure("unsupported_mac") }
+        guard http.statusCode == 200 else { throw (try? JSONDecoder().decode(HistoryFailure.self, from: data)) ?? HistoryFailure("source_unavailable") }
+        guard data.count <= 1_048_576 else { throw HistoryFailure("message_exceeds_budget") }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
     func history(_ pairing: PairingPayload, sourceID: String, key: String, cursor: String?) async throws -> HistoryPage {
         guard let url = pairing.companionURL(path: "history"), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw HistoryFailure("source_unavailable") }
         parts.queryItems = [URLQueryItem(name: "sourceID", value: sourceID), URLQueryItem(name: "key", value: key), URLQueryItem(name: "limit", value: "30")]

@@ -116,6 +116,17 @@ final class PhoneAnnouncer: ObservableObject {
     @Published private(set) var items: [AnnouncementPlan.Item] = []
     @Published private(set) var spokenCount = 0
 
+    @Published private(set) var canUseSystemSpeech = false
+    @Published private(set) var voiceOwnsAudio = false
+    private struct Recovery {
+        let text: String
+        let item: AnnouncementPlan.Item
+        let position: Int?
+        let remember: Bool
+        let validate: @MainActor () -> Bool
+    }
+    private var recovery: Recovery?
+
     private let queue = CompletionSpeechQueue()
     private let providerKey: @MainActor (VoiceProvider) -> String?
     private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)?
@@ -143,10 +154,17 @@ final class PhoneAnnouncer: ObservableObject {
         self.makeSynthesizer = makeSynthesizer
         queue.onBusyChanged = { [weak self] busy in
             guard let self else { return }
-            self.isBusy = busy || self.player?.isPlaying == true || self.systemVoice?.isSpeaking == true
-            if !busy, self.player == nil, self.systemVoice?.isSpeaking != true { self.finishRun() }
+            self.isBusy = busy || self.recovery != nil || self.player?.isPlaying == true || self.systemVoice?.isSpeaking == true
+            if !busy, self.recovery == nil, self.player == nil, self.systemVoice?.isSpeaking != true { self.finishRun() }
         }
         let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            guard (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
+            Task { @MainActor in self?.pause(interrupted: true) }
+        })
+        observers.append(center.addObserver(forName: UIAccessibility.voiceOverStatusDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in if UIAccessibility.isVoiceOverRunning { self?.pause() } }
+        })
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             guard (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue else { return }
             Task { @MainActor in self?.pause(interrupted: true) }
@@ -184,6 +202,7 @@ final class PhoneAnnouncer: ObservableObject {
         // A live voice call owns the audio route: the run is queued but
         // waits for the person to resume it once the call is over.
         if startPaused {
+            voiceOwnsAudio = true
             pause()
             status = String(localized: "Paused while the voice call is live")
         }
@@ -212,10 +231,11 @@ final class PhoneAnnouncer: ObservableObject {
     }
 
     func resume() {
-        guard isPaused else { return }
+        guard isPaused, recovery == nil, !voiceOwnsAudio else { return }
         if activeValidation?() == false { skip(); isPaused = false; queue.resume(); return }
         isPaused = false
-        status = nil
+        status = String(localized: "Reading…")
+        try? activateAudioSession()
         queue.resume()
         if let player, playerNeedsResume {
             playerNeedsResume = false
@@ -226,8 +246,12 @@ final class PhoneAnnouncer: ObservableObject {
 
     /// Skips the item being spoken. The result stays unread.
     func skip() {
+        recovery = nil
+        canUseSystemSpeech = false
         stopPlayback()
         generation = UUID()
+        // Skipping changes the item, not the user's pause decision. A call
+        // ending also leaves reading paused until an explicit Resume.
         queue.skip()
         status = String(localized: "Skipped · still unread")
     }
@@ -236,7 +260,7 @@ final class PhoneAnnouncer: ObservableObject {
         guard let latest else { return }
         guard sourceIdentity?() == latest.source else { sourceChanged(); return }
         cancelPreview()
-        let prefix = VoiceSettings.conversationLanguage() == .chinese ? "此前播报。" : "Previous announcement. "
+        let prefix = PhoneReadAloudSelection.language() == .chinese ? "此前播报。" : "Previous announcement. "
         let runID = run
         queue.enqueue(id: "replay/" + UUID().uuidString, priority: true) { [weak self] in
             guard let self, self.run == runID else { return }
@@ -246,7 +270,8 @@ final class PhoneAnnouncer: ObservableObject {
 
     /// A live voice conversation takes the audio route; reading pauses and
     /// does not resume on its own.
-    func voiceStarted() { cancelPreview(); pause() }
+    func voiceStarted() { voiceOwnsAudio = true; cancelPreview(); pause() }
+    func voiceEnded() { voiceOwnsAudio = false }
 
     func sourceChanged() {
         stop()
@@ -256,7 +281,8 @@ final class PhoneAnnouncer: ObservableObject {
     }
 
     func preview() {
-        guard !isBusy else { return }
+        guard !isBusy, !voiceOwnsAudio else { return }
+        cancelPreview()
         isPreviewing = true
         previewMessage = nil
         status = nil
@@ -264,7 +290,7 @@ final class PhoneAnnouncer: ObservableObject {
         let previewGeneration = generation
         previewTask = Task { [weak self] in
             guard let self, !Task.isCancelled, self.generation == previewGeneration else { return }
-            let language = VoiceSettings.conversationLanguage()
+            let language = PhoneReadAloudSelection.language()
             let text = PhoneReadAloudSelection.load().voiceStyle.previewLine(language)
                 ?? (language == .chinese ? "这是本机播报试听。任务已经完成，下一步请查看结果。" : "This is a voice preview. The task is complete. Please review the result.")
             let item = AnnouncementPlan.Item(sessionID: "preview", title: "", sound: .agentDone, round: "preview")
@@ -279,13 +305,15 @@ final class PhoneAnnouncer: ObservableObject {
 
     func cancelPreview() {
         previewMessage = nil
-        guard isPreviewing else { return }
+        guard isPreviewing || recovery?.item.sessionID == "preview" else { return }
         previewTask?.cancel()
         previewTask = nil
         stop()
     }
 
     func stop() {
+        recovery = nil
+        canUseSystemSpeech = false
         previewTask?.cancel()
         previewTask = nil
         isPreviewing = false
@@ -295,6 +323,7 @@ final class PhoneAnnouncer: ObservableObject {
         spokenCount = 0
         status = nil
         queue.cancel()
+        queue.resume()
         stopPlayback()
         current = nil
         isPaused = false
@@ -331,8 +360,10 @@ final class PhoneAnnouncer: ObservableObject {
     }
 
     private func play(text: String, item: AnnouncementPlan.Item, position: Int?, remember: Bool,
-                      label: String? = nil, validate: @escaping @MainActor () -> Bool) async {
+                      label: String? = nil, useSystemSpeech: Bool = false, validate: @escaping @MainActor () -> Bool) async {
         let current = generation
+        let selection = PhoneReadAloudSelection.load()
+        let providerReading: Bool = if case .provider = selection { !useSystemSpeech } else { false }
         activeValidation = validate
         defer { if generation == current { activeValidation = nil } }
         if let position { self.current = (item, position, runTotal) }
@@ -340,11 +371,14 @@ final class PhoneAnnouncer: ObservableObject {
             try await waitWhilePaused()
             guard !Task.isCancelled, generation == current, validate() else { return }
             try activateAudioSession()
-            if case .provider(let provider) = PhoneReadAloudSelection.load() {
-                guard let synthesizer = makeSynthesizer(VoiceSettings.readAloudConfiguration(provider)),
-                      let key = providerKey(provider), !key.isEmpty else {
+            if providerReading, case .provider(let provider) = selection {
+                guard let key = providerKey(provider), !key.isEmpty else {
                     status = String(localized: "Configure this provider’s API key or choose System speech.")
+                    offerRecovery(text: text, item: item, position: position, remember: remember, validate: validate)
                     return
+                }
+                guard let synthesizer = makeSynthesizer(PhoneReadAloudSelection.configuration(provider)) else {
+                    throw SpeechSynthesisFailure.configuration
                 }
                 status = String(localized: "Generating speech…")
                 let data = try await synthesizer.synthesize(text, apiKey: key)
@@ -353,8 +387,8 @@ final class PhoneAnnouncer: ObservableObject {
                 guard !Task.isCancelled, generation == current, validate() else { return }
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
-                guard player.play() else { status = String(localized: "Could not play the audio."); self.player = nil; return }
-                status = label
+                guard player.play() else { self.player = nil; throw SpeechSynthesisFailure.transport }
+                status = label ?? String(localized: "Reading…")
                 if remember, let source = sourceIdentity?() { latest = (text, item, source); canReplay = true }
                 while (player.isPlaying || isPaused) && !Task.isCancelled && generation == current {
                     try await waitWhilePaused()
@@ -366,7 +400,7 @@ final class PhoneAnnouncer: ObservableObject {
                 let synthesizer = AVSpeechSynthesizer()
                 systemVoice = synthesizer
                 let utterance = AVSpeechUtterance(string: text)
-                utterance.voice = AVSpeechSynthesisVoice(language: VoiceSettings.conversationLanguage() == .chinese ? "zh-CN" : "en-US")
+                utterance.voice = AVSpeechSynthesisVoice(language: PhoneReadAloudSelection.language() == .chinese ? "zh-CN" : "en-US")
                 // delegate is weak: keep this exact utterance's lifecycle alive
                 // until a terminal callback, cancellation, or timeout.
                 let lifecycle = SystemSpeechLifecycle(synthesizer: synthesizer, utterance: utterance)
@@ -376,7 +410,7 @@ final class PhoneAnnouncer: ObservableObject {
                     synthesizer.stopSpeaking(at: .immediate)
                     if generation == current { systemVoice = nil }
                 }
-                status = label
+                status = label ?? String(localized: "Reading…")
                 if remember, let source = sourceIdentity?() { latest = (text, item, source); canReplay = true }
                 synthesizer.speak(utterance)
                 let clock = ContinuousClock()
@@ -405,16 +439,56 @@ final class PhoneAnnouncer: ObservableObject {
                     activeTime += tick.duration(to: clock.now)
                 }
             }
-            if generation == current, !Task.isCancelled { spokenCount += 1 }
+            if generation == current, !Task.isCancelled { spokenCount += 1; status = label }
         } catch let failure as SpeechSynthesisFailure {
             guard generation == current, !Task.isCancelled else { return }
-            status = failure.message
+            status = NSLocalizedString(failure.message, comment: "Speech failure")
+            if providerReading { offerRecovery(text: text, item: item, position: position, remember: remember, validate: validate) }
         } catch is CancellationError {
             // Skipped or stopped: the owner already said why.
         } catch {
             guard generation == current, !Task.isCancelled else { return }
             status = String(localized: "Could not play the audio.")
+            if providerReading { offerRecovery(text: text, item: item, position: position, remember: remember, validate: validate) }
         }
+    }
+
+    private func offerRecovery(text: String, item: AnnouncementPlan.Item, position: Int?, remember: Bool,
+                               validate: @escaping @MainActor () -> Bool) {
+        recovery = Recovery(text: text, item: item, position: position, remember: remember, validate: validate)
+        canUseSystemSpeech = true
+        isPaused = true
+        queue.pause()
+        deactivateAudioSession()
+    }
+
+    /// An explicit one-item fallback. It reuses verified text, never calls a paid
+    /// service, never changes the configured provider, and rechecks the round.
+    func useSystemSpeech() {
+        guard let recovery, !voiceOwnsAudio else { return }
+        self.recovery = nil
+        canUseSystemSpeech = false
+        guard recovery.validate() else {
+            status = String(localized: "Skipped · task or content style changed")
+            isPaused = false
+            queue.resume()
+            return
+        }
+        let runID = run
+        previewMessage = nil
+        let preview = recovery.item.sessionID == "preview"
+        if preview { isPreviewing = true }
+        queue.enqueue(id: "system-recovery/" + UUID().uuidString, priority: true) { [weak self] in
+            guard let self, self.run == runID else { return }
+            await self.play(text: recovery.text, item: recovery.item, position: recovery.position,
+                            remember: recovery.remember, useSystemSpeech: true, validate: recovery.validate)
+            if preview, self.run == runID {
+                self.previewMessage = self.status ?? String(localized: "Preview finished")
+                self.isPreviewing = false
+            }
+        }
+        isPaused = false
+        queue.resume()
     }
 
     private func waitWhilePaused() async throws {
@@ -503,6 +577,7 @@ struct AnnouncerStrip: View {
                 PhoneCircleButton(announcer.isPaused ? "play.fill" : "pause.fill", size: 30, tint: CompanionPalette.ink2) {
                     announcer.togglePause()
                 }
+                .disabled(announcer.canUseSystemSpeech || announcer.voiceOwnsAudio)
                 .accessibilityLabel(announcer.isPaused ? "Resume reading" : "Pause reading")
                 PhoneCircleButton("forward.end.fill", size: 30, tint: CompanionPalette.ink2) { announcer.skip() }
                     .accessibilityLabel("Skip")

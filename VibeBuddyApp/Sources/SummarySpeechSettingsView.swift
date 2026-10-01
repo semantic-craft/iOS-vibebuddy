@@ -10,7 +10,7 @@ struct SummarySpeechSettingsView: View {
     @State private var baseline: ContentStyleState?
     @State private var hasUserEdits = false
     @AppStorage(PhoneReadAloudSelection.defaultsKey) private var selectionRaw = ""
-    @AppStorage(VoiceSettings.conversationLanguageKey) private var previewLanguage = VoiceLanguage.english.rawValue
+    @AppStorage(PhoneReadAloudSelection.languageKey) private var previewLanguage = ""
     @State private var providerWithKey: VoiceProvider?
 
     private var selection: PhoneReadAloudSelection { PhoneReadAloudSelection(rawValue: selectionRaw) }
@@ -83,6 +83,13 @@ struct SummarySpeechSettingsView: View {
             }
 
             Section {
+                Picker("Reading language", selection: $previewLanguage) {
+                    Text("Follow conversation language").tag("")
+                    Text("English").tag(VoiceLanguage.english.rawValue)
+                    Text("简体中文").tag(VoiceLanguage.chinese.rawValue)
+                }
+                .accessibilityIdentifier("phone-reading-language")
+                Text("Reading language controls the device voice. Summary wording and language are configured on your Mac.").foregroundStyle(.secondary)
                 Picker("Speech service", selection: $selectionRaw) {
                     Text("System speech").tag("system")
                     ForEach(VoiceProvider.allCases.filter { SpeechSynthesis.support($0) != nil }, id: \.rawValue) {
@@ -91,7 +98,7 @@ struct SummarySpeechSettingsView: View {
                 }
                 .accessibilityIdentifier("phone-speech-service")
                 if case .provider(let provider) = selection {
-                    PhoneProviderSpeechSettings(provider: provider, providerWithKey: $providerWithKey).id(provider.rawValue)
+                    PhoneProviderSpeechSettings(provider: provider, language: PhoneReadAloudSelection.language(), providerWithKey: $providerWithKey).id(provider.rawValue)
                 } else {
                     Text("System speech uses the device voice. Presenter style is unavailable.").foregroundStyle(.secondary)
                 }
@@ -105,12 +112,16 @@ struct SummarySpeechSettingsView: View {
                     Text(reason).foregroundStyle(.secondary)
                         .accessibilityIdentifier("phone-preview-unavailable")
                 }
+                if announcer.canUseSystemSpeech {
+                    Button("Read this item with system speech") { announcer.useSystemSpeech() }
+                        .disabled(voice.phase != .idle)
+                }
                 if let message = announcer.previewMessage { Text(message).foregroundStyle(.secondary) }
                 if announcer.isPreviewing, let status = announcer.status { Text(status).foregroundStyle(.secondary) }
             } header: {
                 Text("Read aloud on this iPhone")
             } footer: {
-                Text("Voice and presenter style apply to the next announcement on this iPhone. Voice conversation has its own service selection. Preview is available when reading and voice calls are idle.")
+                Text("Summaries are generated on your Mac. Audio plays on this iPhone. API keys are saved separately on each device. Reading language and voice apply to the next announcement; voice conversation keeps its own settings.")
             }
         }
         .phoneList()
@@ -148,18 +159,32 @@ struct SummarySpeechSettingsView: View {
 
 private struct PhoneProviderSpeechSettings: View {
     let provider: VoiceProvider
+    let language: VoiceLanguage
     @EnvironmentObject private var announcer: PhoneAnnouncer
     @Binding var providerWithKey: VoiceProvider?
     @State private var model = ""
     @State private var selectedVoice = ""
     @State private var style = VoiceStyle.standard
     @State private var key = ""
-    @State private var keySaveFailed = false
+    @State private var keyMessage: String?
+    @State private var keySaved = false
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
 
+    private func saveKey(_ value: String?) {
+        guard KeychainStore.set(value, for: provider.keychainAccount) == 0 else {
+            keyMessage = String(localized: "Could not update the saved key. Your previous key is unchanged.")
+            return
+        }
+        key = ""
+        keySaved = value != nil
+        providerWithKey = keySaved ? provider : nil
+        keyMessage = String(localized: "API key updated on this iPhone")
+        announcer.cancelPreview()
+    }
+
     var body: some View {
-        let configuration = VoiceSettings.readAloudConfiguration(provider)
+        let configuration = VoiceSettings.readAloudConfiguration(provider, language: language)
         let voices = VoiceCatalog.voices(.readAloud, provider)
         let styledVoice = style.voice(for: provider, language: configuration.language, qwenUseIntl: intl)
         let displayedVoice = styledVoice?.voice ?? selectedVoice
@@ -182,20 +207,25 @@ private struct PhoneProviderSpeechSettings: View {
         } else {
             Text("This speech service does not support presenter styles.").foregroundStyle(.secondary)
         }
-        if !provider.hasAPIKey { Text("Configure this provider’s API key or choose System speech.").foregroundStyle(.secondary) }
+        if !keySaved { Text("Configure this provider’s API key or choose System speech.").foregroundStyle(.secondary) }
         DisclosureGroup("Service settings") {
-            SecureField("API key", text: Binding(get: { key }, set: { value in
-                key = value
-                keySaveFailed = KeychainStore.set(value, for: provider.keychainAccount) != 0
-                providerWithKey = !keySaveFailed && provider.hasAPIKey ? provider : nil
-                announcer.cancelPreview()
-            }))
-            .textInputAutocapitalization(.never).autocorrectionDisabled()
+            Text(keySaved ? "API key saved on this iPhone" : "No API key saved on this iPhone")
+            SecureField("New API key", text: $key)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .accessibilityIdentifier("phone-api-key-draft")
+            Button("Save API key") { saveKey(key.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("phone-save-api-key")
+            Button("Cancel key edit") { key = ""; keyMessage = nil }
+                .disabled(key.isEmpty)
+            if keySaved {
+                Button("Delete saved API key", role: .destructive) { saveKey(nil) }
+            }
             Link("Get an API key", destination: provider.apiKeyURL)
-            if keySaveFailed { Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.").foregroundStyle(.orange) }
+            if let keyMessage { Text(keyMessage).foregroundStyle(.secondary) }
             TextField("Speech model", text: Binding(get: { styledVoice?.model ?? model }, set: { model = $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
                 .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
-            if let modelURL = provider.modelDocumentationURL(for: .speechSynthesis, model: model) {
+            if let modelURL = provider.modelDocumentationURL(for: .speechSynthesis, model: styledVoice?.model ?? model) {
                 Link("Speech synthesis model help", destination: modelURL)
                     .accessibilityIdentifier("phone-speech-model-help")
             }
@@ -206,7 +236,7 @@ private struct PhoneProviderSpeechSettings: View {
                 Toggle("Use Singapore (international) region", isOn: $intl)
             }
             if provider == .minimax {
-                Text("Use a MiniMax China Token Plan key. Summaries default to M3.1 Flash Preview with low reasoning; speech defaults to Speech 2.8 Turbo.").foregroundStyle(.secondary)
+                Text("Use a MiniMax China Token Plan key for speech on this iPhone. The default speech model is Speech 2.8 Turbo. Configure the summary model and its key on your Mac.").foregroundStyle(.secondary)
             } else {
                 Text("Credentials and region are shared with this provider’s voice conversation on this iPhone.").foregroundStyle(.secondary)
             }
@@ -215,8 +245,8 @@ private struct PhoneProviderSpeechSettings: View {
             model = configuration.model
             selectedVoice = configuration.voice
             style = configuration.style
-            key = provider.apiKey ?? ""
-            providerWithKey = provider.hasAPIKey ? provider : nil
+            keySaved = provider.hasAPIKey
+            providerWithKey = keySaved ? provider : nil
         }
         .onChange(of: model) { _, value in
             UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudModelKey(provider))

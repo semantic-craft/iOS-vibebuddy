@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var systemNotifications: UNNotificationSettings?
     @State private var requestingNotifications = false
     @State private var notificationActionFailed = false
+    @State private var languageSettingsFailed = false
     @EnvironmentObject private var voice: VoiceChat
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var connection: ConnectionStore
@@ -32,6 +33,7 @@ struct SettingsView: View {
                         row("Notifications & sounds", "bell.badge") { notificationSettings }
                         row("Voice conversation", "waveform") { voiceSettings }
                         row("Summary & speech", "speaker.wave.2") { SummarySpeechSettingsView() }
+                        row("App language", "globe") { languageSettings }
                     } header: {
                         sectionTitle("This iPhone")
                     }
@@ -245,6 +247,30 @@ struct SettingsView: View {
         .animation(.smooth, value: provider)
     }
 
+    private var languageSettings: some View {
+        Form {
+            Section {
+                LabeledContent("Current app language", value: Bundle.main.preferredLocalizations.first
+                    .flatMap { Locale.current.localizedString(forLanguageCode: $0) } ?? String(localized: "System default"))
+                Button("Open iOS app settings") {
+                    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                    openURL(url) { accepted in languageSettingsFailed = !accepted }
+                }
+                .accessibilityIdentifier("openAppLanguageSettings")
+                .accessibilityHint("Choose the app language in iOS Settings.")
+                if languageSettingsFailed {
+                    Text("Settings could not be opened. Open iOS Settings and find Vibebuddy.")
+                        .foregroundStyle(CompanionPalette.ink2)
+                }
+            } footer: {
+                Text("iOS manages the app language. If Language is missing from this app’s settings, add another preferred language in Settings → General → Language & Region. Voice language is configured separately in Summary & speech.")
+            }
+        }
+        .phoneList()
+        .navigationTitle("App language")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var observationDiagnostics: some View {
         Form {
             if dashboard.state != .connected && !dashboard.observationDiagnostics.isEmpty {
@@ -260,7 +286,8 @@ struct SettingsView: View {
                 }
                 ForEach(dashboard.observationDiagnostics) { agent in
                     VStack(alignment: .leading, spacing: 7) {
-                        Text(agent.agent.displayName).font(CompanionType.font(17, .semibold))
+                        Text(agent.agent.displayName).font(.headline)
+                            .accessibilityAddTraits(.isHeader)
                         ForEach(agent.sources) { source in
                             ObservationDiagnosticRow(source: source)
                         }
@@ -269,7 +296,7 @@ struct SettingsView: View {
             } header: {
                 Text("Observation health")
             } footer: {
-                Text("Each row describes one source. Configuration changes are made on the Mac; a healthy source does not verify every session or its approvals.")
+                Text("Configured coverage describes the Mac’s setup. Received coverage lists signals seen since the Mac app launched. Neither grants control of a task. Make configuration changes on the Mac; a healthy source does not verify every session or its approvals.")
             }
         }
         .phoneList()

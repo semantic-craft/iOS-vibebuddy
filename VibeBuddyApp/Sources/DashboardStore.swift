@@ -266,7 +266,7 @@ final class DashboardStore: ObservableObject {
               let current = AnnouncementPlan.stillCurrent(item, in: allSessions), target.matches(current) else {
             throw ContentRequestFailure.conflict
         }
-        let chinese = VoiceSettings.conversationLanguage() == .chinese
+        let chinese = PhoneReadAloudSelection.language() == .chinese
         let brief: String
         let savedCompletionNotice: CompletionNotice?
         if case .completion = target {
@@ -1516,6 +1516,28 @@ final class DashboardStore: ObservableObject {
     func readerAuthorityIsCurrent(scope: String) -> Bool {
         (isDemo || sourceID != nil) && pairingEpoch == ConnectionStore.pairingEpoch
             && scope == (sourceID ?? "unknown") + "/" + pairingEpoch
+    }
+
+    func taskReadCapabilities(scope: String) async throws -> TaskReadCapabilities {
+        guard readerAuthorityIsCurrent(scope: scope), let sourceID, let pairing, state == .connected else { throw HistoryFailure("source_unavailable") }
+        let generation = connectionGeneration
+        let capabilities = try await decisionClient.taskReadCapabilities(pairing)
+        try Task.checkCancellation()
+        guard readerAuthorityIsCurrent(scope: scope), self.pairing == pairing, generation == connectionGeneration,
+              state == .connected, capabilities.sourceID == sourceID else { throw HistoryFailure("source_changed") }
+        return capabilities
+    }
+
+    func taskRead(for session: AgentSession, scope: String, kind: TaskReadKind, cursor: String? = nil) async throws -> TaskReadResponse {
+        guard readerAuthorityIsCurrent(scope: scope), let sourceID, let pairing, state == .connected,
+              allSessions.contains(where: { $0.id == session.id && $0.agent == .codex }) else { throw HistoryFailure("source_unavailable") }
+        let generation = connectionGeneration
+        let result = try await decisionClient.taskRead(pairing, sourceID: sourceID, sessionID: session.id, kind: kind, cursor: cursor)
+        try Task.checkCancellation()
+        guard readerAuthorityIsCurrent(scope: scope), self.pairing == pairing, generation == connectionGeneration,
+              state == .connected, result.sourceID == sourceID, result.sessionID == session.id,
+              result.kind == kind else { throw HistoryFailure("source_changed") }
+        return result
     }
 
     func history(for session: AgentSession, scope: String, cursor: String?) async throws -> HistoryPage {
