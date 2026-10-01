@@ -10,7 +10,8 @@ import VibeBuddyKit
 struct CursorQuotaRelayTests {
     @Test("Cursor pools survive Mac snapshot, phone projection, and Watch serialization")
     func poolsAndSourceTransitions() async throws {
-        let now = Date()
+        // Keep the observation inside this fixture's billing cycle.
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-09-15T12:00:00Z"))
         let json = #"{"billingCycleStart":"2026-09-01T00:00:00Z","billingCycleEnd":"2026-10-01T00:00:00Z","individualUsage":{"plan":{"autoPercentUsed":24,"apiPercentUsed":61}}}"#
         let sample = try CursorUsageSummaryDecoder.decode(Data(json.utf8), fetchedAt: now)
         #expect(sample.independentPools.map(\.label) == ["Cursor Models", "Other Models"],
@@ -37,7 +38,7 @@ struct CursorQuotaRelayTests {
                 #expect(cursor.otherWindows?.map(\.remainingPercent) == [76, 39])
                 #expect(cursor.stripWindows(now: now).map(\.remainingPercent) == [39, 76],
                         "both pools reach the wrist, tightest first")
-                #expect(cursor.displayWindow().label == "Other Models",
+                #expect(cursor.displayWindow(now: now).label == "Other Models",
                         "one row reads the pool that would stop the next turn, not the first one listed")
                 #expect(cursor.otherWindows?.allSatisfy { $0.durationMinutes == 43200 && $0.observedAt == now } == true)
                 for window in cursor.otherWindows ?? [] {
@@ -47,7 +48,7 @@ struct CursorQuotaRelayTests {
                 }
             } else {
                 #expect(cursor.unavailableReason != nil)
-                #expect(cursor.displayWindow().remainingPercent == nil)
+                #expect(cursor.displayWindow(now: now).remainingPercent == nil)
             }
         }
     }
