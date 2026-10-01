@@ -23,8 +23,8 @@ public struct NotchGeometry: Equatable, Sendable {
     }
 }
 
-/// How the glance renders: hugging the hardware notch (content only beside or
-/// below it, never inside it), or a capsule hanging under the menu bar.
+/// How the glance renders: housing-width content below the camera, never
+/// inside it, or a capsule hanging under the menu bar.
 public enum GlanceLayout: Equatable, Sendable {
     case notch(NotchGeometry)
     case pill(menuBarHeight: CGFloat)
@@ -32,5 +32,12 @@ public enum GlanceLayout: Equatable, Sendable {
     public var notch: NotchGeometry? {
         if case .notch(let geometry) = self { return geometry }
         return nil
+    }
+
+    /// Input follows NSScreen.screens order (menu-bar screen first). Prefer an
+    /// available hardware notch; otherwise stay on the menu-bar screen, never
+    /// following keyboard focus. Empty input means no visible display.
+    public static func preferredScreenIndex(in layouts: [GlanceLayout]) -> Int? {
+        layouts.firstIndex { $0.notch != nil } ?? (layouts.isEmpty ? nil : 0)
     }
 }

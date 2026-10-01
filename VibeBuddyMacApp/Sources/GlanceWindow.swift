@@ -34,7 +34,8 @@ private final class KeyablePanel: NSPanel {
 }
 
 /// The glance's window: one transparent panel, pre-sized to the largest thing
-/// the glance ever draws and pinned to the top centre of the menu-bar screen.
+/// the glance ever draws and pinned to a hardware-notch screen, falling back
+/// to the menu-bar screen when no visible display has a notch.
 /// It is never resized — the island grows and shrinks inside it in SwiftUI, and
 /// the window server hit-tests the transparent surround away, so the menu bar
 /// beside the notch stays clickable. (Re-measuring and re-framing the panel on
@@ -47,6 +48,7 @@ final class GlanceWindow {
     private let panel: NSPanel
     private let hosting: NSHostingView<GlanceView>
     private let model: MenuBarModel
+    private var wantsVisible = false
     private(set) var layout: GlanceLayout
 
     init(model: MenuBarModel) {
@@ -102,25 +104,35 @@ final class GlanceWindow {
 
     /// Position, raise above everything, and make visible. Safe to call repeatedly.
     func show() {
+        wantsVisible = true
         reposition()
-        panel.orderFrontRegardless()
         Self.log.notice("glance show layout=\(String(describing: self.layout), privacy: .public) frame=\(String(describing: self.panel.frame), privacy: .public)")
     }
 
     /// Remove the panel from screen (Settings → Show glance off). Reversible via `show()`.
-    func hide() { panel.orderOut(nil) }
+    func hide() {
+        wantsVisible = false
+        panel.orderOut(nil)
+    }
 
     /// Whether the island is on screen right now — what decides if a cue can be
     /// a card here or must be a banner.
     var isVisible: Bool { panel.isVisible }
 
-    /// Anchor to the menu-bar screen, NOT `NSScreen.main`: on a multi-display Mac
-    /// `NSScreen.main` follows keyboard focus and is non-deterministic at launch.
-    /// `screens.first` is the display that owns the menu bar (and the notch).
-    private static var anchorScreen: NSScreen? { NSScreen.screens.first ?? NSScreen.main }
+    /// Use real hardware geometry for selection, never the QA fake notch.
+    /// NSScreen.screens excludes unavailable displays (such as a closed lid).
+    private static var anchorScreen: NSScreen? {
+        let screens = NSScreen.screens
+        let layouts = screens.map { layout(for: $0, allowFakeNotch: false) }
+        guard let index = GlanceLayout.preferredScreenIndex(in: layouts) else { return nil }
+        return screens[index]
+    }
 
     private func reposition() {
-        guard let screen = Self.anchorScreen else { return }
+        guard let screen = Self.anchorScreen else {
+            panel.orderOut(nil)
+            return
+        }
         let next = Self.layout(for: screen)
         if next != layout {
             layout = next
@@ -130,12 +142,13 @@ final class GlanceWindow {
         let frame = NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - size.height,
                            width: size.width, height: size.height)
         panel.setFrame(frame, display: true)
+        if wantsVisible { panel.orderFrontRegardless() }
     }
 
     /// The housing from `NSScreen`'s own metrics. `VIBEBUDDY_FAKE_NOTCH=185x32`
     /// pretends a notchless screen has one, so the notch layout can be exercised
     /// on an iMac; it is ignored on a real notch.
-    private static func layout(for screen: NSScreen?) -> GlanceLayout {
+    private static func layout(for screen: NSScreen?, allowFakeNotch: Bool = true) -> GlanceLayout {
         guard let screen else { return .pill(menuBarHeight: 24) }
         if let notch = NotchGeometry.from(screenWidth: screen.frame.width,
                                           topInset: screen.safeAreaInsets.top,
@@ -143,7 +156,7 @@ final class GlanceWindow {
                                           auxiliaryRightWidth: screen.auxiliaryTopRightArea?.width) {
             return .notch(notch)
         }
-        if let fake = ProcessInfo.processInfo.environment["VIBEBUDDY_FAKE_NOTCH"] {
+        if allowFakeNotch, let fake = ProcessInfo.processInfo.environment["VIBEBUDDY_FAKE_NOTCH"] {
             let parts = fake.split(separator: "x").compactMap { Double($0) }
             if parts.count == 2 { return .notch(NotchGeometry(width: parts[0], height: parts[1])) }
         }

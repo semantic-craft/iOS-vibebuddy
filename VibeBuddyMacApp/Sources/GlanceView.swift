@@ -3,8 +3,8 @@ import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// The glance, drawn with the Dynamic Island's grammar. On a notch Mac the
-/// compact content sits beside the camera at its measured height; only
-/// `card` / `expanded` drop content below it. Without a notch the same
+/// compact content sits below the camera within its measured width;
+/// `card` / `expanded` extend downward at that same width. Without a notch the same
 /// content hangs under the menu bar as a capsule.
 struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
@@ -21,8 +21,8 @@ struct GlanceView: View {
     private enum Mode: Equatable { case idle, compact, card, expanded }
 
     private static let motion = Animation.spring(response: 0.36, dampingFraction: 0.8)
-    /// User size preset; scales the card and the expanded content only — the
-    /// compact content is sized by the notch, not by preference.
+    /// User size preset scales card typography and spacing. On a notch screen
+    /// it never changes the outer width, which always comes from NSScreen.
     private var s: CGFloat { model.glanceScale }
     private var summary: TaskPresentationSummary { model.presentationSummary }
     private var pending: AgentSession? { model.sessions.first { $0.pendingApproval != nil } }
@@ -58,54 +58,46 @@ struct GlanceView: View {
 
     // MARK: notch layout
 
-    private var topRadius: CGFloat { mode == .compact || mode == .idle ? 0 : 15 }
+    private var topRadius: CGFloat { 0 }
+    private var isNarrow: Bool { layout.notch != nil }
+    private var actionLayout: AnyLayout {
+        isNarrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8 * s))
+                 : AnyLayout(HStackLayout(spacing: 8 * s))
+    }
     private var bottomRadius: CGFloat { mode == .compact || mode == .idle ? 14 : 20 }
     private var cardWidth: CGFloat { 400 * s }
-    @State private var leadingWingWidth: CGFloat = 0
-    @State private var trailingWingWidth: CGFloat = 0
-
-    /// Offset the unequal wings so the camera gap stays centered on the housing.
+    /// Reserve the system-reported camera area. Compact status stays below it
+    /// at exactly the housing width, so active tasks never widen the notch.
     private func island(notch: NotchGeometry) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if mode == .compact {
+            Color.clear.frame(width: notch.width, height: notch.height)
+            if mode == .compact {
+                HStack(spacing: 8) {
                     compactLead
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 8)
-                        .frame(height: notch.height)
-                        .clipped()
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) {
-                            leadingWingWidth = $0
-                        }
-                }
-                Color.clear.frame(width: notch.width, height: notch.height)
-                if mode == .compact {
                     compactStatus
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 8)
-                        .frame(height: notch.height)
-                        .clipped()
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) {
-                            trailingWingWidth = $0
-                        }
                 }
+                .padding(.horizontal, 12)
+                .frame(width: notch.width, height: 28)
+                .clipped()
             }
             if mode == .card, let card = model.glanceCard {
-                GlanceEventCard(card: card, model: model, scale: s)
-                    .frame(width: max(cardWidth * 0.9, notch.width))
+                ScrollView {
+                    GlanceEventCard(card: card, model: model, scale: s, narrow: true)
+                }
+                    .frame(width: notch.width)
+                    .frame(maxHeight: 360)
                     .transition(unfold)
             } else if mode == .expanded {
                 expanded
-                    .frame(width: max(cardWidth, notch.width))
+                    .frame(width: notch.width)
                     .transition(unfold)
             }
         }
-        .padding(.horizontal, topRadius)
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(width: notch.width)
         .background(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius).fill(.black))
         .overlay(voiceRing(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)))
+        .clipShape(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius))
         .contentShape(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius))
-        .offset(x: mode == .compact ? (trailingWingWidth - leadingWingWidth) / 2 : 0)
         .onHover(perform: hoverChanged)
         .onTapGesture { if mode == .compact || mode == .idle { model.setGlanceExpanded(true) } }
         // Hover and click are pointer-only; VoiceOver and Full Keyboard
@@ -319,11 +311,13 @@ struct GlanceView: View {
                 .buttonStyle(.plain)
                 .help(voice.isActive ? "End voice conversation" : "Start voice conversation")
                 .accessibilityLabel(voice.isActive ? "End voice conversation" : "Start voice conversation")
-                if voice.isActive {
+                if voice.isActive && !isNarrow {
                     PetFace(state: model.buddyState, voice: .init(voice.phase), bare: true, scale: 0.45 * s)
                 }
-                if voice.isActive { voiceBadge } else { moodHead }
-                AnnouncementControls(reader: model.readAloud)
+                if !isNarrow {
+                    if voice.isActive { voiceBadge } else { moodHead }
+                    AnnouncementControls(reader: model.readAloud)
+                }
                 Spacer(minLength: 8 * s)
                 Button { DashboardRoute.open(.inbox) } label: {
                     Image(systemName: "tray")
@@ -346,6 +340,10 @@ struct GlanceView: View {
                 .buttonStyle(.plain)
                 .help("Hide glance (\(model.toggleGlanceHotkey.displayString))")
                 .accessibilityLabel("Hide glance")
+            }
+            if isNarrow {
+                if voice.isActive { voiceBadge } else { moodHead }
+                AnnouncementControls(reader: model.readAloud)
             }
             if let notice = voice.endNotice, voice.errorText == nil, !voice.isActive {
                 HStack(alignment: .firstTextBaseline, spacing: 8 * s) {
@@ -388,9 +386,9 @@ struct GlanceView: View {
                     }
                 }
             }
-            }.frame(maxHeight: 300 * s)
+            }.frame(maxHeight: isNarrow ? 240 : 300 * s)
         }
-        .padding(.horizontal, 20 * s)
+        .padding(.horizontal, (isNarrow ? 12 : 20) * s)
         .padding(.top, 10 * s)
         .padding(.bottom, 16 * s)
         .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
@@ -404,7 +402,7 @@ struct GlanceView: View {
                     .foregroundStyle(.white.opacity(0.55))
                 ApprovalBody(approval: a, onDark: true)
                 if ApprovalEligibility.approval(for: p) != nil {
-                    HStack(spacing: 10 * s) {
+                    actionLayout {
                         Button("Approve") { model.decide(a.id, .allow) }
                             .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.status(.completeUnread)), size: .large))
                             .keyboardShortcut("a", modifiers: [])
@@ -414,14 +412,14 @@ struct GlanceView: View {
                             .keyboardShortcut("d", modifiers: [])
                             .accessibilityHint(Text(CompanionCopy.spokenTarget(a.commandPreview)))
                     }
-                    HStack(spacing: 6 * s) {
+                    actionLayout {
                         if a.canPersistDecision {
                         linkButton("Always") { model.decide(a.id, .alwaysAllow) }
                             .help("Always allow this exact command in future")
-                        Text("·").foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true)
+                        if !isNarrow { Text("·").foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true) }
                         linkButton("This session") { model.decide(a.id, .allowSession) }
                             .help("Stop asking for the rest of this run")
-                        Text("·").foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true)
+                        if !isNarrow { Text("·").foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true) }
                         }
                         linkButton(p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
                             .help(p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
@@ -430,7 +428,7 @@ struct GlanceView: View {
                     .font(MacTheme.font(11 * s, .heavy))
                 } else {
                     // Explain the capability without inferring Presence.
-                    HStack(spacing: 8 * s) {
+                    actionLayout {
                         Label(WaitHandling.resolve(for: p).message, systemImage: "keyboard")
                             .font(MacTheme.font(11 * s, .semibold)).foregroundStyle(.white.opacity(0.8))
                         Spacer(minLength: 0)
@@ -468,6 +466,7 @@ private struct GlanceEventCard: View {
     let card: GlanceCard
     @ObservedObject var model: MenuBarModel
     let scale: CGFloat
+    var narrow = false
 
     private var s: CGFloat { scale }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -511,7 +510,7 @@ private struct GlanceEventCard: View {
                 HStack(alignment: .top, spacing: 10 * s) {
                     StateGlyph(state: cardState, size: 24 * s, onDark: true)
                     VStack(alignment: .leading, spacing: 3 * s) {
-                        HStack(spacing: 6 * s) {
+                        (narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4 * s)) : AnyLayout(HStackLayout(spacing: 6 * s))) {
                             // Fixed sizes throughout the card: it hangs off the
                             // notch at the user's `glanceScale`, not the text ramp
                             // (ADR-0017 §8).
@@ -525,7 +524,7 @@ private struct GlanceEventCard: View {
                                 .lineLimit(2)
                         }
                     }
-                    .lineLimit(1)
+                    .lineLimit(narrow ? 3 : 1)
                     Spacer(minLength: 0)
                 }
             }
@@ -544,7 +543,7 @@ private struct GlanceEventCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if card.isActionable || card.alert.sound == .agentStuck {
-                HStack(spacing: 8 * s) {
+                (narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8 * s)) : AnyLayout(HStackLayout(spacing: 8 * s))) {
                     if let a = live.pendingApproval, card.alert.sound == .needsApproval {
                         if ApprovalEligibility.approval(for: live) != nil {
                             Button("Approve") { model.decide(a.id, .allow); model.dismissGlanceCard() }
@@ -568,7 +567,7 @@ private struct GlanceEventCard: View {
                 }
             }
         }
-        .padding(.horizontal, 16 * s)
+        .padding(.horizontal, (narrow ? 12 : 16) * s)
         .padding(.top, 8 * s)
         .padding(.bottom, 12 * s)
         .overlay(alignment: .bottom) { timeline }
