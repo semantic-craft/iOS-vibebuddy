@@ -12,6 +12,7 @@
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
 | SET-01 | macOS 设置易用性与 Agent 可操作性 | [工单、清单与实施计划](mac-settings-usability/issues/01-settings-ux-dx-ax.md) | needs-triage | 已用 Computer Use 遍历 11 个分类；10 项问题待确认实施，保留现有语言与连接改动 |
 | GROK-01 | Grok Build 自动接入、活跃会话发现与就地状态反馈 | [工单](grok-build-onboarding/issues/01-automatic-connection.md) | ready-for-agent | 用户已确认方向；修复额度开关已开但会话不可见的体验，开启监控后自动配置并提示必要重载 |
+| GROK-04 | iOS Grok Build 接入状态与发现卡片 | [工单](grok-build-onboarding/issues/04-ios-connection-status.md) | ready-for-agent | 已授权实施；接入状态、发现项目与 Mac 操作指引 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后** | 代码已丢失，重启时从 09 重做，见下节 |
 
 ## 只剩真机或本人能确认的
