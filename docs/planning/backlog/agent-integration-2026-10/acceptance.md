@@ -47,3 +47,8 @@ or user-accepted in the production app.
 
 All isolated daemon runs were stopped by their own recorded PIDs; evidence
 survived cleanup. Real Cursor MCP probes restored the prior user configuration.
+
+Subsequent user-authorized [live phone/cloud acceptance](acceptance-live-phone-cloud.md)
+verified actual APNs acceptance for real Cursor task completion and reminders.
+Visible phone delivery still requires the user’s confirmation; the cloud account
+check remains pending its separate API key.
