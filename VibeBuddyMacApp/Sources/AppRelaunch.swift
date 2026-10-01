@@ -10,21 +10,19 @@ enum AppRelaunch {
         var arguments = ["-c", """
             pid="$1"
             shift
-            attempts=0
             while kill -0 "$pid" 2>/dev/null; do
-                attempts=$((attempts + 1))
-                [ "$attempts" -lt 600 ] || exit 1
                 /bin/sleep 0.1
             done
             exec /usr/bin/open "$@"
             """, "vibebuddy-relaunch", String(ProcessInfo.processInfo.processIdentifier),
-            "-n", Bundle.main.bundleURL.path]
+            "-n"]
         // Preserve isolation when the same user flow is exercised by an E2E
         // bundle; Launch Services does not inherit the caller's environment.
         for (key, value) in ProcessInfo.processInfo.environment.sorted(by: { $0.key < $1.key })
-            where key.hasPrefix("VIBEBUDDY_E2E_") || key == "VIBEBUDDY_DEMO_PAGE" {
+            where key.hasPrefix("VIBEBUDDY_E2E_") || key == "VIBEBUDDY_DEMO_PAGE" || key == "VIBEBUDDY_DEMO" {
             arguments += ["--env", "\(key)=\(value)"]
         }
+        arguments.append(Bundle.main.bundleURL.path)
         helper.arguments = arguments
         helper.standardInput = FileHandle.nullDevice
         helper.standardOutput = FileHandle.nullDevice

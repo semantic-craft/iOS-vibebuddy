@@ -36,26 +36,28 @@ struct AppLanguagePreferences: View {
         SettingsSection("Language",
                         footnote: "Changes are saved automatically. Restart VibeBuddy to apply the language to all windows, menus and notifications.") {
             SettingsRow("App language") {
-                Picker("App language", selection: $language) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Text(verbatim: language.title).tag(language)
+                HStack(spacing: 12) {
+                    Picker("App language", selection: $language) {
+                        ForEach(AppLanguage.allCases) { language in
+                            Text(verbatim: language.title).tag(language)
+                        }
                     }
-                }
-                .labelsHidden()
-                .fixedSize()
-                .accessibilityIdentifier("appLanguage")
-                .onChange(of: language) { _, newValue in newValue.save() }
-                Button("Restart VibeBuddy") {
-                    do {
-                        try AppRelaunch.schedule()
-                        isRestarting = true
-                        NSApplication.shared.terminate(nil)
-                    } catch {
-                        restartFailed = true
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityIdentifier("appLanguage")
+                    .onChange(of: language) { _, newValue in newValue.save() }
+                    Button("Restart VibeBuddy") {
+                        do {
+                            try AppRelaunch.schedule()
+                            isRestarting = true
+                            NSApplication.shared.terminate(nil)
+                        } catch {
+                            restartFailed = true
+                        }
                     }
+                    .disabled(isRestarting)
+                    .accessibilityIdentifier("restartForAppLanguage")
                 }
-                .disabled(isRestarting)
-                .accessibilityIdentifier("restartForAppLanguage")
             }
         }
         .alert("Could not restart VibeBuddy", isPresented: $restartFailed) {

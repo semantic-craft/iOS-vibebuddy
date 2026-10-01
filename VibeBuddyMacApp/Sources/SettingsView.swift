@@ -620,7 +620,7 @@ private struct AgentCLIsPage: View {
                                     Text(verbatim: summary.sources.map(\.displayName).joined(separator: " · "))
                                         .font(SettingsChrome.font(10.5)).foregroundStyle(MacTheme.ink2)
                                 }
-                                Text(status.hookInjected ? "Hook configured" : "Hook not configured")
+                                Text(LocalizedStringKey(status.hookInjected ? "Hook configured" : "Hook not configured"))
                                     .font(SettingsChrome.font(10.5)).foregroundStyle(MacTheme.ink2)
                             }
                             .padding(.vertical, 6)

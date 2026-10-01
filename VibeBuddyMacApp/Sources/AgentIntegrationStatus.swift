@@ -28,19 +28,24 @@ struct AgentIntegrationStatus {
             diagnostics.append(.init(source: source, health: health, lastObservedAt: latest.lastObservedAt))
         }
         let observed = diagnostics.filter { $0.lastObservedAt != nil }
-        sources = observed.map(\.source).sorted()
-        if observed.contains(where: { $0.health == .healthy }) {
-            state = .receiving
-        } else if observed.contains(where: { $0.health == .temporarilySilent }) {
-            state = .waiting
-        } else if diagnostics.contains(where: {
+        let faults = diagnostics.filter {
             [.sourceUnreadable, .unknownVersion, .asyncIncompatible].contains($0.health)
-        }) {
+        }
+        sources = diagnostics.filter { $0.lastObservedAt != nil || faults.contains($0) }.map(\.source).sorted()
+        if faults.contains(where: { $0.source != .cloud }) {
             state = .needsAttention
+        } else if observed.contains(where: { $0.health == .healthy }) {
+            // A separately configured, optional cloud source cannot invalidate
+            // healthy local observation. Its own diagnostics still show failure.
+            state = .receiving
+        } else if !faults.isEmpty {
+            state = .needsAttention
+        } else if observed.contains(where: { $0.health == .temporarilySilent }) || diagnostics.contains(where: {
+            $0.reasonCode == "awaitingActivity" || $0.reasonCode == "acpIdle"
+        }) {
+            state = .waiting
         } else if hookInjected {
             state = .hookConfigured
-        } else if diagnostics.contains(where: { $0.reasonCode == "awaitingActivity" || $0.reasonCode == "acpIdle" }) {
-            state = .waiting
         } else {
             state = configured ? .hookMissing : .notDetected
         }

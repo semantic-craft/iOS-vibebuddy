@@ -36,6 +36,21 @@ struct AgentIntegrationRegression {
             .init(source: .transcript, health: .sourceUnreadable, lastObservedAt: now)
         ])
         precondition(unreadable.state == .needsAttention, "A Hook marker must not hide unreadable sources")
+        let mixedCodex = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
+            .init(source: .appserver, health: .healthy, lastObservedAt: now),
+            .init(source: .rollout, health: .unknownVersion, reasonCode: "versionUnverified")
+        ])
+        precondition(mixedCodex.state == .needsAttention && mixedCodex.sources.contains(.rollout),
+                     "A healthy sibling must not hide an unverified rollout or omit its source name")
+        let wiredIdle = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
+            .init(source: .transcript, health: .temporarilySilent, reasonCode: "awaitingActivity")
+        ])
+        precondition(wiredIdle.state == .waiting, "Hook installation must remain separate from activity")
+        let optionalCloudFailure = AgentIntegrationStatus(configured: true, hookInjected: false, diagnostics: [
+            .init(source: .transcript, health: .healthy, lastObservedAt: now),
+            .init(source: .cloud, health: .sourceUnreadable)
+        ])
+        precondition(optionalCloudFailure.state == .receiving, "An optional cloud failure must not obscure healthy local reception")
         if let path = CommandLine.arguments.dropFirst().first {
             let diagnostics = try JSONDecoder().decode([AgentObservationDiagnostic].self,
                                                        from: Data(contentsOf: URL(fileURLWithPath: path)))
