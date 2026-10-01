@@ -40,3 +40,5 @@ Grok Build (`grok-4.7-build-fast`, `xhigh`) reviewed immutable range `a7ad6a04..
 The Chinese subtitle already translated during the first runtime check, so its alleged failure was not reproduced; the explicit localized-key change removes ambiguity. Added combined-source and wired-idle regressions. The author also added missing hosted Grok ACP session evidence in `b328880a`, with aging and diagnostic precedence checks.
 
 Final Debug build and targeted regressions pass. Repeated the real language-picker/restart flow after these fixes; Chinese UI, changed PID and isolated health recovery passed again. Removed the stopped QA bundle, disposable state and isolated preferences; retained sanitized diagnostic replay and build/test logs.
+
+Grok 的定向复核覆盖 `46d8d11f` 的最终代码，正常结束（`end_turn`），结论 **MERGE**：4 项发现和 3 项细节全部 FIXED，新增 Grok ACP 补充逻辑无具体回归。该只读复核不代替本文记录的运行验收。
