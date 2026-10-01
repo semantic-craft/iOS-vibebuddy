@@ -20,7 +20,7 @@ Original reviewed range: `a7ad6a04..6f9ec4ae`.
   just-recovered completed turn; tested both idle and active rediscovery.
 - Fixed: visible active Codex reader pages refresh every three seconds, stop
   on disappearance/selection changes, and avoid starting while paging earlier.
-- Fixed: MiniMax speech error 1042 is rejected input, not a transport failure.
+- Fixed: MiniMax speech error 1042 uses the non-auth configuration/input bucket, not transport or API-key rejection.
 - Deliberate non-fix: the explicit QA cloud URL continues to fail closed when
   its isolation conditions are absent. Silently falling back to the production
   cloud client could make a misconfigured acceptance run use real credentials

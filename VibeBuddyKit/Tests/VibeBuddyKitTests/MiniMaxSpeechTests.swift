@@ -18,7 +18,7 @@ struct MiniMaxSpeechTests {
                 try MiniMaxSpeechSynthesizer.audio(from: Data("{\"base_resp\":{\"status_code\":\(code)}}".utf8))
             }
         }
-        #expect(throws: SpeechSynthesisFailure.rejected) {
+        #expect(throws: SpeechSynthesisFailure.configuration) {
             try MiniMaxSpeechSynthesizer.audio(from: Data(#"{"base_resp":{"status_code":1042}}"#.utf8))
         }
         for hex in ["abc", "0x12", "zz"] {
