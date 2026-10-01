@@ -65,6 +65,22 @@ final class RemoteConnectionSyncTests: XCTestCase {
         return connection
     }
 
+    func testCloudflareRouteDoesNotPollOrAcceptPrivateAddressProposal() async throws {
+        let connection = connection()
+        let cloudflare = try XCTUnwrap(original.usingCloudflare(origin: "https://mac.example.com", credentialID: "fixture-only"))
+        XCTAssertTrue(connection.commitCloudflare(cloudflare, sourceID: "mac-source"))
+        let client = SyncFixtureClient(proposal: proposal())
+        let stream = SyncFixtureStream(snapshot: Snapshot(sessions: [], serverTime: instant, sourceID: "mac-source"))
+        let sync = RemoteConnectionSyncController(client: client, streamer: stream, deviceID: "phone", now: { self.instant })
+        let supported = await sync.poll(connection: connection, currentSourceID: { "mac-source" })
+        XCTAssertFalse(supported)
+        let proposalCalls = await client.proposalCalls
+        XCTAssertEqual(proposalCalls, 0)
+        XCTAssertEqual(stream.calls, 0)
+        XCTAssertEqual(connection.pairing, cloudflare)
+        XCTAssertEqual(sync.state, .idle)
+    }
+
     func testReturnFromTailnetToLANOnlySavesVerifiedSameMac() async {
         for succeeds in [true, false] {
             let connection = connection()
@@ -226,6 +242,7 @@ private actor SyncFixtureClient: RemoteConnectionSyncClient {
     private var failedConfirmations: Int
     private let rejectConfirmation: Bool
     private(set) var outcomes: [RemoteConnectionReceipt.Outcome] = []
+    private(set) var proposalCalls = 0
 
     init(proposal: RemoteConnectionProposal, failedConfirmations: Int = 0, rejectConfirmation: Bool = false) {
         offered = proposal
@@ -236,7 +253,8 @@ private actor SyncFixtureClient: RemoteConnectionSyncClient {
     func setProposal(_ proposal: RemoteConnectionProposal?) { offered = proposal }
 
     func proposal(_ pairing: PairingPayload, deviceID: String) async throws -> RemoteSyncPoll {
-        offered.map(RemoteSyncPoll.proposal) ?? .empty
+        proposalCalls += 1
+        return offered.map(RemoteSyncPoll.proposal) ?? .empty
     }
 
     func receipt(_ receipt: RemoteConnectionReceipt, pairing: PairingPayload) async throws -> RemoteSyncReceiptResult {

@@ -235,10 +235,12 @@ struct RemoteConnectionView: View {
 @MainActor
 final class RemoteConnectionAttempt: ObservableObject {
     enum Failure: Equatable {
-        case authentication, unavailable, pairingChanged
+        case authentication, unavailable, pairingChanged, credentials
 
         var message: String {
             switch self {
+            case .credentials:
+                String(localized: "Could not remove saved credentials. Unlock your iPhone and try again. The connection is unchanged.")
             case .authentication:
                 String(localized: "Mac refused this pairing. Scan its current code, then check again. Your saved pairing has not changed.")
             case .unavailable:
@@ -270,13 +272,15 @@ final class RemoteConnectionAttempt: ObservableObject {
         task = Task { @MainActor in
             defer { if attemptID == id { task = nil; attemptID = nil } }
             do {
-                _ = try await RemoteConnectionCheck.verify(candidate, streamer: streamer)
+                let snapshot = try await RemoteConnectionCheck.verify(candidate, streamer: streamer)
                 guard !Task.isCancelled, attemptID == id else { return }
                 guard connection.pairing == original, connection.demo == originalDemo else {
                     phase = .failure(.pairingChanged)
                     return
                 }
-                connection.save(candidate)
+                let saved = snapshot.sourceID.map { connection.saveVerifiedDirect(candidate, sourceID: $0) }
+                    ?? connection.save(candidate)
+                guard saved else { phase = .failure(.credentials); return }
                 phase = .success
                 onConnected()
             } catch {

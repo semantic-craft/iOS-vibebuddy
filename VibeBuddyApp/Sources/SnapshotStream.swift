@@ -16,6 +16,9 @@ enum CompanionConnectionFailure: Error {
 /// WebSocket client with a bounded heartbeat, following HAKit's liveness check.
 /// Finishing the stream lets DashboardStore's existing reconnect loop recover.
 struct WebSocketSnapshotClient: SnapshotStreaming {
+    /// Draft setup checks keep credentials in memory until the same Mac is verified.
+    var credentials: CloudflareCredentials? = nil
+
     func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
         AsyncThrowingStream { continuation in
             let providers = AccountUsageProvider.allCases.map(\.rawValue).joined(separator: ",")
@@ -23,8 +26,9 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
                 continuation.finish(throwing: CompanionConnectionFailure.invalidAddress); return
             }
             var request = URLRequest(url: url)
-            request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-            let socket = URLSession.shared.webSocketTask(with: request)
+            let socket: URLSessionWebSocketTask
+            do { socket = try CompanionTransport.webSocketTask(with: request, pairing: pairing, credentials: credentials) }
+            catch { continuation.finish(throwing: error); return }
             let task = Task {
                 socket.resume()
                 let firstSnapshotDeadline = Task {
@@ -52,7 +56,7 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
                             continuation.yield(snapshot)
                         }
                     } catch {
-                        if await Self.authenticationRejected(socket, pairing: pairing) {
+                        if await Self.authenticationRejected(socket, pairing: pairing, credentials: credentials) {
                             continuation.finish(throwing: CompanionConnectionFailure.authentication)
                         } else {
                             continuation.finish(throwing: error)
@@ -70,20 +74,23 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
         }
     }
 
-    private static func authenticationRejected(_ socket: URLSessionWebSocketTask, pairing: PairingPayload) async -> Bool {
-        guard let status = (socket.response as? HTTPURLResponse)?.statusCode else { return false }
-        if status == 401 || status == 403 { return true }
+    private static func authenticationRejected(_ socket: URLSessionWebSocketTask, pairing: PairingPayload, credentials: CloudflareCredentials?) async -> Bool {
+        let status = (socket.response as? HTTPURLResponse)?.statusCode
+        if pairing.isCloudflare, let response = socket.response {
+            do { try CompanionTransport.validateCloudflareResponse(response) }
+            catch { return true }
+        }
+        if status == 401 || status == 403 || (pairing.isCloudflare && status.map { (300...399).contains($0) } == true) { return true }
         // Hummingbird reports every refused WebSocket upgrade as HTTP 400.
         // Confirm auth on its existing HTTP route; 400 alone could be a protocol
         // failure and must not tell a correctly paired phone to pair again.
-        guard status == 400, !Task.isCancelled, let url = pairing.companionURL(path: "snapshot") else { return false }
+        guard (status == 400 || (pairing.isCloudflare && status == nil)), !Task.isCancelled, let url = pairing.companionURL(path: "snapshot") else { return false }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await CompanionTransport.data(for: request, pairing: pairing, credentials: credentials)
             let code = (response as? HTTPURLResponse)?.statusCode
             return code == 401 || code == 403
-        } catch { return false }
+        } catch CompanionTransportError.authentication { return true } catch { return false }
     }
 
     private static func monitor(_ socket: URLSessionWebSocketTask) -> Task<Void, Never> {

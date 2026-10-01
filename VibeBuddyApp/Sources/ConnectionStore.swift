@@ -26,14 +26,27 @@ final class ConnectionStore: ObservableObject {
     /// The connect screen offers a retry instead of presenting the phone as new.
     @Published private(set) var loadFailure: LoadFailure?
 
+    @Published private(set) var directPairing: PairingPayload?
+    @Published private(set) var cloudflarePairing: PairingPayload?
+    private(set) var verifiedSourceID: String?
+    private(set) var revision = 0
+    private struct Routes: Codable {
+        var direct: PairingPayload
+        var cloudflare: PairingPayload
+        var sourceID: String
+    }
+    private let routesKey = "vibebuddy.connectionRoutes"
     private let defaults: UserDefaults
     private let protectedDataAvailable: @MainActor () -> Bool
+    private let deleteCredential: (String) throws -> Void
     private let key = "vibebuddy.pairing"
 
     init(defaults: UserDefaults = .standard,
-         protectedDataAvailable: @escaping @MainActor () -> Bool = { UIApplication.shared.isProtectedDataAvailable }) {
+         protectedDataAvailable: @escaping @MainActor () -> Bool = { UIApplication.shared.isProtectedDataAvailable },
+         deleteCredential: @escaping (String) throws -> Void = { try CloudflareCredentialStore.delete(id: $0) }) {
         self.defaults = defaults
         self.protectedDataAvailable = protectedDataAvailable
+        self.deleteCredential = deleteCredential
         if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
             demo = true
         } else if let fromEnvironment = Self.environmentPairing() {
@@ -105,6 +118,18 @@ final class ConnectionStore: ObservableObject {
             return
         }
         pairing = saved
+        if let bytes = defaults.data(forKey: routesKey),
+           let routes = try? JSONDecoder().decode(Routes.self, from: bytes),
+           routes.direct.isValidConnection, !routes.direct.isCloudflare,
+           routes.cloudflare.isValidConnection, routes.cloudflare.isCloudflare,
+           routes.direct.token == routes.cloudflare.token, !routes.sourceID.isEmpty,
+           saved == routes.direct || saved == routes.cloudflare {
+            directPairing = routes.direct
+            cloudflarePairing = routes.cloudflare
+            verifiedSourceID = routes.sourceID
+        } else if !saved.isCloudflare {
+            directPairing = saved
+        }
         loadFailure = nil
         Self.observePairing(saved)
     }
@@ -121,8 +146,35 @@ final class ConnectionStore: ObservableObject {
         load()
     }
 
-    func save(_ payload: PairingPayload) {
-        guard payload.isValidConnection else { return }
+    @discardableResult
+    func save(_ payload: PairingPayload) -> Bool {
+        guard payload.isValidConnection else { return false }
+        // New scans and Mac address updates are direct pairings only. Access
+        // references are local records and cannot arrive through a QR code.
+        guard !payload.isCloudflare else { return false }
+        do { try discardCloudflare() } catch { return false }
+        directPairing = payload
+        persist(payload)
+        return true
+    }
+
+    /// An authenticated address update for this same Mac may refresh the
+    /// saved direct route without deleting the independently configured route.
+    @discardableResult
+    func saveVerifiedDirect(_ payload: PairingPayload, sourceID: String) -> Bool {
+        guard payload.isValidConnection, !payload.isCloudflare else { return false }
+        guard let cloudflarePairing, verifiedSourceID == sourceID,
+              cloudflarePairing.token == payload.token else { return save(payload) }
+        directPairing = payload
+        if let data = try? JSONEncoder().encode(Routes(direct: payload, cloudflare: cloudflarePairing, sourceID: sourceID)) {
+            defaults.set(data, forKey: routesKey)
+        }
+        persist(payload)
+        return true
+    }
+
+    private func persist(_ payload: PairingPayload) {
+        revision += 1
         Self.observePairing(payload)
         demo = false
         loadFailure = nil
@@ -130,6 +182,53 @@ final class ConnectionStore: ObservableObject {
         if let data = try? JSONEncoder().encode(payload) {
             defaults.set(data, forKey: key)
         }
+    }
+
+    @discardableResult
+    func commitCloudflare(_ payload: PairingPayload, sourceID: String) -> Bool {
+        guard payload.isValidConnection, payload.isCloudflare, !sourceID.isEmpty,
+              let direct = directPairing ?? pairing, !direct.isCloudflare else { return false }
+        let previous = cloudflarePairing?.cloudflareCredentialID
+        if let previous, previous != payload.cloudflareCredentialID {
+            do { try deleteCredential(previous) } catch { return false }
+        }
+        directPairing = direct
+        cloudflarePairing = payload
+        verifiedSourceID = sourceID
+        if let data = try? JSONEncoder().encode(Routes(direct: direct, cloudflare: payload, sourceID: sourceID)) {
+            defaults.set(data, forKey: routesKey)
+        }
+        persist(payload)
+        return true
+    }
+
+    func selectDirect() {
+        guard let directPairing else { return }
+        persist(directPairing)
+    }
+
+    func selectCloudflare() {
+        guard let cloudflarePairing else { return }
+        persist(cloudflarePairing)
+    }
+
+    @discardableResult
+    func removeCloudflare() -> Bool {
+        let wasCloudflare = pairing?.isCloudflare == true
+        guard !wasCloudflare || directPairing != nil else { return false }
+        do { try discardCloudflare() } catch { return false }
+        if wasCloudflare { selectDirect() }
+        revision += 1
+        return true
+    }
+
+    private func discardCloudflare() throws {
+        if let id = cloudflarePairing?.cloudflareCredentialID ?? pairing?.cloudflareCredentialID {
+            try deleteCredential(id)
+        }
+        cloudflarePairing = nil
+        verifiedSourceID = nil
+        defaults.removeObject(forKey: routesKey)
     }
 
     func enterDemo() { demo = true }
@@ -147,12 +246,17 @@ final class ConnectionStore: ObservableObject {
     /// "Disconnect" reaches this. Nothing may call it to tidy up a screen that
     /// merely looks unpaired — the pairing it would delete may be one this
     /// process failed to read.
-    func clear() {
+    @discardableResult
+    func clear() -> Bool {
+        do { try discardCloudflare() } catch { return false }
+        directPairing = nil
+        revision += 1
         Self.rotateEpoch()
         pairing = nil
         demo = false
         loadFailure = nil
         defaults.removeObject(forKey: key)
         defaults.removeObject(forKey: "vibebuddy.pairingFingerprint")
+        return true
     }
 }

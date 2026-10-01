@@ -693,10 +693,9 @@ final class DashboardStore: ObservableObject {
               let url = pairing.companionURL(path: "activity") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["token": token])
-        Task { _ = try? await URLSession.shared.data(for: request) }
+        Task { _ = try? await CompanionTransport.data(for: request, pairing: pairing) }
     }
 
     func start(_ pairing: PairingPayload) {
@@ -746,8 +745,12 @@ final class DashboardStore: ObservableObject {
                         await self.apply(snapshot, generation: generation)
                     }
                 } catch CompanionConnectionFailure.authentication {
-                    failure = String(localized: "Access refused. Check your pairing token, then reconnect.")
+                    failure = pairing.isCloudflare ? CompanionTransportError.authentication.localizedDescription : String(localized: "Access refused. Check your pairing token, then reconnect.")
                     kind = .authentication
+                    requiresInput = true
+                } catch let error as CompanionTransportError {
+                    failure = error.localizedDescription
+                    kind = Self.failureKind(of: error)
                     requiresInput = true
                 } catch CompanionConnectionFailure.invalidAddress {
                     failure = String(localized: "Invalid Mac address. Pair again with a valid host and port.")
@@ -1037,6 +1040,13 @@ final class DashboardStore: ObservableObject {
 
     /// The transport's error, in the three shapes the diagnosis reads.
     nonisolated static func failureKind(of error: Error) -> ConnectionFailureKind {
+        if let error = error as? CompanionTransportError {
+            switch error {
+            case .credentialsUnavailable, .keychainWriteFailed: return .cloudflareCredentialsUnavailable
+            case .authentication, .credentialOriginMismatch: return .cloudflareAuthentication
+            case .invalidAddress: return .invalidAddress
+            }
+        }
         guard let code = (error as? URLError)?.code else { return .dropped }
         switch code {
         case .cannotConnectToHost, .cannotFindHost, .timedOut, .notConnectedToInternet,
