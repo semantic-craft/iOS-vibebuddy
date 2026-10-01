@@ -152,7 +152,7 @@ struct PhoneHistoryView: View {
     }
 }
 
-private struct HistoryMessageView: View {
+struct HistoryMessageView: View {
     let message: HistoryMessage
     private var tool: Bool { message.role == "tool" || message.toolName != nil }
     var body: some View {

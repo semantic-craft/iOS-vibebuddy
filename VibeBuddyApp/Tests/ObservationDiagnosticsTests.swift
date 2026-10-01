@@ -7,6 +7,31 @@ import VibeBuddyKit
 
 @MainActor
 final class ObservationDiagnosticsTests: XCTestCase {
+    func testCloudSetupDoesNotOfferStatusLineRepair() {
+        let cloud = ObservationSourceDiagnostic(source: .cloud, health: .notInstalled,
+                                                 reasonCode: "optionalSourceNotConfigured")
+        XCTAssertEqual(cloud.phoneNextStep,
+                       "On the Mac, open agent settings and connect Cursor cloud agents with a Cursor API key.")
+        let statusLine = ObservationSourceDiagnostic(source: .statusline, health: .notInstalled)
+        XCTAssertEqual(statusLine.phoneNextStep, "On the Mac, optionally choose Enable status line information.")
+    }
+
+    func testObservationWarningsDoNotInventLifecycleOrControl() {
+        let now = Date()
+        var task = AgentSession(id: "observation-test", agent: .codex, project: "test", status: .working,
+                                observations: [ObservationEvidence(source: .appserver, lastObservedAt: now,
+                                                                   health: .sourceUnreadable)],
+                                statusSince: now, updatedAt: now)
+        XCTAssertEqual(PhoneObservationNotice(session: task, isConnected: true)?.title, "Observation needs attention")
+        XCTAssertEqual(PhoneObservationNotice(session: task, isConnected: false)?.title, "Last received state")
+        XCTAssertEqual(task.status, .working)
+        task.historyOnly = true
+        XCTAssertEqual(PhoneObservationNotice(session: task, isConnected: false)?.title, "History only")
+        task.historyOnly = false
+        task.observations = [ObservationEvidence(source: .appserver, lastObservedAt: now, health: .temporarilySilent)]
+        XCTAssertNil(PhoneObservationNotice(session: task, isConnected: true), "Quiet alone is not a broken source")
+    }
+
     func testReasonPresentationAndLegacyFallback() {
         // Rows carry Companion tokens, not system colours: the accent for
         // healthy, tertiary ink for information, the needs-you tint for a

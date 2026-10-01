@@ -111,6 +111,73 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.2)
     }
 
+    func testFailedPlayerResumeKeepsCurrentAndNextItemPaused() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "qwen"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        let data = silence()
+        var playAttempts = 0
+        let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" },
+                                       makeSynthesizer: { _ in SilentPhoneSynthesizer(data: data) },
+                                       playAudio: { player in
+            playAttempts += 1
+            return playAttempts == 2 ? false : player.play()
+        })
+        defer { announcer.stop() }
+        let sessions = ["first", "second"].map { id -> AgentSession in
+            var session = AgentSession(id: id, agent: .codex, project: "test", status: .done,
+                                       hasUnreadCompletion: true, statusSince: Date(), updatedAt: Date())
+            session.completionID = "round-1"
+            return session
+        }
+        let source = UUID()
+        var prepared = 0
+        announcer.announce(sessions, live: { sessions }, source: { source }, content: { item in
+            prepared += 1
+            return DashboardStore.Announcement(text: "Verified result", context: .init(source: "mac", epoch: "1", generation: source, revision: nil), target: .completion(sessionID: item.sessionID, completionID: item.round), savedFallback: false, savedCompletionNotice: nil)
+        }, validate: { _ in true })
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while player(announcer)?.isPlaying != true, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let audio = try XCTUnwrap(player(announcer))
+        XCTAssertTrue(audio.isPlaying)
+        announcer.pause()
+        announcer.resume() // The injected second play fails.
+        try await Task.sleep(for: .milliseconds(250)) // Past the playback loop's poll.
+        XCTAssertEqual(playAttempts, 2)
+        XCTAssertTrue(announcer.isPaused)
+        XCTAssertTrue(announcer.isBusy)
+        XCTAssertFalse(audio.isPlaying)
+        XCTAssertEqual(announcer.spokenCount, 0)
+        XCTAssertEqual(prepared, 1, "A failed resume must not release the next paid request")
+        XCTAssertEqual(announcer.current?.item.sessionID, "first")
+        announcer.resume()
+        XCTAssertEqual(playAttempts, 3, "The failed player must remain eligible for explicit retry")
+        XCTAssertFalse(announcer.isPaused)
+        XCTAssertTrue(audio.isPlaying)
+    }
+
+    func testDeniedVoiceTakeoverReleasesReaderAudioOwnership() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "qwen"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        let (announcer, audio) = try await startedReader()
+        defer { announcer.stop() }
+        func ownsRoute() -> Bool? {
+            Mirror(reflecting: announcer).children.first { $0.label == "ownsAudioSession" }?.value as? Bool
+        }
+        XCTAssertEqual(ownsRoute(), true)
+        announcer.voiceStarted()
+        XCTAssertFalse(audio.isPlaying)
+        XCTAssertEqual(ownsRoute(), true, "Connecting has not yet obtained microphone permission or taken the route")
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback)
+        // Permission denial returns to idle without constructing RealtimeAudioIO.
+        announcer.voiceEnded()
+        XCTAssertEqual(ownsRoute(), false, "The reader must release its still-active ducking session")
+        XCTAssertFalse(audio.isPlaying, "A failed call must not resume reading automatically")
+    }
+
     func testResumeAfterNaturalCompletionDoesNotReplay() async throws {
         let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "qwen"], forName: UserDefaults.argumentDomain)
@@ -178,5 +245,141 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         for _ in 0..<100 where !announcer.isPaused && announcer.isBusy { try await Task.sleep(for: .milliseconds(5)) }
         announcer.resume()
         XCTAssertFalse(audio.isPlaying)
+    }
+}
+
+
+final class PhoneReadAloudLanguageTests: XCTestCase {
+    func testIndependentReadingLanguagePreservesLegacyAndStandardVoice() throws {
+        let name = "phone-reading-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(VoiceLanguage.chinese.rawValue, forKey: VoiceSettings.conversationLanguageKey)
+        XCTAssertEqual(PhoneReadAloudSelection.language(defaults: defaults), .chinese)
+        defaults.set(VoiceLanguage.english.rawValue, forKey: PhoneReadAloudSelection.languageKey)
+        XCTAssertEqual(PhoneReadAloudSelection.configuration(.minimax, defaults: defaults).language, .english)
+        XCTAssertEqual(VoiceSettings.conversationLanguage(defaults: defaults), .chinese)
+        defaults.set("my-standard-voice", forKey: VoiceSettings.readAloudVoiceKey(.minimax))
+        defaults.set(VoiceStyle.coquettish.rawValue, forKey: VoiceSettings.readAloudStyleKey(.minimax))
+        defaults.set(VoiceLanguage.chinese.rawValue, forKey: PhoneReadAloudSelection.languageKey)
+        let styled = PhoneReadAloudSelection.configuration(.minimax, defaults: defaults)
+        XCTAssertEqual(styled.effectiveVoice, "diadia_xuemei")
+        defaults.set(VoiceStyle.standard.rawValue, forKey: VoiceSettings.readAloudStyleKey(.minimax))
+        XCTAssertEqual(PhoneReadAloudSelection.configuration(.minimax, defaults: defaults).effectiveVoice, "my-standard-voice")
+    }
+}
+
+private struct FailingPhoneSynthesizer: SpeechSynthesizer {
+    func synthesize(_ text: String, apiKey: String) async throws -> Data { throw SpeechSynthesisFailure.quotaExceeded }
+}
+
+@MainActor
+final class PhoneSpeechRecoveryTests: XCTestCase {
+    func testProviderFailureDoesNotTakeAudioRoute() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        let audio = AVAudioSession.sharedInstance()
+        let category = audio.category; let mode = audio.mode; let options = audio.categoryOptions
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "minimax"], forName: UserDefaults.argumentDomain)
+        try audio.setCategory(.ambient, mode: .default)
+        let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" }, makeSynthesizer: { _ in FailingPhoneSynthesizer() })
+        defer {
+            announcer.stop()
+            try? audio.setCategory(category, mode: mode, options: options)
+            UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain)
+        }
+        announcer.preview()
+        for _ in 0..<100 where !announcer.canUseSystemSpeech { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(announcer.canUseSystemSpeech)
+        XCTAssertEqual(audio.category, .ambient, "A failed request has no audio to play and must not take or duck the audio route")
+    }
+
+    func testSkipPreservesManualCallAndFailurePausesUntilExplicitResume() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "minimax"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        for reason in ["manual", "voice-call", "provider-failure"] {
+            let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" }, makeSynthesizer: { _ in FailingPhoneSynthesizer() })
+            let sessions = ["first", "second"].map { id -> AgentSession in
+                var session = AgentSession(id: id, agent: .codex, project: "test", status: .done,
+                                           hasUnreadCompletion: true, statusSince: Date(), updatedAt: Date())
+                session.completionID = "round-1"
+                return session
+            }
+            let source = UUID()
+            var prepared = 0
+            announcer.announce(sessions, live: { sessions }, source: { source }, content: { item in
+                prepared += 1
+                if reason != "provider-failure" { try await Task.sleep(for: .seconds(60)) }
+                return DashboardStore.Announcement(text: "Verified result", context: .init(source: "mac", epoch: "1", generation: source, revision: nil), target: .completion(sessionID: item.sessionID, completionID: item.round), savedFallback: false, savedCompletionNotice: nil)
+            }, validate: { _ in true })
+            for _ in 0..<100 where prepared == 0 || (reason == "provider-failure" && !announcer.canUseSystemSpeech) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(prepared, 1, reason)
+            if reason == "voice-call" { announcer.voiceStarted(); announcer.voiceEnded() }
+            else if reason == "manual" { announcer.pause() }
+            XCTAssertTrue(announcer.isPaused, reason)
+            announcer.skip()
+            try await Task.sleep(for: .milliseconds(50))
+            XCTAssertTrue(announcer.isPaused, reason)
+            XCTAssertEqual(prepared, 1, "Skip must not prepare the next paid item: " + reason)
+            announcer.resume()
+            for _ in 0..<100 where prepared < 2 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(prepared, 2, reason)
+            announcer.stop()
+        }
+    }
+
+    func testNewCompletionInvalidatesPreparedRecovery() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "minimax"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" }, makeSynthesizer: { _ in FailingPhoneSynthesizer() })
+        var session = AgentSession(id: "codex:test", agent: .codex, project: "test", status: .done, hasUnreadCompletion: true, statusSince: Date(), updatedAt: Date())
+        session.completionID = "round-1"
+        let source = UUID()
+        let announcement = DashboardStore.Announcement(text: "Verified result", context: .init(source: "mac", epoch: "1", generation: source, revision: nil), target: .completion(sessionID: session.id, completionID: "round-1"), savedFallback: false, savedCompletionNotice: nil)
+        announcer.announce([session], live: { [session] in [session] }, source: { source }, content: { _ in announcement }, validate: { _ in session.completionID == "round-1" })
+        for _ in 0..<100 where !announcer.canUseSystemSpeech { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(announcer.canUseSystemSpeech)
+        session.completionID = "round-2"
+        announcer.useSystemSpeech()
+        XCTAssertFalse(announcer.canUseSystemSpeech)
+        XCTAssertFalse(announcer.isBusy)
+        XCTAssertEqual(announcer.spokenCount, 0)
+        announcer.stop()
+    }
+
+    func testSourceChangeRevokesRecoveryBeforeSystemPlayback() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "minimax"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" }, makeSynthesizer: { _ in FailingPhoneSynthesizer() })
+        // Preview has no task round, but cancellation still revokes its recovery.
+        announcer.preview()
+        for _ in 0..<100 where !announcer.canUseSystemSpeech { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(announcer.canUseSystemSpeech)
+        announcer.sourceChanged()
+        announcer.useSystemSpeech()
+        XCTAssertFalse(announcer.isBusy)
+        XCTAssertFalse(announcer.canUseSystemSpeech)
+        XCTAssertEqual(announcer.spokenCount, 0)
+    }
+
+    func testFailureWaitsForExplicitRecoveryAndStopClearsIt() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "minimax"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" }, makeSynthesizer: { _ in FailingPhoneSynthesizer() })
+        announcer.preview()
+        for _ in 0..<100 where !announcer.canUseSystemSpeech { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(announcer.canUseSystemSpeech)
+        XCTAssertTrue(announcer.isPaused)
+        XCTAssertEqual(PhoneReadAloudSelection.load(), .provider(.minimax))
+        announcer.resume()
+        XCTAssertTrue(announcer.isPaused, "Resume must not retry a paid request")
+        announcer.cancelPreview()
+        XCTAssertFalse(announcer.canUseSystemSpeech)
+        XCTAssertFalse(announcer.isBusy)
     }
 }

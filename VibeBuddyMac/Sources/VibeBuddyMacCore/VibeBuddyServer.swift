@@ -8,6 +8,7 @@ import VibeBuddyKit
 /// The Mac-side HTTP server: localhost hook intake + token-gated LAN snapshot.
 /// WebSocket push (`/ws`) is added later (needed by the iOS app in Phase D).
 public struct VibeBuddyServer: Sendable {
+    public let taskReadHTTP = TaskReadHTTP()
     public let historyReader: HistoryHTTPReader
     public let store: SessionStore
     public let token: String
@@ -580,6 +581,24 @@ public struct VibeBuddyServer: Sendable {
             let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
             await store.ingest(Data(buffer: buffer), agent: agent, receivedAt: Date())
             return .ok
+        }
+
+        authed.get("task-read-capabilities") { _, _ -> Response in
+            let value = TaskReadCapabilities(sourceID: store.sourceID ?? "", supported: TaskReadKind.allCases)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: try JSONEncoder().encode(value))))
+        }
+        authed.get("task-read") { request, _ -> Response in
+            let snapshot = await store.snapshot(now: Date())
+            let result = await taskReadHTTP.read(uri: request.uri.string, sourceID: store.sourceID, sessions: snapshot.sessions) { id, kind, cursor in
+                if let monitor = codexAppServerMonitor { return await monitor.phoneTaskRead(sessionID: id, kind: kind, cursor: cursor) }
+                var result = TaskReadResponse(sourceID: "", sessionID: id, kind: kind)
+                result.failure = "disconnected"
+                return result
+            }
+            guard store.sourceID == snapshot.sourceID else { return Response(status: .conflict) }
+            return Response(status: HTTPResponse.Status(code: result.status), headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: result.data)))
         }
 
         authed.get("history") { request, _ -> Response in

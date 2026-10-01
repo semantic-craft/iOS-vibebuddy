@@ -81,6 +81,12 @@ struct PhoneSessionReader: View {
                             .accessibilityElement(children: .combine)
                         }
                     }
+                    PhoneObservationStatus(session: session, isConnected: dashboard.state == .connected)
+                    if session.agent == .codex {
+                        PhoneTaskDetails(session: session, scope: draftScope,
+                            active: isOnScreen && isUnobscured && scenePhase == .active && !showHistory && !showChanges)
+                            .id(draftScope + "/" + session.id)
+                    }
                     Button("Conversation history") { showHistory = true }
                         .disabled(!authorityIsCurrent)
                         .accessibilityIdentifier("phone-open-history")
@@ -190,7 +196,12 @@ struct PhoneSessionReader: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { dock(maxHeight: geometry.size.height * 0.38) }
         .navigationDestination(isPresented: $showHistory) {
-            PhoneHistoryView(session: session, scope: draftScope, newTask: newTask)
+            if session.agent == .codex {
+                PhoneCodexHistoryView(session: session, scope: draftScope, newTask: newTask)
+                    .id(draftScope + "/" + session.id)
+            } else {
+                PhoneHistoryView(session: session, scope: draftScope, newTask: newTask)
+            }
         }
         .onAppear { isOnScreen = true; acknowledgeVisibleBody() }
         .onDisappear { isOnScreen = false }

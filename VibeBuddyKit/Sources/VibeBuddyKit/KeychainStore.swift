@@ -347,14 +347,14 @@ public enum VoiceSettings {
         readAloudStatus(defaults: defaults).provider.map { readAloudStyle($0, defaults: defaults) } ?? .standard
     }
 
-    public static func readAloudConfiguration(_ p: VoiceProvider,
+    public static func readAloudConfiguration(_ p: VoiceProvider, language: VoiceLanguage? = nil,
                                               defaults: UserDefaults = .standard) -> SpeechSynthesisConfiguration {
         let workspace = (defaults.string(forKey: qwenWorkspaceIDKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return SpeechSynthesisConfiguration(provider: p,
-            model: readAloudModel(p, defaults: defaults), voice: readAloudVoice(p, defaults: defaults),
+            model: readAloudModel(p, defaults: defaults), voice: readAloudVoice(p, language: language, defaults: defaults),
             qwenWorkspaceID: workspace.isEmpty ? nil : workspace, qwenUseIntl: defaults.bool(forKey: regionIntlKey),
-            style: readAloudStyle(p, defaults: defaults), language: conversationLanguage(defaults: defaults))
+            style: readAloudStyle(p, defaults: defaults), language: language ?? conversationLanguage(defaults: defaults))
     }
 
     /// The shared conversation language, from an injectable store.

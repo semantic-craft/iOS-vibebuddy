@@ -313,7 +313,9 @@ struct DashboardView: View {
         .onChange(of: filters) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .onChange(of: page) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .onChange(of: dashboard.speechSourceIdentity) { _, _ in announcer.sourceChanged() }
-        .onChange(of: voice.phase) { _, phase in if phase != .idle { announcer.voiceStarted() } }
+        .onChange(of: voice.phase) { _, phase in
+            if phase != .idle { announcer.voiceStarted() } else { announcer.voiceEnded() }
+        }
         .onChange(of: dashboard.completionSourceID) { _, new in
             if let new, let readerSource, new != readerSource {
                 detailId = nil; pendingNavigation = PendingTaskNavigation()
@@ -882,6 +884,7 @@ enum ReplyMeaning: Equatable {
 /// when the title does not already say it. No keys: the detail decides,
 /// the swipe follows or mutes.
 private struct TaskRow: View {
+    @EnvironmentObject private var dashboard: DashboardStore
     let session: AgentSession
     let projectLabel: String
     let now: Date
@@ -891,6 +894,7 @@ private struct TaskRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var presentation: RowPresentation { RowPresentation(session: session) }
+    private var observationNotice: PhoneObservationNotice? { PhoneObservationNotice(session: session, isConnected: dashboard.state == .connected) }
     private var state: TaskPresentationState { session.presentationState }
     private var stateWord: String { ToolActivity.label(for: session) }
     private var detail: String? {
@@ -958,6 +962,11 @@ private struct TaskRow: View {
                         .foregroundStyle(CompanionPalette.ink3)
                         .lineLimit(1)
                         }
+                        if let notice = observationNotice {
+                            Label(notice.title, systemImage: notice.symbol)
+                                .font(.caption).foregroundStyle(CompanionPalette.ink2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 .padding(.horizontal, PhoneMetrics.gutter)
@@ -976,7 +985,7 @@ private struct TaskRow: View {
     }
 
     private var accessibilityLabel: String {
-        [session.displayTitle, stateWord, detail ?? "", session.dashboardProjectIdentity,
+        [session.displayTitle, stateWord, observationNotice?.title ?? "", detail ?? "", session.dashboardProjectIdentity,
          session.effectiveAttention == .normal ? "" : session.effectiveAttention.stateTitle,
          presentation.unread ? String(localized: "Unread") : "",
          PhoneRelativeTime.spoken(session.updatedAt, now: now)]

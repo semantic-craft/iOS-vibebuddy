@@ -136,3 +136,24 @@ list, with periodic refresh while visible and explicit unavailable states.
 A goal's token usage is not a completion percentage. The terminal view is
 read-only: no spawn, terminate or clean method is exposed. Responses are
 scoped to selection; they neither establish progress authority nor add controls.
+
+## Amendment (2026-10-02): Phone companion task reads
+
+The iPhone uses the authenticated Mac HTTP surface to read the same Codex
+history pages, task goal and background terminals. `/task-read-capabilities`
+advertises the server's supported read kinds; this does not assert that the
+Codex connection is currently available. `/task-read` requires the current
+`sourceID`, an exact known Codex `sessionID`, and a read kind. Pagination
+cursors are short-lived opaque tokens bound to that source, session and kind.
+
+The phone discards responses from a replaced connection or selection. These
+panels do not acknowledge completion, alter lifecycle state or grant task
+control. Refresh runs only while the details are visible in the foreground.
+The phone labels the source and distinguishes unavailable service data from
+an empty result. Unsupported older Mac versions and unavailable Codex item
+reads retain the existing local-transcript/recent-excerpt history fallback;
+network failures are not described as an old Mac version.
+
+Goal token use remains a budget figure. Background terminals are read-only.
+Existing completion cards and their source/session/completion guards remain
+the sole automatic result-read surface.

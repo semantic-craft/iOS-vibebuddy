@@ -8,6 +8,7 @@
 
 | ID | 内容 | 票据 | 状态 | 说明 |
 |---|---|---|---|---|
+| IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 真机、MiniMax 凭据及可操作的模拟器图形界面 |
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
 | SET-01 | macOS 设置易用性与 Agent 可操作性 | [工单、清单与实施计划](mac-settings-usability/issues/01-settings-ux-dx-ax.md) | needs-triage | 已用 Computer Use 遍历 11 个分类；10 项问题待确认实施，保留现有语言与连接改动 |

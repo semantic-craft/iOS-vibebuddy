@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 
 /// Read-only task details. These values never enter SessionReducer or establish control authority.
 public enum CodexReadFailure: Error, Equatable, Sendable {
@@ -22,31 +23,6 @@ public enum CodexReadFailure: Error, Equatable, Sendable {
         }
         return .unavailable
     }
-}
-
-public struct CodexTaskGoal: Decodable, Equatable, Sendable {
-    public let threadId: String
-    public let objective: String
-    public let status: String
-    public let tokensUsed: Int64
-    public let tokenBudget: Int64?
-    public let timeUsedSeconds: Int64
-    public let updatedAt: Int64
-}
-
-public struct CodexBackgroundTerminal: Decodable, Equatable, Identifiable, Sendable {
-    public let processId: String
-    public let command: String
-    public let cwd: String
-    public let osPid: UInt32?
-    public let cpuPercent: Double?
-    public let rssKb: UInt64?
-    public var id: String { processId }
-}
-
-public struct CodexTerminalPage: Decodable, Equatable, Sendable {
-    public let data: [CodexBackgroundTerminal]
-    public let nextCursor: String?
 }
 
 public struct CodexHistoryPage: Sendable {

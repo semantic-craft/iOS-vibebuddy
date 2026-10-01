@@ -84,6 +84,13 @@ struct VoicePageView: View {
                     .foregroundStyle(CompanionPalette.ink2)
 
             }
+            if announcer.canUseSystemSpeech {
+                Button("Read this item with system speech") { announcer.useSystemSpeech() }
+                    .disabled(voice.phase != .idle)
+                    .accessibilityIdentifier("phone-system-speech-recovery")
+                Text("Uses the prepared text once. Your speech service stays unchanged.")
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
+            }
             if announcer.items.isEmpty {
                 Text(announcer.status ?? String(localized: "Nothing queued. \"Read pending\" on the inbox reads what is waiting."))
                     .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
@@ -200,8 +207,8 @@ struct VoicePageView: View {
                 PhoneCircleButton(announcer.isPaused ? "play.fill" : "pause.fill", size: 44, tint: CompanionPalette.ink2) {
                     announcer.togglePause()
                 }
-                .disabled(!announcer.isBusy)
-                .opacity(announcer.isBusy ? 1 : 0.4)
+                .disabled(!announcer.isBusy || announcer.canUseSystemSpeech || voice.phase != .idle)
+                .opacity(announcer.isBusy && !announcer.canUseSystemSpeech && voice.phase == .idle ? 1 : 0.4)
                 .accessibilityLabel(announcer.isPaused ? "Resume reading" : "Pause reading")
                 Button { voice.toggle() } label: {
                     Image(systemName: micGlyph)

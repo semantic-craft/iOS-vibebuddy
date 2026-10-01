@@ -5,6 +5,18 @@ enum PhoneReadAloudSelection: Equatable {
     case system
     case provider(VoiceProvider)
 
+    static let languageKey = "phone.readAloud.language"
+
+    /// An absent override keeps the previous conversation-language behavior.
+    static func language(defaults: UserDefaults = .standard) -> VoiceLanguage {
+        VoiceLanguage(rawValue: defaults.string(forKey: languageKey) ?? "")
+            ?? VoiceSettings.conversationLanguage(defaults: defaults)
+    }
+
+    static func configuration(_ provider: VoiceProvider, defaults: UserDefaults = .standard) -> SpeechSynthesisConfiguration {
+        VoiceSettings.readAloudConfiguration(provider, language: language(defaults: defaults), defaults: defaults)
+    }
+
     static let defaultsKey = "phone.readAloud.selection"
 
     var rawValue: String {
