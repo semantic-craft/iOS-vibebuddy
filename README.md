@@ -20,19 +20,15 @@ A native **Mac, iPhone & Apple Watch** companion for your AI workflow.<br>**Clau
 
 </div>
 
-## A little less checking. A lot more doing.
+## Highlights
 
-Start a refactor in Claude Code, a test run in Codex and a build in Grok Build. Check your remaining Cursor and Grok Bot allowance from the same companion. While your Mac stays running and reachable, you can check a question on your phone, follow a task on your wrist, or ask the voice companion for an update.
-
-| See what matters | Keep work moving | Hear the outcome |
-| --- | --- | --- |
-| **One task view.** Needs you, Unread results and Working, with project, model, current activity and available usage data. | **Approve and reply.** Review a command or bounded diff preview, answer a question, or continue a supported Codex task. | **Voice and summaries.** Ask for current task status, read a concise completion summary, or enable read-aloud on Mac. |
-
-## Use Codex across your Apple devices
-
-Follow Codex tasks and usage on Mac and iPhone, and check completion results on Apple Watch. A connected Codex app-server lets you create, continue, steer (not yet verified end to end) and stop the tasks it owns, and respond to supported approval requests and questions. Codex Desktop observation is also supported; its native approvals may still require the Mac.
-
-Optional OpenAI voice conversation and read-aloud use your own API key. The repository includes the Swift integration code, protocol checks and documented limits. See [Codex and OpenAI workflows](docs/codex-openai-workflows.md) for setup, source links and a workflow you can try.
+- **Task inbox** — requests that need you, unread results and working tasks, with the project, agent, model and current activity in view.
+- **Approvals and replies** — review commands and bounded diff previews on Mac or iPhone, then answer supported permission requests and questions. Available controls depend on the agent and connection.
+- **Read and continue sessions** — read, search and export conversations on Mac. Use Continue with… to review a working directory and handoff prompt before continuing with Claude Code, Codex or Cursor.
+- **Usage across devices** — check supported account allowances, with saved readings in iPhone home/lock-screen widgets and Watch complications.
+- **Results on your wrist** — open the matching task from a completion notification, refresh its summary and explicitly mark it read. Apple Watch connects through its paired iPhone.
+- **Menu bar and notch** — keep compact task status visible on Mac and open the full Inbox when you need it.
+- **Optional voice and summaries** — configure voice conversation, completion summaries and read-aloud separately with your own provider credentials. Monitoring and button approvals need no AI API key.
 
 ## Three screens. One companion.
 
@@ -58,19 +54,23 @@ Optional OpenAI voice conversation and read-aloud use your own API key. The repo
 - **On iPhone:** Inbox, task details, recent dialogue and supported approvals and replies, plus Usage and home/lock-screen quota widgets. Pair from computer connection settings or the Home connection indicator.
 - **On Apple Watch:** browse working tasks and unread results, open the matching task from a completion notification, refresh its summary and explicitly mark it read. Usage and complications remain available. A paired iPhone is required; system settings govern notifications and background refresh.
 
-## Recent major updates
+## Requirements
 
-| Feature | What changed |
+| Device | Requirement |
 | --- | --- |
-| **Inbox and session reading** | Separate requests, unread results and working tasks. The Mac reader supports live updates, search navigation and export. Opening a detail does not mark it read. |
-| **From wrist notification to task** | Open the matching detail and request its latest result while the iPhone is locked. Failed refreshes identify cached content and offer Retry. Recap was removed from every device; task lists and explicit read confirmation remain. |
-| **Notifications and Quiet preferences** | Fixed reminders being suppressed just because the source app was frontmost. Followed completions support audible reminders while respecting notification and Quiet settings. |
-| **Usage and quota widgets** | iPhone Usage and home/lock-screen widgets show each provider's reading, update age and unavailable state. Widget links open that provider. Widgets use the latest saved readings. |
-| **Continue with another agent** | On Mac, choose Claude Code, Codex or Cursor, review the directory and handoff prompt, then start. Observed session directories and continuation links survive restarts; unknown directories are left for you to choose. |
-| **Menu bar and notch adaptation** | Recover off-screen menu bar placement. Compact status sits beside the camera at the current display's notch height, with content-sized sides and no model-specific configuration. |
-| **Voice, summaries and read-aloud** | Configure optional voice conversation, completion summaries and Mac read-aloud separately, using supported providers including OpenAI, Qwen and Doubao. |
+| Mac | The distributed app requires Apple Silicon and macOS 14 or later |
+| iPhone | iOS 17 or later; live tasks and actions need a paired, running, reachable Mac |
+| Apple Watch | The current companion requires watchOS 26.5 or later and a paired iPhone |
+| Source builds | Xcode 26.6, Swift 6 and XcodeGen; device builds need your own signing team |
 
-Release notes for every version are on [Mac Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) and the [App Store listing](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338).
+## Get started
+
+1. **Install the Mac companion.** [Download the latest DMG](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest), drag the app into Applications, and launch it. The distributed Mac app requires Apple Silicon and macOS 14+.
+2. **Connect your coding agent.** Open Setup in Mac settings and follow the agent-specific instructions. [Manual setup](docs/getting-started.md#connect-an-agent-for-live-observation) is also available.
+3. **Add your iPhone.** Install [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338), choose **Pair a phone** on Mac, then open computer connection settings → **Scan to pair** on iPhone, or tap its Home connection indicator. Start on the same trusted local network. iPhone requires iOS 17+; the current Watch companion requires watchOS 26.5+.
+4. **Try your workflow.** Run a short task in Claude Code, Codex or Grok Build and follow it until completion. You can also connect [Cursor](docs/getting-started.md#cursor) or [Grok Bot](docs/getting-started.md#grok-bot) usage. Enable voice or summaries separately if you want them.
+
+**Just looking?** The iPhone connection screen includes **See the demo (no Mac needed)**. Mac works on its own, too. App Store availability varies by region; [build from source](docs/getting-started.md#build-from-source) if needed.
 
 ## Your tools, connected
 
@@ -87,28 +87,25 @@ VibeBuddy connects to the agents you already run. Available controls follow the 
 
 See the [Codex integration contract](docs/codex-integration.md) and [agent hook setup](docs/multi-cli-hook-setup.md). Qwen, Kimi, OpenCode and Antigravity coding-agent adapters are experimental community integrations; their verification is separate from Qwen's supported voice-provider integration.
 
-## Get started
-
-1. **Install the Mac companion.** [Download the latest DMG](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest), drag the app into Applications, and launch it. The distributed Mac app requires Apple Silicon and macOS 14+.
-2. **Connect your coding agent.** Open Setup in Mac settings and follow the agent-specific instructions. [Manual setup](docs/getting-started.md#connect-an-agent) is also available.
-3. **Add your iPhone.** Install [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338), choose **Pair a phone** on Mac, then open computer connection settings → **Scan to pair** on iPhone, or tap its Home connection indicator. Start on the same trusted local network. iPhone requires iOS 17+; the current Watch companion requires watchOS 26.5+.
-4. **Try your workflow.** Run a short task in Claude Code, Codex or Grok Build and follow it until completion. You can also connect [Cursor](docs/getting-started.md#cursor) or [Grok Bot](docs/getting-started.md#grok-bot) usage. Enable voice or summaries separately if you want them.
-
-**Just looking?** The iPhone connection screen includes **See the demo (no Mac needed)**. Mac works on its own, too. App Store availability varies by region; [build from source](docs/getting-started.md#build-from-source) if needed.
-
-### Voice is optional
+## Voice and summaries
 
 Choose **OpenAI, Alibaba Qwen or Volcengine Doubao**, add your own API credential in the app, review the disclosure and explicitly start a call. Ask “Which task needs me?” or give a clear response to an answerable request. Voice conversation, completion summaries and Mac read-aloud are configured independently. When a provider's per-call time limit ends a call, the app says so and offers a one-tap redial; the new call does not carry over the earlier conversation. Provider charges apply; task monitoring and button approvals need no AI API key.
 
-### Notifications follow your setup
+## Known limitations
+
+- **Your Mac must stay running and reachable.** Set up [Tailscale remote access](docs/getting-started.md#remote-access-with-tailscale) before connecting away from your LAN. Apple Watch still communicates through iPhone.
+- **Remote controls vary by agent.** Observing a task does not grant access to its native approvals; some Codex Desktop requests still need the Mac. Steering a running Codex app-server turn has not yet been verified end to end.
+- **Usage and widgets may show cached readings.** Check the update age and unavailable state. The operating system schedules widget and Watch background refreshes.
+
+### Notifications and background operation
 
 Live Activity and Dynamic Island counts update while the phone is connected. Closed-app push requires a running Mac, matching APNs signing configuration, a registered phone and notification permission. **Public downloads do not yet include turnkey closed-app push setup**; see the [APNs setup](docs/apns-setup.md) and [distribution decision](docs/adr/0013-apns-key-delivery.md). Actions always require a reachable paired Mac. Focus, notification settings and watchOS scheduling affect what appears.
 
-## Your Mac is the hub
+## Privacy and connections
 
 ```mermaid
 flowchart LR
-    A[Claude Code and Grok Build hooks] --> M[VibeBuddy on your Mac]
+    A[Claude Code, Cursor and Grok Build hooks] --> M[VibeBuddy on your Mac]
     C[Codex rollouts and connected app-server] <--> M
     U[Account usage including Cursor and Grok Bot] --> M
     M <-->|Paired local connection| P[iPhone]
@@ -119,9 +116,25 @@ flowchart LR
 
 There is **no VibeBuddy cloud, account or analytics service**. Mac and phone communicate over your network with bearer-token authentication. Optional AI features send the required audio or task text directly to the provider you choose; configured push notifications pass through Apple. Voice credentials are stored in Keychain. [Privacy policy](docs/privacy-policy.md).
 
-## Open source, all the way down
+## Development and documentation
 
 The Mac app, iPhone app, Watch companion, daemon, shared Swift models and agent hooks are all in this MIT-licensed repository. The integrations and their limits are documented so other developers can inspect, reproduce and improve them.
+
+Generate the Mac project from a checkout:
+
+```bash
+git clone https://github.com/semantic-craft/iOS-vibebuddy.git
+cd iOS-vibebuddy
+xcodegen generate --spec VibeBuddyMacApp/project.yml
+open VibeBuddyMacApp/VibeBuddyMacApp.xcodeproj
+```
+
+Build and run the `VibeBuddyMacApp` scheme in Xcode. See [source setup](docs/getting-started.md#build-from-source) for iPhone, Watch and signing. To check shared logic and the server:
+
+```bash
+swift test --package-path VibeBuddyKit
+swift test --package-path VibeBuddyMac
+```
 
 | Explore | Start here |
 | --- | --- |
@@ -130,6 +143,7 @@ The Mac app, iPhone app, Watch companion, daemon, shared Swift models and agent 
 | Agent observation and local server | [VibeBuddyMacCore](VibeBuddyMac/Sources/VibeBuddyMacCore) |
 | Native apps | [Mac](VibeBuddyMacApp/Sources) · [iPhone](VibeBuddyApp/Sources) · [Watch](VibeBuddyApp/Watch) |
 | Protocol checks and design decisions | [Codex probes](tools/codex-integration/README.md) · [Architecture decisions](docs/adr) |
+| Codex and OpenAI workflows | [Setup and capabilities](docs/codex-openai-workflows.md) |
 | Maintenance history | [Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) · [Merged pull requests](https://github.com/semantic-craft/iOS-vibebuddy/pulls?q=is%3Apr+is%3Amerged) |
 
 **Contributions are welcome.** Reproduce an integration issue, improve a translation, document a device workflow or submit a focused fix. Start with [CONTRIBUTING.md](CONTRIBUTING.md). If VibeBuddy helps your workflow, a star or a concrete account of how you use it helps others discover the project.
@@ -142,6 +156,6 @@ Built by [Semantic_Craft (@mm87584)](https://x.com/mm87584). Follow on X for Vib
 
 [m5-paper-buddy](https://github.com/op7418/m5-paper-buddy) inspired the hook-and-transcript approach to agent status; [open-vibe-island](https://github.com/Octane0411/open-vibe-island) informed the multi-agent model and Mac Glance. VibeBuddy's Swift implementation was written independently. The app icon was developed with the [ip-as-logo skill](https://github.com/s1dashu/ip-as-logo-skill); the in-app cat is drawn in shared Swift code.
 
-[MIT](LICENSE). An independent community project; not affiliated with or endorsed by Anthropic, OpenAI or Apple.
+## License
 
-For access away from your LAN, see [Tailscale remote setup](docs/getting-started.md#remote-access-with-tailscale).
+[MIT](LICENSE). An independent community project; not affiliated with or endorsed by Anthropic, OpenAI or Apple.
