@@ -32,7 +32,7 @@ iOS 的第三项跳过检查要求真实 iPhone 麦克风。两个网络检查�
 
 另运行本机 Codex app-server，使用同一一次性 HOME，不复制登录凭据、不新建或执行 turn。目标读取成功返回未设置；原生 history 索引为空，终端返回不可用。该实例没有原线程运行时，不能据此宣称真实目标数值、完整原生历史或活动终端验收通过。
 
-应用已在专用模拟器启动，截图确认简体中文首页连上隔离服务并列出真实项目；本机 Xcode 不含 `Simulator.app`，无法通过图形界面继续逐屏点击。截图不是设置页、动态字号或 VoiceOver 验收。
+首轮仅确认模拟器中文首页。后续使用仓库原生 XCTest UI harness，已能操作实际应用界面，不再以缺少 `Simulator.app` 作为逐屏验收阻塞。
 
 ## 双轴评审
 
@@ -44,4 +44,19 @@ Spec：评审未参与实现的朗读及任务读取部分，发现终端 15 秒
 
 本地证据位于工作树 `.scratch/ios-parity/`：`kit-final-tests.log`、`mac-final-tests.log`、`mac-app-build.log`、`ios-simulator-tests.log`、`ios-tests.xcresult`、`ios-live-signed-tests.log`、`evidence/`。不提交真实会话正文或临时令牌。
 
-[IOSP-06](issues/06-integration-acceptance.md) 保留：逐屏中文 / 大字号 UI，真机 MiniMax 凭据与耳听、真实音频中断 / VoiceOver，以及拥有目标和后台终端的原线程只读展示。未替换生产安装，未发布 App Store / 新 macOS 版本；用户尚未验收。
+[IOSP-06](issues/06-integration-acceptance.md) 保留：真机 MiniMax 凭据与耳听、真实音频中断 / VoiceOver，以及拥有目标和后台终端的原线程只读展示。未替换生产安装，未发布 App Store / 新 macOS 版本；用户尚未验收。
+
+## 追加：仅本批改动的 E2E 与性能修复
+
+实施提交 `0c50a1e6` 已推送；以下为该提交之后的修复与复验，不重复全仓测试。
+隔离 daemon 使用 `127.0.0.1:18842`、一次性 HOME 和本任务真实 Codex rollout；专用 iPhone 17 Pro 模拟器使用临时签名。密钥由带粘贴按钮的原生安全输入框取得，仅注入临时测试进程，不提交凭据或会话正文。
+
+- 真实 MiniMax 四种风格都完成合成、进入 `AVAudioPlayer.isPlaying`、自然结束，未触发系统语音回退。standard / serious / coquettish / sultry 的首段音频时间分别为 1.443 / 0.851 / 0.898 / 1.154 秒（各一次，模拟器观测，不是统计 SLA）。
+- 最终音频与真实网络复验 12/12 通过，包括失败请求不切换音频类别、麦克风权限拒绝式接管失败释放所有权、暂停恢复、自然完成不重播、来源一致与历史读取不改变未读状态。最终 standard 首段音频 1.387 秒。
+- 修复网络请求开始前抢占音频，以及停止 / 完成时重复释放。一次相同 standard 试听中的同步音频会话 SDK 告警由 6 次降到 3 次；成功播放仍需要同步音频会话操作。主线程轮询最大间隔受模拟器噪声影响，未据此声称卡顿或端到端延迟已降低。
+- 独立评审发现通话等待麦克风权限时过早丢弃朗读所有权；已修为保留至实际接管，拒绝或早期失败时释放仍属于朗读的会话，复核 PASS。
+- 隔离 HTTP 15 次采样：capabilities p50 0.44 ms / 最大 1.16 ms；goal disconnected p50 0.59 ms / 最大 1.64 ms；真实本地 history p50 28.52 ms / 最大 324.16 ms（包含冷解析）。没有扩大为全应用负载测试。
+- 原生 UI E2E 2/2 通过：默认及最大无障碍字号下进入中文朗读设置、选择中文、编辑后取消密钥草稿、确认键盘收起且保存不可用；真实任务显示 Codex 未连接并回退到真实本地历史。截图已核对。范围仅这些操作，未宣称整个旧历史页面已完全汉化，也未做全应用无障碍审计。
+- 修复历史页标题遗漏简体中文、取消密钥编辑后键盘未收起，以及大字号下滚动收键盘；键盘状态与草稿状态均有 UI 断言。
+
+新增可重放检查：`VibeBuddyApp/Tests/IOSParityLiveTests.swift`（真实凭据 / 隔离连接通过环境变量显式启用），`tools/a11y-audit/UITests/IOSParityE2E.swift`（隔离连接启用的原生界面检查）。证据保留于 `.scratch/ios-parity-e2e/` 的日志和 xcresult；临时凭据不保留。

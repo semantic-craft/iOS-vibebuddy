@@ -111,6 +111,26 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.2)
     }
 
+    func testDeniedVoiceTakeoverReleasesReaderAudioOwnership() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "qwen"], forName: UserDefaults.argumentDomain)
+        defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
+        let (announcer, audio) = try await startedReader()
+        defer { announcer.stop() }
+        func ownsRoute() -> Bool? {
+            Mirror(reflecting: announcer).children.first { $0.label == "ownsAudioSession" }?.value as? Bool
+        }
+        XCTAssertEqual(ownsRoute(), true)
+        announcer.voiceStarted()
+        XCTAssertFalse(audio.isPlaying)
+        XCTAssertEqual(ownsRoute(), true, "Connecting has not yet obtained microphone permission or taken the route")
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback)
+        // Permission denial returns to idle without constructing RealtimeAudioIO.
+        announcer.voiceEnded()
+        XCTAssertEqual(ownsRoute(), false, "The reader must release its still-active ducking session")
+        XCTAssertFalse(audio.isPlaying, "A failed call must not resume reading automatically")
+    }
+
     func testResumeAfterNaturalCompletionDoesNotReplay() async throws {
         let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "qwen"], forName: UserDefaults.argumentDomain)
@@ -208,6 +228,24 @@ private struct FailingPhoneSynthesizer: SpeechSynthesizer {
 
 @MainActor
 final class PhoneSpeechRecoveryTests: XCTestCase {
+    func testProviderFailureDoesNotTakeAudioRoute() async throws {
+        let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        let audio = AVAudioSession.sharedInstance()
+        let category = audio.category; let mode = audio.mode; let options = audio.categoryOptions
+        UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "minimax"], forName: UserDefaults.argumentDomain)
+        try audio.setCategory(.ambient, mode: .default)
+        let announcer = PhoneAnnouncer(providerKey: { _ in "synthetic-not-a-key" }, makeSynthesizer: { _ in FailingPhoneSynthesizer() })
+        defer {
+            announcer.stop()
+            try? audio.setCategory(category, mode: mode, options: options)
+            UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain)
+        }
+        announcer.preview()
+        for _ in 0..<100 where !announcer.canUseSystemSpeech { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(announcer.canUseSystemSpeech)
+        XCTAssertEqual(audio.category, .ambient, "A failed request has no audio to play and must not take or duck the audio route")
+    }
+
     func testSkipPreservesManualCallAndFailurePausesUntilExplicitResume() async throws {
         let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         UserDefaults.standard.setVolatileDomain([PhoneReadAloudSelection.defaultsKey: "minimax"], forName: UserDefaults.argumentDomain)

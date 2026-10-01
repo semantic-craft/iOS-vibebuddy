@@ -134,6 +134,9 @@ final class PhoneAnnouncer: ObservableObject {
         didSet { playerNeedsResume = false }
     }
     private var playerNeedsResume = false
+    // Tracks only this reader's ownership, not the shared session's global
+    // state. Queue completion and explicit Stop can both request cleanup.
+    private var ownsAudioSession = false
     private var systemVoice: AVSpeechSynthesizer?
     private var generation = UUID()
     private var run = UUID()
@@ -233,9 +236,12 @@ final class PhoneAnnouncer: ObservableObject {
     func resume() {
         guard isPaused, recovery == nil, !voiceOwnsAudio else { return }
         if activeValidation?() == false { skip(); isPaused = false; queue.resume(); return }
+        if (player != nil && playerNeedsResume) || systemVoice != nil {
+            do { try activateAudioSession() }
+            catch { status = String(localized: "Could not play the audio."); return }
+        }
         isPaused = false
         status = String(localized: "Reading…")
-        try? activateAudioSession()
         queue.resume()
         if let player, playerNeedsResume {
             playerNeedsResume = false
@@ -270,8 +276,26 @@ final class PhoneAnnouncer: ObservableObject {
 
     /// A live voice conversation takes the audio route; reading pauses and
     /// does not resume on its own.
-    func voiceStarted() { voiceOwnsAudio = true; cancelPreview(); pause() }
-    func voiceEnded() { voiceOwnsAudio = false }
+    func voiceStarted() {
+        voiceOwnsAudio = true
+        // Connecting may still be waiting for microphone permission. Keep
+        // our ownership record, but suppress cleanup while takeover is pending.
+        cancelPreview()
+        pause()
+    }
+    func voiceEnded() {
+        voiceOwnsAudio = false
+        guard ownsAudioSession else { return }
+        if AVAudioSession.sharedInstance().category == .playback {
+            // Permission denial/early failure never installed RealtimeAudioIO's
+            // playAndRecord category. Release our paused playback session so
+            // other audio is no longer ducked; explicit Resume can reacquire it.
+            deactivateAudioSession()
+        } else {
+            // The call did take over. Its AudioIO owns activation and cleanup.
+            ownsAudioSession = false
+        }
+    }
 
     func sourceChanged() {
         stop()
@@ -370,7 +394,6 @@ final class PhoneAnnouncer: ObservableObject {
         do {
             try await waitWhilePaused()
             guard !Task.isCancelled, generation == current, validate() else { return }
-            try activateAudioSession()
             if providerReading, case .provider(let provider) = selection {
                 guard let key = providerKey(provider), !key.isEmpty else {
                     status = String(localized: "Configure this provider’s API key or choose System speech.")
@@ -385,6 +408,9 @@ final class PhoneAnnouncer: ObservableObject {
                 guard !Task.isCancelled, generation == current, validate() else { return }
                 try await waitWhilePaused()
                 guard !Task.isCancelled, generation == current, validate() else { return }
+                // Generating/failed speech needs no audio route. Activate only
+                // after the request and its freshness checks have succeeded.
+                try activateAudioSession()
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
                 guard player.play() else { self.player = nil; throw SpeechSynthesisFailure.transport }
@@ -397,6 +423,7 @@ final class PhoneAnnouncer: ObservableObject {
                 }
                 if generation == current { self.player = nil }
             } else {
+                try activateAudioSession()
                 let synthesizer = AVSpeechSynthesizer()
                 systemVoice = synthesizer
                 let utterance = AVSpeechUtterance(string: text)
@@ -519,10 +546,17 @@ final class PhoneAnnouncer: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
         try session.setActive(true)
+        ownsAudioSession = true
     }
 
     private func deactivateAudioSession() {
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        guard ownsAudioSession, !voiceOwnsAudio else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            ownsAudioSession = false
+        } catch {
+            // Retain ownership so a later Stop can retry a failed release.
+        }
     }
 }
 

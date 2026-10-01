@@ -897,3 +897,5 @@
 
 "Terminal auto-refresh is paused while viewing loaded pages." = "查看已加载的分页时，终端自动刷新已暂停。";
 "Refresh terminal list" = "刷新终端列表";
+
+"Conversation history" = "对话历史";

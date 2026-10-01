@@ -125,6 +125,7 @@ struct SummarySpeechSettingsView: View {
             }
         }
         .phoneList()
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Summary & speech")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -166,6 +167,7 @@ private struct PhoneProviderSpeechSettings: View {
     @State private var selectedVoice = ""
     @State private var style = VoiceStyle.standard
     @State private var key = ""
+    @FocusState private var editingKey: Bool
     @State private var keyMessage: String?
     @State private var keySaved = false
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
@@ -177,6 +179,7 @@ private struct PhoneProviderSpeechSettings: View {
             return
         }
         key = ""
+        editingKey = false
         keySaved = value != nil
         providerWithKey = keySaved ? provider : nil
         keyMessage = String(localized: "API key updated on this iPhone")
@@ -213,10 +216,11 @@ private struct PhoneProviderSpeechSettings: View {
             SecureField("New API key", text: $key)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .accessibilityIdentifier("phone-api-key-draft")
+                .focused($editingKey)
             Button("Save API key") { saveKey(key.trimmingCharacters(in: .whitespacesAndNewlines)) }
                 .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("phone-save-api-key")
-            Button("Cancel key edit") { key = ""; keyMessage = nil }
+            Button("Cancel key edit") { key = ""; keyMessage = nil; editingKey = false }
                 .disabled(key.isEmpty)
             if keySaved {
                 Button("Delete saved API key", role: .destructive) { saveKey(nil) }
