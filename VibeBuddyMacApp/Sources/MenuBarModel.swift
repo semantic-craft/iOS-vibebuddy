@@ -1631,6 +1631,14 @@ final class MenuBarModel: ObservableObject {
     }
 
     static func defaultGlanceScale() -> CGFloat {
+        // The Glance prefers a hardware-notch display even when an external
+        // monitor owns the menu bar. Choose its compact preset for that anchor.
+        if NSScreen.screens.contains(where: {
+            NotchGeometry.from(screenWidth: $0.frame.width,
+                               topInset: $0.safeAreaInsets.top,
+                               auxiliaryLeftWidth: $0.auxiliaryTopLeftArea?.width,
+                               auxiliaryRightWidth: $0.auxiliaryTopRightArea?.width) != nil
+        }) { return 0.8 }
         let w = NSScreen.main?.frame.width ?? 1512
         return w >= 2000 ? 1.0 : 0.8        // iMac → Medium, MacBook → Small; pick Large for bigger
     }
