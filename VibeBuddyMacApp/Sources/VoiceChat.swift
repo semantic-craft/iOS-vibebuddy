@@ -121,7 +121,7 @@ final class VoiceChat: ObservableObject {
         case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
         case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: model, language: language)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: model)
-        case .deepseek: return   // Unreachable: guarded above.
+        case .deepseek, .minimax: return   // Unreachable: guarded above.
         }
         let io = RealtimeAudioIO(inputSampleRate: provider.inputSampleRate)
         realtime = session

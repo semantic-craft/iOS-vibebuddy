@@ -161,10 +161,13 @@ private struct PhoneProviderSpeechSettings: View {
     var body: some View {
         let configuration = VoiceSettings.readAloudConfiguration(provider)
         let voices = VoiceCatalog.voices(.readAloud, provider)
-        Picker("Voice tone", selection: $selectedVoice) {
+        let styledVoice = style.voice(for: provider, language: configuration.language, qwenUseIntl: intl)
+        let displayedVoice = styledVoice?.voice ?? selectedVoice
+        let voiceSelection = Binding(get: { styledVoice?.voice ?? selectedVoice }, set: { selectedVoice = $0 })
+        Picker("Voice tone", selection: voiceSelection) {
             ForEach(voices, id: \.id) { Text($0.name).tag($0.id) }
-            if !selectedVoice.isEmpty, !voices.contains(where: { $0.id == selectedVoice }) {
-                Text(selectedVoice).tag(selectedVoice)
+            if !displayedVoice.isEmpty, !voices.contains(where: { $0.id == displayedVoice }) {
+                Text(displayedVoice).tag(displayedVoice)
             }
         }
         .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
@@ -190,19 +193,23 @@ private struct PhoneProviderSpeechSettings: View {
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             Link("Get an API key", destination: provider.apiKeyURL)
             if keySaveFailed { Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.").foregroundStyle(.orange) }
-            TextField("Speech model", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
+            TextField("Speech model", text: Binding(get: { styledVoice?.model ?? model }, set: { model = $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
                 .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
             if let modelURL = provider.modelDocumentationURL(for: .speechSynthesis, model: model) {
                 Link("Speech synthesis model help", destination: modelURL)
                     .accessibilityIdentifier("phone-speech-model-help")
             }
-            TextField("Voice ID", text: $selectedVoice).textInputAutocapitalization(.never).autocorrectionDisabled()
+            TextField("Voice ID", text: voiceSelection).textInputAutocapitalization(.never).autocorrectionDisabled()
                 .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
             if provider == .qwen {
                 TextField("Workspace ID", text: $workspace).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Toggle("Use Singapore (international) region", isOn: $intl)
             }
-            Text("Credentials and region are shared with this provider’s voice conversation on this iPhone.").foregroundStyle(.secondary)
+            if provider == .minimax {
+                Text("Use a MiniMax China Token Plan key. Summaries default to M3.1 Flash Preview with low reasoning; speech defaults to Speech 2.8 Turbo.").foregroundStyle(.secondary)
+            } else {
+                Text("Credentials and region are shared with this provider’s voice conversation on this iPhone.").foregroundStyle(.secondary)
+            }
         }
         .onAppear {
             model = configuration.model

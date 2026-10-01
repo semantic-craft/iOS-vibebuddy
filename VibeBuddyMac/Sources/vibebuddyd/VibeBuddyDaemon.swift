@@ -6,6 +6,18 @@ import VibeBuddyMacCore
 /// including empty; otherwise TokenStore.defaultStore()).
 @main
 struct VibeBuddyDaemon {
+    /// Explicit isolated HTTP boundary acceptance. Always uses a fixture key,
+    /// never Keychain; loopback and disposable HOME are mandatory.
+    static func cloudMonitor(environment env: [String: String], port: Int) -> CursorCloudAgentMonitor {
+        guard let endpoint = env["VIBEBUDDY_QA_CURSOR_CLOUD_URL"] else { return CursorCloudAgentMonitor() }
+        guard port != 9876, env["HOME"]?.hasPrefix("/tmp/vibebuddy-verify-") == true,
+              let url = URL(string: endpoint), url.scheme == "http", url.host == "127.0.0.1",
+              url.user == nil, url.password == nil else {
+            fatalError("Cursor cloud QA requires loopback, disposable HOME and an isolated port")
+        }
+        return CursorCloudAgentMonitor(client: CursorCloudAgentClient(baseURL: url, apiKey: { "fixture-only" }))
+    }
+
     static func main() async throws {
         let arguments = CommandLine.arguments.dropFirst()
         if arguments.first == "hooks" {
@@ -107,7 +119,7 @@ struct VibeBuddyDaemon {
             cursorACP: cursorACP,
             grokACP: grokACP,
             cursorTranscriptMonitor: CursorTranscriptMonitor(),
-            cursorCloudMonitor: CursorCloudAgentMonitor(),
+            cursorCloudMonitor: cloudMonitor(environment: env, port: port),
             cursorFollowups: cursorFollowups)
         // The phone's Usage sheet reads token spend off the snapshot, so a
         // headless hub has to fill it too; otherwise that section is

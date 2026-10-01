@@ -118,6 +118,25 @@ key and an unreachable service in one honest sentence — and the local wording,
 which sends the person to the Cursor hook installer, is never shown for an agent
 that does not run on this Mac.
 
+**2026-10-01 amendment — active runs use SSE.** Polling every 20 seconds
+continues to discover agents and runs and supplies fallback when streams fail.
+For each observed active run, open `GET /v1/agents/{id}/runs/{runId}/stream`.
+Reconnect with that run's opaque `Last-Event-ID`; never parse or reuse an ID
+across runs. The sticky no-ID `status` frame is accepted on each reconnect.
+`result` and `done` may share an ID. A terminal cue is emitted once per observed
+run, after Get A Run confirms its terminal status; failed reads and live statuses
+remain working and retry on polling. A `410 stream_expired` ends SSE retries and
+reads Get A Run; it does not itself mean success. Startup idle agents remain
+silent history. The awaited stream consumer applies backpressure and limits
+framing to 64 KiB; oversized frames reconnect instead of accumulating memory.
+Streams stop when their run changes, the agent leaves discovery, the key is
+removed or the monitor is cancelled. Streaming and polling retain `.cloud`
+observation semantics; neither changes the control channel or session reader.
+
+Contract: [Cursor v1 run stream](https://prod.cursor.com/docs/cloud-agent/api/endpoints),
+read 2026-10-01. Isolated boundary evidence and latency comparison:
+[`acceptance-cursor-cloud.md`](../planning/backlog/agent-integration-2026-10/acceptance-cursor-cloud.md).
+
 ## Alternatives rejected
 
 - **Using the API as a control path only**, leaving the rows as stored history.
@@ -128,11 +147,6 @@ that does not run on this Mac.
   database says otherwise, and the rule would have made the whole feature render
   nothing. Anchoring a session that has no local folder, branch or transcript to a
   local database row was the wrong model regardless of what the query returned.
-- **The SSE run stream** (`…/runs/{runId}/stream`). It is the better fit for
-  live tool activity and is the only real-time option Cursor offers today
-  (webhooks exist on v0 only and are "coming soon" for v1). It also needs a
-  long-lived connection and `Last-Event-ID` resume, and polling already answers
-  the question the three buckets ask. Left for when tool-level activity is wanted.
 - **Leaving stop refused.** ADR-0016 says "Stop is refused, not attempted —
   Cursor exposes no interrupt". That is true of a local chat and **false of a
   cloud run**, which `POST /v1/agents/{id}/runs/{runId}/cancel` ends. Refusing
@@ -174,7 +188,9 @@ contributes no line rather than a blank one.
   configures only one gets exactly the capability that one buys — quota from the
   cookie, cloud agents from the key.
 - Polling costs one list call per interval (20s), one agent call the first time
-  an agent is seen, and one run call when an agent has just finished. Cursor
+  an agent is seen, and a run read for active fallback or terminal confirmation.
+  Active runs also hold a bounded SSE connection; reconnect backs off from 1s
+  to 20s, while an expired stream stays on polling. Cursor
   documents no rate limit on `/v1/agents`; if one appears, the interval is the
   single knob.
 - Rows now come from an account rather than from this machine, so a second Mac

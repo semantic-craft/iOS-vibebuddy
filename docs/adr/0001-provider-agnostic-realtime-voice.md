@@ -167,3 +167,25 @@ and its Keychain key are removed.
 
 The agent source string `gemini` (`AgentKind.fromSource` → `.antigravity`) is
 the Antigravity coding agent, not this provider, and is unaffected.
+
+## MiniMax text and read-aloud (2026-10-01)
+
+MiniMax joins for summaries and TTS, without a realtime adapter. The historical
+shared voice capability now applies to realtime only; `readAloudProviders` and
+read-aloud settings use `SpeechSynthesis.support` instead. Following MiniMax
+summaries therefore resolves to MiniMax TTS, while conversation never selects it.
+
+The China endpoint accepts a user-supplied Token Plan key stored in the existing
+Keychain scheme. Defaults are `MiniMax-M3.1-Flash-Preview` with low reasoning and
+`speech-2.8-turbo`; no fallback changes the key, region or billing route. M3.1
+cannot disable thinking, but the owner's live benchmark found low reasoning
+faster and more faithful than M3 with thinking disabled. An explicitly selected
+M3 still disables thinking.
+Chinese announcer styles select documented system voices plus modest speed/pitch
+adjustments and the existing persona wording. Synthesis has no free-form style
+instruction, and Speech 2.8 does not support whisper emotion. Voice design and
+cloning are outside this integration. Model latency and persona quality require
+live acceptance; the model defaults now have a bounded local benchmark (below).
+
+Sources and limits: `docs/agents/minimax-tts-research.md`; measured selection:
+`docs/agents/minimax-benchmark-2026-10-01.md`.

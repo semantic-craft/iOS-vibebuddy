@@ -283,7 +283,7 @@ public enum VoiceSettings {
     public static func pinnedReadAloudProvider(defaults: UserDefaults = .standard) -> VoiceProvider? {
         let raw = (defaults.string(forKey: readAloudProviderKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty, let provider = VoiceProvider(rawValue: raw), provider.supportsVoice else { return nil }
+        guard !raw.isEmpty, let provider = VoiceProvider(rawValue: raw), SpeechSynthesis.support(provider) != nil else { return nil }
         return provider
     }
 
@@ -293,7 +293,7 @@ public enum VoiceSettings {
         if let pinned = pinnedReadAloudProvider(defaults: defaults) { return .ready(pinned) }
         guard let summary = summaryProvider(defaults: defaults) else { return .waitingForSummaryProvider }
         // Following a text-only summary provider is a state, not a fallback.
-        guard summary.supportsVoice else { return .summaryProviderCannotSpeak(summary) }
+        guard SpeechSynthesis.support(summary) != nil else { return .summaryProviderCannotSpeak(summary) }
         return .ready(summary)
     }
 

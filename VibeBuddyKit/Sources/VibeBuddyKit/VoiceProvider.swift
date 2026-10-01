@@ -10,15 +10,17 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     case openai
     case doubao
     case deepseek
+    case minimax
 
     public var supportsCompletionSummaries: Bool { self != .doubao }
     public static var summaryProviders: [Self] { allCases.filter(\.supportsCompletionSummaries) }
 
-    /// Whether this vendor produces audio at all. Voice conversation and
-    /// read-aloud both require it; a text-only vendor offers neither, and every
-    /// realtime / TTS accessor below is gated on this.
-    public var supportsVoice: Bool { self != .deepseek }
+    /// Whether this integration supports realtime conversation. MiniMax has
+    /// text and TTS adapters only; read-aloud has its own capability list.
+    public var supportsVoice: Bool { self != .deepseek && self != .minimax }
     public static var voiceProviders: [Self] { allCases.filter(\.supportsVoice) }
+
+    public static var readAloudProviders: [Self] { allCases.filter { SpeechSynthesis.support($0) != nil } }
 
     public var display: String {
         switch self {
@@ -26,6 +28,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .openai: return "OpenAI"
         case .doubao: return String(localized: "Doubao (Volcengine)", bundle: .module)
         case .deepseek: return "DeepSeek"
+        case .minimax: return "MiniMax"
         }
     }
 
@@ -36,6 +39,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .openai: return "openai.apiKey"
         case .doubao: return "doubao.realtime.apiKey"
         case .deepseek: return "deepseek.apiKey"
+        case .minimax: return "minimax.apiKey"
         }
     }
 
@@ -46,7 +50,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return "qwen-audio-3.0-realtime-plus"
         case .openai: return "gpt-live-1"
         case .doubao: return "1.2.6.1"
-        case .deepseek: return ""
+        case .deepseek, .minimax: return ""
         }
     }
 
@@ -55,9 +59,9 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen, .doubao: return 16_000
         case .openai:        return 24_000
-        // Text-only: no microphone path ever opens for it. Kept plain rather
+        // No realtime adapter: no microphone path opens for this vendor. Kept plain rather
         // than zero so a mistaken caller misconfigures instead of trapping.
-        case .deepseek: return 16_000
+        case .deepseek, .minimax: return 16_000
         }
     }
 
@@ -71,7 +75,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return "longanqian"   // Qwen-Audio system voice (multilingual)
         case .openai: return "marin"
         case .doubao: return "zh_female_vv_jupiter_bigtts"   // Chinese; English → the catalog
-        case .deepseek: return ""                            // Text-only; it never speaks
+        case .deepseek, .minimax: return ""                            // No realtime conversation voice
         }
     }
 
@@ -85,6 +89,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides")!
         case .openai: return URL(string: "https://platform.openai.com/docs/models")!
         case .doubao: return URL(string: "https://www.volcengine.com/docs/6561/2549778?lang=zh")!
+        case .minimax: return URL(string: "https://platform.minimax.cn/docs/api-reference/text-chat-openai")!
         case .deepseek: return URL(string: "https://api-docs.deepseek.com/quick_start/pricing")!
         }
     }
@@ -116,6 +121,11 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
             address = "https://www.volcengine.com/docs/6561/2549778?lang=zh"
         case (.doubao, .speechSynthesis):
             address = "https://www.volcengine.com/docs/6561/1598757?lang=zh"
+        case (.minimax, .text):
+            address = "https://platform.minimax.cn/docs/api-reference/text-chat-openai"
+        case (.minimax, .speechSynthesis):
+            address = "https://platform.minimax.cn/docs/api-reference/speech-t2a-http"
+        case (.minimax, .conversation): return nil
         case (.deepseek, .text):
             address = "https://api-docs.deepseek.com/quick_start/pricing/"
         case (.doubao, .text), (.deepseek, .conversation), (.deepseek, .speechSynthesis):
@@ -130,6 +140,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides")!
         case .openai: return URL(string: "https://developers.openai.com/api/docs/guides/live-conversations")!
         case .doubao: return URL(string: "https://www.volcengine.com/docs/6561/2549778?lang=zh")!
+        case .minimax: return URL(string: "https://platform.minimax.cn/docs/faq/system-voice-id")!
         case .deepseek: return URL(string: "https://api-docs.deepseek.com/quick_start/pricing")!   // No voices; its model list
         }
     }
@@ -144,6 +155,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return URL(string: "https://bailian.console.aliyun.com/?apiKey=1")!
         case .openai: return URL(string: "https://platform.openai.com/api-keys")!
         case .doubao: return URL(string: "https://console.volcengine.com/speech/new/setting/apikeys?projectName=default")!
+        case .minimax: return URL(string: "https://platform.minimax.cn/console/plan")!
         case .deepseek: return URL(string: "https://platform.deepseek.com/api_keys")!
         }
     }

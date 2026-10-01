@@ -61,6 +61,25 @@ struct CompletionSummaryHTTP: Sendable {
             endpoint = "https://\(host)/compatible-mode/v1/chat/completions"
             body = ["model": c.modelID, "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
                     "stream": false, "max_tokens": purpose == .notice ? 512 : 2400, "enable_thinking": false]
+        case .minimax:
+            endpoint = "https://api.minimax.cn/v1/chat/completions"
+            var miniMax: [String: Any] = ["model": c.modelID,
+                "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
+                "stream": false,
+                // Thinking counts toward this cap. Use the measured 4096-token
+                // budget for thinking models; visible text still has its own limit.
+                "max_completion_tokens": c.modelID == "MiniMax-M3" ? (purpose == .notice ? 512 : 2400) : 4096,
+                "reasoning_split": true]
+            if c.modelID == "MiniMax-M3.1-Flash-Preview" {
+                // M3.1 rejects disabled thinking. Low beat non-thinking M3 in
+                // the local summary benchmark; reasoning never enters speech.
+                miniMax["thinking"] = ["type": "adaptive"]
+                miniMax["reasoning_effort"] = "low"
+            } else {
+                // M2.x cannot disable thinking; only M3 supports that mode.
+                miniMax["thinking"] = ["type": c.modelID == "MiniMax-M3" ? "disabled" : "adaptive"]
+            }
+            body = miniMax
         case .deepseek:
             // OpenAI-compatible chat completions, one region, no workspace.
             // Thinking is on by default and would spend a reasoning budget on a
@@ -139,13 +158,25 @@ struct CompletionSummaryHTTP: Sendable {
 
     static func decode(_ data: Data, provider: VoiceProvider, purpose: SummaryPurpose = .notice) -> CompletionSummaryResponse {
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .init(failure: .invalidResponse) }
+        if provider == .minimax, let base = root["base_resp"] as? [String: Any],
+           let code = base["status_code"] as? Int, code != 0 {
+            let failure: CompletionSummaryFailure = switch code {
+            case 1004, 2049: .unauthorized
+            case 1002, 1041, 2045: .rateLimited
+            case 1008, 2056: .quotaExceeded
+            case 1039: .invalidInput
+            case 1001: .expired
+            default: .httpError
+            }
+            return .init(failure: failure)
+        }
         let usage = usage(root, provider: provider)
         func fail(_ reason: CompletionSummaryFailure) -> CompletionSummaryResponse { .init(usage: usage, failure: reason) }
         var pieces: [String] = []
         switch provider {
         case .doubao: return fail(.missingProvider)
         // DeepSeek mirrors the OpenAI chat-completions schema Qwen also serves.
-        case .qwen, .deepseek:
+        case .qwen, .deepseek, .minimax:
             guard let choices = root["choices"] as? [[String: Any]], choices.count == 1,
                   let choice = choices.first, let message = choice["message"] as? [String: Any] else { return fail(.invalidResponse) }
             guard choice["finish_reason"] as? String == "stop" else { return fail(.incompleteOutput) }
@@ -193,7 +224,7 @@ struct CompletionSummaryHTTP: Sendable {
         func number(_ value: Any?) -> Int? { guard let n = value as? Int, n >= 0 else { return nil }; return n }
         switch provider {
         case .doubao: return nil
-        case .qwen, .deepseek:
+        case .qwen, .deepseek, .minimax:
             return .init(inputTokens: number(u["prompt_tokens"]), outputTokens: number(u["completion_tokens"]), totalTokens: number(u["total_tokens"]),
                          cachedInputTokens: number((u["prompt_tokens_details"] as? [String: Any])?["cached_tokens"]),
                          reasoningTokens: number((u["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"]))

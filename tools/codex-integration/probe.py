@@ -245,25 +245,47 @@ def run(*args):
 
 
 def audit():
-    version = json.loads(run("codex", "app-server", "daemon", "version"))
-    emit("versions", **version)
-    values = [version.get(k) for k in ("cliVersion", "managedCodexVersion", "appServerVersion")]
     issues = []
-    if not all(values) or len(set(values)) != 1:
-        issues.append("Installed CLI/managed/daemon versions are unknown or different")
+    runtime_issues = []
+    emit("installedCLI", version=run("codex", "--version").strip(),
+         limit="CLI version is not the Desktop event producer version")
+    try:
+        version = json.loads(run("codex", "app-server", "daemon", "version"))
+        emit("runtimeConnection", status="connected", **version)
+        values = [version.get(k) for k in ("cliVersion", "managedCodexVersion", "appServerVersion")]
+        if not all(values) or len(set(values)) != 1:
+            runtime_issues.append("Installed CLI/managed/daemon versions are unknown or different")
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
+        emit("runtimeConnection", status="unavailable", detail="Shared daemon is not reachable; static audit continues")
+        runtime_issues.append("Shared daemon is not reachable")
     status, lines = trust.report()
     emit("hookTrust", status=status, detail=lines)
     if status != "ok":
-        issues.append("Hook trust is not confirmed")
+        runtime_issues.append("Hook trust is not confirmed")
     with tempfile.TemporaryDirectory(prefix="vibebuddy-codex-schema-") as directory:
-        run("codex", "app-server", "generate-json-schema", "--out", directory)
+        run("codex", "app-server", "generate-json-schema", "--experimental", "--out", directory)
         schema = Path(directory)
         request = json.loads((schema / "ClientRequest.json").read_text())
         methods = {v["properties"]["method"]["enum"][0] for v in request["oneOf"]}
-        source = (ROOT / "VibeBuddyMac/Sources/VibeBuddyMacCore/CodexAppServerMonitor.swift").read_text()
-        used = set(re.findall(r'client\.request\("([^"]+)"', source))
+        core = ROOT / "VibeBuddyMac/Sources/VibeBuddyMacCore"
+        source = "\n".join(path.read_text() for path in core.glob("Codex*.swift"))
+        used = set(re.findall(r'(?:client\.request|readRequest)\("([^"]+)"', source))
+        used.update(re.findall(r'method: "([^"]+)"', source))
         missing = sorted(used - methods)
         emit("clientMethods", checked=sorted(used), absent=missing)
+        capabilities = request.get("definitions", {}).get("InitializeCapabilities", {}).get("properties", {})
+        expected_capabilities = {"experimentalApi", "optOutNotificationMethods"}
+        emit("initializeCapabilities", checked=sorted(expected_capabilities),
+             absent=sorted(expected_capabilities - capabilities.keys()))
+        issues.extend("Missing initialize capability: " + name
+                      for name in sorted(expected_capabilities - capabilities.keys()))
+        notification = json.loads((schema / "ServerNotification.json").read_text())
+        notifications = {v["properties"]["method"]["enum"][0] for v in notification["oneOf"]}
+        client_source = (core / "CodexAppServerClient.swift").read_text()
+        ignored_block = client_source.split("let ignoredNotifications: [String] = [", 1)[1].split("]", 1)[0]
+        ignored = set(re.findall(r'"([^"]+)"', ignored_block))
+        emit("notificationOptOut", checked=sorted(ignored), absent=sorted(ignored - notifications))
+        issues.extend("Unknown opt-out notification: " + name for name in sorted(ignored - notifications))
         issues.extend("Missing method: " + method for method in missing)
         # Bound the audit to the contracts our approval/steer implementation uses.
         required = {
@@ -279,7 +301,8 @@ def audit():
         server_methods = sorted(v["properties"]["method"]["enum"][0] for v in server["oneOf"])
         emit("serverRequests", methods=server_methods)
     emit("audit", status="review" if issues else "pass", issues=issues,
-         limit="Local contract audit; does not establish upstream latest, event delivery or device acceptance")
+         runtimeIssues=runtime_issues,
+         limit="Static contract result independent of runtime connection; does not establish event delivery or device acceptance")
     return bool(issues)
 
 

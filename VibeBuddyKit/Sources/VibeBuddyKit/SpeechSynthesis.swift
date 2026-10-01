@@ -45,6 +45,7 @@ public enum SpeechSynthesisFailure: String, Error, Sendable, Equatable {
     /// The provider refused the credential (401/403) or rejected the task.
     case rejected
     case rateLimited
+    case quotaExceeded
     /// Nothing on the wire: no network, DNS, or a refused connection.
     case unreachable
     case timedOut
@@ -59,6 +60,7 @@ public enum SpeechSynthesisFailure: String, Error, Sendable, Equatable {
         switch self {
         case .configuration: "Check the read-aloud model and voice before speaking."
         case .rejected: "The provider rejected this API key. Open its account and paste the key again."
+        case .quotaExceeded: "The provider’s plan quota or balance is exhausted. Check your account before retrying."
         case .rateLimited: "The provider is rate-limiting this key. Try again in a moment."
         case .unreachable: "Could not reach the provider. Check your connection."
         case .timedOut: "The provider did not answer in time."
@@ -83,7 +85,7 @@ public enum SpeechSynthesis {
     public struct Support: Sendable {
         public let defaultModel: String
         public let defaultVoice: String
-        /// Whether this vendor documents an instruction channel for delivery.
+        /// Whether this vendor supports our delivery styles through voices or controls.
         /// The UI offers the style control only where it changes the audio —
         /// a picker that silently does nothing is worse than no picker.
         public let supportsStyle: Bool
@@ -99,7 +101,7 @@ public enum SpeechSynthesis {
     }
 
     /// `nil` for a text-only vendor, which has no speech API to reach. Callers
-    /// that already hold a read-aloud provider (`VoiceProvider.supportsVoice`)
+    /// that already hold a read-aloud provider (`VoiceProvider.readAloudProviders`)
     /// never see it; the optional exists so no vendor can be handed a
     /// synthesizer that cannot work.
     public static func support(_ provider: VoiceProvider) -> Support? {
@@ -124,6 +126,11 @@ public enum SpeechSynthesis {
                            defaultVoice: DoubaoSpeechSynthesizer.defaultVoice,
                            supportsStyle: true) {
                 DoubaoSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, persona: $0.persona)
+            }
+        case .minimax:
+            return Support(defaultModel: MiniMaxSpeechSynthesizer.defaultModel,
+                           defaultVoice: MiniMaxSpeechSynthesizer.defaultVoice, supportsStyle: true) {
+                MiniMaxSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, style: $0.style)
             }
         case .deepseek:
             return nil   // Text-only: DeepSeek publishes no speech API.

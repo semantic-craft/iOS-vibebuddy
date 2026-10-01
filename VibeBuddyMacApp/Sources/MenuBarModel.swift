@@ -78,6 +78,7 @@ final class MenuBarModel: ObservableObject {
     let settingsCredentials = SettingsCredentials()
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    @Published private(set) var cursorPersistentDiscovery: String?
     /// Directories sessions have run in, newest first — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []
     /// Agents a new task can be started for from this Mac.
@@ -737,6 +738,7 @@ final class MenuBarModel: ObservableObject {
         if sessions != snapshot.sessions { sessions = snapshot.sessions }
         let diagnostics = snapshot.observationDiagnostics ?? []
         if observationDiagnostics != diagnostics { observationDiagnostics = diagnostics }
+        if cursorPersistentDiscovery != snapshot.cursorPersistentDiscovery { cursorPersistentDiscovery = snapshot.cursorPersistentDiscovery }
         let directories = snapshot.recentDirectories ?? []
         if recentDirectories != directories { recentDirectories = directories }
         let nextHandoffs = snapshot.handoffs ?? []
@@ -1499,6 +1501,18 @@ final class MenuBarModel: ObservableObject {
 
     func recentOutput(for sessionID: String) async -> RecentOutput {
         await store.recentOutput(sessionID: sessionID)
+    }
+
+    func codexHistoryPage(threadID: String, cursor: String? = nil) async -> Result<CodexHistoryPage, CodexReadFailure> {
+        await codexAppServerMonitor.historyPage(threadID: threadID, cursor: cursor)
+    }
+
+    func codexGoal(threadID: String) async -> Result<CodexTaskGoal?, CodexReadFailure> {
+        await codexAppServerMonitor.taskGoal(threadID: threadID)
+    }
+
+    func codexTerminals(threadID: String, cursor: String? = nil) async -> Result<CodexTerminalPage, CodexReadFailure> {
+        await codexAppServerMonitor.backgroundTerminals(threadID: threadID, cursor: cursor)
     }
 
     /// Execute a voice action against the matching session; returns a spoken confirmation.

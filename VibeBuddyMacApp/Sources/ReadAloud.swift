@@ -54,6 +54,7 @@ final class ReadAloud: ObservableObject {
             switch provider {
             case .qwen: return env["DASHSCOPE_API_KEY"]
             case .openai: return env["OPENAI_API_KEY"]
+            case .minimax: return env["MINIMAX_API_KEY"]
             default: return nil
             }
         }

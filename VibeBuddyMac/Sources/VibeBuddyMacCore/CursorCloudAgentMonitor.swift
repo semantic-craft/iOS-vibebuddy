@@ -34,6 +34,11 @@ public actor CursorCloudAgentMonitor {
     /// cannot change for a given agent, so it is fetched once and kept.
     private var repositories: [String: String] = [:]
     private var started = false
+    private var streams: [String: Task<Void, Never>] = [:]
+    private var streamRuns: [String: String] = [:]
+    private var cursors: [String: String] = [:]
+    private var completed: [String: String] = [:]
+    private var observedAgents: [String: CursorCloudAgent] = [:]
     /// The API health last handed to Settings diagnostics, and when.
     private var reported: (health: ObservationHealth, at: Date)?
 
@@ -50,6 +55,7 @@ public actor CursorCloudAgentMonitor {
     }
 
     public func run(store: SessionStore) async {
+        defer { for task in streams.values { task.cancel() }; streams.removeAll(); streamRuns.removeAll(); cursors.removeAll() }
         while !Task.isCancelled {
             await poll(store: store, now: Date())
             do { try await Task.sleep(for: interval) } catch { return }
@@ -71,6 +77,7 @@ public actor CursorCloudAgentMonitor {
         guard let agents else { return }
         await store.applyCursorCloudAgents(agents)
         for event in events { await store.ingest(event) }
+        reconcileStreams(agents: agents, store: store)
     }
 
     /// Whether the API answers, for Settings diagnostics. Sent on a change and
@@ -107,8 +114,13 @@ public actor CursorCloudAgentMonitor {
             let agent = await withRepository(listing)
             agents.append(agent)
             let before = seen[agent.id]
+            let previousRun = observedAgents[agent.id]?.latestRunID
+            observedAgents[agent.id] = agent
             seen[agent.id] = agent.status
-            guard before != agent.status else { continue }
+            if before == .active, agent.status == .active, previousRun == agent.latestRunID,
+               completed[agent.id] != agent.latestRunID,
+               let event = await completion(for: agent, at: now) { events.append(event) }
+            guard before != agent.status || previousRun != agent.latestRunID else { continue }
             switch agent.status {
             case .active:
                 events.append(base(agent, kind: .userPromptSubmit, at: now, message: agent.name))
@@ -118,7 +130,8 @@ public actor CursorCloudAgentMonitor {
                 // vibebuddy was watching; it gets a history row instead, and
                 // replaying it would ring for a run long since read.
                 guard !first, before != nil else { continue }
-                events.append(await completion(for: agent, at: now))
+                if let event = await completion(for: agent, at: now) { events.append(event) }
+                else if completed[agent.id] != agent.latestRunID { seen[agent.id] = before }
             case .archived:
                 events.append(base(agent, kind: .sessionEnd, at: now))
             }
@@ -127,6 +140,8 @@ public actor CursorCloudAgentMonitor {
         for (id, status) in seen where !present.contains(id) {
             seen.removeValue(forKey: id)
             repositories.removeValue(forKey: id)
+            observedAgents.removeValue(forKey: id)
+            completed.removeValue(forKey: id)
             guard status != .archived else { continue }
             events.append(HookEvent(kind: .sessionEnd, sessionID: id, agent: .cursor,
                                     observationSource: .cloud, timestamp: now))
@@ -147,16 +162,19 @@ public actor CursorCloudAgentMonitor {
 
     /// The end of a cloud turn, with whatever the run itself reported.
     ///
-    /// The run detail is a second call, so failing to read it must not cost the
-    /// completion: an unreadable run still ends the turn, just without the final
-    /// text. `FINISHED` is the only run status that counts as success — `ERROR`,
+    /// A failed run read provides no terminal evidence; polling retries it.
+    /// Only an authoritative terminal run ends the turn. `FINISHED` is the only run status that counts as success — `ERROR`,
     /// `CANCELLED` and `EXPIRED` all ended the turn without producing what was
     /// asked for.
-    private func completion(for agent: CursorCloudAgent, at now: Date) async -> HookEvent {
+    private func completion(for agent: CursorCloudAgent, at now: Date) async -> HookEvent? {
         guard let runID = agent.latestRunID,
-              let run = try? await client.run(agentID: agent.id, runID: runID) else {
-            return base(agent, kind: .stop, at: now)
-        }
+              completed[agent.id] != runID,
+              let run = try? await client.run(agentID: agent.id, runID: runID),
+              run.id == runID, run.agentID == agent.id, !run.status.isLive else { return nil }
+        // Recheck after the await: polling and the stream may read together.
+        guard !Task.isCancelled, observedAgents[agent.id]?.latestRunID == runID,
+              completed[agent.id] != runID else { return nil }
+        completed[agent.id] = runID
         let succeeded = run.status == .finished
         let event = base(agent, kind: .stop, at: now,
                          message: run.result.map { String($0.prefix(220)) }
@@ -168,6 +186,66 @@ public actor CursorCloudAgentMonitor {
         // a break — the same distinction the hook adapter draws for an aborted
         // Cursor turn.
         return run.status == .cancelled ? event.markingUserStop() : event
+    }
+
+    private func reconcileStreams(agents: [CursorCloudAgent], store: SessionStore) {
+        let active = Dictionary(uniqueKeysWithValues: agents.filter { $0.status == .active && $0.latestRunID != nil }
+            .map { ($0.id, $0.latestRunID!) })
+        for id in Array(streamRuns.keys) where active[id] != streamRuns[id] {
+            streams.removeValue(forKey: id)?.cancel()
+            streamRuns.removeValue(forKey: id)
+            cursors.removeValue(forKey: id)
+        }
+        for (id, runID) in active where streamRuns[id] == nil && completed[id] != runID {
+            streamRuns[id] = runID
+            streams[id] = Task { await self.follow(agentID: id, runID: runID, store: store) }
+        }
+    }
+
+    private func follow(agentID: String, runID: String, store: SessionStore) async {
+        var delay = 1
+        while !Task.isCancelled && streamRuns[agentID] == runID && completed[agentID] != runID {
+            do {
+                try await client.stream(agentID: agentID, runID: runID, lastEventID: cursors[agentID]) { event in
+                    try Task.checkCancellation()
+                    await self.receive(event, agentID: agentID, runID: runID, store: store)
+                }
+            } catch CursorCloudError.service(let status, _) where status == 410 {
+                // Retention expiry is not a completion. Stop retrying SSE and
+                // read the authoritative run; polling keeps retrying that read.
+                await terminal(agentID: agentID, runID: runID, store: store)
+                return
+            } catch { if Task.isCancelled { return } }
+            guard completed[agentID] != runID else { return }
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            delay = min(delay * 2, 20)
+        }
+    }
+
+    private func receive(_ event: CursorCloudStreamEvent, agentID: String, runID: String,
+                         store: SessionStore) async {
+        guard streamRuns[agentID] == runID, !Task.isCancelled else { return }
+        // IDs are opaque and scoped to this run. result and done may share one.
+        if let id = event.id { cursors[agentID] = id }
+        guard ["status", "result", "done"].contains(event.kind) else { return }
+        if event.kind != "done" {
+            guard let bytes = event.data.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  json["runId"] as? String == runID,
+                  let raw = json["status"] as? String,
+                  let status = CursorCloudRun.Status(rawValue: raw), !status.isLive else { return }
+        }
+        await terminal(agentID: agentID, runID: runID, store: store)
+    }
+
+    private func terminal(agentID: String, runID: String, store: SessionStore) async {
+        guard streamRuns[agentID] == runID, let agent = observedAgents[agentID],
+              agent.latestRunID == runID, let event = await completion(for: agent, at: Date()) else { return }
+        // completion claimed the run after its await. Cancellation after that
+        // claim must not discard its one delivery; a changed run was rejected
+        // before the claim, so this stop cannot target a newly observed run.
+        await store.ingest(event)
+        if streamRuns[agentID] == runID { streams[agentID]?.cancel() }
     }
 
     private func base(_ agent: CursorCloudAgent, kind: HookEvent.Kind, at now: Date,

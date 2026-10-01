@@ -264,6 +264,17 @@ struct CodexAppServerAuthorityTests {
         #expect(session?.observations?.map(\.source) == [.appserver, .rollout])
     }
 
+    @Test("disconnect immediately yields progress authority and control to fallback")
+    func disconnectedDaemonYields() async {
+        let store = SessionStore()
+        await store.ingest(event(.userPromptSubmit, source: .appserver, at: now))
+        await store.recordSourceSignal(agent: .codex, source: .appserver, health: .sourceUnreadable, at: now.addingTimeInterval(1))
+        await store.ingest(event(.stop, source: .rollout, at: now.addingTimeInterval(2), message: "Done"))
+        let session = await store.snapshot(now: now.addingTimeInterval(3)).sessions.first { $0.id == "thr-1" }
+        #expect(session?.status == .done)
+        if let session { #expect(await store.controlChannel(for: session, now: now.addingTimeInterval(3)) == nil) }
+    }
+
     @Test("once the app-server evidence is stale, rollout events move the thread again")
     func staleDaemonYields() async {
         let store = SessionStore()

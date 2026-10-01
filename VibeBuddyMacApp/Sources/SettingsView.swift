@@ -703,6 +703,19 @@ private struct DiagnosticsPage: View {
                 }
             }
 
+            if let discovery = model.cursorPersistentDiscovery {
+                SettingsSection("Cursor persistent terminals",
+                                footnote: "Discovery reads terminal metadata only. Live task progress and controls require Cursor events.") {
+                    SettingsRow("Discovery") {
+                        if discovery == "available" {
+                            SettingsValue("Available")
+                        } else {
+                            SettingsValue("Unavailable — requires Cursor CLI persist support and tmux")
+                        }
+                    }
+                }
+            }
+
             SettingsSection("Codex daemon", footnote: "The app-server is one Codex source. Rollout and Hook have separate diagnostics above; a missing daemon does not mean all Codex monitoring has stopped.") {
                 SettingsBlockRow {
                     Text(verbatim: codexAppServerStatus)
@@ -855,6 +868,9 @@ private struct DiagnosticsPage: View {
             text += " · " + String(localized: "Subscribed threads: \(d.subscribedThreads)")
             if !d.serverRequestsSeen.isEmpty {
                 text += " · " + String(localized: "Approval requests seen: \(Set(d.serverRequestsSeen).sorted().joined(separator: ", "))")
+            }
+            if d.uncertainThreads > 0 {
+                text += "\n" + String(localized: "Recovery incomplete for \(d.uncertainThreads) tasks; other sources remain available.")
             }
             // A daemon left running across a Codex update speaks an older
             // protocol than this Mac expects, and nothing else says so.

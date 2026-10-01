@@ -277,6 +277,34 @@ struct ObservationHealthDetectorTests {
             .health(agent: .codex, source: .rollout) == .unknownVersion)
     }
 
+    // Minimized from a real completed Codex Desktop/vscode rollout whose own
+    // session_meta.cli_version was 0.159.2; user text, paths and IDs replaced.
+    @Test("observed Desktop 0.159.2 replays progress, tools, usage and full result")
+    func desktop1592Compatibility() throws {
+        let lines = [
+            #"{"type":"session_meta","payload":{"id":"verified1592","cwd":"/test","originator":"Codex Desktop","source":"vscode","cli_version":"0.159.2"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"verified-turn"}}"#,
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"verified-call","name":"exec","input":"","status":"completed"}}"#,
+            #"{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"verified-call","output":""}}"#,
+            #"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":4058887,"cached_input_tokens":3937280,"cache_write_input_tokens":0,"output_tokens":17173,"reasoning_output_tokens":2437,"total_tokens":4076060},"last_token_usage":{"input_tokens":133266,"cached_input_tokens":132352,"cache_write_input_tokens":0,"output_tokens":171,"reasoning_output_tokens":49,"total_tokens":133437},"model_context_window":258400}}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"verified-turn","last_agent_message":"Verified completion"}}"#
+        ]
+        var parser = CodexRolloutParser()
+        let events = lines.flatMap { parser.parseEvents(Data($0.utf8), receivedAt: now) }
+        #expect(events.map(\.kind) == [.userPromptSubmit, .preToolUse, .postToolUse, .sessionMetadataChanged, .stop])
+        #expect(events.first(where: { $0.kind == .sessionMetadataChanged })?.enrichment?.tokens == 133437)
+        #expect(events.last?.completionText == "Verified completion")
+        #expect(events.last?.completionSucceeded == true)
+        #expect(!parser.turnActive)
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let rollout = home.appendingPathComponent(".codex/sessions/rollout-1592.jsonl")
+        try write(lines.joined(separator: "\n"), to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .healthy)
+        try write(lines.joined(separator: "\n").replacingOccurrences(of: "0.159.2", with: "0.159.3"), to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .unknownVersion)
+    }
+
     @Test("bounded rollout inspection discards a partial line before decoding UTF-8")
     func boundedRolloutUTF8() throws {
         let home = try tempHome()

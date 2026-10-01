@@ -742,7 +742,7 @@ private struct ReadAloudFeatureRow: View {
                 .font(MacTheme.font(11))
             ControlLine.textOnly(feature: .readAloud, provider: {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
-                               options: VoiceProvider.voiceProviders, leading: ("", followTitle))
+                               options: VoiceProvider.readAloudProviders, leading: ("", followTitle))
             }, model: {
                 if case .ready(let provider) = status {
                     IDField(label: "Speech synthesis model",
@@ -837,6 +837,10 @@ private struct AccountRow: View {
                         .help("Paste")
                         .accessibilityLabel(Text("Paste \(provider.display) API key"))
                         .accessibilityIdentifier("paste-apiKey-\(provider.rawValue)")
+                    }
+                    if provider == .minimax {
+                        Text("Use a MiniMax China Token Plan key. Summaries default to M3.1 Flash Preview with low reasoning; speech defaults to Speech 2.8 Turbo.")
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     Text("API key changes take effect only after Save. Saving does not test the connection.")
                         .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)

@@ -296,6 +296,7 @@ public actor SessionStore {
         }
         switch session.agent {
         case .codex:
+            if let health = runtimeSignals[.codex]?[.appserver]?.health, !health.isHealthy { return nil }
             return fresh(.appserver, within: Self.appServerAuthorityWindow) ? .appserver : nil
         case .cursor:
             if acpHosted.contains(session.id) { return .acp }
@@ -362,6 +363,48 @@ public actor SessionStore {
         // long after, a hook first reports it), so waiting for the file to
         // change would leave a session that appeared in between un-named.
         if applyCursorFacts() || changed { broadcast() }
+    }
+
+    // Persistent CLI transport discovery is separate from lifecycle evidence.
+    // A detached tmux pane can be waiting, idle or complete; never infer a turn.
+    private var cursorPersistentRows: [String: AgentSession] = [:]
+    private var cursorPersistentDiscovery: String?
+
+    public func refreshCursorPersistentSessions() async {
+        applyCursorPersistentDiscovery(await CursorPersistentSessions.discover())
+    }
+
+    func applyCursorPersistentDiscovery(_ discovery: CursorPersistentSessions.Discovery) {
+        switch discovery {
+        case .available(let sessions):
+            let changed = cursorPersistentDiscovery != "available"
+            cursorPersistentDiscovery = "available"
+            registerCursorPersistentSessions(sessions, now: Date())
+            if changed { broadcast() }
+        case .unavailable:
+            guard cursorPersistentDiscovery != "unavailable" || !cursorPersistentRows.isEmpty else { return }
+            cursorPersistentDiscovery = "unavailable"
+            cursorPersistentRows = [:]
+            broadcast()
+        }
+    }
+
+    func registerCursorPersistentSessions(_ sessions: [CursorPersistentSession], now: Date) {
+        var next: [String: AgentSession] = [:]
+        for item in sessions {
+            let existing = cursorPersistentRows[item.chatID]
+            var row = AgentSession(id: item.chatID, agent: .cursor, project: item.workspace,
+                checkoutPath: item.workspace, status: .done,
+                summary: item.attached ? "Persistent Cursor terminal attached; live task progress unavailable"
+                    : "Persistent Cursor terminal detached; live task progress unavailable",
+                name: item.title, statusSince: existing?.statusSince ?? now, updatedAt: existing?.updatedAt ?? now)
+            row.historyOnly = true
+            row.controlChannel = ControlChannel.none
+            next[item.chatID] = row
+        }
+        guard next != cursorPersistentRows else { return }
+        cursorPersistentRows = next
+        broadcast()
     }
 
     /// Copy Cursor's facts onto the live rows that already exist. Enrichment
@@ -1007,6 +1050,9 @@ public actor SessionStore {
     }
 
     private func appServerOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
+        // Disconnect or overflow revokes the live lease immediately; recorded
+        // progress remains evidence but cannot suppress fallback observation.
+        if let health = runtimeSignals[.codex]?[.appserver]?.health, !health.isHealthy { return false }
         guard event.agent == .codex, source != .appserver, event.kind != .sessionEnd,
               let session = reducer.sessions[event.sessionID],
               let fresh = session.observations?.first(where: { $0.source == .appserver }),
@@ -1625,6 +1671,9 @@ public actor SessionStore {
             $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
         }
         snapshot.sessions += cursorCloudHistorySessions()
+        let knownCursorIDs = Set(snapshot.sessions.map(\.id))
+        snapshot.sessions += cursorPersistentRows.values.filter { !knownCursorIDs.contains($0.id) }
+
         if copilotReadFailed || !copilotHistory.isEmpty {
             var diagnostics = snapshot.observationDiagnostics ?? []
             diagnostics.removeAll { $0.agent == .copilot }
@@ -1636,6 +1685,7 @@ public actor SessionStore {
         toolLedger.prune(now: now)
         snapshot.sessions = snapshot.sessions.map { toolLedger.applying(to: $0) }
         snapshot.sourceID = sourceID
+        snapshot.cursorPersistentDiscovery = cursorPersistentDiscovery
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         snapshot.tokenConsumption = tokenConsumption
         let directories = recentDirectories(now: now)

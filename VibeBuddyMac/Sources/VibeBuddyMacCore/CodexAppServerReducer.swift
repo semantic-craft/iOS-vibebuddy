@@ -27,6 +27,13 @@ public struct CodexAppServerReducer: Sendable, Equatable {
 
     public private(set) var threads: [String: ThreadFacts] = [:]
     private var tokenUpdateCount = 0
+    private var lastUsage: [String: Data] = [:]
+    private struct CompletionFingerprint: Sendable, Equatable {
+        let turnID: String
+        let status: String
+        let text: String?
+    }
+    private var lastCompletion: [String: CompletionFingerprint] = [:]
     // Late tool completions cannot reopen a thread already observed idle/ended.
     private var inactiveThreads: Set<String> = []
     private var endedTurns: [String: Set<String>] = [:]
@@ -34,6 +41,10 @@ public struct CodexAppServerReducer: Sendable, Equatable {
     private var finalItems: [String: FinalItem] = [:]
     private struct Ending: Sendable, Equatable { let turnID: String; let at: Date }
     private var endings: [String: Ending] = [:]
+
+    var activeThreadIDs: Set<String> {
+        Set(threads.filter { $0.value.loaded && !inactiveThreads.contains($0.key) }.keys)
+    }
 
     public init() {}
 
@@ -51,12 +62,19 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             facts.branch = branch
         }
         let status = thread["status"] as? [String: Any]
-        recordActivity(threadID: id, status: status?["type"] as? String)
+        // A discovery/resume snapshot has no turn identity. Do not let a
+        // stale active snapshot erase the terminal turn recovered just before
+        // discovery; a live turn/started or status notification can reopen it.
+        let preserveEnding = status?["type"] as? String == "active"
+            && inactiveThreads.contains(id) && lastCompletion[id] != nil
+        if !preserveEnding { recordActivity(threadID: id, status: status?["type"] as? String) }
         facts.loaded = (status?["type"] as? String).map { $0 != "notLoaded" } ?? false
         if (status?["type"] as? String) == "idle" { facts.activeTurnID = nil }
         threads[id] = facts
         guard facts.loaded, let status else { return [] }
-        let events = statusEvents(threadID: id, status: status, receivedAt: receivedAt, includeBranch: true)
+        let events = statusEvents(threadID: id,
+            status: preserveEnding ? ["type": "idle"] : status,
+            receivedAt: receivedAt, includeBranch: true)
         guard let path = thread["path"] as? String, !path.isEmpty else { return events }
         return events.map { $0.withTranscriptPath(path) }
     }
@@ -94,14 +112,14 @@ public struct CodexAppServerReducer: Sendable, Equatable {
                           turnID: turn?["id"] as? String)]
         case "turn/completed":
             guard let id = params["threadId"] as? String else { return [] }
-            inactiveThreads.insert(id)
-            threads[id]?.activeTurnID = nil
             let turn = params["turn"] as? [String: Any] ?? [:]
-            if let turnID = turn["id"] as? String { endedTurns[id, default: []].insert(turnID) }
+            let completedTurnID = turn["id"] as? String
+            // A replay from an earlier turn cannot change the current turn's
+            // activity or recovery identity, even if it adds result detail.
+            if let active = threads[id]?.activeTurnID, let completedTurnID, active != completedTurnID { return [] }
+            if let completedTurnID, endedTurns[id]?.contains(completedTurnID) == true,
+               lastCompletion[id]?.turnID != completedTurnID { return [] }
             let status = turn["status"] as? String ?? "completed"
-            if turn["status"] as? String == "completed", let turnID = turn["id"] as? String {
-                if endings[id]?.turnID != turnID { endings[id] = Ending(turnID: turnID, at: receivedAt) }
-            } else { endings[id] = nil }
             let message: String?
             switch status {
             case "failed":
@@ -113,6 +131,18 @@ public struct CodexAppServerReducer: Sendable, Equatable {
                 message = Self.fullLastAgentMessage(in: turn["items"] as? [[String: Any]] ?? [])
                     ?? (finalItems[id]?.turnID == turn["id"] as? String ? finalItems[id]?.text : nil)
             }
+            if let turnID = turn["id"] as? String {
+                let signature = CompletionFingerprint(turnID: turnID, status: status,
+                    text: message.map { String($0.prefix(12_001)) })
+                guard lastCompletion[id] != signature else { return [] }
+                lastCompletion[id] = signature
+            }
+            inactiveThreads.insert(id)
+            threads[id]?.activeTurnID = nil
+            if let completedTurnID { endedTurns[id, default: []].insert(completedTurnID) }
+            if turn["status"] as? String == "completed", let completedTurnID {
+                if endings[id]?.turnID != completedTurnID { endings[id] = Ending(turnID: completedTurnID, at: receivedAt) }
+            } else { endings[id] = nil }
             return [event(.stop, threadID: id, receivedAt: receivedAt, message: message?.trimmingCharacters(in: .whitespacesAndNewlines),
                           turnID: turn["id"] as? String,
                           completionText: status == "completed" && turn["status"] != nil
@@ -166,6 +196,10 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             // context occupancy leaves out the reasoning tokens.
             let last = usage["last"] as? [String: Any]
             guard let lastTotal = Self.int(last?["totalTokens"]) else { return [] }
+            if let signature = try? JSONSerialization.data(withJSONObject: usage, options: .sortedKeys) {
+                guard lastUsage[id] != signature else { return [] }
+                lastUsage[id] = signature
+            }
             tokenUpdateCount += 1
             let info = TranscriptInfo(
                 tokens: lastTotal,
@@ -178,6 +212,8 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             guard let id = params["threadId"] as? String else { return [] }
             inactiveThreads.remove(id)
             endedTurns[id] = nil
+            lastUsage[id] = nil
+            lastCompletion[id] = nil
             guard threads.removeValue(forKey: id) != nil else { return [] }
             finalItems[id] = nil
             endings[id] = nil

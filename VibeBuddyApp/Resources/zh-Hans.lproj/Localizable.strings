@@ -786,3 +786,7 @@
 "Cloudflare connection active" = "已通过 Cloudflare 连接";
 
 "Could not remove saved credentials. Unlock your iPhone and try again. The connection is unchanged." = "无法移除已保存的凭据。请解锁 iPhone 后重试，原连接保持不变。";
+
+"Use a MiniMax China Token Plan key. Summaries default to M3.1 Flash Preview with low reasoning; speech defaults to Speech 2.8 Turbo." = "使用 MiniMax 国内站的 Token Plan 密钥。摘要默认使用低思考档的 M3.1 Flash Preview，朗读默认使用 Speech 2.8 Turbo。";
+
+"The provider’s plan quota or balance is exhausted. Check your account before retrying." = "服务商的套餐额度或余额已用完，请检查账户用量后再试。";

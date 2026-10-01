@@ -1,7 +1,8 @@
 #!/bin/sh
 # Blocking PreToolUse approval forwarder. Reads the hook JSON on stdin, asks the
 # local daemon, and echoes its permission decision verbatim. On any failure it
-# prints nothing and exits 0 so the agent proceeds with its normal flow.
+# prints nothing. Cursor exits 1 (documented hook failure / native permission
+# fallback); other agents exit 0 to preserve their existing hook contracts.
 #
 # Usage: approval-hook.sh [source [hold]]
 #   no argument  → Claude Code (snake_case envelope, hookSpecificOutput reply);
@@ -36,16 +37,19 @@ if [ -n "$HOLD" ]; then
   MAX_TIME=$((HOLD + 10))
 fi
 # /approval is bearer-token gated (daemon-security/01); read the token at runtime.
-# No token → 401 → empty RESP → the agent proceeds with its normal flow (fail-open).
+# HTTP/transport failures never forward an error body or a partial decision.
 TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
 TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
 # The header reaches curl through fd 3 (`-H @/dev/fd/3` + here-document), never
 # argv, so `ps` cannot show the token. No token → an empty file → no header.
 AUTH_HEADER=; [ -n "$TOKEN" ] && AUTH_HEADER="Authorization: Bearer $TOKEN"
-RESP=$(curl -sS --max-time "$MAX_TIME" -H @/dev/fd/3 \
+RESP=$(curl -fsS --connect-timeout 1 --max-time "$MAX_TIME" -H @/dev/fd/3 \
   -X POST --data-binary @- "$URL" 2>/dev/null 3<<EOF
 $AUTH_HEADER
 EOF
-)
+) || RESP=""
+# Exit 0 with malformed/empty JSON can block Cursor permission hooks. Exit 1
+# gives no approval decision and leaves Cursor's own permission check in charge.
+[ "$SOURCE" = cursor ] && [ -z "$RESP" ] && exit 1
 [ -n "$RESP" ] && printf '%s' "$RESP"
 exit 0

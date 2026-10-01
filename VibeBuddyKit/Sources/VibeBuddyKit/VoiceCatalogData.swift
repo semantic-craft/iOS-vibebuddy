@@ -19,6 +19,18 @@ import Foundation
 /// cloned voices, newly released ones, and these.
 extension VoiceCatalog {
     static let catalog: [Key: [CatalogVoice]] = [
+        // MiniMax official system voices, checked 2026-10-01.
+        // https://platform.minimax.cn/docs/faq/system-voice-id
+        Key(.readAloud, .minimax): [
+            .init("Chinese (Mandarin)_News_Anchor", "新闻女声", language: .chinese, category: "中文"),
+            .init("diadia_xuemei", "嗲嗲学妹", language: .chinese, category: "中文"),
+            .init("wumei_yujie", "妩媚御姐", language: .chinese, category: "中文"),
+            .init("female-shaonv", "少女", language: .chinese, category: "中文"),
+            .init("female-yujie", "御姐", language: .chinese, category: "中文"),
+            .init("male-qn-qingse", "青涩青年", language: .chinese, category: "中文"),
+            .init("English_Trustworthy_Man", "Trustworthy Man", language: .english, category: "English"),
+            .init("English_Graceful_Lady", "Graceful Lady", language: .english, category: "English"),
+        ],
         // MARK: Qwen
 
         Key(.conversation, .qwen): [

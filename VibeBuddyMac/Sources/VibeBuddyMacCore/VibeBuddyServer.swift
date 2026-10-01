@@ -239,6 +239,14 @@ public struct VibeBuddyServer: Sendable {
             }
         }
         defer { historyTask.cancel() }
+        let cursorPersistentTask = Task {
+            while !Task.isCancelled {
+                await store.refreshCursorPersistentSessions()
+                do { try await Task.sleep(for: .seconds(30)) } catch { break }
+            }
+        }
+        defer { cursorPersistentTask.cancel() }
+
         let cursorTask = cursorTranscriptMonitor.map { monitor in
             Task { await monitor.run(store: store) }
         }

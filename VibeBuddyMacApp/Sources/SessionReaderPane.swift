@@ -29,7 +29,8 @@ struct SessionReaderPane: View {
     }
 
     /// Reloads on selection, on a target message, and on the live session's
-    /// own turn boundaries. The file watcher covers appended text in between.
+    /// own turn boundaries. Local text uses a watcher; active Codex pages
+    /// refresh while this pane is visible.
     private var loadKey: String {
         [subject.id, targetMessage ?? "", live.status.rawValue, "\(live.statusSince.timeIntervalSince1970)",
          live.activeTool ?? "", live.completionID ?? ""].joined(separator: "\u{1f}")
@@ -52,7 +53,15 @@ struct SessionReaderPane: View {
             }
         }
         .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: loadKey) { await reader.load(subject, target: targetMessage) }
+        .task(id: loadKey) {
+            await reader.load(subject, target: targetMessage)
+            while subject.agent == .codex, live.status == .working, targetMessage == nil,
+                  !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                guard !Task.isCancelled else { return }
+                if !reader.loadingEarlier { await reader.load(subject, target: nil) }
+            }
+        }
         .onChange(of: viewedSessionID, initial: true) { _, id in model.dashboardViewedSessionID = id }
         .onDisappear {
             if model.dashboardViewedSessionID == live.id { model.dashboardViewedSessionID = nil }
@@ -193,6 +202,28 @@ struct SessionReaderPane: View {
             Divider()
             Button("Export Markdown…") { export(transcript) }.disabled(reader.loading || reader.error != nil)
             Button("Show source") { showSource(transcript) }
+        } else if case .codexHistory = reader.body {
+            Divider()
+            Button("Export Markdown…") {
+                let selected = subject.id
+                Task {
+                    do {
+                        let source = try await reader.localTranscriptForExport()
+                        guard reader.subjectID == selected else { return }
+                        export(source)
+                    } catch { exportError = String(localized: "No local transcript is available for export.") }
+                }
+            }.disabled(reader.loading)
+            Button("Show source") {
+                let selected = subject.id
+                Task {
+                    do {
+                        let source = try await reader.localTranscriptForExport()
+                        guard reader.subjectID == selected else { return }
+                        showSource(source)
+                    } catch { exportError = String(localized: "No local transcript is available for export.") }
+                }
+            }.disabled(reader.loading)
         }
         Divider()
         Button("Refresh transcript") { reader.refresh() }
@@ -246,6 +277,8 @@ struct SessionReaderPane: View {
             return Text("Transcript · updated ") + Text(updatedAt, style: .relative)
         case .recentOutput(let label, _, _):
             return Text("Recent output · \(label) · limited excerpt")
+        case .codexHistory(let updatedAt):
+            return Text("Codex history · read ") + Text(updatedAt, style: .relative)
         case .empty:
             return nil
         }
@@ -283,7 +316,10 @@ struct SessionReaderPane: View {
                 Button("Retry") { reader.refresh() }.buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            SessionReaderView(rows: reader.rows, targetMessage: targetMessage, note: bodyNote) {
+            SessionReaderView(rows: reader.rows, targetMessage: targetMessage, note: bodyNote,
+                              hasRemoteEarlier: reader.earlierCursor != nil,
+                              loadingRemoteEarlier: reader.loadingEarlier,
+                              loadRemoteEarlier: { Task { await reader.loadEarlier() } }) {
                 EmptyView()
             } tail: {
                 if live.status == .done, live.completionID != nil {
@@ -295,12 +331,15 @@ struct SessionReaderPane: View {
     }
 
     private var bodyNote: String? {
+        if let error = reader.pagingError { return error }
         switch reader.body {
         case .recentOutput(let label, let status, _):
             let excerpt = String(localized: "A limited recent excerpt from \(label); this source keeps no readable transcript.")
-            return status.isEmpty ? excerpt : excerpt + " " + status
+            return [reader.fallbackNotice, status.isEmpty ? excerpt : excerpt + " " + status].compactMap { $0 }.joined(separator: " ")
+        case .codexHistory:
+            return String(localized: "Read-only Codex history; earlier items load on request.")
         case .transcript, .empty:
-            return nil
+            return reader.fallbackNotice
         }
     }
 
@@ -320,6 +359,9 @@ struct SessionReaderPane: View {
                 }
                 if let child = ToolActivity.childSummary(for: live) {
                     Text(child).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                }
+                if live.agent == .codex {
+                    CodexTaskDetailsView(threadID: live.id, model: model).id(live.id)
                 }
                 ToolLedgerView(session: live)
             }
