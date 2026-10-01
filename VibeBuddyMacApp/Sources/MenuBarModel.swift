@@ -408,6 +408,7 @@ final class MenuBarModel: ObservableObject {
         return CodexRolloutMonitor(root: run.file("agents").appendingPathComponent("codex/sessions", isDirectory: true))
     }()
 
+    @Published private(set) var grokMonitoring: GrokMonitoringStatus?
     private var snapshotSourceID: String?
     private var publishedCurrentSessionIDs: [String] = []
     private var publishedBuddyState: BuddyState = .sleeping
@@ -428,7 +429,8 @@ final class MenuBarModel: ObservableObject {
             missedURL: (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_MISSED_PATH"] : nil).map {
                 URL(fileURLWithPath: $0)
             } ?? MissedLedgerLocation.defaultURL(),
-            grokHome: E2ERunConfiguration.current?.file("agents").appendingPathComponent("grok"),
+            grokHome: HookSetup.makeInstaller().paths.grokDirectory,
+            grokMonitoringConfiguration: { HookSetup.makeInstaller().grokMonitoringConfiguration },
             copilotDatabase: E2ERunConfiguration.current?.file("agents").appendingPathComponent("copilot/session-store.db"),
             cursorDatabase: E2ERunConfiguration.current?.file("agents").appendingPathComponent("cursor/state.vscdb")
         )
@@ -725,6 +727,10 @@ final class MenuBarModel: ObservableObject {
     }
 
     // Publish only what observing windows read; source changes publish immediately.
+    func refreshGrokMonitoring() {
+        Task { [store] in await store.refreshGrokMonitoring() }
+    }
+
     func applySnapshot(_ snapshot: Snapshot, observedAt: Date) {
         let currentSessionIDs = SessionCurrency.current(snapshot.sessions, now: observedAt).map(\.id)
         let nextBuddyState = BuddyState.from(SessionGroups(snapshot.sessions), now: observedAt)
@@ -736,6 +742,7 @@ final class MenuBarModel: ObservableObject {
         publishedBuddyState = nextBuddyState
         snapshotSourceID = snapshot.sourceID
         if sessions != snapshot.sessions { sessions = snapshot.sessions }
+        if grokMonitoring != snapshot.grokMonitoring { grokMonitoring = snapshot.grokMonitoring }
         let diagnostics = snapshot.observationDiagnostics ?? []
         if observationDiagnostics != diagnostics { observationDiagnostics = diagnostics }
         if cursorPersistentDiscovery != snapshot.cursorPersistentDiscovery { cursorPersistentDiscovery = snapshot.cursorPersistentDiscovery }

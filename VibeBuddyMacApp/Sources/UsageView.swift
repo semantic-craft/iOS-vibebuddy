@@ -280,6 +280,7 @@ struct TokenSpendPage: View {
 /// Where the quota and spend numbers are read from, and the logins they need.
 struct UsageSourcesPage: View {
     @ObservedObject var model: MenuBarModel
+    var openAgentSettings: () -> Void = {}
     @State private var cursorCookie: String = CursorSessionCookieStore.loadManual() ?? ""
     @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
     @State private var cursorImportMessage: String?
@@ -295,17 +296,24 @@ struct UsageSourcesPage: View {
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     VStack(spacing: 0) {
                         ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
-                            SettingsRow(verbatim: provider.displayName,
+                            SettingsRow(verbatim: provider == .grok ? String(localized: "Grok Build account quota") : provider.displayName,
                                         detail: sourceDescription(provider) + "\n" + sourceStatus(provider, now: context.date)) {
                                 Toggle(provider.displayName, isOn: Binding(
                                     get: { model.isUsageCollectionEnabled(provider) },
                                     set: { model.setUsageCollectionEnabled($0, provider: provider) }))
                                     .labelsHidden().toggleStyle(.switch)
-                                    .accessibilityLabel(Text("Collect account usage from \(provider.displayName)"))
+                                    .accessibilityLabel(provider == .grok ? Text("Show Grok Build account quota") : Text("Collect account usage from \(provider.displayName)"))
                                     .accessibilityIdentifier("usage-source-\(provider.rawValue)")
                             }
                         }
                     }
+                }
+            }
+
+            SettingsSection("Grok Build session monitoring") {
+                SettingsRow("Session connection", detail: "Account quota does not connect Grok Build sessions. Enable monitoring in Agent connections.") {
+                    Button("Set up Grok Build monitoring", action: openAgentSettings)
+                        .accessibilityIdentifier("open-grok-monitoring")
                 }
             }
 

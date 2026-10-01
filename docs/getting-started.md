@@ -211,8 +211,20 @@ establish permission coverage or task-control access. Read the
 
 ### Grok Build
 
+In **Settings → Agent connections**, enable **Monitor Grok Build**. VibeBuddy
+installs its activity hooks and shows configuration errors with a retry button.
+Running terminal sessions appear as **Discovered, waiting to connect** until
+Grok reports a real event. The card and settings explain any required reload:
+run `/hooks` then `r` in Grok, or start a fresh session. The next activity updates
+the same session without a duplicate. Account quota has its own **Show Grok
+Build account quota** switch; that switch does not enable session monitoring.
+
+Turning monitoring off stops terminal-session observation and survives restarts;
+it does not stop Grok itself or tasks explicitly hosted by VibeBuddy. Existing
+hook installs remain enabled unless explicitly removed. For headless setup:
+
 ```bash
-swift run vibebuddyd hooks install --agent grok
+swift run --package-path VibeBuddyMac vibebuddyd hooks install --agent grok
 ```
 
 Reload Grok's hooks with `/hooks` then `r`, or start a fresh session. The optional

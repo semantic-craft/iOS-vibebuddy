@@ -78,7 +78,7 @@ struct SettingsView: View {
         case .tokenSpend:
             TokenSpendPage(model: model)
         case .usageSources:
-            UsageSourcesPage(model: model)
+            UsageSourcesPage(model: model, openAgentSettings: { navigation.selection = .agentCLIs })
         case .diagnostics:
             DiagnosticsPage(model: model, setup: hookSetup)
         }
@@ -598,6 +598,7 @@ private struct AgentCLIsPage: View {
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.agentCLIs.title, subtitle: SettingsPageID.agentCLIs.subtitle) {
+            GrokMonitoringSection(model: model, setup: setup)
             SettingsSection("Monitoring sources",
                             footnote: "Agents can report through session records, app-server, ACP or Hooks. Hook configuration alone does not determine whether an agent is connected. Waiting means no recent activity; receiving does not guarantee remote control.") {
                 if setup.statuses.isEmpty {
@@ -643,7 +644,7 @@ private struct AgentCLIsPage: View {
             SettingsSection("Maintenance",
                             footnote: "Wires (or removes) the VibeBuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.") {
                 SettingsRow("Hook installation",
-                            detail: "Touches the CLI configs on this Mac, so it only ever runs from this button.") {
+                            detail: "Installs hooks for every detected CLI. Grok Build can also be connected using its monitoring switch above.") {
                     HStack(spacing: 8) {
                         if setup.running { ProgressView().controlSize(.small) }
                         Button("Install / repair") { setup.install() }

@@ -424,6 +424,8 @@ struct HookManifest: Codable, Equatable {
 /// never bring those hooks back; an explicit install clears the agent again.
 struct HookInstallState: Codable, Equatable {
     var uninstalled: [String] = []
+    var grokMonitoring: [String: Bool]?
+    var grokMonitoringErrors: [String: String]?
     var updatedAt: Date?
 }
 

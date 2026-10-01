@@ -718,6 +718,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Optional metadata-only Cursor CLI discovery result: available / unavailable.
     /// Kept outside ObservationSource so older phones can decode the snapshot.
     public var cursorPersistentDiscovery: String? = nil
+    public var grokMonitoring: GrokMonitoringStatus? = nil
     /// Account allowance per provider, already normalized to percent remaining.
     /// It rides the same authenticated channel as sessions so there is one
     /// Mac-to-iPhone state path, but it is composed *outside* the session
@@ -765,7 +766,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case sourceID, sessions, serverTime, observationDiagnostics, cursorPersistentDiscovery
+        case sourceID, sessions, serverTime, observationDiagnostics, cursorPersistentDiscovery, grokMonitoring
         case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels, handoffs, contentPresentationRevision
     }
 
@@ -773,6 +774,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sourceID = try c.decodeIfPresent(String.self, forKey: .sourceID)
         sessions = try c.decode([AgentSession].self, forKey: .sessions)
+        grokMonitoring = try c.decodeIfPresent(GrokMonitoringStatus.self, forKey: .grokMonitoring)
         serverTime = try c.decode(Date.self, forKey: .serverTime)
         observationDiagnostics = try c.decodeIfPresent(
             [AgentObservationDiagnostic].self, forKey: .observationDiagnostics)
@@ -796,6 +798,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(sourceID, forKey: .sourceID)
         try c.encode(sessions, forKey: .sessions)
+        try c.encodeIfPresent(grokMonitoring, forKey: .grokMonitoring)
         try c.encode(serverTime, forKey: .serverTime)
         try c.encodeIfPresent(observationDiagnostics, forKey: .observationDiagnostics)
         try c.encodeIfPresent(cursorPersistentDiscovery, forKey: .cursorPersistentDiscovery)

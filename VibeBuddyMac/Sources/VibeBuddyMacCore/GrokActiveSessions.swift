@@ -15,15 +15,17 @@ struct GrokActiveSessions {
     struct Entry: Decodable, Equatable {
         let sessionID: String
         let pid: Int32
+        let cwd: String?
         let openedAt: Date?
 
         enum CodingKeys: String, CodingKey {
-            case sessionID = "session_id", pid, openedAt = "opened_at"
+            case sessionID = "session_id", pid, cwd, openedAt = "opened_at"
         }
 
-        init(sessionID: String, pid: Int32, openedAt: Date?) {
+        init(sessionID: String, pid: Int32, openedAt: Date?, cwd: String? = nil) {
             self.sessionID = sessionID
             self.pid = pid
+            self.cwd = cwd
             self.openedAt = openedAt
         }
 
@@ -31,6 +33,7 @@ struct GrokActiveSessions {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             sessionID = try container.decode(String.self, forKey: .sessionID)
             pid = try container.decode(Int32.self, forKey: .pid)
+            cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
             openedAt = (try? container.decode(String.self, forKey: .openedAt)).flatMap(GrokActiveSessions.date)
         }
     }

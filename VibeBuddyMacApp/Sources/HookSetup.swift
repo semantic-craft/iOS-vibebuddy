@@ -13,6 +13,11 @@ final class HookSetup: ObservableObject {
     @Published private(set) var statuses: [CLIHookStatus] = []
     @Published private(set) var lastOutput: String = ""
     @Published private(set) var running = false
+    @Published private(set) var grokConfiguration = HookSetup.makeInstaller().grokMonitoringConfiguration
+
+    func setGrokMonitoring(_ enabled: Bool, completion: @escaping @MainActor () -> Void) {
+        run(checkCodexTrust: false, isolatedGrok: true, completion: completion) { $0.setGrokMonitoring(enabled) }
+    }
 
     private var refreshTask: Task<Void, Never>?
 
@@ -21,13 +26,13 @@ final class HookSetup: ObservableObject {
 
     func refresh() {
         guard !running else { return }
+        grokConfiguration = Self.makeInstaller().grokMonitoringConfiguration
         refreshGeneration += 1
         refreshPending = true
         guard refreshTask == nil else { return }
-        let e2eHome = E2ERunConfiguration.current?.file("agents").path
-        let home = e2eHome ?? NSHomeDirectory()
-        // An isolated acceptance run must not follow the user's overrides.
-        let environment = e2eHome == nil ? ProcessInfo.processInfo.environment : [:]
+        let installerEnvironment = Self.makeInstaller().paths.environment
+        let home = installerEnvironment.home.path
+        let environment = installerEnvironment.variables
         refreshTask = Task { [weak self] in
             while self?.refreshPending == true {
                 self?.refreshPending = false
@@ -70,7 +75,13 @@ final class HookSetup: ObservableObject {
     /// `Contents/Resources/hooks/` and copying them to the stable
     /// `~/Library/Application Support/vibebuddy/bin/` every config names.
     nonisolated static func makeInstaller() -> HookInstaller {
-        HookInstaller(environment: .live(),
+        let environment: HookInstallerEnvironment
+        if let run = E2ERunConfiguration.current {
+            environment = .init(home: run.file("agents"), supportDirectory: run.file("hook-support"),
+                variables: ["GROK_HOME": run.file("agents").appendingPathComponent("grok").path],
+                claudeVersion: { nil })
+        } else { environment = .live() }
+        return HookInstaller(environment: environment,
                       scriptSource: Bundle.main.resourceURL?.appendingPathComponent("hooks", isDirectory: true))
     }
 
@@ -85,9 +96,10 @@ final class HookSetup: ObservableObject {
         }
     }
 
-    private func run(checkCodexTrust: Bool,
+    private func run(checkCodexTrust: Bool, isolatedGrok: Bool = false,
+                     completion: @escaping @MainActor () -> Void = {},
                      _ operation: @escaping @Sendable (HookInstaller) -> HookInstallReport) {
-        guard E2ERunConfiguration.current == nil else {
+        guard E2ERunConfiguration.current == nil || isolatedGrok else {
             lastOutput = "Hook installation is disabled during isolated acceptance."
             return
         }
@@ -111,6 +123,7 @@ final class HookSetup: ObservableObject {
                 self.lastOutput = output
                 self.running = false
                 self.refresh()
+                completion()
             }
         }
     }
