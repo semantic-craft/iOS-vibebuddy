@@ -10,7 +10,7 @@
 
 Read-only production snapshot inspection found Cursor's transcript healthy while the old Settings mapping displayed `not hooked` (Chinese: 未接入). No Hook files were changed.
 
-`tools/tests/agent-integration-regression.sh` passes using the actual app presentation source. It covers a healthy Cursor transcript without Hooks/cloud credentials, Codex rollout with an unverified version, Grok awaiting its first activity, and an unreadable source despite an installed Hook.
+`tools/tests/agent-integration-regression.sh` passes using the actual app presentation source. It covers a healthy Cursor transcript without Hooks/cloud credentials, Codex rollout with an unverified version, Grok awaiting its first activity, an unreadable source despite an installed Hook, and fresh/stale hosted Grok ACP evidence omitted from aggregate diagnostics.
 
 The same runner replayed a sanitized capture of the current Mac's observation diagnostics:
 

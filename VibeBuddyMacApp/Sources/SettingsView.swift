@@ -608,7 +608,10 @@ private struct AgentCLIsPage: View {
                         let diagnostic = model.observationDiagnostics.first { $0.agent == agent }
                         let summary = AgentIntegrationStatus(configured: status.configured,
                                                              hookInjected: status.hookInjected,
-                                                             diagnostics: diagnostic?.sources ?? [])
+                                                             diagnostics: diagnostic?.sources ?? [],
+                                                             sessionEvidence: model.sessions
+                                                                .filter { $0.agent == agent && $0.historyOnly != true }
+                                                                .flatMap { $0.observations ?? [] })
                         return SettingsGrid.Item(id: status.name, verbatim: agent?.displayName ?? status.name) {
                             VStack(alignment: .trailing, spacing: 4) {
                                 integrationPill(summary.state)

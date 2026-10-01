@@ -11,7 +11,22 @@ struct AgentIntegrationStatus {
     let state: State
     let sources: [ObservationSource]
 
-    init(configured: Bool, hookInjected: Bool, diagnostics: [ObservationSourceDiagnostic]) {
+    init(configured: Bool, hookInjected: Bool, diagnostics: [ObservationSourceDiagnostic],
+         sessionEvidence: [ObservationEvidence] = [], now: Date = Date()) {
+        var diagnostics = diagnostics
+        // The aggregate Grok diagnostic currently lists Hook and transcript
+        // only. Hosted ACP is recorded on the session itself. Supplement missing
+        // sources, but never override an explicit diagnostic with older evidence.
+        let diagnosed = Set(diagnostics.map(\.source))
+        let evidence = Dictionary(grouping: sessionEvidence.filter {
+            !diagnosed.contains($0.source) && $0.source != .recovery && $0.source != .gateway
+        }, by: \.source)
+        for (source, entries) in evidence {
+            guard let latest = entries.max(by: { $0.lastObservedAt < $1.lastObservedAt }) else { continue }
+            let health: ObservationHealth = latest.health == .healthy && now.timeIntervalSince(latest.lastObservedAt) > 600
+                ? .temporarilySilent : latest.health
+            diagnostics.append(.init(source: source, health: health, lastObservedAt: latest.lastObservedAt))
+        }
         let observed = diagnostics.filter { $0.lastObservedAt != nil }
         sources = observed.map(\.source).sorted()
         if observed.contains(where: { $0.health == .healthy }) {

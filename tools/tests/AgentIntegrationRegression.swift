@@ -24,6 +24,14 @@ struct AgentIntegrationRegression {
         ])
         precondition(grok.state == .waiting && grok.sources.isEmpty,
                      "An idle monitor must neither claim live reception nor imply missing integration")
+        let hostedGrok = AgentIntegrationStatus(configured: true, hookInjected: false, diagnostics: [
+            .init(source: .transcript, health: .temporarilySilent, reasonCode: "awaitingActivity")
+        ], sessionEvidence: [.init(source: .acp, lastObservedAt: now, health: .healthy)], now: now)
+        precondition(hostedGrok.state == .receiving && hostedGrok.sources == [.acp],
+                     "Hosted Grok ACP must count even when aggregate diagnostics omit that source")
+        let staleGrok = AgentIntegrationStatus(configured: true, hookInjected: false, diagnostics: [],
+            sessionEvidence: [.init(source: .acp, lastObservedAt: now.addingTimeInterval(-601), health: .healthy)], now: now)
+        precondition(staleGrok.state == .waiting, "Old ACP evidence must not claim current reception")
         let unreadable = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
             .init(source: .transcript, health: .sourceUnreadable, lastObservedAt: now)
         ])
