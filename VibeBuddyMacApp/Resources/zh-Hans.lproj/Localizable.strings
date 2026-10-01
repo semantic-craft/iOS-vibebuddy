@@ -1107,7 +1107,7 @@
 /* App language */
 "Language" = "语言";
 "App language" = "应用语言";
-"Changes are saved automatically. Quit and reopen VibeBuddy to apply the language to all windows, menus and notifications." = "更改会自动保存。退出并重新打开 VibeBuddy 后，所有窗口、菜单和通知将使用所选语言。";
+"Changes are saved automatically. Restart VibeBuddy to apply the language to all windows, menus and notifications." = "更改会自动保存。点击“重启 VibeBuddy”后，所有窗口、菜单和通知将使用所选语言。";
 
 /* macOS settings usability */
 "Turn on Show icon in menu bar to display task status." = "开启“在菜单栏显示图标”后可显示任务状态。";
@@ -1347,3 +1347,18 @@
 
 "Could not update the key in Keychain. Your draft is kept. Unlock Keychain and try again." = "无法更新钥匙串中的密钥，草稿已保留。请解锁钥匙串后重试。";
 "Cursor's Cloud Agents API cannot be reached. Check the API key in Agent integration." = "无法连接 Cursor Cloud Agents API。请在 Agent 接入中检查 API 密钥。";
+
+/* Apply app language */
+"Restart VibeBuddy" = "重启 VibeBuddy";
+"Could not restart VibeBuddy" = "无法重启 VibeBuddy";
+"Your language preference is saved. Quit and reopen VibeBuddy to apply it." = "语言偏好已保存。请退出并重新打开 VibeBuddy 以应用更改。";
+
+/* Agent monitoring is not limited to Hooks */
+"Monitoring sources" = "Agent 监测接入";
+"Receiving activity" = "正在接收活动";
+"Waiting for activity" = "等待活动";
+"Source needs attention" = "接入来源需检查";
+"Hook configured" = "Hook 已配置";
+"Hook not configured" = "Hook 未配置";
+"Not detected" = "未检测到";
+"Agents can report through session records, app-server, ACP or Hooks. Hook configuration alone does not determine whether an agent is connected. Waiting means no recent activity; receiving does not guarantee remote control." = "Agent 可通过会话记录、app-server、ACP 或 Hook 接入，不能仅凭 Hook 配置判断是否接入。“等待活动”表示暂无近期活动；收到活动不代表支持远程控制。";
