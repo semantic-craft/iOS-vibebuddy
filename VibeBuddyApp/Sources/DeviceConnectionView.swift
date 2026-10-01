@@ -145,20 +145,20 @@ struct DeviceConnectionView: View {
         switch connectionSync.state {
         case .idle: EmptyView()
         case .received:
-            Label("Remote address received. Waiting to check.", systemImage: "arrow.down.circle")
+            Label("Connection address received. Waiting to check.", systemImage: "arrow.down.circle")
         case .checking:
             HStack {
                 ProgressView()
-                Text("Checking your Mac’s remote address…")
+                Text("Checking your Mac’s selected address…")
             }
         case .connected(let confirmation):
-            Label("Remote connection verified", systemImage: "checkmark.circle.fill")
+            Label("Selected connection verified", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(CompanionPalette.accent)
             if confirmation == .pending {
                 Text("Connected. The confirmation has not reached your Mac yet.")
                     .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
             } else if confirmation == .unavailable {
-                Text("The remote address is saved, but your Mac did not confirm the update. Send a new update from your Mac if needed.")
+                Text("The selected address is saved, but your Mac did not confirm the update. Send a new update from your Mac if needed.")
                     .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
             }
         case .failed(let failure):

@@ -1679,7 +1679,7 @@ final class MenuBarModel: ObservableObject {
     }
 
     var canSyncConnection: Bool {
-        useTailscale && remoteAddressIsValid && pairedPhone?.confirmed == true
+        pairing?.endpoint?.isPrivateConnectionIPv4 == true && pairedPhone?.confirmed == true
             && pairedPhone?.deviceID?.isEmpty == false && !synchronizingConnection && !changingPairing
     }
 
@@ -1702,8 +1702,7 @@ final class MenuBarModel: ObservableObject {
     }
 
     func syncConnectionToPhone() {
-        guard canSyncConnection, let deviceID = pairedPhone?.deviceID else { return }
-        let host = tailscaleHost
+        guard canSyncConnection, let deviceID = pairedPhone?.deviceID, let host = pairing?.host else { return }
         synchronizingConnection = true
         Task {
             defer { synchronizingConnection = false }

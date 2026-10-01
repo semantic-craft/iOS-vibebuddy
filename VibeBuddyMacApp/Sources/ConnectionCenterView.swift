@@ -13,10 +13,10 @@ struct ConnectionCenterView: View {
             connectionMode
             if model.useTailscale { remoteNetwork }
             if model.pairedPhone == nil { appStoreCard }
-            pairingCard
             if let phone = model.pairedPhone { phoneCard(phone) }
-            if model.phones.count > 1 { devicesCard }
             if let transfer = model.remoteTransfer { transferCard(transfer) }
+            pairingCard
+            if model.phones.count > 1 { devicesCard }
             if !compact { advanced }
         }
         .padding(.top, compact ? 0 : 16)
@@ -37,6 +37,7 @@ struct ConnectionCenterView: View {
                 .background(MacTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.macDisplayName).font(MacTheme.font(15, .semibold))
+                Text("Address to send to iPhone").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 Text(model.pairingAddress).font(MacTheme.mono(11)).foregroundStyle(MacTheme.ink2)
             }
             Spacer(minLength: 0)
@@ -52,9 +53,16 @@ struct ConnectionCenterView: View {
             .pickerStyle(.segmented)
             .disabled(model.pairingInProgress || model.changingPairing || model.synchronizingConnection)
             .accessibilityIdentifier("mac-connection-method")
+            if model.pairingInProgress {
+                Text("Close the pairing code below before changing the connection method.")
+                    .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+            }
+            Text("Selecting a method does not change your iPhone’s saved connection. Send the address or scan a new code to apply it.")
+                .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                .fixedSize(horizontal: false, vertical: true)
             Text(model.useTailscale
                  ? "Tailscale · Bring the remote address to your iPhone."
-                 : "Connect both devices to the same network, then scan this Mac’s code.")
+                 : "Keep both devices on the same network while checking and using this address.")
                 .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -139,7 +147,7 @@ struct ConnectionCenterView: View {
                     .accessibilityIdentifier("mac-show-connection-code")
             }
             if model.useTailscale {
-                Text("If needed, sign in to Tailscale on your iPhone with the same account as this Mac, then check again.")
+                Text("Connect your iPhone to the same private network as this Mac using Tailscale, Headscale, or Surge, then check again.")
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -162,17 +170,20 @@ struct ConnectionCenterView: View {
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if model.useTailscale {
-                Text("Already paired? Send the remote address over the existing connection. Open VibeBuddy on your iPhone to receive it.")
+            Text("Pairing saved · current connection not confirmed here")
+                .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+            Text("Send the selected address over your iPhone’s existing connection. Keep VibeBuddy open on iPhone; it saves the address only after checking this Mac.")
+                .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Send selected address to iPhone") { model.syncConnectionToPhone() }
+                .disabled(!model.canSyncConnection)
+                .accessibilityIdentifier("mac-sync-to-iphone")
+            Text("If your iPhone cannot reach its saved address, scan a new connection code instead.")
+                .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+            if !phone.confirmed || phone.deviceID == nil {
+                Text("Scan the connection code again to enable syncing for this phone.")
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Sync to iPhone") { model.syncConnectionToPhone() }
-                    .disabled(!model.canSyncConnection)
-                    .accessibilityIdentifier("mac-sync-to-iphone")
-                if !phone.confirmed || phone.deviceID == nil {
-                    Text("Scan the connection code again to enable syncing for this phone.")
-                        .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                }
             }
             if !compact {
                 DisclosureGroup("Device details") {
@@ -226,6 +237,7 @@ struct ConnectionCenterView: View {
 
     private func transferCard(_ transfer: RemoteConnectionSyncStore.Transfer, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 9) {
+            Text("Last address update").font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
             Text(transferTitle(transfer, now: now)).font(MacTheme.font(13, .semibold))
             Text(transfer.proposal.host).font(MacTheme.mono(11))
             Text(transferDetail(transfer, now: now)).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
@@ -256,9 +268,12 @@ struct ConnectionCenterView: View {
         if transfer.isExpired(at: now) { return "This request lasted 5 minutes. Sync again when your iPhone is ready." }
         switch transfer.outcome {
         case nil: return "Open VibeBuddy on the paired iPhone. Its current address remains saved until the new connection passes its check."
-        case .received: return "Waiting for iPhone to receive this Mac’s authenticated task status through the remote address."
-        case .confirmed: return "iPhone reported a successful check. Turn off Wi-Fi on the phone and check once more to verify cellular access."
-        case .unreachable: return "The phone kept its previous address. Check the remote network and incoming connections, then retry on iPhone or sync again."
+        case .received: return "Waiting for iPhone to receive this Mac’s authenticated task status through the selected address."
+        case .confirmed:
+            return CompanionEndpoint(host: transfer.proposal.host, port: transfer.proposal.port)?.isTailnetIPv4 == true
+                ? "iPhone reported a successful check. Turn off Wi-Fi on the phone and check once more to verify cellular access."
+                : "iPhone checked and saved the local address. Keep both devices on the same network. This does not verify access away from home."
+        case .unreachable: return "The phone kept its previous address. Check that the selected network is available on iPhone and that this Mac allows incoming connections, then retry on iPhone or sync again."
         case .unauthorized: return "Scan this Mac’s current connection code on iPhone, then check again."
         case .cancelled: return "Open VibeBuddy on iPhone and retry the check. Its previous address stays saved until the check succeeds."
         }
@@ -278,10 +293,10 @@ struct ConnectionCenterView: View {
     private var advanced: some View {
         DisclosureGroup("Advanced connection settings", isExpanded: $advancedExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-                addressField
+                if model.useTailscale { addressField }
                 LabeledContent("Port", value: String(model.port))
                     .font(MacTheme.font(11))
-                if !model.detectedRemoteAddresses.isEmpty {
+                if model.useTailscale && !model.detectedRemoteAddresses.isEmpty {
                     Text("Detected on this Mac: \(model.detectedRemoteAddresses.joined(separator: ", "))")
                         .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                 }

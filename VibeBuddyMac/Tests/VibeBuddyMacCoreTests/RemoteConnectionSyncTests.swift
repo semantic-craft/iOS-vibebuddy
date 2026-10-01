@@ -39,12 +39,12 @@ struct RemoteConnectionSyncTests {
         #expect(await sync.receive(receipt(next.requestID, .confirmed), now: now) == false)
     }
 
-    @Test("Pairing consent and bearer protect delivery and receipts")
-    func routes() async throws {
+    @Test("Pairing consent and bearer protect LAN and tailnet delivery", arguments: ["100.64.0.8", "192.168.1.20"])
+    func routes(host: String) async throws {
         let devices = DeviceTokens()
         let sync = RemoteConnectionSyncStore()
         let server = VibeBuddyServer(store: SessionStore(), token: "sync-test", deviceTokens: devices, connectionSync: sync)
-        let proposal = try #require(await sync.propose(deviceID: "phone", sourceID: "mac", host: "100.64.0.8", port: 9876))
+        let proposal = try #require(await sync.propose(deviceID: "phone", sourceID: "mac", host: host, port: 9876))
         try await server.buildApplication().test(.router) { client in
             try await client.execute(uri: "/connection-sync?deviceID=phone", method: .get) { #expect($0.status == .unauthorized) }
             try await client.execute(uri: "/connection-sync?deviceID=phone", method: .get,

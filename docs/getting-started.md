@@ -66,7 +66,11 @@ address: open **Away from Mac** again and pair or **Sync to iPhone**.
 Use the Mac's `100.x.x.x` IPv4 address. MagicDNS names are not accepted in
 the pairing screens, and a Headscale control-server URL is never the
 VibeBuddy address. Existing LAN pairings remain unchanged; to return to LAN,
-choose **Same Wi-Fi** on the Mac and pair again. There is one selected
+choose **Same Wi-Fi** on the Mac and **Send selected address to iPhone**.
+Keep VibeBuddy open on the phone and its existing connection available until
+the new address is checked and saved. If the old address is unreachable, or
+the phone app predates LAN handoff support, scan a new connection code instead.
+Close an open pairing code before changing the method. There is one selected
 connection, with no automatic fallback between addresses. The app uses
 HTTP/WS inside the private network; it does not expose the daemon publicly or
 add HTTPS support.

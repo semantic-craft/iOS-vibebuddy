@@ -65,6 +65,26 @@ final class RemoteConnectionSyncTests: XCTestCase {
         return connection
     }
 
+    func testReturnFromTailnetToLANOnlySavesVerifiedSameMac() async {
+        for succeeds in [true, false] {
+            let connection = connection()
+            let tailnet = original.usingTailnetIPv4("100.64.0.8", port: 9876)!
+            connection.save(tailnet)
+            var update = proposal()
+            update.host = original.host
+            let client = SyncFixtureClient(proposal: update)
+            let stream = SyncFixtureStream(
+                snapshot: succeeds ? Snapshot(sessions: [], serverTime: instant, sourceID: "mac-source") : nil,
+                error: succeeds ? nil : URLError(.timedOut))
+            let sync = RemoteConnectionSyncController(client: client, streamer: stream, deviceID: "phone", now: { self.instant })
+            await sync.poll(connection: connection, currentSourceID: { "mac-source" })
+            XCTAssertEqual(stream.calls, 1)
+            XCTAssertEqual(connection.pairing?.host, succeeds ? original.host : tailnet.host)
+            XCTAssertEqual(connection.pairing?.token, original.token)
+            XCTAssertEqual(sync.state, succeeds ? .connected(.confirmed) : .failed(.unavailable))
+        }
+    }
+
     func testDifferentSnapshotSourceCannotReplacePairing() async {
         let connection = connection()
         let client = SyncFixtureClient(proposal: proposal())
