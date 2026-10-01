@@ -2,7 +2,7 @@
 
 Date: 2026-10-01
 
-实现已整合到主工作区（整合基线 `22993364`），未提交、推送或发布日常版本。采用 A「原位设置」；VibeBuddy 独立于 Kairos。
+实现已提交并推送到 `codex/cloudflare-access`，PR #335；未合并或发布日常版本。采用 A「原位设置」；VibeBuddy 独立于 Kairos。下文按验收阶段记录，最新清理状态见末节。
 
 ## 已验证
 
@@ -76,4 +76,8 @@ Date: 2026-10-01
 
 作者已授权提交、推送、创建 PR，并删除本次独立 QA App。iPhone 的 `com.vibebuddy.qa.cloudflare` 已卸载，Mac 的独立 QA App 已删除，隔离 Mac 与 cloudflared 进程已停止。日常 App 保留。Cloudflare 专用测试配置保留但 Tunnel 离线，不构成日常部署；脱敏证据保留本地。独立 PR 分支从 origin/main 创建，未包含主工作区其他设置改动或 Web 工作台规划。
 
-仓库要求的独立 Claude Opus 审阅尚未执行：本机无可用 Claude Code 命令。PR 应保持 Draft，直至该合并前审阅完成；此前双轴审阅不能替代此门槛。
+本次按用户明确指定，使用本机 Grok Build（`grok-4.7-build-fast`、`xhigh`）替代常规 Opus 合并前审阅。首轮独立审阅发现一项 should-fix：通知动作读取不到 Access 凭据时尚未发送，却被分类为回执不明。
+
+修复提交 `579f406c`：`decideResult` / `answerResult` 将发送前的地址、凭据不可用及 origin 不匹配错误归类为 `.unreachable`，保留认证响应的 `.failed` 语义。新增 `CloudflareDecisionTests`，在隔离 macOS Swift package 中编译真实共享生产源码并运行：修复前两条断言失败，修复后 1 个测试通过。该检查不依赖模拟器或安装 QA，不替代 iOS XCTest。证据位于 PR 工作区 `.scratch/decision-before.log`、`decision-after.log`。
+
+Grok 对 `579f406c` 的定向复核已完成（正常 `end_turn`）：原问题 **FIXED**，未发现此次修正的具体回归，结论 **MERGE**。首轮及复核结果分别保存在 PR 工作区 `.scratch/cloudflare-grok-review-retry.json`、`cloudflare-rereview.json`。合并由作者决定；本记录不宣称日常版已发布。
