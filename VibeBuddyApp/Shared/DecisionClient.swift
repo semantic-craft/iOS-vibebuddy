@@ -313,8 +313,14 @@ struct HTTPDecisionClient: DecisionClient {
         do {
             let (_, response) = try await CompanionTransport.data(for: req, pairing: pairing)
             return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
-        } catch is CompanionTransportError {
-            return .failed
+        } catch let error as CompanionTransportError {
+            switch error {
+            case .invalidAddress, .credentialsUnavailable, .credentialOriginMismatch:
+                // Transport preparation failed before URLSession sent the POST.
+                return .unreachable
+            case .authentication, .keychainWriteFailed:
+                return .failed
+            }
         } catch let error as URLError {
             switch error.code {
             case .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet, .dnsLookupFailed:
@@ -336,8 +342,14 @@ struct HTTPDecisionClient: DecisionClient {
             let (_, response) = try await CompanionTransport.data(for: req, pairing: pairing)
             let status = (response as? HTTPURLResponse)?.statusCode
             return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
-        } catch is CompanionTransportError {
-            return .failed
+        } catch let error as CompanionTransportError {
+            switch error {
+            case .invalidAddress, .credentialsUnavailable, .credentialOriginMismatch:
+                // Transport preparation failed before URLSession sent the POST.
+                return .unreachable
+            case .authentication, .keychainWriteFailed:
+                return .failed
+            }
         } catch let error as URLError {
             // Same rule as `decideResult`: only a POST that never left may be held.
             switch error.code {
