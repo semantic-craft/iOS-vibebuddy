@@ -219,9 +219,9 @@ struct GlanceView: View {
             Text(voiceLabel)
                 .font(CompanionType.fixedFont(12, .semibold))
                 .foregroundStyle(.white)
-                .lineLimit(1)
+                .lineLimit(isNarrow ? nil : 1)
         }
-        .fixedSize()
+        .fixedSize(horizontal: !isNarrow, vertical: true)
     }
 
     /// Round 5, collapsed: only the needs-you count, as the menu-bar badge does.
