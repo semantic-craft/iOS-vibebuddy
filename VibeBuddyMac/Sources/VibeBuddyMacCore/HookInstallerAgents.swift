@@ -298,10 +298,14 @@ struct GrokHooks {
               let root = try? OrderedJSON.parse(data) else { return false }
         return Self.events.allSatisfy { event in
             let entries = (root["hooks"]?[event]?.elements ?? []).flatMap(commands(in:))
-            return entries.contains { command in
-                command.contains("vibebuddy-forward.sh") || (event == "PreToolUse" && command.contains("approval-hook.sh"))
-            }
-        } && FileManager.default.isExecutableFile(atPath: paths.script("vibebuddy-forward.sh").path)
+            let script = event == "PreToolUse" && entries.contains(command("approval-hook.sh"))
+                ? "approval-hook.sh" : "vibebuddy-forward.sh"
+            guard entries.contains(command(script)),
+                  FileManager.default.isExecutableFile(atPath: paths.script(script).path) else { return false }
+            return !Self.captureEvents.contains(event) ||
+                (entries.contains(command("capture-terminal.sh")) &&
+                 FileManager.default.isExecutableFile(atPath: paths.script("capture-terminal.sh").path))
+        }
     }
 
     /// The hook commands, plus the status line wrapper when it is wired.

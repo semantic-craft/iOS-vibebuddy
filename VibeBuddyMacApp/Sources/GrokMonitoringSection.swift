@@ -8,6 +8,7 @@ struct GrokMonitoringSection: View {
 
     private var config: GrokMonitoringConfiguration { setup.grokConfiguration }
     private var status: GrokMonitoringStatus? { model.grokMonitoring }
+    private var error: String? { setup.grokOperationError ?? config.error }
 
     var body: some View {
         SettingsSection("Grok Build session monitoring",
@@ -24,7 +25,7 @@ struct GrokMonitoringSection: View {
                 } else {
                     Text(stateText).font(.callout)
                         .accessibilityIdentifier("grok-monitoring-status")
-                    if let error = config.error {
+                    if let error {
                         Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                             .accessibilityIdentifier("grok-monitoring-error")
                     }
@@ -32,8 +33,10 @@ struct GrokMonitoringSection: View {
                         Text("In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event.")
                             .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
-                    if config.error != nil || (config.enabled && !config.configured) {
-                        Button("Retry Grok Build connection") { change(config.enabled) }
+                    if error != nil || (config.enabled && !config.configured) {
+                        Button("Retry Grok Build connection") {
+                            setup.retryGrokMonitoring { model.refreshGrokMonitoring() }
+                        }
                             .accessibilityIdentifier("retry-grok-monitoring")
                     }
                 }
@@ -46,7 +49,7 @@ struct GrokMonitoringSection: View {
     }
 
     private var stateText: String {
-        if config.error != nil { return String(localized: "Grok Build connection needs attention") }
+        if error != nil { return String(localized: "Grok Build connection needs attention") }
         if !config.available { return String(localized: "Grok Build was not found. Open Grok Build once, then enable monitoring.") }
         if !config.enabled { return String(localized: "Monitoring is off") }
         if !config.configured { return String(localized: "Activity reporting is not configured. Retry to connect.") }
@@ -70,7 +73,7 @@ struct GrokDiscoveryCard: View {
             Text("Grok Build · Discovered, waiting to connect").font(.caption)
             Text("In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event.")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            Button("Open Agent connections") {
+            Button("Open Agent integration") {
                 NotificationCenter.default.post(name: .openAppSettings, object: SettingsPageID.agentCLIs)
             }.buttonStyle(.link)
         }

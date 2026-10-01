@@ -220,7 +220,7 @@ does not establish Desktop approval coverage; see the
 
 ### Grok Build (`~/.grok/hooks/vibebuddy.json`)
 
-On Mac, **Settings → Agent connections → Monitor Grok Build** performs setup
+On Mac, **Settings → Agent integration → Monitor Grok Build** performs setup
 and displays live connection status, reload steps, and retryable failures.
 The commands below are the equivalent headless setup path. Account quota
 collection is independent of this session-monitoring switch.

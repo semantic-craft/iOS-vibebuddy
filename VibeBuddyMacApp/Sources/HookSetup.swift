@@ -14,8 +14,17 @@ final class HookSetup: ObservableObject {
     @Published private(set) var lastOutput: String = ""
     @Published private(set) var running = false
     @Published private(set) var grokConfiguration = HookSetup.makeInstaller().grokMonitoringConfiguration
+    @Published private(set) var grokOperationError: String?
+    private var grokRequestedEnabled: Bool?
+
+    func retryGrokMonitoring(completion: @escaping @MainActor () -> Void) {
+        setGrokMonitoring(grokRequestedEnabled ?? grokConfiguration.enabled, completion: completion)
+    }
 
     func setGrokMonitoring(_ enabled: Bool, completion: @escaping @MainActor () -> Void) {
+        guard !running else { return }
+        grokRequestedEnabled = enabled
+        grokOperationError = nil
         run(checkCodexTrust: false, isolatedGrok: true, completion: completion) { $0.setGrokMonitoring(enabled) }
     }
 
@@ -121,6 +130,7 @@ final class HookSetup: ObservableObject {
             let output = lines.joined(separator: "\n\n")
             await MainActor.run {
                 self.lastOutput = output
+                if isolatedGrok { self.grokOperationError = report.failures > 0 ? output : nil }
                 self.running = false
                 self.refresh()
                 completion()
