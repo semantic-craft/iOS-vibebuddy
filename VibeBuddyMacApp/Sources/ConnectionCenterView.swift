@@ -103,7 +103,6 @@ struct ConnectionCenterView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(MacTheme.accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
-        .accessibilityIdentifier("mac-cloudflare-setup")
     }
 
     private var remoteNetwork: some View {

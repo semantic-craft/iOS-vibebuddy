@@ -27,6 +27,21 @@ enum VoiceFeature: String, CaseIterable {
             "Speaks that summary through this Mac’s current audio output. No microphone; each reading is billed by the provider."
         }
     }
+    var advancedModelLabel: LocalizedStringKey {
+        switch self {
+        case .conversation: "Advanced voice conversation model settings"
+        case .summaries: "Advanced completion summary model settings"
+        case .readAloud: "Advanced read-aloud model settings"
+        }
+    }
+    var advancedModelIdentifier: String {
+        switch self {
+        case .conversation: "advanced-model-conversation"
+        case .summaries: "advanced-model-summaries"
+        case .readAloud: "advanced-model-read-aloud"
+        }
+    }
+
     var testPurpose: SettingsTestCoordinator.Purpose {
         switch self {
         case .conversation: .voice
@@ -47,10 +62,7 @@ enum VoiceFeatureStatus: Equatable {
     case needsKey(VoiceProvider)
     /// Configured, but something in it does not add up; `detail` says what.
     case needsAttention
-    /// Read-aloud only: configured, but summaries are off so there is nothing to speak.
-    case nothingToRead
     case verified(String)
-    case noFeedback
     case unverified
 }
 
@@ -63,7 +75,8 @@ struct VoiceFeaturesPage: View {
     @ObservedObject var tests: SettingsTestCoordinator
     @ObservedObject var credentials: SettingsCredentials
     /// "No API key yet · Add it" — opens that provider on the keys page.
-    let reveal: (VoiceProvider) -> Void
+    let reveal: (VoiceProvider, VoiceFeature) -> Void
+    var returnTo: VoiceFeature? = nil
 
     @AppStorage(VoiceSettings.providerKey) private var conversationChoice = VoiceProvider.qwen.rawValue
     @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
@@ -84,52 +97,60 @@ struct VoiceFeaturesPage: View {
     }
 
     var body: some View {
-        SettingsPageScaffold(SettingsPageID.voice.title, subtitle: SettingsPageID.voice.subtitle) {
-            SettingsSection("Summary and reading defaults") {
-                SettingsBlockRow {
-                    ContentStylePreferences()
+        ScrollViewReader { proxy in
+            SettingsPageScaffold(SettingsPageID.voice.title, subtitle: SettingsPageID.voice.subtitle) {
+                SettingsSection("Summary and reading defaults") {
+                    SettingsBlockRow {
+                        ContentStylePreferences()
+                    }
                 }
-            }
-            SettingsSection("Models and services") {
-                SettingsBlockRow {
-                    ConversationFeatureRow(provider: conversationProvider, menuModel: model, tests: tests,
-                                           credentials: credentials, selection: conversationSelection,
-                                           reveal: reveal)
-                        // Identity per row, not per provider: three siblings
-                        // sharing an id collapse into one repeated row.
-                        .id("conversation-\(conversationChoice)")
+                SettingsSection("Models and services") {
+                    SettingsBlockRow {
+                        ConversationFeatureRow(provider: conversationProvider, menuModel: model, tests: tests,
+                                               credentials: credentials, selection: conversationSelection,
+                                               reveal: { reveal($0, .conversation) })
+                            // Identity per row, not per provider: three siblings
+                            // sharing an id collapse into one repeated row.
+                            .id("conversation-\(conversationChoice)")
+                    }
+                    .id(VoiceFeature.conversation)
+                    SettingsBlockRow {
+                        SummaryFeatureRow(provider: summaryProvider, tests: tests, credentials: credentials,
+                                          reader: model.readAloud, language: language,
+                                          selection: summarySelection, reveal: { reveal($0, .summaries) })
+                            .id("summaries-\(summaryProvider?.rawValue ?? "")")
+                    }
+                    .id(VoiceFeature.summaries)
+                    SettingsBlockRow {
+                        ReadAloudFeatureRow(status: readAloud, summaryProvider: summaryProvider,
+                                            reader: model.readAloud,
+                                            tests: tests, credentials: credentials,
+                                            selection: readAloudSelection, reveal: { reveal($0, .readAloud) })
+                            .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
+                        ReadAloudPreferences(reader: model.readAloud, voiceChat: model.voiceChat,
+                                             tests: tests, credentials: credentials)
+                    }
+                    .id(VoiceFeature.readAloud)
                 }
-                SettingsBlockRow {
-                    SummaryFeatureRow(provider: summaryProvider, tests: tests, credentials: credentials,
-                                      reader: model.readAloud, language: language,
-                                      selection: summarySelection, reveal: reveal)
-                        .id("summaries-\(summaryProvider?.rawValue ?? "")")
-                }
-                SettingsBlockRow {
-                    ReadAloudFeatureRow(status: readAloud, summaryProvider: summaryProvider,
-                                        reader: model.readAloud,
-                                        tests: tests, credentials: credentials,
-                                        selection: readAloudSelection, reveal: reveal)
-                        .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
-                    ReadAloudPreferences(reader: model.readAloud, voiceChat: model.voiceChat,
-                                         tests: tests, credentials: credentials)
-                }
-            }
 
-            SettingsSection("Shared",
-                            footnote: "Shared by all three features, and it decides which voice each provider defaults to.") {
-                SettingsRow("Voice and summary language") {
-                    Picker("", selection: $language) {
-                        Text("English").tag(VoiceLanguage.english.rawValue)
-                        Text(verbatim: "中文").tag(VoiceLanguage.chinese.rawValue)
-                    }
-                    .labelsHidden().pickerStyle(.segmented).fixedSize()
-                    .accessibilityLabel("Voice and summary language")
-                    .onChange(of: language) { _, _ in
-                        tests.invalidate()
-                        model.voiceChat.reloadProviderIfActive()
+                SettingsSection("Shared",
+                                footnote: "Shared by all three features, and it decides which voice each provider defaults to.") {
+                    SettingsRow("Voice and summary language") {
+                        Picker("", selection: $language) {
+                            Text("English").tag(VoiceLanguage.english.rawValue)
+                            Text(verbatim: "中文").tag(VoiceLanguage.chinese.rawValue)
+                        }
+                        .labelsHidden().pickerStyle(.segmented).fixedSize()
+                        .accessibilityLabel("Voice and summary language")
+                        .onChange(of: language) { _, _ in
+                            tests.invalidate()
+                            model.voiceChat.reloadProviderIfActive()
+                        }
                     }
                 }
+            }
+            .onAppear {
+                if let returnTo { proxy.scrollTo(returnTo, anchor: .top) }
             }
         }
         .onChange(of: conversationChoice) { _, _ in tests.invalidate(); model.voiceChat.reloadProviderIfActive() }
@@ -168,6 +189,8 @@ struct ProviderKeysPage: View {
     @ObservedObject var tests: SettingsTestCoordinator
     @ObservedObject var credentials: SettingsCredentials
     @Binding var expanded: VoiceProvider?
+    var source: VoiceFeature? = nil
+    var returnToFeature: (() -> Void)? = nil
 
     @AppStorage(VoiceSettings.providerKey) private var conversationChoice = VoiceProvider.qwen.rawValue
     @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
@@ -176,6 +199,18 @@ struct ProviderKeysPage: View {
     var body: some View {
         SettingsPageScaffold(SettingsPageID.providerKeys.title,
                              subtitle: SettingsPageID.providerKeys.subtitle) {
+            if let source, let returnToFeature {
+                SettingsSection("Continue setup") {
+                    SettingsBlockRow {
+                        Text("Save the key, then return to test your feature. Saving or cancelling does not turn it on.")
+                            .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                        Button(action: returnToFeature) {
+                            Text("Return to \(Text(LocalizedStringKey(source.rawValue)))")
+                        }
+                        .accessibilityIdentifier("return-to-voice-feature")
+                    }
+                }
+            }
             SettingsSection("Accounts",
                             footnote: "A key belongs to the provider, not to a feature: every feature that selects a provider uses the same key. Kept in the Keychain, once per provider.") {
                 ForEach(VoiceProvider.allCases, id: \.rawValue) { provider in
@@ -233,7 +268,21 @@ private struct FeatureRow<Controls: View>: View {
                     Label(LocalizedStringKey(feature.rawValue), systemImage: feature.symbol)
                         .font(MacTheme.font(13, .semibold)).labelStyle(.titleAndIcon)
                     Spacer(minLength: 0)
-                    StatusPill(status: status, reveal: reveal)
+                    Text(enabled ? "On" : "Off")
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                        .accessibilityLabel("Feature enabled status")
+                        .accessibilityValue(enabled ? Text("On") : Text("Off"))
+                }
+                HStack {
+                    if status == .unverified, tests.purpose == feature.testPurpose,
+                       tests.phase == .failed {
+                        SettingsPill("Test failed", tone: .warn)
+                    } else if tests.purpose == feature.testPurpose, tests.isBusy {
+                        SettingsPill("Testing")
+                    } else {
+                        StatusPill(status: status, reveal: reveal)
+                    }
+                    Spacer(minLength: 0)
                 }
                 controls
                 if let detail {
@@ -267,25 +316,19 @@ private struct StatusPill: View {
         case .needsKey(let provider):
             Button { reveal(provider) } label: { SettingsPill("No API key yet · Add it", tone: .warn) }
                 .buttonStyle(.plain)
-                .accessibilityHint("Opens this provider’s account below.")
-        case .nothingToRead:
-            SettingsPill("Nothing to read yet", tone: .warn)
+                .accessibilityHint("Opens this provider on the Provider keys page. Return here after saving to test.")
         case .verified(let text):
             SettingsPill(LocalizedStringKey(text), tone: .ok)
-        case .noFeedback:
-            EmptyView()
         case .unverified:
-            SettingsPill("Unverified")
+            SettingsPill("Ready to test")
         }
     }
 }
 
-/// The controls of a feature row in two tiers (decision B, 2026-09-13):
-/// the provider and this row's own action on the first line, the model and
-/// the voice on the second, each under a small label. The provider popup
-/// keeps its natural width; the second tier is two columns while both fit
-/// and stacks otherwise — never a smaller face, never a wider window.
+/// Keep provider, test and voice visible; model identifiers are optional
+/// advanced controls. Folding the controls never changes the stored values.
 private struct ControlLine<P: View, M: View, V: View, T: View>: View {
+    let feature: VoiceFeature
     @ViewBuilder let provider: P
     @ViewBuilder let model: M
     @ViewBuilder let voice: V
@@ -301,21 +344,16 @@ private struct ControlLine<P: View, M: View, V: View, T: View>: View {
                 Spacer(minLength: 0)
             }
             if showsVoice {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 14) {
-                        LabeledCell("Model") { model }
-                            .frame(minWidth: 200, maxWidth: 280, alignment: .leading)
-                        LabeledCell("Voice") { voice }
-                            .frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
-                            .layoutPriority(1)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        LabeledCell("Model") { model }.frame(maxWidth: 320, alignment: .leading)
-                        LabeledCell("Voice") { voice }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            } else {
-                LabeledCell("Model") { model }.frame(maxWidth: 320, alignment: .leading)
+                LabeledCell("Voice") { voice }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            DisclosureGroup {
+                LabeledCell("Model") { model }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6)
+            } label: {
+                Text(feature.advancedModelLabel)
+                    .accessibilityIdentifier(feature.advancedModelIdentifier)
             }
         }
     }
@@ -323,9 +361,9 @@ private struct ControlLine<P: View, M: View, V: View, T: View>: View {
 
 extension ControlLine where V == EmptyView {
     /// The line for a feature that has no voice: provider and action, then the model.
-    static func textOnly(@ViewBuilder provider: () -> P, @ViewBuilder model: () -> M,
+    static func textOnly(feature: VoiceFeature, @ViewBuilder provider: () -> P, @ViewBuilder model: () -> M,
                          @ViewBuilder trailing: () -> T) -> ControlLine {
-        ControlLine(provider: provider, model: model, voice: { EmptyView() }, trailing: trailing, showsVoice: false)
+        ControlLine(feature: feature, provider: provider, model: model, voice: { EmptyView() }, trailing: trailing, showsVoice: false)
     }
 }
 
@@ -359,19 +397,24 @@ private struct IDField: View {
     var identifier: String?
 
     var body: some View {
-        HStack(spacing: 4) {
-            TextField(label, text: $text, prompt: Text(verbatim: placeholder))
-                .labelsHidden().textFieldStyle(.roundedBorder)
-                .font(MacTheme.mono(10)).autocorrectionDisabled()
-                .accessibilityLabel(label)
-                .accessibilityIdentifier(identifier ?? "")
-            if let browse {
-                Link(destination: browse) {
-                    Image(systemName: "arrow.up.right.square")
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                TextField(label, text: $text, prompt: Text(verbatim: placeholder))
+                    .labelsHidden().textFieldStyle(.roundedBorder)
+                    .font(MacTheme.mono(10)).autocorrectionDisabled()
+                    .accessibilityLabel(label)
+                    .accessibilityIdentifier(identifier ?? "")
+                if let browse {
+                    Link(destination: browse) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                    .help(browseHelp)
+                    .accessibilityLabel(browseHelp)
                 }
-                .help(browseHelp)
-                .accessibilityLabel(browseHelp)
             }
+            Text("Default: \(placeholder)")
+                .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink2)
+                .textSelection(.enabled)
         }
     }
 }
@@ -452,7 +495,7 @@ private struct ConversationFeatureRow: View {
     var body: some View {
         FeatureRow(feature: .conversation, enabled: $enabled, status: status,
                    detail: detail, tests: tests, reveal: reveal) {
-            ControlLine {
+            ControlLine(feature: .conversation) {
                 ProviderPicker(label: "Voice conversation provider", selection: $selection,
                                options: VoiceProvider.voiceProviders)
             } model: {
@@ -478,11 +521,13 @@ private struct ConversationFeatureRow: View {
             }
             SettingsOperationAvailability(tests: tests, purpose: .voice, reading: reader.busy)
             if provider == .openai, OpenAIVoiceSession.usesLive(configuration?.model ?? "") {
-                HStack {
-                    Text("Task reasoning model").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    IDField(label: "Task reasoning model", placeholder: OpenAILiveSession.defaultBackendModel,
-                            text: $liveBackendModel, browse: VoiceProvider.openai.modelDocumentationURL(for: .text),
-                            browseHelp: "Browse text generation models", identifier: "liveBackendModelID")
+                DisclosureGroup("Advanced task reasoning model") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Task reasoning model").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                        IDField(label: "Task reasoning model", placeholder: OpenAILiveSession.defaultBackendModel,
+                                text: $liveBackendModel, browse: VoiceProvider.openai.modelDocumentationURL(for: .text),
+                                browseHelp: "Browse text generation models", identifier: "liveBackendModelID")
+                    }
                 }
                 Text("Live handles conversation; this model checks tasks and selects actions. Voice time and task reasoning are billed separately.")
                     .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
@@ -497,9 +542,8 @@ private struct ConversationFeatureRow: View {
     private func test() {
         guard let configuration, credential.configured, configuration.failure == nil,
               !tests.isBusy, !reader.busy else { return }
-        credential.load()
-        guard credential.configured else { return tests.reportUnreadableKey(.voice) }
-        guard let session = configuration.makeSession(apiKey: credential.value) else { return }
+        guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.voice) }
+        guard let session = configuration.makeSession(apiKey: key) else { return }
         tests.start(.voice, timeout: .seconds(15), operation: {
             await SettingsModelTestOperations.handshake(session: session, voice: configuration.voice)
         }, cleanup: { await session.close() })
@@ -561,7 +605,7 @@ private struct SummaryFeatureRow: View {
         if !credential.configured { return .needsKey(provider) }
         if detail != nil { return .needsAttention }
         if tests.purpose == .summary, tests.phase == .succeeded { return .verified("Sample generated") }
-        return .noFeedback
+        return .unverified
     }
 
     private var providerPicker: some View {
@@ -591,7 +635,7 @@ private struct SummaryFeatureRow: View {
         FeatureRow(feature: .summaries, enabled: $enabled, status: status,
                    detail: detail, tests: tests, reveal: reveal) {
             // Summaries are text: the two-tier line without a voice cell.
-            ControlLine.textOnly(provider: { providerPicker }, model: { modelField }, trailing: { sampleButton })
+            ControlLine.textOnly(feature: .summaries, provider: { providerPicker }, model: { modelField }, trailing: { sampleButton })
             SettingsOperationAvailability(tests: tests, purpose: .summary, reading: reader.busy)
         }
         .onAppear { credential.refresh() }
@@ -603,9 +647,7 @@ private struct SummaryFeatureRow: View {
         guard let configuration, credential.configured, configuration.configurationFailure == nil,
               configuration.contentStyle.isValid,
               !tests.isBusy, !reader.busy else { return }
-        credential.load()
-        guard credential.configured else { return tests.reportUnreadableKey(.summary) }
-        let key = credential.value
+        guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.summary) }
         tests.start(.summary, timeout: .seconds(13), operation: {
             await SettingsModelTestOperations.summary(configuration: configuration, apiKey: key)
         })
@@ -623,6 +665,8 @@ private struct ReadAloudFeatureRow: View {
     @ObservedObject var credential: SettingsCredential
     @Binding var selection: String
     let reveal: (VoiceProvider) -> Void
+    @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
     @AppStorage(ReadAloud.enabledKey) private var enabled = false
     @AppStorage(CompletionSummaryConfiguration.enabledKey) private var summariesEnabled = false
     @AppStorage private var modelID: String
@@ -649,9 +693,9 @@ private struct ReadAloudFeatureRow: View {
         case .summaryProviderCannotSpeak: return .needsAttention
         case .ready(let provider):
             if !credential.configured { return .needsKey(provider) }
-            if !summariesEnabled { return .nothingToRead }
+            if detail != nil { return .needsAttention }
             if tests.purpose == .readAloud, tests.phase == .succeeded { return .verified("Preview played") }
-            return .noFeedback
+            return .unverified
         }
     }
     /// The follow option names its target, so the collapsed picker still says
@@ -662,14 +706,25 @@ private struct ReadAloudFeatureRow: View {
     }
     /// The sentence the pill cannot hold: a summary provider that cannot speak.
     private var detail: String? {
-        guard case .summaryProviderCannotSpeak(let provider) = status else { return nil }
-        return String(format: NSLocalizedString("%@ is text-only, so read-aloud cannot follow it. Pick a read-aloud provider of its own.",
-                                                comment: "Read-aloud follows a text-only summary provider"), provider.display)
+        if case .summaryProviderCannotSpeak(let provider) = status {
+            return String(format: NSLocalizedString("%@ is text-only, so read-aloud cannot follow it. Pick a read-aloud provider of its own.",
+                                                    comment: "Read-aloud follows a text-only summary provider"), provider.display)
+        }
+        if status.provider == .qwen {
+            let configuration = CompletionSummaryConfiguration(
+                enabled: true, provider: .qwen, modelID: VoiceSettings.readAloudModel(.qwen),
+                qwenUseIntl: intl, qwenWorkspaceID: workspace)
+            if configuration.configurationFailure != nil {
+                return NSLocalizedString("Check the Qwen workspace ID on the Provider keys page.",
+                                         comment: "Qwen workspace invalid")
+            }
+        }
+        return nil
     }
     /// One line under the row: what "Same as summaries" currently resolves to.
     private var hint: LocalizedStringKey {
         if !summariesEnabled {
-            return "Turn on AI completion summaries for automatic announcements. New readings use the current content style."
+            return "Turn on AI completion summaries for automatic announcements. Voice previews do not require automatic summaries; each preview is billed by the provider."
         }
         guard let provider = status.provider else { return VoiceFeature.readAloud.hint }
         return selection == provider.rawValue
@@ -685,7 +740,7 @@ private struct ReadAloudFeatureRow: View {
                 get: { UserDefaults.standard.bool(forKey: ReadAloud.silenceViewedKey) },
                 set: { UserDefaults.standard.set($0, forKey: ReadAloud.silenceViewedKey) }))
                 .font(MacTheme.font(11))
-            ControlLine.textOnly(provider: {
+            ControlLine.textOnly(feature: .readAloud, provider: {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
                                options: VoiceProvider.voiceProviders, leading: ("", followTitle))
             }, model: {
@@ -732,8 +787,10 @@ private struct AccountRow: View {
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
 
+    @State private var confirmingRemoval = false
+
     private var keyInput: Binding<String> {
-        Binding(get: { credential.value }, set: { credential.edit($0); tests.invalidate() })
+        Binding(get: { credential.draft }, set: { credential.edit($0) })
     }
     private var usage: String {
         usedBy.isEmpty
@@ -751,15 +808,15 @@ private struct AccountRow: View {
                     Text(verbatim: usage).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Spacer(minLength: 0)
-                if credential.saveFailed {
-                    Text("Key not saved").font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.requiresInput))
-                } else if credential.configured {
-                    Text("Key saved").font(MacTheme.font(10)).foregroundStyle(MacTheme.accent)
-                } else {
-                    Text("No key").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                }
-                Button(expanded ? "Done" : (credential.configured ? "Edit" : "Add key")) {
-                    expanded.toggle()
+                Text(credential.present ? "Key saved" : "No key")
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    .accessibilityLabel(Text("\(provider.display) saved key status"))
+                    .accessibilityValue(credential.present ? Text("Key saved") : Text("No key"))
+                    .accessibilityIdentifier("apiKey-status-\(provider.rawValue)")
+                if !expanded {
+                    Button(credential.present ? "Edit" : "Add key") { expanded = true }
+                        .accessibilityLabel(Text("Edit \(provider.display) API key"))
+                        .accessibilityIdentifier("edit-apiKey-\(provider.rawValue)")
                 }
             }
             if expanded {
@@ -768,7 +825,7 @@ private struct AccountRow: View {
                         SecureField("API key", text: keyInput,
                                     prompt: Text("Paste your \(provider.display) key"))
                             .labelsHidden().textFieldStyle(.roundedBorder).autocorrectionDisabled()
-                            .accessibilityLabel("API key")
+                            .accessibilityLabel(Text("\(provider.display) API key draft"))
                             .accessibilityIdentifier("apiKey-\(provider.rawValue)")
                         Button {
                             guard let pasted = NSPasteboard.general.string(forType: .string)?
@@ -778,13 +835,46 @@ private struct AccountRow: View {
                             Label("Paste", systemImage: "doc.on.clipboard").labelStyle(.iconOnly)
                         }
                         .help("Paste")
+                        .accessibilityLabel(Text("Paste \(provider.display) API key"))
                         .accessibilityIdentifier("paste-apiKey-\(provider.rawValue)")
                     }
-                    if credential.saveFailed {
-                        Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.")
+                    Text("API key changes take effect only after Save. Saving does not test the connection.")
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    if credential.saveFailed || credential.removalFailed {
+                        Text(credential.removalFailed
+                             ? "Could not remove the key. The saved key is unchanged. Try again."
+                             : "Could not save the key. The saved key is unchanged; your draft is kept. Try Save again.")
                             .font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.requiresInput))
+                            .accessibilityIdentifier("apiKey-error-\(provider.rawValue)")
+                    }
+                    HStack(spacing: 8) {
+                        Button("Save") {
+                            if credential.save() { tests.invalidate(); expanded = false }
+                        }
+                        .disabled(!credential.canSave)
+                        .accessibilityLabel(Text("Save \(provider.display) API key"))
+                        .accessibilityIdentifier("save-apiKey-\(provider.rawValue)")
+                        Button("Cancel") { cancelEditing() }
+                            .accessibilityLabel(Text("Cancel \(provider.display) API key edit"))
+                            .accessibilityIdentifier("cancel-apiKey-\(provider.rawValue)")
+                        Spacer(minLength: 0)
+                        if credential.present {
+                            Button("Remove key…", role: .destructive) { confirmingRemoval = true }
+                                .accessibilityLabel(Text("Remove \(provider.display) API key"))
+                                .accessibilityIdentifier("remove-apiKey-\(provider.rawValue)")
+                        }
+                    }
+                    .confirmationDialog("Remove \(provider.display) API key?", isPresented: $confirmingRemoval) {
+                        Button("Remove key", role: .destructive) {
+                            if credential.remove() { tests.invalidate(); expanded = false }
+                        }
+                        Button("Cancel", role: .cancel) { }
+                    } message: {
+                        Text("Features using this provider will need a new key.")
                     }
                     if provider == .qwen {
+                        Text("Region and workspace changes are saved immediately.")
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                         Toggle("Use Singapore (international) region", isOn: $intl)
                         HStack(spacing: 6) {
                             TextField("Workspace ID", text: $workspaceID,
@@ -812,8 +902,25 @@ private struct AccountRow: View {
             }
         }
         .padding(.vertical, 3)
-        .onAppear { credential.refresh() }
-        .onChange(of: expanded) { _, open in if open { credential.load() } }
+        .onAppear {
+            credential.refresh()
+            if expanded { credential.beginEditing() }
+        }
+        .onChange(of: expanded) { _, open in
+            if open { credential.beginEditing() } else { credential.cancel() }
+        }
+        .onDisappear { cancelEditing() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window.identifier == NSUserInterfaceItemIdentifier("com.vibebuddy.settings") else { return }
+            cancelEditing()
+        }
         .onChange(of: [String(intl), workspaceID]) { _, _ in tests.invalidate() }
+    }
+
+    private func cancelEditing() {
+        credential.cancel()
+        confirmingRemoval = false
+        expanded = false
     }
 }

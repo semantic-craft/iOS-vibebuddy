@@ -101,7 +101,7 @@ struct AccountUsageSummaryView: View {
             }
 
             if let reason = state.unavailableReason {
-                Label(reason.displayText(provider: provider), systemImage: reasonIcon(reason))
+                Label(localizedUsageReason(reason, provider: provider), systemImage: reasonIcon(reason))
                     .font(MacTheme.font(10))
                     .foregroundStyle(reason == .collectionDisabled ? MacTheme.ink2 : MacTheme.status(.requiresInput))
                     .fixedSize(horizontal: false, vertical: true)
@@ -209,11 +209,12 @@ struct PlanAndQuotaPage: View {
                     }
                     .labelsHidden().fixedSize()
                     .accessibilityLabel("Quota alert threshold")
+                    .accessibilityIdentifier("quota-alert-threshold")
                 }
             }
 
             SettingsSection("Current usage",
-                            footnote: "Read from each vendor's own local login — nothing is copied to storage or logged.") {
+                            footnote: "Account allowance comes from each provider. Local token estimates are separate from your actual bill.") {
                 SettingsRow("Windows, resets and pace",
                             detail: "Every provider's live meters are on the dashboard's Usage page.") {
                     Button("Open Usage") { DashboardRoute.open(.usage) }
@@ -235,7 +236,8 @@ struct TokenSpendPage: View {
     var body: some View {
         SettingsPageScaffold(SettingsPageID.tokenSpend.title,
                              subtitle: SettingsPageID.tokenSpend.subtitle) {
-            SettingsSection("Alerts") {
+            SettingsSection("Alerts",
+                            footnote: notify ? nil : "Enable notifications to change budget alerts.") {
                 SettingsRow("Budget alert per session",
                             detail: "A gentle heads-up when a session's estimated spend crosses this amount. Cost is a rough estimate from token usage.") {
                     Picker("", selection: $budgetUSD) {
@@ -249,18 +251,27 @@ struct TokenSpendPage: View {
                     .labelsHidden().fixedSize()
                     .disabled(!notify)
                     .accessibilityLabel("Budget alert per session")
+                    .accessibilityIdentifier("session-budget-usd")
                 }
             }
 
             SettingsSection("Estimated local cost", boxed: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    TokenConsumptionSummaryView(snapshot: model.tokenConsumption)
+                    TokenConsumptionSummaryView(snapshot: model.tokenConsumption, showsBreakdowns: false)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .background(MacTheme.bg2)
                 .clipShape(RoundedRectangle(cornerRadius: SettingsChrome.cardRadius, style: .continuous))
+            }
+
+            SettingsSection("Details") {
+                SettingsRow("Token usage by agent, model and project",
+                            detail: "View both time windows and all breakdowns in the Usage report.") {
+                    Button("Open usage report") { DashboardRoute.open(.usage) }
+                        .accessibilityIdentifier("open-token-usage-report")
+                }
             }
         }
     }
@@ -272,10 +283,6 @@ struct UsageSourcesPage: View {
     @State private var cursorCookie: String = CursorSessionCookieStore.loadManual() ?? ""
     @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
     @State private var cursorImportMessage: String?
-    /// What the user is typing right now — never the stored key, which is
-    /// written once and never read back.
-    @State private var cloudAPIKeyDraft: String = ""
-    @State private var cloudAPIKeySaved = false
     @State private var grokBotAuthorization: String?
     @State private var isAuthorizingGrokBot = false
     @FocusState private var cursorCookieFocused: Bool
@@ -284,15 +291,22 @@ struct UsageSourcesPage: View {
         SettingsPageScaffold(SettingsPageID.usageSources.title,
                              subtitle: SettingsPageID.usageSources.subtitle) {
             SettingsSection("Collect usage from",
-                            footnote: "Codex reads its official local app-server. Claude runs the official read-only /usage command. Grok asks its own agent process for the billing summary. Cursor reads its selected CLI login, local app login, or browser/manual Cookie. Turning a source off leaves session monitoring and notifications running.") {
-                SettingsGrid(items: AccountUsageProvider.allCases.map { provider in
-                    SettingsGrid.Item(id: provider.rawValue, verbatim: provider.displayName) {
-                        Toggle("", isOn: Binding(
-                            get: { model.isUsageCollectionEnabled(provider) },
-                            set: { model.setUsageCollectionEnabled($0, provider: provider) }))
-                            .labelsHidden().toggleStyle(.switch)
+                            footnote: "Turning a source off stops its account quota collection only. Session monitoring, session notifications and local token estimates continue.") {
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    VStack(spacing: 0) {
+                        ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
+                            SettingsRow(verbatim: provider.displayName,
+                                        detail: sourceDescription(provider) + "\n" + sourceStatus(provider, now: context.date)) {
+                                Toggle(provider.displayName, isOn: Binding(
+                                    get: { model.isUsageCollectionEnabled(provider) },
+                                    set: { model.setUsageCollectionEnabled($0, provider: provider) }))
+                                    .labelsHidden().toggleStyle(.switch)
+                                    .accessibilityLabel(Text("Collect account usage from \(provider.displayName)"))
+                                    .accessibilityIdentifier("usage-source-\(provider.rawValue)")
+                            }
+                        }
                     }
-                })
+                }
             }
 
             SettingsSection("Grok Bot") {
@@ -374,29 +388,42 @@ struct UsageSourcesPage: View {
                     }
                 }
             }
-            SettingsSection("Cursor cloud agents",
-                            footnote: "A Cloud Agents API key from cursor.com/dashboard/api. Separate from the session Cookie and the cursor-agent CLI login. Used to read cloud agents, continue them and cancel runs.") {
-                SettingsRow("Cursor API key", detailText: cloudKeyDetail) {
-                    HStack(spacing: 8) {
-                        SecureField("Cursor API key", text: $cloudAPIKeyDraft)
-                            .textFieldStyle(.roundedBorder).labelsHidden().frame(width: 176)
-                            .accessibilityLabel("Cursor API key")
-                            .onSubmit { saveCloudAPIKey() }
-                        Button("Save") { saveCloudAPIKey() }
-                            .disabled(cloudAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || E2ERunConfiguration.current != nil)
-                            .accessibilityIdentifier("save-cursorCloudAPIKey")
-                        Button("Remove") {
-                            CursorCloudAPIKeyStore.save(nil)
-                            cloudAPIKeyDraft = ""
-                            cloudAPIKeySaved = CursorCloudAPIKeyStore.isConfigured()
-                        }
-                        .disabled(!cloudAPIKeySaved || E2ERunConfiguration.current != nil)
-                        .accessibilityIdentifier("remove-cursorCloudAPIKey")
-                    }
-                }
-            }
-            .onAppear { cloudAPIKeySaved = CursorCloudAPIKeyStore.isConfigured() }
+
         }
+    }
+
+    private func sourceDescription(_ provider: AccountUsageProvider) -> String {
+        switch provider {
+        case .codex:
+            String(localized: "Reads account allowance from the official local Codex app-server.")
+        case .claude:
+            String(localized: "Reads Claude Code's live usage feed, with the official read-only /usage command as a fallback.")
+        case .grok:
+            String(localized: "Reads the billing summary from the local Grok agent process.")
+        case .grokBot:
+            String(localized: "Reads the active official Grok Bot account. Account access is configured below.")
+        case .cursor:
+            cursorModeDetail
+        }
+    }
+
+    private func sourceStatus(_ provider: AccountUsageProvider, now: Date) -> String {
+        guard model.isUsageCollectionEnabled(provider) else {
+            return String(localized: "Account usage collection is off.")
+        }
+        let state = model.usageState(for: provider)
+        if let reason = state.unavailableReason {
+            return localizedUsageReason(reason, provider: provider)
+        }
+        if let snapshot = state.snapshot {
+            if state.isStale { return String(localized: "Showing an older reading; waiting for a refresh.") }
+            if !snapshot.displayWindows.isEmpty,
+               snapshot.excludingExpiredWindows(at: now).displayWindows.isEmpty {
+                return String(localized: "Window reset · awaiting a new reading")
+            }
+            return String(localized: "Updated \(snapshot.fetchedAt.formatted(date: .abbreviated, time: .shortened))")
+        }
+        return String(localized: "Waiting for the first account reading.")
     }
 
     private func cookieField(prompt: LocalizedStringKey) -> some View {
@@ -440,6 +467,7 @@ struct UsageSourcesPage: View {
 struct TokenConsumptionSummaryView: View {
     let snapshot: TokenConsumptionSnapshot?
     var compact = false
+    var showsBreakdowns = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 10 : 14) {
@@ -455,7 +483,7 @@ struct TokenConsumptionSummaryView: View {
                     .font(MacTheme.font(10))
                     .foregroundStyle(MacTheme.ink2)
                 if let warnings = snapshot.warnings, !warnings.isEmpty {
-                    Text(warnings.prefix(2).joined(separator: "\n"))
+                    Text((showsBreakdowns ? warnings : Array(warnings.prefix(2))).joined(separator: "\n"))
                         .font(MacTheme.font(10))
                         .foregroundStyle(MacTheme.status(.requiresInput))
                 }
@@ -488,9 +516,11 @@ struct TokenConsumptionSummaryView: View {
                 Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) non-cached · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens)) cache · \(window.counts.sessionCount) sessions")
                     .font(MacTheme.font(10))
                     .foregroundStyle(MacTheme.ink2)
-                rowList("By agent", window.byAgent)
-                rowList("By model", compact ? Array(window.byModel.prefix(4)) : window.byModel)
-                rowList("By project", compact ? Array(window.byProject.prefix(4)) : window.byProject)
+                if showsBreakdowns {
+                    rowList("By agent", window.byAgent)
+                    rowList("By model", compact ? Array(window.byModel.prefix(4)) : window.byModel)
+                    rowList("By project", compact ? Array(window.byProject.prefix(4)) : window.byProject)
+                }
             }
         }
     }
@@ -503,37 +533,35 @@ struct TokenConsumptionSummaryView: View {
                 }
                 ForEach(rows) { row in
                     HStack {
-                        Text(row.label).lineLimit(1)
+                        Text(row.label).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 8)
                         Text("\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · est. \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
                             .monospacedDigit()
                             .foregroundStyle(MacTheme.ink2)
                     }
                     .font(MacTheme.font(10))
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
     }
 }
 
-extension UsageSourcesPage {
-    /// Whether a key is stored — asked of the Keychain by **metadata only**, so
-    /// reading this page never decrypts the key and never raises an
-    /// authorization prompt. The key itself is never read back into the field:
-    /// it is written once and thereafter only replaced or removed.
-    var cloudKeyDetail: String {
-        cloudAPIKeySaved
-            ? String(localized: "A key is saved. Type a new one to replace it.")
-            : String(localized: "No key saved. Cloud agents show as stored history only.")
-    }
-
-    func saveCloudAPIKey() {
-        let trimmed = cloudAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, E2ERunConfiguration.current == nil else { return }
-        CursorCloudAPIKeyStore.save(trimmed)
-        // Drop the draft the moment it is stored: nothing keeps the key in the
-        // view hierarchy, and nothing prints it.
-        cloudAPIKeyDraft = ""
-        cloudAPIKeySaved = CursorCloudAPIKeyStore.isConfigured()
+private func localizedUsageReason(_ reason: AccountUsageUnavailableReason, provider: AccountUsageProvider) -> String {
+    switch reason {
+    case .collectionDisabled: String(localized: "Collection is turned off")
+    case .cachedData: String(localized: "Showing cached data while refreshing")
+    case .notYetLoaded: String(localized: "Waiting for the first refresh")
+    case .awaitingLiveSample: String(localized: "Waiting for a \(provider.displayName) session to report")
+    case .providerUnavailable:
+        provider == .grokBot
+            ? String(localized: "Grok Bot usage service is unavailable")
+            : String(localized: "\(provider.displayName) CLI is unavailable")
+    case .notLoggedIn: String(localized: "\(provider.displayName) is not signed in")
+    case .offline: String(localized: "Offline")
+    case .rateLimited: String(localized: "Usage service is rate limited")
+    case .timedOut: String(localized: "Usage refresh timed out")
+    case .incompatibleFormat: String(localized: "\(provider.displayName) returned an unsupported format")
+    case .unknown: String(localized: "Usage is temporarily unavailable")
     }
 }

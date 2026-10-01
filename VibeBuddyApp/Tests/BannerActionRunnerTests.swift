@@ -46,6 +46,26 @@ final class BannerActionRunnerTests: XCTestCase {
         [NotificationUserInfoKey.sessionId: "s1", NotificationUserInfoKey.approvalId: "ap-1"]
     }
 
+    func testUnreadableCredentialIsHeldWithAccurateReasonButInvalidOriginIsNotQueued() async {
+        for reason: ConnectionFailureReason in [.cloudflareCredentialsUnavailable, .invalidAddress] {
+            let client = ScriptedWaitClient(decideStatus: .notSent(reason))
+            let recorder = HeldRecorder()
+            let outcome = await BannerActionRunner.perform(
+                actionIdentifier: NotificationActionID.approve.rawValue,
+                userInfo: info, text: nil, pairing: pairing, client: client,
+                hold: { await recorder.record($0, $1) })
+            let entries = await recorder.entries
+            if reason == .cloudflareCredentialsUnavailable {
+                guard case .held = outcome else { return XCTFail("An unsent action should be held") }
+                XCTAssertEqual(entries.count, 1)
+                XCTAssertEqual(entries.first?.1, reason)
+            } else {
+                guard case .notHeld = outcome else { return XCTFail("An invalid origin needs repair") }
+                XCTAssertTrue(entries.isEmpty)
+            }
+        }
+    }
+
     func testApproveSendsAllow() async {
         let client = ScriptedWaitClient()
         let outcome = await BannerActionRunner.perform(

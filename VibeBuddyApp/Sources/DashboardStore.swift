@@ -1043,8 +1043,8 @@ final class DashboardStore: ObservableObject {
         if let error = error as? CompanionTransportError {
             switch error {
             case .credentialsUnavailable, .keychainWriteFailed: return .cloudflareCredentialsUnavailable
-            case .authentication, .credentialOriginMismatch: return .cloudflareAuthentication
-            case .invalidAddress: return .invalidAddress
+            case .authentication: return .cloudflareAuthentication
+            case .invalidAddress, .credentialOriginMismatch: return .invalidAddress
             }
         }
         guard let code = (error as? URLError)?.code else { return .dropped }

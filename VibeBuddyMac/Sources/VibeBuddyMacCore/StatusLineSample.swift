@@ -133,7 +133,8 @@ public struct StatusLineSample: Sendable, Equatable {
             } else {
                 minutes = nil
             }
-            guard let window = Self.window(value, kind: .extra, minutes: minutes ?? 0) else { continue }
+            guard let window = Self.window(value, kind: .extra, minutes: minutes ?? 0,
+                                           allowsOverrun: lowered == "spend_limit") else { continue }
             let slug: String
             let key: String
             if lowered.hasPrefix("seven_day_") || lowered.hasPrefix("five_hour_")
@@ -158,11 +159,13 @@ public struct StatusLineSample: Sendable, Equatable {
         return extras
     }
 
-    private static func window(_ value: Any?, kind: AccountUsageWindowKind, minutes: Int) -> AccountUsageWindow? {
+    private static func window(_ value: Any?, kind: AccountUsageWindowKind, minutes: Int,
+                               allowsOverrun: Bool = false) -> AccountUsageWindow? {
         // `spend_limit` can pass 100 once the gateway's cap is overrun; that
         // is a spent allowance, not a malformed one.
         guard let object = value as? [String: Any],
-              let used = double(object["used_percentage"]), used.isFinite, used >= 0 else { return nil }
+              let used = double(object["used_percentage"]), used.isFinite, used >= 0,
+              used <= 100 || allowsOverrun else { return nil }
         let resets = double(object["resets_at"]).flatMap { $0.isFinite && $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
         return AccountUsageWindow(kind: kind, usedPercent: Int(min(used, 100).rounded()),
                                   windowDurationMinutes: minutes, resetsAt: resets)

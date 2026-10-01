@@ -33,8 +33,8 @@ public enum ConnectionFailureReason: Equatable, Sendable, Codable {
     /// is a matter of the link coming back.
     public var isRetryable: Bool {
         switch self {
-        case .tailnetOff, .macUnreachable, .dropped: return true
-        case .authentication, .cloudflareCredentialsUnavailable, .cloudflareAuthentication, .invalidAddress: return false
+        case .tailnetOff, .macUnreachable, .dropped, .cloudflareCredentialsUnavailable: return true
+        case .authentication, .cloudflareAuthentication, .invalidAddress: return false
         }
     }
 

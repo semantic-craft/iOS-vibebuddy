@@ -85,12 +85,18 @@ enum BannerActionRunner {
             // that a background action cannot bring forward anyway.
             guard let record else { return .openSession(sessionId) }
             return .unconfirmed(record)
-        case .unreachable:
+        case .unreachable, .notSent:
             // Nothing reached the Mac. Hold what can be held; the rest brings
             // the person to the session, where the connection state explains.
             guard let hold, let record else { return .openSession(sessionId) }
-            let reason = ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: .unreachable,
-                                                      phoneHasTailnet: phoneHasTailnet())
+            let reason: ConnectionFailureReason
+            if case .notSent(let diagnosis) = result {
+                reason = diagnosis
+            } else {
+                reason = ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: .unreachable,
+                                                     phoneHasTailnet: phoneHasTailnet())
+            }
+            guard reason.isRetryable else { return .notHeld(record) }
             guard await hold(record, reason) else { return .notHeld(record) }
             return .held(sessionId: sessionId, key: key)
         }

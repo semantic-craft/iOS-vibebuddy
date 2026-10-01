@@ -1104,7 +1104,230 @@
 "Last address update" = "上次地址更新";
 "Keep both devices on the same network while checking and using this address." = "检查和使用这个地址时，请让两台设备保持在同一网络。";
 
-/* Cloudflare connection setup */
+/* App language */
+"Language" = "语言";
+"App language" = "应用语言";
+"Changes are saved automatically. Quit and reopen VibeBuddy to apply the language to all windows, menus and notifications." = "更改会自动保存。退出并重新打开 VibeBuddy 后，所有窗口、菜单和通知将使用所选语言。";
+
+/* macOS settings usability */
+"Turn on Show icon in menu bar to display task status." = "开启“在菜单栏显示图标”后可显示任务状态。";
+"Turn on Show glance to change its size." = "开启“显示速览”后可调整大小。";
+"Recording shortcut" = "正在录制快捷键";
+"Press a key combination with a modifier, or Escape to cancel." = "按下含修饰键的组合键，或按 Escape 取消。";
+"Record a shortcut that works from any app." = "录制可在任何应用中使用的快捷键。";
+"Record shortcut for Open Dashboard" = "录制“打开仪表盘”快捷键";
+"Cancel recording shortcut for Open Dashboard" = "取消录制“打开仪表盘”快捷键";
+"Record shortcut for Next pending task" = "录制“下一个待处理任务”快捷键";
+"Cancel recording shortcut for Next pending task" = "取消录制“下一个待处理任务”快捷键";
+"Record shortcut for Toggle Glance" = "录制“切换速览”快捷键";
+"Cancel recording shortcut for Toggle Glance" = "取消录制“切换速览”快捷键";
+"%@ saved key status" = "%@ 已保存密钥状态";
+"Edit %@ API key" = "编辑 %@ API 密钥";
+"%@ API key draft" = "%@ API 密钥草稿";
+"Paste %@ API key" = "粘贴 %@ API 密钥";
+"Save %@ API key" = "保存 %@ API 密钥";
+"Cancel %@ API key edit" = "取消编辑 %@ API 密钥";
+"Remove %@ API key" = "移除 %@ API 密钥";
+"Could not remove the key. The saved key is unchanged. Try again." = "无法移除密钥。已保存的密钥未更改，请重试。";
+"Could not save the key. The saved key is unchanged; your draft is kept. Try Save again." = "无法保存密钥。已保存的密钥未更改，草稿已保留。请再次点击保存。";
+"Remove key…" = "移除密钥…";
+"Remove %@ API key?" = "移除 %@ API 密钥？";
+"Remove key" = "移除密钥";
+"Features using this provider will need a new key." = "使用此服务商的功能将需要新的密钥。";
+"API key changes take effect only after Save. Saving does not test the connection." = "点击保存后 API 密钥更改才会生效。保存不会测试连接。";
+"Region and workspace changes are saved immediately." = "区域和工作空间更改会立即保存。";
+
+"Agent integration" = "Agent 接入";
+"Agent tools (MCP)" = "Agent 工具（MCP）";
+"Monitor local agents and connect Cursor cloud tasks" = "监控本地 Agent 并接入 Cursor 云端任务";
+"needs the app-server connection from Settings › Agent integration." = "需要在“设置 › Agent 接入”中连接 app-server。";
+"Save Cursor API key" = "保存 Cursor API 密钥";
+"Remove Cursor API key" = "移除 Cursor API 密钥";
+"Install / repair all agent hooks" = "安装／修复所有 Agent hooks";
+"Remove all agent hooks" = "移除所有 Agent hooks";
+"Each row describes one source, not the whole agent. Check the other sources and their last signals before concluding monitoring has stopped." = "每行只描述一个数据来源，不代表整个 Agent。请结合其他来源及最后信号判断监控是否停止。";
+"The app-server is one Codex source. Rollout and Hook have separate diagnostics above; a missing daemon does not mean all Codex monitoring has stopped." = "app-server 是 Codex 的一个数据来源。Rollout 和 Hook 的诊断分别列在上方；缺少守护进程不代表所有 Codex 监控都已停止。";
+"Enable Claude status line information" = "启用 Claude 状态栏信息";
+"Repair %@ hooks" = "修复 %@ hooks";
+"Updates VibeBuddy hooks for this agent on this Mac and preserves other hooks. It does not repair Rollout or the app-server." = "更新此 Mac 上该 Agent 的 VibeBuddy hooks，保留其他 hooks。此操作不修复 Rollout 或 app-server。";
+"Off — Codex is observed from the rollout stream and hooks." = "已关闭——通过 Rollout 数据流和 hooks 监控 Codex。";
+"Subscribed threads: %lld" = "已订阅会话：%lld";
+"Approval requests seen: %@" = "已观察到的审批请求：%@";
+"Not connected — %@" = "未连接——%@";
+"Waiting for the daemon (start Codex Desktop or the CLI)." = "正在等待守护进程（请启动 Codex 桌面端或 CLI）。";
+"Approval: %@" = "审批策略：%@";
+"Sandbox: %@" = "沙盒策略：%@";
+"Reported raw values" = "查看上报原值";
+"%@ reported raw values" = "%@ 上报原值";
+"Permission prompts bypassed" = "跳过权限提示";
+"Automatic permission decisions" = "自动决定权限";
+"File edits accepted automatically" = "自动接受文件编辑";
+"Planning mode" = "规划模式";
+"Default permission prompts" = "默认权限提示";
+"Never request approval" = "不请求审批";
+"Request approval when needed" = "按需请求审批";
+"Request approval after failure" = "失败后请求审批";
+"Request approval for untrusted commands" = "对不受信任的命令请求审批";
+"Full access (no sandbox)" = "完全访问（无沙盒）";
+"Workspace write access" = "工作区写入权限";
+"Read-only access" = "只读权限";
+"Externally managed sandbox" = "由外部管理的沙盒";
+"Control socket unavailable" = "控制套接字不可用";
+"No app-server control socket or signal was found. Check the Codex daemon section below. Rollout and Hook are separate sources; this does not establish whether Codex is installed." = "未发现 app-server 控制套接字或信号。请查看下方 Codex 守护进程信息。Rollout 和 Hook 是独立来源；此状态不能判定 Codex 是否已安装。";
+"Optional: add a Cursor API key in Agent integration to follow cloud tasks. Local Cursor monitoring is separate." = "可选：在“Agent 接入”中添加 Cursor API 密钥以跟踪云端任务。本地 Cursor 监控独立运行。";
+"Configured, awaiting first activity" = "已配置，等待首次活动";
+"Awaiting activity" = "等待活动";
+"No recent activity" = "近期无活动";
+"Configuration incomplete" = "配置不完整";
+"Invalid source data" = "来源数据无效";
+"Read-only history" = "只读历史记录";
+"Copilot history unavailable" = "Copilot 历史记录不可用";
+"Status line information not enabled" = "尚未启用状态栏信息";
+"Optional Claude status line information is not enabled. Hook and Transcript monitoring can continue." = "尚未启用可选的 Claude 状态栏信息。Hook 和 Transcript 监控可继续运行。";
+"Configured; no signal received since this launch. A new task can verify this source." = "已配置；本次启动后尚未收到信号。可通过新任务验证此来源。";
+"Signals are arriving normally." = "正在正常接收信号。";
+"This source reported before but has been quiet recently." = "此来源曾上报信号，但近期没有活动。";
+"Required lifecycle events have not been observed." = "尚未观察到所需的生命周期事件。";
+"The Codex app-server control socket cannot be reached." = "无法连接 Codex app-server 控制套接字。";
+"Version %@ not yet verified" = "尚未验证版本 %@";
+"Missing hook configuration: %@. Configured coverage is separate from events received this launch." = "缺少 hook 配置：%@。已配置的事件范围与本次启动后实际收到的事件分别记录。";
+"Stored Copilot CLI conversations. Live task status is unavailable." = "已保存的 Copilot CLI 对话。实时任务状态不可用。";
+"Copilot history could not be refreshed. Existing rows may be outdated; reading will retry automatically." = "无法刷新 Copilot 历史记录。现有记录可能已过时；将自动重试读取。";
+"No transcript has been read since this launch. Transcript reading starts when a Hook reports session activity." = "本次启动后尚未读取对话记录。Hook 上报会话活动后开始读取。";
+"No format error was found in the inspected records, but this Rollout version has not completed lifecycle verification. Hook repair does not verify a Rollout version." = "已检查的记录未发现格式错误，但此 Rollout 版本尚未完成生命周期验证。修复 Hook 不会验证 Rollout 版本。";
+"Rollout data could not be parsed or a required event structure is invalid. Check the Rollout source data; reinstalling Hooks does not repair it." = "无法解析 Rollout 数据或所需事件结构无效。请检查 Rollout 源数据；重新安装 Hooks 不会修复此问题。";
+"Claude's status line configuration cannot be read." = "无法读取 Claude 状态栏配置。";
+"The approval hook is installed as asynchronous, so the agent never waits for the answer. Repair the installation." = "审批 hook 被配置为异步，Agent 不会等待答复。请修复 hook 安装。";
+"Cursor's Cloud Agents API cannot be reached. Check the API key in Settings." = "无法连接 Cursor Cloud Agents API。请检查设置中的 API 密钥。";
+"The rollout stream cannot be read." = "无法读取 Rollout 数据流。";
+"The transcript cannot be read." = "无法读取对话记录。";
+"The hook configuration cannot be read." = "无法读取 hook 配置。";
+"The recovery source cannot be read." = "无法读取恢复来源。";
+"The agent is not installed or has no local configuration." = "Agent 未安装或没有本地配置。";
+"The source version or event shape is not recognized." = "无法识别来源版本或事件结构。";
+"Save notification preferences for this Mac. Delivery also requires macOS permission." = "保存这台 Mac 的通知偏好；发送通知还需要 macOS 授权。";
+"Turn on Show notifications to change sound, categories and quiet settings." = "打开“显示通知”后，即可更改声音、通知类别和静音设置。";
+"Disabled categories never notify." = "关闭的类别不会发送通知。";
+"When enabled, usage and budget alerts ignore Quiet mode and Quiet hours. Their sound follows Play sound on this Mac." = "启用后，用量和预算提醒不受静音模式及时段限制；是否发声取决于这台 Mac 的“播放声音”设置。";
+"Approvals, questions and plan decisions keep silent banners. Errors stay in Notification Center; completion and still-waiting alerts are suppressed." = "审批、提问和计划决策保留无声横幅。错误仅显示在通知中心；任务完成和持续等待提醒不再通知。";
+"Apply the same quiet rules during this daily window, using local time." = "每天按本地时间在此时段应用相同的静音规则。";
+"Matching start and end times mean Quiet hours is inactive." = "开始和结束时间相同时，静音时段不生效。";
+"The window can continue past midnight." = "时段可以跨越午夜。";
+"Turn on Show notifications to change this setting." = "打开“显示通知”后，即可更改此设置。";
+
+"Continue setup" = "继续配置";
+"Save the key, then return to test your feature. Saving or cancelling does not turn it on." = "保存密钥后，返回测试此功能。保存或取消都不会自动开启功能。";
+"Return to %@" = "返回%@";
+"On" = "已开启";
+"Feature enabled status" = "功能启用状态";
+"Ready to test" = "可以测试";
+"Test failed" = "测试失败";
+"Testing" = "正在测试";
+"Advanced model settings" = "高级模型设置";
+"Advanced task reasoning model" = "高级任务推理模型";
+"Default: %@" = "默认值：%@";
+"Opens this provider on the Provider keys page. Return here after saving to test." = "前往“服务商密钥”页面中的此服务商。保存后返回此处测试。";
+"Turn on AI completion summaries for automatic announcements. You can preview a voice now; each preview is billed by the provider." = "开启 AI 完成摘要后可自动播报。现在也可试听声音；每次试听均由服务商计费。";
+"Check the Qwen workspace ID on the Provider keys page." = "请在“服务商密钥”页面检查 Qwen 工作空间 ID。";
+
+"Turn on AI completion summaries for automatic announcements. Voice previews do not require automatic summaries; each preview is billed by the provider." = "开启 AI 完成摘要后可自动播报。试听声音无需开启自动摘要；每次试听均由服务商计费。";
+"Run in your project, then approve vibebuddy in Claude Code." = "在项目中运行，然后在 Claude Code 中批准 vibebuddy。";
+"Merge into ~/.codex/config.toml, then restart your Codex session." = "合并到 ~/.codex/config.toml，然后重启 Codex 会话。";
+"Merge into ~/.cursor/mcp.json, then reload Cursor and enable vibebuddy." = "合并到 ~/.cursor/mcp.json，然后重新加载 Cursor 并启用 vibebuddy。";
+"Path" = "路径";
+"iPhone notifications" = "iPhone 通知";
+"A saved pairing or a checked address does not confirm notification delivery. APNs acceptance, iCloud storage and an iPhone scheduling report do not prove a banner appeared. Check the iPhone to confirm display." = "配对已保存或地址已通过检查，不代表通知已送达。APNs 接受、iCloud 保存和 iPhone 报告已排程，都不能证明横幅已显示。请在 iPhone 上确认显示结果。";
+"Push service" = "推送服务";
+"This Mac is configured to send through APNs. Configuration alone does not verify a send." = "此 Mac 已配置通过 APNs 发送推送。仅完成配置不能证明发送成功。";
+"APNs configured" = "已配置 APNs";
+"Latest phone delivery record" = "最近的手机投递记录";
+"The recent records contain no phone delivery attempt. This is not a complete delivery history." = "近期记录中没有手机投递尝试。此处并非完整投递历史。";
+"No recent record" = "无近期记录";
+"Recorded phone delivery failure" = "已记录的手机投递失败";
+"Delivery diagnostics" = "投递诊断";
+"Review delivery records and failure details. iPhone notification permissions and Focus are controlled on the iPhone." = "查看投递记录与失败详情。iPhone 通知权限和专注模式需在 iPhone 上设置。";
+"Show delivery diagnostics" = "查看投递诊断";
+"Without an APNs key, closed-app notifications use iCloud. The Mac and iPhone must use the same Apple Account; availability does not verify delivery." = "未配置 APNs 密钥时，应用关闭后的通知使用 iCloud。Mac 与 iPhone 必须使用同一 Apple 账户；服务可用不代表投递已验证。";
+"iCloud unavailable in this build" = "此构建无法使用 iCloud";
+"iCloud status unknown" = "iCloud 状态未知";
+"iCloud account available" = "iCloud 账户可用";
+"No matching iPhone reported" = "尚无匹配的 iPhone 报告";
+"Accepted by APNs" = "APNs 已接受";
+"Saved to iCloud" = "已保存到 iCloud";
+"iPhone reported scheduling" = "iPhone 报告已排程";
+"Push registration stopped" = "推送注册已停用";
+"iPhone report" = "iPhone 报告";
+"Device …%@" = "设备 …%@";
+"Quota alerts" = "额度提醒";
+"Account allowance comes from each provider. Local token estimates are separate from your actual bill." = "账户额度来自各服务提供方。本地 Token 费用估算与实际账单分开显示。";
+"Enable notifications to change budget alerts." = "启用通知后可调整预算提醒。";
+"Details" = "明细";
+"Token usage by agent, model and project" = "按 Agent、模型和项目查看 Token 用量";
+"View both time windows and all breakdowns in the Usage report." = "在用量报表中查看两个时间窗口及全部分类明细。";
+"Open usage report" = "打开用量报表";
+"Turning a source off stops its account quota collection only. Session monitoring, session notifications and local token estimates continue." = "关闭来源仅停止采集该账户的额度。会话监控、会话通知和本地 Token 估算仍会继续。";
+"Collect account usage from %@" = "采集 %@ 账户用量";
+"Reads account allowance from the official local Codex app-server." = "通过本机官方 Codex app-server 读取账户额度。";
+"Reads Claude Code's live usage feed, with the official read-only /usage command as a fallback." = "读取 Claude Code 实时用量；无实时数据时使用官方只读 /usage 命令。";
+"Reads the billing summary from the local Grok agent process." = "通过本机 Grok Agent 进程读取账单摘要。";
+"Reads the active official Grok Bot account. Account access is configured below." = "读取官方 Grok Bot 当前账户。可在下方配置账户访问权限。";
+"Account usage collection is off." = "账户用量采集已关闭。";
+"Showing an older reading; waiting for a refresh." = "当前显示较早的数据，正在等待刷新。";
+"Waiting for the first account reading." = "等待首次账户用量数据。";
+"Account quota collection is off. Local token estimates remain available below." = "账户额度采集已关闭，仍可在下方查看本地 Token 估算。";
+"Local token spend" = "本地 Token 费用";
+"Collection is turned off" = "采集已关闭";
+"Showing cached data while refreshing" = "刷新期间显示缓存数据";
+"Waiting for the first refresh" = "等待首次刷新";
+"Waiting for a %@ session to report" = "等待 %@ 会话上报";
+"Grok Bot usage service is unavailable" = "Grok Bot 用量服务不可用";
+"%@ CLI is unavailable" = "%@ CLI 不可用";
+"%@ is not signed in" = "%@ 尚未登录";
+"Usage service is rate limited" = "用量服务请求受到限流";
+"Usage refresh timed out" = "用量刷新超时";
+"%@ returned an unsupported format" = "%@ 返回了不支持的格式";
+
+"Advanced voice conversation model settings" = "语音通话高级模型设置";
+"Advanced completion summary model settings" = "完成摘要高级模型设置";
+"Advanced read-aloud model settings" = "朗读高级模型设置";
+
+"Needs you, then unread results." = "先跳转到需要你处理的任务，再查看未读结果。";
+
+"Reported permission mode" = "Agent 上报的权限模式";
+
+"Latest observed session per agent. Mode describes the agent; real waiting requests still need you. Unknown is not autonomous. Codex approval and sandbox policies are independent." = "显示每个 Agent 最近观测到的会话模式。此模式仅描述 Agent；实际等待中的请求仍需你处理。「未知」不代表自主运行。Codex 的审批策略与沙盒策略彼此独立。";
+
+"Cursor cloud agents" = "Cursor 云端任务";
+
+"Cursor API key" = "Cursor API 密钥";
+
+"No key saved. Cloud agents show as stored history only." = "尚未保存密钥。云端任务仅显示已存储的历史记录。";
+
+"A key is saved. Type a new one to replace it." = "已保存密钥。输入新密钥可替换原密钥。";
+
+"A Cloud Agents API key from cursor.com/dashboard/api. Separate from the session Cookie and the cursor-agent CLI login. Used to read cloud agents, continue them and cancel runs." = "从 cursor.com/dashboard/api 获取 Cloud Agents API 密钥。它独立于会话 Cookie 和 cursor-agent CLI 登录，用于读取、继续或取消云端任务。";
+
+"Save" = "保存";
+
+"Remove" = "移除";
+
+"Honest outcomes only: attempted, scheduled, accepted, failed, skipped, pruned. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Pruned is a phone the Mac stopped pushing to after Apple kept refusing its token." = "这里只记录实际结果：尝试、已排程、已接受、失败、跳过或已移除。本地横幅已排程、APNs 返回 2xx，都不能证明设备已显示通知。已移除表示 Apple 持续拒绝设备令牌，Mac 已停止向该设备推送。";
+
+"Handoff facts and live transcripts for your agents" = "供 Agent 读取交接事实与实时对话记录";
+
+"Bundled executable" = "应用内置程序";
+
+"Copy path" = "复制路径";
+
+"Client configuration" = "客户端配置";
+
+"What agents can read" = "Agent 可读取的内容";
+
+"Handoff facts for a session, one session's transcript by its exact key, and optional live status. Nothing is archived or indexed." = "按会话精确标识读取交接事实、对话记录，以及可选的实时状态。不归档或索引内容。";
+
+"The setup command prints these configurations and an optional AGENTS.md rule. Copying does not change client settings." = "setup 命令会输出这些配置及可选的 AGENTS.md 规则。复制操作不会更改客户端设置。";
+
+/* Cloudflare Access */
 "Connect without a phone VPN" = "无需开启手机 VPN 即可连接";
 "Use Cloudflare to reach this Mac through a protected HTTPS address." = "通过 Cloudflare 提供的受保护 HTTPS 地址访问这台 Mac。";
 "2. Connect this Mac with cloudflared" = "2. 使用 cloudflared 连接这台 Mac";
@@ -1121,3 +1344,6 @@
 "After pairing normally, open Device & connection → Cloudflare connection on iPhone. Enter the HTTPS address, Client ID and Client Secret. Check and save only after receiving this Mac’s live status." = "完成正常配对后，在 iPhone 打开“设备与连接 → Cloudflare 连接”，输入 HTTPS 地址、Client ID 和 Client Secret。收到这台 Mac 的实时状态后才保存。";
 "The Access service token is different from the Tunnel token and the existing Mac pairing token. Enter the device secret only on your iPhone; do not paste it into a command, QR code or support message." = "Access 服务令牌、Tunnel 令牌和已有 Mac 配对令牌是不同的凭据。设备 Secret 只在 iPhone 输入，不要粘贴到命令、二维码或求助消息中。";
 "Then turn off Wi-Fi and your phone VPN, check live updates and an action on cellular. Keep this Mac and cloudflared running. This guide does not check or manage the Tunnel." = "然后关闭手机 Wi-Fi 和 VPN，在蜂窝网络检查实时更新和一次操作。保持 Mac 和 cloudflared 运行。本指引不会检测或管理 Tunnel。";
+
+"Could not update the key in Keychain. Your draft is kept. Unlock Keychain and try again." = "无法更新钥匙串中的密钥，草稿已保留。请解锁钥匙串后重试。";
+"Cursor's Cloud Agents API cannot be reached. Check the API key in Agent integration." = "无法连接 Cursor Cloud Agents API。请在 Agent 接入中检查 API 密钥。";

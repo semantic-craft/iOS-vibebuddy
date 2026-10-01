@@ -56,20 +56,19 @@ struct ContentStylePicker: View {
     var body: some View {
         HStack(spacing: 8) {
             Text("Content style").font(MacTheme.font(12, .medium))
-            MenuPill(title: String(localized: String.LocalizationValue(style.title))) {
+                .accessibilityHidden(true)
+            Picker("Content style", selection: Binding(
+                get: { style.rawValue },
+                set: { choice = $0 })) {
                 ForEach(ContentStyle.allCases, id: \.rawValue) { item in
-                    Button { choice = item.rawValue } label: {
-                        if item == style {
-                            Label(LocalizedStringKey(item.title), systemImage: "checkmark")
-                        } else {
-                            Text(LocalizedStringKey(item.title))
-                        }
-                    }
+                    Text(LocalizedStringKey(item.title)).tag(item.rawValue)
                 }
             }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
             .help(LocalizedStringKey(style.detail))
             .accessibilityLabel("Content style")
-            .accessibilityValue(LocalizedStringKey(style.title))
             .accessibilityIdentifier("contentStyle")
         }
     }

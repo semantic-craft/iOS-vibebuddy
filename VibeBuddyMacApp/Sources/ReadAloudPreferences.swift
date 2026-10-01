@@ -72,7 +72,7 @@ private struct ReadAloudPreferenceControls: View {
     private var configuration: SpeechSynthesisConfiguration {
         let value = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
         return .init(provider: status.provider ?? .qwen,
-                     model: modelID.trimmingCharacters(in: .whitespacesAndNewlines), voice: effectiveVoice,
+                     model: VoiceSettings.readAloudModel(status.provider ?? .qwen), voice: effectiveVoice,
                      qwenWorkspaceID: value.isEmpty ? nil : value, qwenUseIntl: intl,
                      style: effectiveStyle, language: spokenLanguage)
     }
@@ -88,7 +88,7 @@ private struct ReadAloudPreferenceControls: View {
         if provider == .qwen {
             let config = CompletionSummaryConfiguration(enabled: true, provider: .qwen, modelID: configuration.model,
                 qwenUseIntl: intl, qwenWorkspaceID: workspace)
-            if config.configurationFailure != nil { return NSLocalizedString("Check the Qwen workspace ID in the account below.", comment: "Qwen workspace invalid") }
+            if config.configurationFailure != nil { return NSLocalizedString("Check the Qwen workspace ID on the Provider keys page.", comment: "Qwen workspace invalid") }
         }
         if voiceChat.isActive { return NSLocalizedString("Stop the current voice conversation or reading before previewing.", comment: "Read-aloud busy") }
         return nil
@@ -164,9 +164,8 @@ private struct ReadAloudPreferenceControls: View {
     private func preview() {
         if isPreviewing { tests.cancel(); return }
         guard previewFailure == nil, !tests.isBusy, !reader.busy else { return }
-        credential.load()
-        guard credential.configured else { return tests.reportUnreadableKey(.readAloud) }
-        let config = configuration, key = credential.value, reader = reader
+        guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.readAloud) }
+        let config = configuration, reader = reader
         let text = config.style.previewLine(config.language)
             ?? NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Synthetic read-aloud preview")
         tests.start(.readAloud, timeout: .seconds(35), operation: {
