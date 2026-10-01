@@ -55,6 +55,8 @@ enum ConnectionFailureCopy {
         switch reason {
         case .tailnetOff: return String(localized: "Tailscale or Surge is off on this iPhone")
         case .macUnreachable(let host): return String(localized: "Can't reach \(mac) at \(host)")
+        case .cloudflareCredentialsUnavailable: return String(localized: "Cloudflare credentials unavailable")
+        case .cloudflareAuthentication: return String(localized: "Connection authentication refused")
         case .authentication: return String(localized: "Access refused by \(mac)")
         case .invalidAddress: return String(localized: "The saved Mac address is not usable")
         case .dropped: return String(localized: "Connection to \(mac) dropped")
@@ -67,6 +69,10 @@ enum ConnectionFailureCopy {
             return String(localized: "\(host) is a private network address. Turn on Tailscale or Surge on this iPhone to reach it.")
         case .macUnreachable:
             return String(localized: "Check that the Mac is awake and VibeBuddy is running on it.")
+        case .cloudflareCredentialsUnavailable:
+            return String(localized: "Unlock your iPhone or update Cloudflare credentials in connection settings.")
+        case .cloudflareAuthentication:
+            return String(localized: "Check Cloudflare Access and your Mac pairing, then reconnect.")
         case .authentication:
             return String(localized: "Check your pairing token, then reconnect.")
         case .invalidAddress:

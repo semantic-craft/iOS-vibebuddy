@@ -811,12 +811,15 @@ public struct PairingPayload: Codable, Sendable, Equatable {
     public var port: Int
     public var token: String
     public var macName: String?
+    /// Local Keychain reference only. Never contains Access credentials.
+    public var cloudflareCredentialID: String?
 
-    public init(host: String, port: Int, token: String, macName: String? = nil) {
+    public init(host: String, port: Int, token: String, macName: String? = nil, cloudflareCredentialID: String? = nil) {
         self.host = host
         self.port = port
         self.token = token
         self.macName = macName
+        self.cloudflareCredentialID = cloudflareCredentialID
     }
 }
 

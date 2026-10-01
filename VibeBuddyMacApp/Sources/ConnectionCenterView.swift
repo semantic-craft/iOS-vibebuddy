@@ -6,20 +6,27 @@ struct ConnectionCenterView: View {
     @ObservedObject var model: MenuBarModel
     var compact = false
     @State private var advancedExpanded = false
+    @State private var showCloudflare = false
+    @State private var showCloudflareGuide = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 16 : 20) {
             macRow
             connectionMode
-            if model.useTailscale { remoteNetwork }
-            if model.pairedPhone == nil { appStoreCard }
-            if let phone = model.pairedPhone { phoneCard(phone) }
-            if let transfer = model.remoteTransfer { transferCard(transfer) }
-            pairingCard
-            if model.phones.count > 1 { devicesCard }
-            if !compact { advanced }
+            if showCloudflare {
+                cloudflareSetup
+            } else {
+                if model.useTailscale { remoteNetwork }
+                if model.pairedPhone == nil { appStoreCard }
+                if let phone = model.pairedPhone { phoneCard(phone) }
+                if let transfer = model.remoteTransfer { transferCard(transfer) }
+                pairingCard
+                if model.phones.count > 1 { devicesCard }
+                if !compact { advanced }
+            }
         }
         .padding(.top, compact ? 0 : 16)
+        .sheet(isPresented: $showCloudflareGuide) { CloudflareSetupGuide(port: model.port) }
         .task {
             model.discoverRemoteAddress()
             while !Task.isCancelled {
@@ -37,8 +44,10 @@ struct ConnectionCenterView: View {
                 .background(MacTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 4) {
                 Text(model.macDisplayName).font(MacTheme.font(15, .semibold))
-                Text("Address to send to iPhone").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                Text(model.pairingAddress).font(MacTheme.mono(11)).foregroundStyle(MacTheme.ink2)
+                if !showCloudflare {
+                    Text("Address to send to iPhone").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    Text(model.pairingAddress).font(MacTheme.mono(11)).foregroundStyle(MacTheme.ink2)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -46,9 +55,16 @@ struct ConnectionCenterView: View {
 
     private var connectionMode: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Connection method", selection: $model.useTailscale) {
-                Text("Same Wi-Fi").tag(false)
-                Text("Away from Mac").tag(true)
+            Picker("Connection method", selection: Binding(
+                get: { showCloudflare ? 2 : (model.useTailscale ? 1 : 0) },
+                set: { selection in
+                    showCloudflare = selection == 2
+                    if selection != 2 { model.useTailscale = selection == 1 }
+                }
+            )) {
+                Text("Same Wi-Fi").tag(0)
+                Text("Away from Mac").tag(1)
+                Text("Cloudflare").tag(2)
             }
             .pickerStyle(.segmented)
             .disabled(model.pairingInProgress || model.changingPairing || model.synchronizingConnection)
@@ -57,15 +73,37 @@ struct ConnectionCenterView: View {
                 Text("Close the pairing code below before changing the connection method.")
                     .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
             }
-            Text("Selecting a method does not change your iPhone’s saved connection. Send the address or scan a new code to apply it.")
-                .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(model.useTailscale
-                 ? "Tailscale · Bring the remote address to your iPhone."
-                 : "Keep both devices on the same network while checking and using this address.")
-                .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
+            if !showCloudflare {
+                Text("Selecting a method does not change your iPhone’s saved connection. Send the address or scan a new code to apply it.")
+                    .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(model.useTailscale
+                     ? "Tailscale · Bring the remote address to your iPhone."
+                     : "Keep both devices on the same network while checking and using this address.")
+                    .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    private var cloudflareSetup: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Connect without a phone VPN").font(MacTheme.font(16, .semibold))
+            Text("Use Cloudflare to reach this Mac through a protected HTTPS address.")
+                .font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2)
+            Label("1. Allow your iPhone with Service Auth", systemImage: "lock.shield")
+            Label("2. Connect this Mac with cloudflared", systemImage: "desktopcomputer")
+            Label("3. Check and save on iPhone", systemImage: "iphone")
+            Button("View Cloudflare setup guide") { showCloudflareGuide = true }
+                .accessibilityIdentifier("mac-cloudflare-guide")
+            Text("Pair your iPhone first using Same Wi-Fi or Away from Mac. Keep this Mac awake. Only the iPhone’s live connection check confirms remote access.")
+                .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+        }
+        .font(MacTheme.font(13))
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MacTheme.accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityIdentifier("mac-cloudflare-setup")
     }
 
     private var remoteNetwork: some View {

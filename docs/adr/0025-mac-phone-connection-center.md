@@ -42,3 +42,28 @@ LAN confirmation never asks the user to disable Wi-Fi.
 Sending requires a working existing phone connection. If it is unavailable,
 or the installed phone version does not support LAN handoff, scan a new code.
 No automatic route fallback or new pairing authority is introduced.
+
+## Amendment — Optional Cloudflare Access path (2026-10-01)
+
+An already-paired iPhone may save one Cloudflare HTTPS origin alongside its
+verified direct connection. It explicitly selects a path; there is no automatic
+routing or simultaneous connection. The original QR authorization remains in
+place. A new candidate must return an authenticated snapshot with the original
+Mac sourceID before replacing the active path; cancellation and failure retain
+the previous connection. Private-address handoffs never inherit Access credentials.
+
+The dedicated origin uses HTTPS/WSS on port 443. Access Service Auth checks
+per-device service credentials, and the daemon still checks its existing bearer
+(ADR-0009). Only local credential references appear in connection settings;
+Access secrets live in the iPhone Keychain and do not enter QR payloads, Watch
+relay data, logs or URLs. Authenticated requests refuse redirects. Existing Mac
+bearer storage is unchanged; migrating old credentials is separate work.
+
+The Mac connection center adds a configuration guide. Official cloudflared owns
+the Tunnel; VibeBuddy does not manage its process, accounts, DNS or token issuance.
+The local service is not proof of remote connectivity. The iPhone verifies the
+actual WebSocket and existing actions; production acceptance includes cellular
+use, reconnect and rejection of a revoked token on a new connection.
+
+This adds no VibeBuddy-operated relay, no Kairos dependency, and no changes to
+APNs/CloudKit or the action-delivery contracts in ADR-0032/0033.

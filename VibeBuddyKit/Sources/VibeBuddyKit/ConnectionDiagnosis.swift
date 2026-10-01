@@ -21,6 +21,8 @@ public enum ConnectionFailureReason: Equatable, Sendable, Codable {
     case macUnreachable(host: String)
     /// The Mac answered and refused the bearer.
     case authentication
+    case cloudflareCredentialsUnavailable
+    case cloudflareAuthentication
     /// The saved address is not a usable endpoint.
     case invalidAddress
     /// The link was there and went away; reconnecting.
@@ -32,7 +34,7 @@ public enum ConnectionFailureReason: Equatable, Sendable, Codable {
     public var isRetryable: Bool {
         switch self {
         case .tailnetOff, .macUnreachable, .dropped: return true
-        case .authentication, .invalidAddress: return false
+        case .authentication, .cloudflareCredentialsUnavailable, .cloudflareAuthentication, .invalidAddress: return false
         }
     }
 
@@ -40,7 +42,7 @@ public enum ConnectionFailureReason: Equatable, Sendable, Codable {
     public var host: String? {
         switch self {
         case .tailnetOff(let host), .macUnreachable(let host): return host
-        case .authentication, .invalidAddress, .dropped: return nil
+        case .authentication, .cloudflareCredentialsUnavailable, .cloudflareAuthentication, .invalidAddress, .dropped: return nil
         }
     }
 
@@ -59,6 +61,8 @@ public enum ConnectionFailureKind: Equatable, Sendable {
     /// The socket was open and closed on us.
     case dropped
     case authentication
+    case cloudflareCredentialsUnavailable
+    case cloudflareAuthentication
     case invalidAddress
 }
 
@@ -74,7 +78,9 @@ public enum ConnectionDiagnosis {
     public static func diagnose(endpoint: CompanionEndpoint?, kind: ConnectionFailureKind,
                                 phoneHasTailnet: Bool) -> ConnectionFailureReason {
         switch kind {
-        case .authentication: return .authentication
+        case .authentication: return endpoint?.usesTLS == true ? .cloudflareAuthentication : .authentication
+        case .cloudflareCredentialsUnavailable: return .cloudflareCredentialsUnavailable
+        case .cloudflareAuthentication: return .cloudflareAuthentication
         case .invalidAddress: return .invalidAddress
         case .dropped:
             guard let endpoint else { return .dropped }

@@ -9,6 +9,7 @@ struct DeviceConnectionView: View {
     @State private var copiedAddress = false
     @State private var showRemoteSetup = false
     @State private var confirmDisconnect = false
+    @State private var disconnectFailed = false
 
     private var macName: String {
         let name = connection.pairing?.macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -27,7 +28,10 @@ struct DeviceConnectionView: View {
                         .font(CompanionType.font(13))
                         .foregroundStyle(CompanionPalette.ink2)
                     if connection.pairing != nil, case .failed(let message) = dashboard.state {
-                        if let reason = dashboard.failure {
+                        if connection.pairing?.isCloudflare == true {
+                            Text(message).font(CompanionType.font(13))
+                            NavigationLink("Cloudflare Access") { CloudflareConnectionView() }
+                        } else if let reason = dashboard.failure {
                             // Which link is missing, and the tap that fixes
                             // it when one does (ADR-0032).
                             ConnectionFailureCard(reason: reason, macName: connection.pairing?.macName,
@@ -54,6 +58,10 @@ struct DeviceConnectionView: View {
                 .accessibilityIdentifier("remote-sync-status")
             }
             Section("Connection") {
+                NavigationLink { CloudflareConnectionView() } label: {
+                    Label("Cloudflare Access", systemImage: "cloud")
+                }
+                .accessibilityIdentifier("device-cloudflare-connection")
                 NavigationLink { RemoteConnectionView() } label: {
                     Label {
                         VStack(alignment: .leading, spacing: 5) {
@@ -128,10 +136,13 @@ struct DeviceConnectionView: View {
                 .environmentObject(connection)
                 .environmentObject(dashboard)
         }
+        .alert("Could not remove saved credentials. Unlock your iPhone and try again. The connection is unchanged.", isPresented: $disconnectFailed) {
+            Button("OK", role: .cancel) {}
+        }
         .confirmationDialog("Forget this Mac?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
             Button("Forget Mac", role: .destructive) {
-                connection.clear()
-                dashboard.forgetPairing()
+                if connection.clear() { dashboard.forgetPairing() }
+                else { disconnectFailed = true }
             }
             .accessibilityIdentifier("connection-disconnect-confirm")
             Button("Keep this Mac", role: .cancel) {}
@@ -172,6 +183,7 @@ struct DeviceConnectionView: View {
         switch state {
         case .connecting: return String(localized: "Connecting")
         case .connected:
+            if pairing.isCloudflare { return String(localized: "Cloudflare connection active") }
             return pairing.usingTailnetIPv4(pairing.host, port: pairing.port) != nil
                 ? String(localized: "Remote connection active") : String(localized: "Connected")
         case .failed: return String(localized: "Offline")
