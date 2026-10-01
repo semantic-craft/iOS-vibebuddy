@@ -25,10 +25,18 @@ No conversation text or credentials are stored in this document. Local replay ev
 - XcodeGen + Debug macOS build: **BUILD SUCCEEDED** (`.scratch/language-restart/build-final.log`).
 - Chinese strings: `plutil -lint` passed; `git diff --check` passed.
 - Launched an ad-hoc signed copy with bundle ID `com.vibebuddy.e2e.language-restart`, isolated state and port **18794**. The installed production app was not replaced or restarted.
-- Via the native settings UI: English → 简体中文 → Restart VibeBuddy. The process changed from PID 96849 to 97105; `/health` returned `ok` on the same isolated port. The settings window, sidebar and app menus appeared in Chinese. E2E isolation survived the restart.
+- Via the native settings UI: English → 简体中文 → Restart VibeBuddy. The process changed from PID 23001 to 23133 (final post-review build); `/health` returned `ok` on the same isolated port. The settings window, sidebar and app menus appeared in Chinese. E2E isolation survived the restart.
 - Inspected the Chinese Agent integration layout. Replayed real current Codex session metadata and lifecycle/usage events, omitting conversation text, into isolated monitor directories. The UI reported a source requiring attention, matching the rollout version diagnostic; this does not claim support for that unverified version or a successful live Codex control operation.
 - Quit the QA app after inspection. No phone, Cloudflare, production Hook configuration or production credential was modified.
 
 ## Remaining local work
 
 The primary checkout gained concurrent MiniMax voice edits during this task. Bulk cleanup was stopped before modifying it. Obsolete Cloudflare copies remain there alongside that other session's work; they are not included in this branch. Local agent configuration directories also remain untracked.
+
+## Independent review
+
+Grok Build (`grok-4.7-build-fast`, `xhigh`) reviewed immutable range `a7ad6a04..d784bb92`, verdict **MERGE WITH FIXES**. Applied in `46d8d11f`: prioritize non-cloud source faults over healthy/silent siblings; prefer waiting state over Hook installation; explicitly localize the Hook subtitle; preserve demo mode on relaunch; remove the arbitrary quit timeout; show faulted source names without timestamps; use an explicit HStack. The optional cloud channel remains independent of healthy local monitoring.
+
+The Chinese subtitle already translated during the first runtime check, so its alleged failure was not reproduced; the explicit localized-key change removes ambiguity. Added combined-source and wired-idle regressions. The author also added missing hosted Grok ACP session evidence in `b328880a`, with aging and diagnostic precedence checks.
+
+Final Debug build and targeted regressions pass. Repeated the real language-picker/restart flow after these fixes; Chinese UI, changed PID and isolated health recovery passed again. Removed the stopped QA bundle, disposable state and isolated preferences; retained sanitized diagnostic replay and build/test logs.
