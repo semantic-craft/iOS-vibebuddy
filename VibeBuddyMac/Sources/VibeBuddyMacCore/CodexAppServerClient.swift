@@ -56,9 +56,11 @@ public protocol CodexAppServerConnecting: AnyObject, Sendable {
     /// Answer a server-initiated request (an approval, a user-input prompt).
     func respond(id: JSONRPCID, result: [String: Any])
     func close()
+    var requiresResynchronization: Bool { get }
 }
 
 public extension CodexAppServerConnecting {
+    var requiresResynchronization: Bool { false }
     func request(_ method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
         try await request(method, params: params, timeout: .seconds(15))
     }
@@ -74,6 +76,7 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
         case timeout(String)
         case rpc(code: Int, message: String)
         case malformed
+        case observationOverflow
     }
 
     public static let defaultSocketPath = FileManager.default.homeDirectoryForCurrentUser
@@ -91,11 +94,22 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var reader: Thread?
     private var isClosed = false
+    private var overflowed = false
+    public var requiresResynchronization: Bool { lock.withLock { overflowed } }
+    /// Bound retained event payloads to 256 × 1 MiB, including server requests.
+    /// Overflow closes the connection; the monitor must read persisted state.
+    public static let messageCapacity = 256
+    static let maximumMessageBytes = 1_048_576
+    public static let ignoredNotifications: [String] = [
+        "item/agentMessage/delta", "item/plan/delta",
+        "item/commandExecution/outputDelta", "item/fileChange/outputDelta",
+        "item/reasoning/textDelta", "item/reasoning/summaryTextDelta",
+    ]
 
     public init(socketPath: String = CodexAppServerClient.defaultSocketPath) {
         self.socketPath = socketPath
         var sink: AsyncStream<Data>.Continuation!
-        messages = AsyncStream(bufferingPolicy: .unbounded) { sink = $0 }
+        messages = AsyncStream(bufferingPolicy: .bufferingOldest(Self.messageCapacity)) { sink = $0 }
         messageSink = sink
     }
 
@@ -306,6 +320,9 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
                 buffer.removeSubrange(0..<parsed.consumed)
                 switch parsed.opcode {
                 case 0x1, 0x0:
+                    guard textFragments.count + parsed.payload.count <= Self.maximumMessageBytes else {
+                        markOverflow(); return
+                    }
                     textFragments.append(parsed.payload)
                     if parsed.fin {
                         dispatch(textFragments)
@@ -328,6 +345,7 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
                 return
             }
             buffer.append(chunk, count: n)
+            guard buffer.count <= Self.maximumMessageBytes + 14 else { markOverflow(); return }
         }
     }
 
@@ -347,7 +365,9 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
         } else if length == 127 {
             guard data.count >= 10 else { return nil }
             length = 0
-            for i in 2..<10 { length = length << 8 | Int(data[data.startIndex + i]) }
+            // Reject lengths exceeding the application cap before Int shifting.
+            guard (2..<7).allSatisfy({ data[data.startIndex + $0] == 0 }) else { return nil }
+            for i in 7..<10 { length = length << 8 | Int(data[data.startIndex + i]) }
             offset = 10
         }
         let masked = b1 & 0x80 != 0
@@ -365,7 +385,13 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
         return Frame(fin: b0 & 0x80 != 0, opcode: b0 & 0x0F, payload: payload, consumed: offset + length)
     }
 
-    private func dispatch(_ text: Data) {
+    func dispatch(_ text: Data) {
+        // The long-lived reader thread has no run-loop autorelease boundary.
+        // Release Foundation JSON temporaries per frame, including opt-outs.
+        autoreleasepool { dispatchMessage(text) }
+    }
+
+    private func dispatchMessage(_ text: Data) {
         guard let object = (try? JSONSerialization.jsonObject(with: text)) as? [String: Any] else { return }
         // A reply to one of ours: an `id` we are waiting on and no `method`.
         if object["method"] == nil, let id = Self.integer(object["id"]),
@@ -382,7 +408,17 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
             }
             return
         }
-        messageSink.yield(text)
+        if object["id"] == nil, let method = object["method"] as? String,
+           Self.ignoredNotifications.contains(method) { return }
+        switch messageSink.yield(text) {
+        case .dropped: markOverflow()
+        default: break
+        }
+    }
+
+    private func markOverflow() {
+        lock.withLock { overflowed = true }
+        close()
     }
 
     private static func integer(_ value: Any?) -> Int? {

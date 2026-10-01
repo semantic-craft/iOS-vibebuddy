@@ -202,7 +202,7 @@ struct HookInstallerTests {
         #expect(Self.commands(codexApproved, "SessionStart").contains(Self.userCodexHook))
         let cursorApproved = try home.json(".cursor/hooks.json")
         let cursorGate = Self.cursorEntries(cursorApproved, "preToolUse")
-        #expect(cursorGate.contains { ($0["command"] as? String ?? "").hasSuffix("approval-hook.sh\" cursor") && $0["timeout"] as? Int == 30 })
+        #expect(cursorGate.contains { ($0["command"] as? String ?? "").hasSuffix("approval-hook.sh\" cursor") && $0["timeout"] as? Int == 35 })
         #expect(!cursorGate.contains { ($0["command"] as? String ?? "").contains("vibebuddy-forward.sh") })
         #expect(!Self.cursorEntries(cursorApproved, "beforeShellExecution").contains {
             ($0["command"] as? String ?? "").contains("approval-hook.sh") })

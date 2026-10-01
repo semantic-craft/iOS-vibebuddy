@@ -703,6 +703,19 @@ private struct DiagnosticsPage: View {
                 }
             }
 
+            if let discovery = model.cursorPersistentDiscovery {
+                SettingsSection("Cursor persistent terminals",
+                                footnote: "Discovery reads terminal metadata only. Live task progress and controls require Cursor events.") {
+                    SettingsRow("Discovery") {
+                        if discovery == "available" {
+                            SettingsValue("Available")
+                        } else {
+                            SettingsValue("Unavailable — requires Cursor CLI persist support and tmux")
+                        }
+                    }
+                }
+            }
+
             SettingsSection("Codex daemon", footnote: "The app-server is one Codex source. Rollout and Hook have separate diagnostics above; a missing daemon does not mean all Codex monitoring has stopped.") {
                 SettingsBlockRow {
                     Text(verbatim: codexAppServerStatus)

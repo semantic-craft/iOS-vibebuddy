@@ -45,7 +45,7 @@ ACP、Hooks、Cloud API 当前文档未显示可靠的页面更新时间，因�
 - 分别生成普通及 `--experimental` JSON schema 成功。Monitor 中以字面量调用的请求方法均存在；这只检查名称，不证明全部字段和运行行为兼容。
 - `TurnSteerParams`、`PermissionsRequestApprovalParams` 必填字段与现有审计预期一致。
 - 实验 schema 包含 `thread/backgroundTerminals/list|terminate|clean`；普通 schema 包含目标及历史接口。
-- 发布说明提到 item anchor，但本机生成的 `ThreadItemsListParams` 仍只有 `threadId / turnId / cursor / limit / sortDirection`。新功能须依本机契约启用，不能照网页猜参数。
+- 本机实验 schema 的 `ThreadItemsListParams.cursor` 是联合类型，支持 opaque cursor 或 item anchor（anchor 还要求 turnId）；不能只检查顶层字段名就认定此功能缺失。历史实现使用 opaque cursor。
 
 可复核位置：
 

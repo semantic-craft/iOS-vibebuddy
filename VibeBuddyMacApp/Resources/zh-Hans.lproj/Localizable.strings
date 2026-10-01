@@ -1362,3 +1362,44 @@
 "Hook not configured" = "Hook 未配置";
 "Not detected" = "未检测到";
 "Agents can report through session records, app-server, ACP or Hooks. Hook configuration alone does not determine whether an agent is connected. Waiting means no recent activity; receiving does not guarantee remote control." = "Agent 可通过会话记录、app-server、ACP 或 Hook 接入，不能仅凭 Hook 配置判断是否接入。“等待活动”表示暂无近期活动；收到活动不代表支持远程控制。";
+
+/* Codex read-only task details and paginated history. */
+"Codex service is not connected." = "Codex 服务未连接。";
+"This Codex version does not support this view." = "此 Codex 版本不支持该视图。";
+"Codex could not read this task." = "Codex 无法读取此任务。";
+"Codex returned an unrecognized response." = "Codex 返回了无法识别的响应。";
+"Codex task details" = "Codex 任务详情";
+"Goal" = "目标";
+"No goal reported for this task." = "此任务尚未报告目标。";
+"Goal active" = "目标进行中";
+"Goal paused" = "目标已暂停";
+"Goal blocked" = "目标受阻";
+"Goal reached usage limit" = "目标已达到用量限制";
+"Goal reached budget limit" = "目标已达到预算限制";
+"Goal complete" = "目标已完成";
+"Unknown goal status" = "目标状态未知";
+"Background terminals" = "后台终端";
+"No running background terminals reported." = "未报告正在运行的后台终端。";
+"Load more terminals" = "加载更多终端";
+"Details may be out of date." = "详情可能已过期。";
+"Read " = "读取于 ";
+"Tokens used: %lld" = "已用 Token：%lld";
+"Token budget: %lld" = "Token 预算：%lld";
+"Time used: %lld seconds" = "已用时间：%lld 秒";
+"Memory %llu KB" = "内存 %llu KB";
+"Codex history · read " = "Codex 历史 · 读取于 ";
+"Read-only Codex history; earlier items load on request." = "只读 Codex 历史；按需加载更早的记录。";
+"Load earlier messages" = "加载更早的消息";
+"Loading earlier messages…" = "正在加载更早的消息…";
+"History pagination did not advance. Refresh to try again." = "历史分页未前进，请刷新重试。";
+"Codex paginated history is unavailable; showing the existing local source." = "Codex 分页历史不可用，正在显示已有本地来源。";
+"No local transcript is available for export." = "没有可导出的本地对话记录。";
+"History changed; the latest page was reloaded. Earlier messages remain available." = "历史已变化，已重新加载最新页；仍可加载更早的消息。";
+"History could not refresh; showing the previously read pages." = "历史刷新失败，正在显示此前读取的页面。";
+"Earlier terminal pages are a snapshot. Refresh to read the current list." = "较早的终端页面是读取时的快照，刷新可查看当前列表。";
+"Refresh terminals" = "刷新终端列表";
+
+"Cursor persistent terminals" = "Cursor 持久终端";
+"Discovery reads terminal metadata only. Live task progress and controls require Cursor events." = "这里只读取终端信息。任务进度和控制功能需要 Cursor 的实时事件。";
+"Discovery" = "发现状态";
+"Unavailable — requires Cursor CLI persist support and tmux" = "不可用：需要支持 persist 的 Cursor CLI 和 tmux";

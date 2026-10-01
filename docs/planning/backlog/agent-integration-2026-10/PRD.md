@@ -4,6 +4,6 @@
 
 优先完成 01–03 稳定性，再完成 04–09 增量能力。只读展示不改变任务状态或控制归属；不安装生产应用、启动生产 daemon 或修改凭据。
 
-研究依据：../../../../docs/research/codex-cursor-official-docs-2026-10-01.md
+研究依据：../../../research/codex-cursor-official-docs-2026-10-01.md
 
 完成时保留验收记录；按项目约定删除已完成工单及索引行。

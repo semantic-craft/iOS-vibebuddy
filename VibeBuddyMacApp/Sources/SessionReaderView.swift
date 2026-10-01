@@ -16,6 +16,9 @@ struct SessionReaderView<Header: View, Tail: View>: View {
     let targetMessage: String?
     /// One line above the first visible row (the excerpt notice, say); nil for none.
     let note: String?
+    var hasRemoteEarlier = false
+    var loadingRemoteEarlier = false
+    var loadRemoteEarlier: (() -> Void)?
     @ViewBuilder let header: () -> Header
     @ViewBuilder let tail: () -> Tail
 
@@ -31,7 +34,11 @@ struct SessionReaderView<Header: View, Tail: View>: View {
     @State private var scrollHeight: CGFloat = 0
 
     init(rows: [HistoryMessageRow], targetMessage: String?, note: String?,
+         hasRemoteEarlier: Bool = false, loadingRemoteEarlier: Bool = false, loadRemoteEarlier: (() -> Void)? = nil,
          @ViewBuilder header: @escaping () -> Header, @ViewBuilder tail: @escaping () -> Tail) {
+        self.hasRemoteEarlier = hasRemoteEarlier
+        self.loadingRemoteEarlier = loadingRemoteEarlier
+        self.loadRemoteEarlier = loadRemoteEarlier
         self.rows = rows
         self.targetMessage = targetMessage
         self.note = note
@@ -57,6 +64,13 @@ struct SessionReaderView<Header: View, Tail: View>: View {
                             Button("Earlier messages · \(window.start) more") { showEarlier(proxy) }
                                 .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                                 .accessibilityLabel("Show earlier messages")
+                        } else if hasRemoteEarlier {
+                            Button(loadingRemoteEarlier ? "Loading earlier messages…" : "Load earlier messages") {
+                                following = false
+                                loadRemoteEarlier?()
+                            }
+                            .disabled(loadingRemoteEarlier)
+                            .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                         } else if !rows.isEmpty {
                             Text("Start of the readable transcript").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
                         }
@@ -139,6 +153,15 @@ struct SessionReaderView<Header: View, Tail: View>: View {
             let id = rows[index].id
             toolsOpen.insert(id); thinkingOpen.insert(id)
             Task { await Task.yield(); proxy.scrollTo(id, anchor: .top) }
+            return
+        }
+        if !initial, !shownIDs.isEmpty, ids.count > shownIDs.count,
+           ids.suffix(shownIDs.count).elementsEqual(shownIDs) {
+            // A remote page was prepended. Reveal it and keep the previously visible row anchored.
+            let keep = shownIDs[min(window.start, shownIDs.count - 1)]
+            window = ReaderWindow(start: 0, count: ids.count)
+            following = false
+            Task { await Task.yield(); proxy.scrollTo(keep, anchor: .top) }
             return
         }
         if !initial, let appended = ReaderWindow.appendedCount(old: shownIDs, new: ids) {

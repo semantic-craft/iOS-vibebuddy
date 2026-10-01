@@ -25,6 +25,7 @@ struct ReaderSubject: Equatable {
 final class SessionReaderModel: ObservableObject {
     enum Body: Equatable {
         case empty
+        case codexHistory(updatedAt: Date)
         case transcript(provenance: String, updatedAt: Date, sourcePath: String)
         case recentOutput(sourceLabel: String, statusLine: String, updatedAt: Date?)
     }
@@ -44,6 +45,11 @@ final class SessionReaderModel: ObservableObject {
     private var generation = 0
     private var watcher: TranscriptFileWatcher?
     private var current: ReaderSubject?
+    @Published private(set) var earlierCursor: String?
+    @Published private(set) var loadingEarlier = false
+    @Published private(set) var pagingError: String?
+    @Published private(set) var fallbackNotice: String?
+    private var pagedMessages: [SessionHistoryMessage] = []
     private var target: String?
 
     init(model: MenuBarModel) {
@@ -56,6 +62,11 @@ final class SessionReaderModel: ObservableObject {
     func load(_ subject: ReaderSubject?, target: String?) async {
         generation += 1
         let generation = generation
+        let preservingPages = current?.id == subject?.id && !pagedMessages.isEmpty && target == nil
+        let previousMessages = preservingPages ? pagedMessages : []
+        let previousCursor = preservingPages ? earlierCursor : nil
+        loadingEarlier = false; pagingError = nil; fallbackNotice = nil
+        if !preservingPages { earlierCursor = nil; pagedMessages = [] }
         guard let subject else {
             current = nil; subjectID = nil; rows = []; body = .empty; error = nil; loading = false
             watcher = nil; transcript = nil
@@ -69,6 +80,35 @@ final class SessionReaderModel: ObservableObject {
         error = nil
         loading = rows.isEmpty
         defer { if generation == self.generation { loading = false } }
+
+        if subject.agent == .codex, !isDemo, target == nil {
+            let result = await model.codexHistoryPage(threadID: subject.id)
+            guard generation == self.generation, !Task.isCancelled else { return }
+            switch result {
+            case .success(let page):
+                let refreshed = CodexHistoryPage.refreshing(previousMessages, with: page.messages)
+                let keepOlder = preservingPages && refreshed.keptEarlier && page.nextCursor != nil
+                let combined = keepOlder ? refreshed.messages : page.messages
+                let projected = await Self.project(combined, revealing: nil)
+                guard generation == self.generation, !Task.isCancelled else { return }
+                rows = projected; pagedMessages = combined
+                earlierCursor = keepOlder ? previousCursor : page.nextCursor
+                if preservingPages && !refreshed.keptEarlier {
+                    pagingError = String(localized: "History changed; the latest page was reloaded. Earlier messages remain available.")
+                }
+                body = .codexHistory(updatedAt: Date())
+                transcript = nil; watcher = nil
+                return
+            case .failure(let reason):
+                if preservingPages {
+                    pagingError = String(localized: "History could not refresh; showing the previously read pages.")
+                        + " " + String(localized: String.LocalizationValue(reason.message))
+                    return
+                }
+                fallbackNotice = String(localized: "Codex paginated history is unavailable; showing the existing local source.")
+                    + " " + String(localized: String.LocalizationValue(reason.message))
+            }
+        }
 
         if let key = subject.transcriptKey, !isDemo {
             do {
@@ -95,6 +135,36 @@ final class SessionReaderModel: ObservableObject {
             HistoryMessageRow.standalone(id: "recent-\(index)", role: entry.role == "assistant" ? .assistant : .user, text: entry.text)
         }
         body = .recentOutput(sourceLabel: output.sourceLabel, statusLine: output.statusLine, updatedAt: output.updatedAt)
+    }
+
+    /// Export is an explicit full-source action; ordinary reading stays paginated.
+    func localTranscriptForExport() async throws -> SessionHistorySession {
+        guard let key = current?.transcriptKey, !isDemo else {
+            throw HistoryToolError.executionFailed("No local transcript is available for export.")
+        }
+        return try await transcripts.readTranscript(key: key).session
+    }
+
+    func loadEarlier() async {
+        guard let cursor = earlierCursor, let current, !loadingEarlier else { return }
+        let generation = generation
+        loadingEarlier = true; pagingError = nil
+        defer { if generation == self.generation { loadingEarlier = false } }
+        let result = await model.codexHistoryPage(threadID: current.id, cursor: cursor)
+        guard generation == self.generation, !Task.isCancelled else { return }
+        switch result {
+        case .success(let page):
+            guard page.nextCursor != cursor else {
+                pagingError = String(localized: "History pagination did not advance. Refresh to try again.")
+                return
+            }
+            let combined = CodexHistoryPage.prepend(page.messages, to: pagedMessages)
+            let projected = await Self.project(combined, revealing: target)
+            guard generation == self.generation, !Task.isCancelled else { return }
+            pagedMessages = combined; rows = projected; earlierCursor = page.nextCursor
+        case .failure(let reason):
+            pagingError = String(localized: String.LocalizationValue(reason.message))
+        }
     }
 
     /// Re-read the open subject in place (the file changed, or the person asked).

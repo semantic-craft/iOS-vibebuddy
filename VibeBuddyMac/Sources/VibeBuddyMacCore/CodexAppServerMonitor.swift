@@ -97,6 +97,11 @@ public actor CodexAppServerMonitor {
     /// or the file changes, the approval request only their ids.
     private var recentItems: [String: [String: Any]] = [:]
     private var recentItemOrder: [String] = []
+    /// Active turn identities survive disconnect, so persisted terminal results
+    /// can repair a missed completion without replaying unrelated history.
+    private var recoveryTurns: [String: String] = [:]
+    private var receivedRequests: Set<String> = []
+    private var receivedRequestOrder: [String] = []
 
     private struct OpenRequest: Sendable {
         enum Kind: Sendable { case approval(String), question(String) }
@@ -195,22 +200,22 @@ public actor CodexAppServerMonitor {
         let client = makeClient(socketPath)
         try client.connect()
         self.client = client
-        reducer = CodexAppServerReducer()
         subscribed = []
         // `experimentalApi` is required for `thread/resume.excludeTurns`, the
         // documented way to subscribe without replaying a thread's history; the
         // monitor still only calls the four read-side methods listed above.
         let hello = try await client.request("initialize", params: [
             "clientInfo": ["name": "vibebuddy", "version": Self.version],
-            "capabilities": ["experimentalApi": true],
+            "capabilities": ["experimentalApi": true,
+                             "optOutNotificationMethods": CodexAppServerClient.ignoredNotifications],
         ])
         client.notify("initialized")
         state.connected = true
         state.lastError = nil
         state.serverUserAgent = hello["userAgent"] as? String
         state.serverRequestsSeen = []
+        try await recover(client: client, store: store)
         await store.recordSourceSignal(agent: .codex, source: .appserver, health: .healthy, at: Date())
-
         try await discover(client: client, store: store)
         await readUsage(client: client)
         await readHookTrust(client: client)
@@ -265,7 +270,8 @@ public actor CodexAppServerMonitor {
         }
         // The stream ends only when the socket closed under us.
         guard enabled, !Task.isCancelled else { return }
-        throw CodexAppServerClient.ClientError.closed
+        throw client.requiresResynchronization
+            ? CodexAppServerClient.ClientError.observationOverflow : CodexAppServerClient.ClientError.closed
     }
 
     /// Page the daemon's stored threads once and subscribe to every loaded one.
@@ -279,7 +285,7 @@ public actor CodexAppServerMonitor {
         repeat {
             var params: [String: Any] = ["limit": discoveryLimit]
             if let cursor { params["cursor"] = cursor }
-            let page = try await client.request("thread/list", params: params)
+            let page = try await readWithRetry(client: client, method: "thread/list", params: params)
             let threads = page["data"] as? [[String: Any]] ?? []
             let now = Date()
             for thread in threads {
@@ -337,6 +343,13 @@ public actor CodexAppServerMonitor {
         guard let id = JSONRPCID(message["id"]),
               let params = message["params"] as? [String: Any],
               let threadID = params["threadId"] as? String else { return }
+        let requestKey = Self.requestKey(threadID: threadID, id: id)
+        guard receivedRequests.insert(requestKey).inserted else { return }
+        receivedRequestOrder.append(requestKey)
+        if receivedRequestOrder.count > 1024,
+           let index = receivedRequestOrder.firstIndex(where: { openRequests[$0] == nil }) {
+            receivedRequests.remove(receivedRequestOrder.remove(at: index))
+        }
         // Each hold runs on its own task: the message loop must keep reading
         // so `serverRequest/resolved` (someone answered elsewhere) and later
         // requests are seen while the phone is still deciding.
@@ -807,9 +820,9 @@ public actor CodexAppServerMonitor {
     private func readUsage(client: any CodexAppServerConnecting) async {
         guard let usageFeed else { return }
         do {
-            let limits = try await client.request("account/rateLimits/read", params: [:])
+            let limits = try await readWithRetry(client: client, method: "account/rateLimits/read", params: [:])
             lastRateLimits = limits
-            if let usage = try? await client.request("account/usage/read", params: [:]) {
+            if let usage = try? await readWithRetry(client: client, method: "account/usage/read", params: [:]) {
                 lastUsage = usage
             }
             let snapshot = try CodexUsageResponseDecoder.decode(
@@ -824,7 +837,7 @@ public actor CodexAppServerMonitor {
     /// never fatal: a daemon that does not answer leaves the verdict unknown
     /// rather than accusing a working installation.
     private func readHookTrust(client: any CodexAppServerConnecting) async {
-        guard let result = try? await client.request("hooks/list", params: [:]) else {
+        guard let result = try? await readWithRetry(client: client, method: "hooks/list", params: [:]) else {
             state.hookTrust = nil
             return
         }
@@ -856,8 +869,15 @@ public actor CodexAppServerMonitor {
     }
 
     private func disconnect(reason: String?) async {
+        for id in reducer.activeThreadIDs {
+            // Mid-turn subscriptions may have only an active status. Recover
+            // the newest persisted turn in that case, using its real identity.
+            recoveryTurns[id] = reducer.threads[id]?.activeTurnID ?? ""
+        }
         client?.close()
         client = nil
+        receivedRequests = []
+        receivedRequestOrder = []
         subscribed = []
         state.connected = false
         state.hookTrust = nil
@@ -887,9 +907,60 @@ public actor CodexAppServerMonitor {
         }
     }
 
+    /// Read-only detail/history seam. Never retries a control write.
+    func readRequest(_ method: String, params: [String: Any]) async throws -> [String: Any] {
+        guard let client, state.connected else { throw CodexAppServerClient.ClientError.closed }
+        return try await readWithRetry(client: client, method: method, params: params)
+    }
+
+    func readWithRetry(client: any CodexAppServerConnecting, method: String,
+                              params: [String: Any]) async throws -> sending [String: Any] {
+        let readable: Set<String> = ["thread/list", "thread/read", "thread/turns/list", "thread/items/list",
+                                    "thread/goal/get", "thread/backgroundTerminals/list",
+                                    "account/rateLimits/read", "account/usage/read", "hooks/list"]
+        guard readable.contains(method) else { throw CodexAppServerClient.ClientError.malformed }
+        let encoded = try JSONSerialization.data(withJSONObject: params)
+        for attempt in 0..<3 {
+            let fresh = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] ?? [:]
+            do { return try await client.request(method, params: fresh) }
+            catch CodexAppServerClient.ClientError.rpc(let code, _) where code == -32001 && attempt < 2 {
+                try await Task.sleep(for: .milliseconds((100 << attempt) + Int.random(in: 0...100)))
+            }
+        }
+        throw CodexAppServerClient.ClientError.closed
+    }
+
+    private func recover(client: any CodexAppServerConnecting, store: SessionStore) async throws {
+        for (threadID, turnID) in recoveryTurns {
+            var cursor: String?
+            var found = false
+            // Bounded pages, and an explicit failure if the lost turn cannot
+            // be recovered; do not certify an incomplete observation as healthy.
+            for _ in 0..<4 {
+                var params: [String: Any] = ["threadId": threadID, "limit": 50,
+                                            "sortDirection": "desc", "itemsView": "full"]
+                if let cursor { params["cursor"] = cursor }
+                let page = try await readWithRetry(client: client, method: "thread/turns/list", params: params)
+                if let turn = (page["data"] as? [[String: Any]])?.first(where: { turnID.isEmpty || $0["id"] as? String == turnID }) {
+                    let now = Date()
+                    if ["completed", "failed", "interrupted"].contains(turn["status"] as? String ?? "") {
+                        await forward(reducer.handle(["method": "turn/completed", "params": ["threadId": threadID, "turn": turn]], receivedAt: now), to: store, now: now)
+                    }
+                    found = true
+                    break
+                }
+                cursor = page["nextCursor"] as? String
+                if cursor == nil { break }
+            }
+            guard found else { throw CodexAppServerClient.ClientError.observationOverflow }
+            recoveryTurns.removeValue(forKey: threadID)
+        }
+    }
+
     private static func health(for error: Error) -> ObservationHealth {
         switch error as? CodexAppServerClient.ClientError {
-        case .rpc?, .malformed?: return .unknownVersion
+        case .rpc(let code, _)?: return code == -32601 || code == -32602 ? .unknownVersion : .sourceUnreadable
+        case .malformed?: return .unknownVersion
         default: return .sourceUnreadable
         }
     }

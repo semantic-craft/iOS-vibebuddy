@@ -248,7 +248,7 @@ public enum CursorCLI {
         }
     }
 
-    private static func run(_ executable: URL, _ arguments: [String], cwd: URL?,
+    static func run(_ executable: URL, _ arguments: [String], cwd: URL?,
                             timeout: TimeInterval) async -> Result {
         await withCheckedContinuation { continuation in
             let once = Once(continuation)
