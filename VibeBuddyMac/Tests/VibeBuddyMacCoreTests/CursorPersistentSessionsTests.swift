@@ -47,4 +47,15 @@ struct CursorPersistentSessionsTests {
         let live = await store.snapshot(now: now).sessions.filter { $0.id == id }
         #expect(live.count == 1 && live[0].status == .working && live[0].historyOnly != true)
     }
+    @Test func unavailableDiscoveryRemovesStaleRowsAndCanRecover() async {
+        let store = SessionStore()
+        let discovery = CursorPersistentSessions.parse(output)
+        await store.applyCursorPersistentDiscovery(discovery)
+        #expect(await store.snapshot(now: Date()).sessions.contains { $0.id == id })
+        await store.applyCursorPersistentDiscovery(.unavailable)
+        #expect(await store.snapshot(now: Date()).sessions.allSatisfy { $0.id != id })
+        await store.applyCursorPersistentDiscovery(discovery)
+        #expect(await store.snapshot(now: Date()).sessions.contains { $0.id == id })
+    }
+
 }

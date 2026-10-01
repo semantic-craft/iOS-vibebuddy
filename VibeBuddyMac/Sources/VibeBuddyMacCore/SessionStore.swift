@@ -371,15 +371,20 @@ public actor SessionStore {
     private var cursorPersistentDiscovery: String?
 
     public func refreshCursorPersistentSessions() async {
-        switch await CursorPersistentSessions.discover() {
+        applyCursorPersistentDiscovery(await CursorPersistentSessions.discover())
+    }
+
+    func applyCursorPersistentDiscovery(_ discovery: CursorPersistentSessions.Discovery) {
+        switch discovery {
         case .available(let sessions):
             let changed = cursorPersistentDiscovery != "available"
             cursorPersistentDiscovery = "available"
             registerCursorPersistentSessions(sessions, now: Date())
             if changed { broadcast() }
         case .unavailable:
-            guard cursorPersistentDiscovery != "unavailable" else { return }
+            guard cursorPersistentDiscovery != "unavailable" || !cursorPersistentRows.isEmpty else { return }
             cursorPersistentDiscovery = "unavailable"
+            cursorPersistentRows = [:]
             broadcast()
         }
     }

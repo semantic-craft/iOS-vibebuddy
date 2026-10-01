@@ -51,8 +51,8 @@ struct CodexReliabilityTests {
         #expect(reducer.handle(usage, receivedAt: Date()).isEmpty)
     }
 
-    @Test("reconnect recovers the lost terminal turn from persisted history")
-    func reconnectRecovery() async throws {
+    @Test("reconnect preserves recovered completion through discovery", arguments: ["idle", "active"])
+    func reconnectRecovery(listedStatus: String) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socket = directory.appendingPathComponent("socket")
@@ -61,6 +61,9 @@ struct CodexReliabilityTests {
         let first = FakeConnection(results: fakeDaemonResults())
         var results = fakeDaemonResults()
         results["thread/turns/list"] = ["data": [["id": "turn", "status": "completed", "items": [["type": "agentMessage", "phase": "final_answer", "text": "Recovered full result"]]]]]
+        let recoveredThread: [String: Any] = ["id": "t", "source": "cli", "status": ["type": listedStatus]]
+        results["thread/list"] = ["data": [recoveredThread]]
+        results["thread/resume"] = ["thread": recoveredThread]
         let second = FakeConnection(results: results)
         let factory = ReconnectFactory(first: first, second: second)
         let monitor = CodexAppServerMonitor(socketPath: socket.path, minimumBackoff: .milliseconds(10), maximumBackoff: .milliseconds(20), makeClient: { _ in factory.next() })
@@ -70,6 +73,7 @@ struct CodexReliabilityTests {
         #expect(await waitFor { await store.snapshot(now: Date()).sessions.first(where: { $0.id == "t" })?.status == .working })
         first.close()
         #expect(await waitFor { await store.snapshot(now: Date()).sessions.first(where: { $0.id == "t" })?.completionText == "Recovered full result" })
+        #expect(await waitFor { await monitor.diagnostics().subscribedThreads == 1 })
         #expect(second.params(of: "thread/turns/list").count == 1)
         #expect(second.params(of: "turn/start").isEmpty)
         #expect(await store.snapshot(now: Date()).sessions.first(where: { $0.id == "t" })?.status == .done)

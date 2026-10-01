@@ -49,7 +49,7 @@ public struct MiniMaxSpeechSynthesizer: SpeechSynthesizer {
         case 1002, 1039, 1041, 2045: throw Failure.rateLimited
         case 1008, 2056: throw Failure.quotaExceeded
         case 2013, 20132, 2042: throw Failure.configuration
-        case 1004, 2049: throw Failure.rejected
+        case 1004, 1042, 2049: throw Failure.rejected
         default: throw Failure.transport
         }
         guard let payload = root["data"] as? [String: Any] else { throw Failure.emptyAudio }

@@ -29,7 +29,8 @@ struct SessionReaderPane: View {
     }
 
     /// Reloads on selection, on a target message, and on the live session's
-    /// own turn boundaries. The file watcher covers appended text in between.
+    /// own turn boundaries. Local text uses a watcher; active Codex pages
+    /// refresh while this pane is visible.
     private var loadKey: String {
         [subject.id, targetMessage ?? "", live.status.rawValue, "\(live.statusSince.timeIntervalSince1970)",
          live.activeTool ?? "", live.completionID ?? ""].joined(separator: "\u{1f}")
@@ -52,7 +53,15 @@ struct SessionReaderPane: View {
             }
         }
         .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: loadKey) { await reader.load(subject, target: targetMessage) }
+        .task(id: loadKey) {
+            await reader.load(subject, target: targetMessage)
+            while subject.agent == .codex, live.status == .working, targetMessage == nil,
+                  !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                guard !Task.isCancelled else { return }
+                if !reader.loadingEarlier { await reader.load(subject, target: nil) }
+            }
+        }
         .onChange(of: viewedSessionID, initial: true) { _, id in model.dashboardViewedSessionID = id }
         .onDisappear {
             if model.dashboardViewedSessionID == live.id { model.dashboardViewedSessionID = nil }

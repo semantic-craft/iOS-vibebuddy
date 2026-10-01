@@ -62,12 +62,19 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             facts.branch = branch
         }
         let status = thread["status"] as? [String: Any]
-        recordActivity(threadID: id, status: status?["type"] as? String)
+        // A discovery/resume snapshot has no turn identity. Do not let a
+        // stale active snapshot erase the terminal turn recovered just before
+        // discovery; a live turn/started or status notification can reopen it.
+        let preserveEnding = status?["type"] as? String == "active"
+            && inactiveThreads.contains(id) && lastCompletion[id] != nil
+        if !preserveEnding { recordActivity(threadID: id, status: status?["type"] as? String) }
         facts.loaded = (status?["type"] as? String).map { $0 != "notLoaded" } ?? false
         if (status?["type"] as? String) == "idle" { facts.activeTurnID = nil }
         threads[id] = facts
         guard facts.loaded, let status else { return [] }
-        let events = statusEvents(threadID: id, status: status, receivedAt: receivedAt, includeBranch: true)
+        let events = statusEvents(threadID: id,
+            status: preserveEnding ? ["type": "idle"] : status,
+            receivedAt: receivedAt, includeBranch: true)
         guard let path = thread["path"] as? String, !path.isEmpty else { return events }
         return events.map { $0.withTranscriptPath(path) }
     }
