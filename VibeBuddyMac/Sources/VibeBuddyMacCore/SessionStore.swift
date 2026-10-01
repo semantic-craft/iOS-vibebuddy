@@ -610,6 +610,9 @@ public actor SessionStore {
     private var grokDirectories: [String: URL] = [:]
     /// Grok's own data directory (`$GROK_HOME`, else `~/.grok`), not the user's
     /// home: the session store is rooted at `<grok home>/sessions`.
+    private let grokMonitoringConfiguration: @Sendable () -> GrokMonitoringConfiguration?
+    private var grokConnected: Set<String> = []
+    private var grokMonitoringStatus: GrokMonitoringStatus?
     private let grokHome: URL
     /// Grok's registry of open `grok` processes, read on each sweep, and the
     /// live entries it listed last time — see `retireClosedGrokSessions`.
@@ -698,6 +701,7 @@ public actor SessionStore {
         attentionURL: URL? = nil,
         missedURL: URL? = nil,
         grokHome: URL? = nil,
+        grokMonitoringConfiguration: @escaping @Sendable () -> GrokMonitoringConfiguration? = { nil },
         copilotDatabase: URL? = nil,
         cursorDatabase: URL? = nil,
         now: Date = Date(),
@@ -718,6 +722,7 @@ public actor SessionStore {
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
         self.diagnosticsEnvironment = diagnosticsEnvironment
+        self.grokMonitoringConfiguration = grokMonitoringConfiguration
         self.grokHome = grokHome ?? GrokHome.url
         self.grokRegistry = GrokActiveSessions(grokHome: grokHome ?? GrokHome.url)
         if let journalURL {
@@ -774,6 +779,7 @@ public actor SessionStore {
             ingest(released, observationSource: .hook, recordsEvidence: false)
         }
         if reducer.retireStaleRestored(now: now) { broadcast() }
+        refreshGrokMonitoring(now: now)
         retireClosedGrokSessions(now: now)
         explicitWaits = explicitWaits.filter { id, wait in
             reducer.sessions[id].map(wait.matches) == true
@@ -820,6 +826,36 @@ public actor SessionStore {
         }
         evaluateMissed(now: now)
         if !removed.isEmpty { broadcast() }
+    }
+
+    /// Refresh immediately after a settings action as well as on the normal sweep.
+    public func refreshGrokMonitoring(now: Date = Date()) {
+        let previous = grokMonitoringStatus
+        updateGrokMonitoring(now: now)
+        if previous != grokMonitoringStatus { broadcast() }
+    }
+
+    private func updateGrokMonitoring(now: Date) {
+        guard let config = grokMonitoringConfiguration() else { return }
+        if !config.enabled {
+            // Retire observation only. Do not journal a fake process exit or a
+            // completion: the real session and its recorded history still exist.
+            for session in Array(reducer.sessions.values) where session.agent == .grok && !acpHosted.contains(session.id) {
+                missedLedger.acknowledge(sessionID: session.id, now: now)
+                explicitWaits[session.id] = nil
+                reducer.apply(HookEvent(kind: .sessionEnd, sessionID: session.id, agent: .grok, timestamp: now),
+                              observationSource: .recovery, recordsEvidence: false)
+            }
+            grokConnected.removeAll()
+        }
+        let live = grokRegistry.liveEntries() ?? [:]
+        let connected = grokConnected.filter { reducer.sessions[$0] != nil }
+        let discovered = config.enabled ? live.values.filter {
+            !connected.contains($0.sessionID) && !acpHosted.contains($0.sessionID)
+        }.map { GrokDiscoveredSession(id: $0.sessionID, cwd: $0.cwd) }.sorted { $0.id < $1.id } : []
+        grokMonitoringStatus = .init(enabled: config.enabled, configured: config.configured,
+            available: config.available, error: config.error,
+            connectedSessionCount: config.enabled ? connected.count : 0, discoveredSessions: discovered)
     }
 
     /// A Grok terminal session whose `grok` process has exited has closed,
@@ -869,6 +905,7 @@ public actor SessionStore {
     @discardableResult
     public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date,
                        announcesWait: Bool = true) -> Bool {
+        guard agent != .grok || grokMonitoringConfiguration()?.enabled != false else { return false }
         // Source-aware decode: the `?agent=` value tags Claude-shaped lifecycle
         // hooks directly and selects a translator only for different envelopes.
         switch HookDecoder.decode(data, agent: agent, receivedAt: receivedAt) {
@@ -1025,6 +1062,12 @@ public actor SessionStore {
         recordsEvidence: Bool = true,
         announcesWait: Bool = true
     ) {
+        if event.agent == .grok, observationSource != .acp, !acpHosted.contains(event.sessionID),
+           grokMonitoringConfiguration()?.enabled == false { return }
+        if event.agent == .grok, recordsEvidence, observationSource == .hook {
+            if event.kind == .sessionEnd { grokConnected.remove(event.sessionID) }
+            else { grokConnected.insert(event.sessionID) }
+        }
         if dropsCursorObserveOnly(event) { return }
         // A turn that ended, from any source: its last steps and any handoff
         // it wrote must be visible to the next reader and pushed snapshot.
@@ -1617,7 +1660,11 @@ public actor SessionStore {
 
     private func currentSnapshot(now: Date) -> Snapshot {
         refreshCodexNames()
+        updateGrokMonitoring(now: now)
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
+        snapshot.grokMonitoring = grokMonitoringStatus
+        let awaitingGrok = Set(grokMonitoringStatus?.discoveredSessions.map(\.id) ?? [])
+        snapshot.sessions.removeAll { $0.agent == .grok && awaitingGrok.contains($0.id) }
         snapshot.sessions += copilotHistory.values.map(\.session).sorted {
             $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
         }

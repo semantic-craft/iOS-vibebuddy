@@ -151,6 +151,10 @@ public struct HookInstaller: Sendable {
                         approval: outcome.approval, installedAt: paths.environment.now())
                 }
                 state.uninstalled.removeAll { $0 == paths.entryKey(agent) }
+                if agent == .grok {
+                    state.grokMonitoring?[paths.entryKey(agent)] = true
+                    state.grokMonitoringErrors?[paths.entryKey(agent)] = nil
+                }
             } catch {
                 report.failures += 1
                 report.lines.append("! \(agent.rawValue): \(error)")
@@ -205,6 +209,10 @@ public struct HookInstaller: Sendable {
                 report.lines.append("\(agent.rawValue): " + outcome.lines.joined(separator: "; "))
                 if outcome.changed { report.touched.append(agent) }
                 manifest.agents[paths.entryKey(agent)] = nil
+                if agent == .grok {
+                    state.grokMonitoring?[paths.entryKey(agent)] = false
+                    state.grokMonitoringErrors?[paths.entryKey(agent)] = nil
+                }
                 if !state.uninstalled.contains(paths.entryKey(agent)) { state.uninstalled.append(paths.entryKey(agent)) }
             } catch {
                 report.failures += 1

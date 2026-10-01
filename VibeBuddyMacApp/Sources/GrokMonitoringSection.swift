@@ -1,0 +1,84 @@
+import SwiftUI
+import VibeBuddyKit
+import VibeBuddyMacCore
+
+struct GrokMonitoringSection: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+
+    private var config: GrokMonitoringConfiguration { setup.grokConfiguration }
+    private var status: GrokMonitoringStatus? { model.grokMonitoring }
+
+    var body: some View {
+        SettingsSection("Grok Build session monitoring",
+                        footnote: "Monitors terminal sessions. Account quota is controlled separately. Tasks started by VibeBuddy keep their own connection.") {
+            SettingsRow("Monitor Grok Build", detail: "Automatically sets up activity reporting when enabled.") {
+                Toggle("Monitor Grok Build", isOn: Binding(get: { config.enabled }, set: change))
+                    .labelsHidden().toggleStyle(.switch)
+                    .disabled(setup.running)
+                    .accessibilityIdentifier("grok-monitoring-enabled")
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                if setup.running {
+                    ProgressView("Configuring Grok Build…")
+                } else {
+                    Text(stateText).font(.callout)
+                        .accessibilityIdentifier("grok-monitoring-status")
+                    if let error = config.error {
+                        Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                            .accessibilityIdentifier("grok-monitoring-error")
+                    }
+                    if config.enabled && config.configured && !(status?.discoveredSessions.isEmpty ?? true) {
+                        Text("In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event.")
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    if config.error != nil || (config.enabled && !config.configured) {
+                        Button("Retry Grok Build connection") { change(config.enabled) }
+                            .accessibilityIdentifier("retry-grok-monitoring")
+                    }
+                }
+            }.padding(.vertical, 8)
+        }
+    }
+
+    private func change(_ enabled: Bool) {
+        setup.setGrokMonitoring(enabled) { model.refreshGrokMonitoring() }
+    }
+
+    private var stateText: String {
+        if config.error != nil { return String(localized: "Grok Build connection needs attention") }
+        if !config.available { return String(localized: "Grok Build was not found. Open Grok Build once, then enable monitoring.") }
+        if !config.enabled { return String(localized: "Monitoring is off") }
+        if !config.configured { return String(localized: "Activity reporting is not configured. Retry to connect.") }
+        let waiting = status?.discoveredSessions.count ?? 0
+        let connected = status?.connectedSessionCount ?? 0
+        if waiting > 0 {
+            return String(localized: "Connected: \(connected) · Waiting for activity: \(waiting)")
+        }
+        if connected > 0 { return String(localized: "Connected: \(connected) sessions") }
+        return String(localized: "Configured. Waiting for a Grok Build session to report activity.")
+    }
+}
+
+/// An observed process has no known task state yet, so it gets a discovery
+/// card rather than a synthetic AgentSession or a misleading done/working badge.
+struct GrokDiscoveryCard: View {
+    let session: GrokDiscoveredSession
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(session.project).font(.headline)
+            Text("Grok Build · Discovered, waiting to connect").font(.caption)
+            Text("In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event.")
+                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            Button("Open Agent connections") {
+                NotificationCenter.default.post(name: .openAppSettings, object: SettingsPageID.agentCLIs)
+            }.buttonStyle(.link)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("grok-discovered-\(session.id)")
+    }
+}

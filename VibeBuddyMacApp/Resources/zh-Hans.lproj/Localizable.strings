@@ -1326,3 +1326,27 @@
 "Handoff facts for a session, one session's transcript by its exact key, and optional live status. Nothing is archived or indexed." = "按会话精确标识读取交接事实、对话记录，以及可选的实时状态。不归档或索引内容。";
 
 "The setup command prints these configurations and an optional AGENTS.md rule. Copying does not change client settings." = "setup 命令会输出这些配置及可选的 AGENTS.md 规则。复制操作不会更改客户端设置。";
+
+/* Grok Build monitoring onboarding */
+"Grok Build account quota" = "Grok Build 账户额度";
+"Show Grok Build account quota" = "显示 Grok Build 账户额度";
+"Grok Build session monitoring" = "Grok Build 会话监控";
+"Session connection" = "会话接入";
+"Account quota does not connect Grok Build sessions. Enable monitoring in Agent connections." = "账户额度开关不会接入 Grok Build 会话。请在「Agent 接入」中开启监控。";
+"Set up Grok Build monitoring" = "设置 Grok Build 监控";
+"Monitors terminal sessions. Account quota is controlled separately. Tasks started by VibeBuddy keep their own connection." = "监控终端中的会话，账户额度单独控制。由 VibeBuddy 发起的任务保留自身连接。";
+"Monitor Grok Build" = "监控 Grok Build";
+"Automatically sets up activity reporting when enabled." = "开启后自动配置活动上报。";
+"Configuring Grok Build…" = "正在配置 Grok Build…";
+"In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event." = "在 Grok Build 中运行 /hooks，按 r 重载；若无法重载，请新开会话。下一次活动上报后会自动更新。";
+"Retry Grok Build connection" = "重试 Grok Build 接入";
+"Grok Build connection needs attention" = "Grok Build 接入需要处理";
+"Grok Build was not found. Open Grok Build once, then enable monitoring." = "未发现 Grok Build。请先打开一次，再开启监控。";
+"Monitoring is off" = "监控已关闭";
+"Activity reporting is not configured. Retry to connect." = "尚未配置活动上报，请重试接入。";
+"Connected: %lld · Waiting for activity: %lld" = "已连接：%lld 个 · 等待活动上报：%lld 个";
+"Connected: %lld sessions" = "已连接：%lld 个会话";
+"Configured. Waiting for a Grok Build session to report activity." = "已配置，等待 Grok Build 会话上报活动。";
+"Grok Build · Discovered, waiting to connect" = "Grok Build · 已发现，等待接入";
+"Open Agent connections" = "打开 Agent 接入";
+"Installs hooks for every detected CLI. Grok Build can also be connected using its monitoring switch above." = "为已检测到的 CLI 安装 hooks。Grok Build 也可通过上方监控开关接入。";

@@ -66,10 +66,13 @@ struct VibeBuddyDaemon {
             // what `vibebuddyd hooks install` wrote.
             diagnosticsHome: HookInstallerEnvironment.live(variables: env).home,
             diagnosticsEnvironment: env,
+
             journalURL: journalURL,
             attentionURL: AttentionOverrides.defaultURL(),
             missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }
-                ?? MissedLedgerLocation.defaultURL()
+                ?? MissedLedgerLocation.defaultURL(),
+            grokHome: HookInstaller(environment: .live(variables: env), scriptSource: nil).paths.grokDirectory,
+            grokMonitoringConfiguration: { HookInstaller(environment: .live(variables: env), scriptSource: nil).grokMonitoringConfiguration }
         )
         if let path = env["VIBEBUDDY_PREFERENCES_PATH"] {
             guard path.hasPrefix("/") else {
