@@ -585,18 +585,45 @@ private struct AgentCLIsPage: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var setup: HookSetup
 
+    @ViewBuilder private func integrationPill(_ state: AgentIntegrationStatus.State) -> some View {
+        switch state {
+        case .receiving: SettingsPill("Receiving activity", tone: .ok)
+        case .waiting: SettingsPill("Waiting for activity", tone: .neutral)
+        case .needsAttention: SettingsPill("Source needs attention", tone: .warn)
+        case .hookConfigured: SettingsPill("Hook configured", tone: .neutral)
+        case .hookMissing: SettingsPill("Hook not configured", tone: .neutral)
+        case .notDetected: SettingsPill("Not detected", tone: .neutral)
+        }
+    }
+
     var body: some View {
         SettingsPageScaffold(SettingsPageID.agentCLIs.title, subtitle: SettingsPageID.agentCLIs.subtitle) {
-            SettingsSection("Hooks") {
+            SettingsSection("Monitoring sources",
+                            footnote: "Agents can report through session records, app-server, ACP or Hooks. Hook configuration alone does not determine whether an agent is connected. Waiting means no recent activity; receiving does not guarantee remote control.") {
                 if setup.statuses.isEmpty {
                     SettingsRow("Agent CLIs") { SettingsValue("No agent CLIs detected yet") }
                 } else {
                     SettingsGrid(items: setup.statuses.map { status in
-                        SettingsGrid.Item(id: status.name, verbatim: status.name) {
-                            SettingsPill(status.hookInjected ? "hooked"
-                                         : (status.configured ? "not hooked" : "not installed"),
-                                         tone: status.hookInjected ? .ok
-                                         : (status.configured ? .warn : .neutral))
+                        let agent = status.name == "claude" ? AgentKind.claudeCode : AgentKind(rawValue: status.name)
+                        let diagnostic = model.observationDiagnostics.first { $0.agent == agent }
+                        let summary = AgentIntegrationStatus(configured: status.configured,
+                                                             hookInjected: status.hookInjected,
+                                                             diagnostics: diagnostic?.sources ?? [],
+                                                             sessionEvidence: model.sessions
+                                                                .filter { $0.agent == agent && $0.historyOnly != true }
+                                                                .flatMap { $0.observations ?? [] })
+                        return SettingsGrid.Item(id: status.name, verbatim: agent?.displayName ?? status.name) {
+                            VStack(alignment: .trailing, spacing: 4) {
+                                integrationPill(summary.state)
+                                    .accessibilityIdentifier("agent-integration-\(status.name)")
+                                if !summary.sources.isEmpty {
+                                    Text(verbatim: summary.sources.map(\.displayName).joined(separator: " · "))
+                                        .font(SettingsChrome.font(10.5)).foregroundStyle(MacTheme.ink2)
+                                }
+                                Text(LocalizedStringKey(status.hookInjected ? "Hook configured" : "Hook not configured"))
+                                    .font(SettingsChrome.font(10.5)).foregroundStyle(MacTheme.ink2)
+                            }
+                            .padding(.vertical, 6)
                         }
                     })
                 }
