@@ -184,7 +184,12 @@ struct HTTPDecisionClient: DecisionClient {
             if (response as? HTTPURLResponse)?.statusCode == 200 { return .reachable }
             return .unreachable(.macUnreachable(host: pairing.host))
         } catch let error as CompanionTransportError {
-            let kind: ConnectionFailureKind = error == .credentialsUnavailable ? .cloudflareCredentialsUnavailable : .cloudflareAuthentication
+            let kind: ConnectionFailureKind
+            switch error {
+            case .credentialsUnavailable, .keychainWriteFailed: kind = .cloudflareCredentialsUnavailable
+            case .invalidAddress, .credentialOriginMismatch: kind = .invalidAddress
+            case .authentication: kind = .cloudflareAuthentication
+            }
             return .unreachable(ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: kind, phoneHasTailnet: false))
         } catch {
             return .unreachable(ConnectionDiagnosis.diagnose(
@@ -315,9 +320,10 @@ struct HTTPDecisionClient: DecisionClient {
             return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
         } catch let error as CompanionTransportError {
             switch error {
-            case .invalidAddress, .credentialsUnavailable, .credentialOriginMismatch:
-                // Transport preparation failed before URLSession sent the POST.
-                return .unreachable
+            case .credentialsUnavailable:
+                return .notSent(.cloudflareCredentialsUnavailable)
+            case .invalidAddress, .credentialOriginMismatch:
+                return .notSent(.invalidAddress)
             case .authentication, .keychainWriteFailed:
                 return .failed
             }
@@ -344,9 +350,10 @@ struct HTTPDecisionClient: DecisionClient {
             return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
         } catch let error as CompanionTransportError {
             switch error {
-            case .invalidAddress, .credentialsUnavailable, .credentialOriginMismatch:
-                // Transport preparation failed before URLSession sent the POST.
-                return .unreachable
+            case .credentialsUnavailable:
+                return .notSent(.cloudflareCredentialsUnavailable)
+            case .invalidAddress, .credentialOriginMismatch:
+                return .notSent(.invalidAddress)
             case .authentication, .keychainWriteFailed:
                 return .failed
             }

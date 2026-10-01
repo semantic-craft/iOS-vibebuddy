@@ -278,8 +278,13 @@ final class RemoteConnectionAttempt: ObservableObject {
                     phase = .failure(.pairingChanged)
                     return
                 }
-                let saved = snapshot.sourceID.map { connection.saveVerifiedDirect(candidate, sourceID: $0) }
-                    ?? connection.save(candidate)
+                if connection.cloudflarePairing != nil,
+                   candidate.token == connection.cloudflarePairing?.token,
+                   snapshot.sourceID?.isEmpty != false {
+                    phase = .failure(.unavailable)
+                    return
+                }
+                let saved = connection.saveVerifiedDirect(candidate, sourceID: snapshot.sourceID)
                 guard saved else { phase = .failure(.credentials); return }
                 phase = .success
                 onConnected()

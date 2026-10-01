@@ -105,6 +105,9 @@ enum AgentSourceSettingsPresentation {
         if source.source == .cloud && source.reasonCode == "optionalSourceNotConfigured" {
             return String(localized: "Optional: add a Cursor API key in Agent integration to follow cloud tasks. Local Cursor monitoring is separate.")
         }
+        if source.source == .cloud && source.health == .sourceUnreadable {
+            return String(localized: "Cursor's Cloud Agents API cannot be reached. Check the API key in Agent integration.")
+        }
         if source.reasonCode == "configurationIncomplete" {
             let missing = ObservationEventCoverage.allCases.filter { !source.configuredCoverage.contains($0) }
                 .map { NSLocalizedString($0.displayName, comment: "Hook event coverage") }.joined(separator: ", ")

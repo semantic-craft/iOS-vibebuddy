@@ -8,6 +8,7 @@ struct CursorCloudSettingsSection: View {
     /// written once and never read back.
     @State private var cloudAPIKeyDraft: String = ""
     @State private var cloudAPIKeySaved = false
+    @State private var cloudAPIKeyWriteFailed = false
 
     var body: some View {
         SettingsSection("Cursor cloud agents",
@@ -27,13 +28,23 @@ struct CursorCloudSettingsSection: View {
                             .accessibilityIdentifier("save-cursorCloudAPIKey")
                             .accessibilityLabel("Save Cursor API key")
                         Button("Remove") {
-                            CursorCloudAPIKeyStore.save(nil)
+                            guard CursorCloudAPIKeyStore.save(nil) == 0 else {
+                                cloudAPIKeyWriteFailed = true
+                                return
+                            }
+                            cloudAPIKeyWriteFailed = false
                             cloudAPIKeyDraft = ""
                             cloudAPIKeySaved = CursorCloudAPIKeyStore.isConfigured()
                         }
                         .disabled(!cloudAPIKeySaved || E2ERunConfiguration.current != nil)
                         .accessibilityIdentifier("remove-cursorCloudAPIKey")
                         .accessibilityLabel("Remove Cursor API key")
+                    }
+                    if cloudAPIKeyWriteFailed {
+                        Text("Could not update the key in Keychain. Your draft is kept. Unlock Keychain and try again.")
+                            .font(SettingsChrome.font(11.5))
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("cursor-cloud-key-write-error")
                     }
                 }
             }
@@ -56,7 +67,11 @@ extension CursorCloudSettingsSection {
     func saveCloudAPIKey() {
         let trimmed = cloudAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, E2ERunConfiguration.current == nil else { return }
-        CursorCloudAPIKeyStore.save(trimmed)
+        guard CursorCloudAPIKeyStore.save(trimmed) == 0 else {
+            cloudAPIKeyWriteFailed = true
+            return
+        }
+        cloudAPIKeyWriteFailed = false
         // Drop the draft the moment it is stored: nothing keeps the key in the
         // view hierarchy, and nothing prints it.
         cloudAPIKeyDraft = ""

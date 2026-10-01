@@ -1,6 +1,6 @@
 # VibeBuddy 1.3.32 — iPhone / Apple Watch
 
-Build 65。
+Build 66。
 
 - 新增 Cloudflare Access 连接，可在原有局域网和私有网络连接之外使用。
 - 安全保存 Access 凭据，并在实时连接和操作请求中使用；改善断线恢复。

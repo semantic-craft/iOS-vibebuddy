@@ -43,7 +43,8 @@ final class SettingsCredential: ObservableObject {
     func load() {
         refresh()
         guard !loaded || value.isEmpty else { return }
-        value = storage.read(provider.keychainAccount) ?? ""
+        guard let savedValue = storage.read(provider.keychainAccount) else { return }
+        value = savedValue
         loaded = true
     }
     /// Replacement starts blank; opening an editor need not decrypt the old key.

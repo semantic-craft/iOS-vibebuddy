@@ -47,6 +47,8 @@ public enum WaitActionResult: Sendable, Equatable {
     /// No answer at all: nothing reached the Mac, so the decision may be held
     /// and delivered later (ADR-0032).
     case unreachable
+    /// Local preparation failed before any POST; retain its actionable diagnosis.
+    case notSent(ConnectionFailureReason)
 
     public init(statusCode: Int?) {
         guard let statusCode else { self = .failed; return }

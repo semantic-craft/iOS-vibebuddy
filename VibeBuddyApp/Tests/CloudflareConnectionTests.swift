@@ -113,6 +113,32 @@ final class CloudflareConnectionTests: XCTestCase {
         XCTAssertNil(store.cloudflarePairing)
     }
 
+    func testAddressWithoutIdentityPreservesRoutesButExplicitNewPairingClearsCredential() throws {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defer { UserDefaults().removePersistentDomain(forName: name) }
+        var removed: [String] = []
+        let store = ConnectionStore(defaults: defaults, protectedDataAvailable: { true },
+                                    deleteCredential: { removed.append($0) })
+        XCTAssertTrue(store.save(direct))
+        let cloudflare = try XCTUnwrap(direct.usingCloudflare(origin: "https://mac.example.com", credentialID: "fixture"))
+        XCTAssertTrue(store.commitCloudflare(cloudflare, sourceID: "mac"))
+        let routes = defaults.data(forKey: "vibebuddy.connectionRoutes")
+        let updated = PairingPayload(host: "100.64.0.5", port: 9876, token: direct.token)
+        for source: String? in [nil, ""] {
+            XCTAssertFalse(store.saveVerifiedDirect(updated, sourceID: source))
+            XCTAssertEqual(store.pairing, cloudflare)
+            XCTAssertEqual(store.directPairing, direct)
+            XCTAssertEqual(defaults.data(forKey: "vibebuddy.connectionRoutes"), routes)
+            XCTAssertTrue(removed.isEmpty)
+        }
+        let replacement = PairingPayload(host: "100.64.0.6", port: 9876, token: "new-Mac-token")
+        XCTAssertTrue(store.saveVerifiedDirect(replacement, sourceID: nil))
+        XCTAssertEqual(removed, ["fixture"])
+        XCTAssertEqual(store.pairing, replacement)
+        XCTAssertNil(store.cloudflarePairing)
+    }
+
     func testQRCodeCannotImportLocalAccessCredentialReference() throws {
         let candidate = try XCTUnwrap(direct.usingCloudflare(origin: "https://mac.example.com", credentialID: "local-key"))
         let json = String(data: try JSONEncoder().encode(candidate), encoding: .utf8)!

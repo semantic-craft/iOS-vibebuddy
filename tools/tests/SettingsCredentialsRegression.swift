@@ -5,12 +5,13 @@ import VibeBuddyKit
 struct SettingsCredentialsRegression {
     @MainActor static func main() {
         var stored: String? = "saved-test-key"
+        var readCancelled = true
         var writes = 0
         var fail = false
         var accounts: [String] = []
         let credential = SettingsCredential(.qwen, storage: .init(
             exists: { _ in stored != nil },
-            read: { _ in stored },
+            read: { _ in readCancelled ? nil : stored },
             write: { value, account in
                 writes += 1
                 accounts.append(account)
@@ -20,6 +21,10 @@ struct SettingsCredentialsRegression {
             }))
 
         credential.load()
+        precondition(credential.configured && !credential.loaded && credential.value.isEmpty, "Cancelled reads must preserve configured state and allow retry")
+        readCancelled = false
+        credential.load()
+        precondition(credential.loaded && credential.value == stored)
         credential.beginEditing()
         credential.edit("cancelled-draft")
         credential.load()

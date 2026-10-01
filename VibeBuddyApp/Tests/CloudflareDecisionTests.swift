@@ -11,7 +11,9 @@ final class CloudflareDecisionTests: XCTestCase {
         let decision = await client.decideResult(pairing, approvalId: "fixture", decision: .allow,
                                                 requestID: "fixture")
         let answer = await client.answerResult(pairing, sessionId: "fixture", answer: "fixture")
-        XCTAssertEqual(decision, .unreachable)
-        XCTAssertEqual(answer, .unreachable)
+        XCTAssertEqual(decision, .notSent(.cloudflareCredentialsUnavailable))
+        XCTAssertEqual(answer, .notSent(.cloudflareCredentialsUnavailable))
+        let probe = await client.probe(pairing)
+        XCTAssertEqual(probe, .unreachable(.cloudflareCredentialsUnavailable))
     }
 }

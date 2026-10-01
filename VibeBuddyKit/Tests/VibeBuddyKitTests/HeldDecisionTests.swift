@@ -37,6 +37,15 @@ final class HeldDecisionTests: XCTestCase {
                        .invalidAddress)
     }
 
+    func testUnreadableCloudflareCredentialsAreRetryableWithoutRelaxingRefusalOrAddressRules() {
+        let reason = ConnectionDiagnosis.diagnose(endpoint: lan, kind: .cloudflareCredentialsUnavailable,
+                                                  phoneHasTailnet: false)
+        XCTAssertEqual(reason, .cloudflareCredentialsUnavailable)
+        XCTAssertTrue(reason.isRetryable)
+        XCTAssertFalse(ConnectionFailureReason.cloudflareAuthentication.isRetryable)
+        XCTAssertFalse(ConnectionFailureReason.invalidAddress.isRetryable)
+    }
+
     // MARK: Queue
 
     private func approve(_ id: String, approvalId: String = "ap-1", choice: WatchApprovalChoice = .allow,

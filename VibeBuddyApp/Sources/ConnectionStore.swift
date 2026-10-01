@@ -161,9 +161,13 @@ final class ConnectionStore: ObservableObject {
     /// An authenticated address update for this same Mac may refresh the
     /// saved direct route without deleting the independently configured route.
     @discardableResult
-    func saveVerifiedDirect(_ payload: PairingPayload, sourceID: String) -> Bool {
+    func saveVerifiedDirect(_ payload: PairingPayload, sourceID: String?) -> Bool {
         guard payload.isValidConnection, !payload.isCloudflare else { return false }
-        guard let cloudflarePairing, verifiedSourceID == sourceID,
+        // An address-only update cannot prove it is the same Mac without identity.
+        // Keep both routes and the secret untouched; explicit re-pairing uses save.
+        if cloudflarePairing != nil, payload.token == cloudflarePairing?.token,
+           sourceID?.isEmpty != false { return false }
+        guard let sourceID, let cloudflarePairing, verifiedSourceID == sourceID,
               cloudflarePairing.token == payload.token else { return save(payload) }
         directPairing = payload
         if let data = try? JSONEncoder().encode(Routes(direct: payload, cloudflare: cloudflarePairing, sourceID: sourceID)) {
