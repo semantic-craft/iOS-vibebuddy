@@ -1,0 +1,6 @@
+{"type":"session_meta","payload":{"id":"verified-alpha","cwd":"/test","originator":"Codex Desktop","source":"vscode","cli_version":"0.159.0-alpha.12.1"}}
+{"ordinal":1,"type":"event_msg","payload":{"type":"task_started","turn_id":"verified-turn","root_turn_id":"verified-turn","model_context_window":258400,"collaboration_mode_kind":"default"}}
+{"ordinal":16,"type":"response_item","payload":{"type":"custom_tool_call","id":"verified-alpha","status":"completed","call_id":"verified-call","name":"exec","input":""}}
+{"ordinal":20,"type":"response_item","payload":{"type":"custom_tool_call_output","id":"verified-alpha","call_id":"verified-call","output":""},"metadata":{"client_authored":false,"fallback_token_limit_override":12000}}
+{"ordinal":80,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":553796,"cached_input_tokens":509824,"cache_write_input_tokens":0,"output_tokens":2256,"reasoning_output_tokens":60,"total_tokens":556052},"last_token_usage":{"input_tokens":66316,"cached_input_tokens":65792,"cache_write_input_tokens":0,"output_tokens":323,"reasoning_output_tokens":0,"total_tokens":66639},"model_context_window":258400}}}
+{"ordinal":81,"type":"event_msg","payload":{"type":"task_complete","turn_id":"verified-turn","last_agent_message":"Verified alpha completion"}}

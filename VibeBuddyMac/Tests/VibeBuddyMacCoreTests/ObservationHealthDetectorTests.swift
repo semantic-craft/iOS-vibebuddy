@@ -305,6 +305,30 @@ struct ObservationHealthDetectorTests {
         #expect(detect(home: home).health(agent: .codex, source: .rollout) == .unknownVersion)
     }
 
+    // Real completed Desktop/vscode turn captured 2026-10-02. The fixture keeps
+    // event shapes and usage, replacing private text, paths and identities.
+    @Test("observed Desktop alpha replays lifecycle before version certification")
+    func desktop159AlphaCompatibility() throws {
+        let fixture = try #require(Bundle.module.url(forResource: "codex-desktop-159-alpha",
+                                                       withExtension: "jsonl", subdirectory: "Fixtures"))
+        let data = try Data(contentsOf: fixture)
+        var parser = CodexRolloutParser()
+        let events = data.split(separator: 0x0A).flatMap { parser.parseEvents(Data($0), receivedAt: now) }
+        #expect(events.map(\.kind) == [.userPromptSubmit, .preToolUse, .postToolUse, .sessionMetadataChanged, .stop])
+        #expect(events.first(where: { $0.kind == .sessionMetadataChanged })?.enrichment?.tokens == 66639)
+        #expect(events.last?.completionText == "Verified alpha completion")
+        #expect(events.last?.completionSucceeded == true)
+        #expect(!parser.turnActive)
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let rollout = home.appendingPathComponent(".codex/sessions/rollout-alpha.jsonl")
+        let text = String(decoding: data, as: UTF8.self)
+        try write(text, to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .healthy)
+        try write(text.replacingOccurrences(of: "0.159.0-alpha.12.1", with: "0.159.0-alpha.12.2"), to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .unknownVersion)
+    }
+
     @Test("bounded rollout inspection discards a partial line before decoding UTF-8")
     func boundedRolloutUTF8() throws {
         let home = try tempHome()

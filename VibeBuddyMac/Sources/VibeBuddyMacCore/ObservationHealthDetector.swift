@@ -880,6 +880,9 @@ public enum ObservationHealthDetector {
         // Admit only that observed release, not every unverified 0.153 patch.
         // 2026-10-01: real Desktop producer metadata + turn/tool/usage/terminal
         // records replayed in ObservationHealthDetectorTests.desktop1592Compatibility.
-        return (major == 0 && minor == 151) || ["0.153.3", "0.159.2"].contains(version)
+        // 2026-10-02: desktop159AlphaCompatibility replays a completed Desktop
+        // turn from this exact alpha build; neighbouring alphas remain unverified.
+        return (major == 0 && minor == 151)
+            || ["0.153.3", "0.159.2", "0.159.0-alpha.12.1"].contains(version)
     }
 }

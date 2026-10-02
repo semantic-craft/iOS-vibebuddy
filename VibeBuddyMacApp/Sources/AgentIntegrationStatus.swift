@@ -5,7 +5,7 @@ import VibeBuddyKit
 /// observation channels. Never infer live reception from an installed CLI.
 struct AgentIntegrationStatus {
     enum State: Equatable {
-        case receiving, waiting, needsAttention, hookConfigured, hookMissing, notDetected
+        case receiving, waiting, versionUnverified, sourceUnreadable, needsAttention, hookConfigured, hookMissing, notDetected
     }
 
     let state: State
@@ -32,8 +32,15 @@ struct AgentIntegrationStatus {
             [.sourceUnreadable, .unknownVersion, .asyncIncompatible].contains($0.health)
         }
         sources = diagnostics.filter { $0.lastObservedAt != nil || faults.contains($0) }.map(\.source).sorted()
-        if faults.contains(where: { $0.source != .cloud }) {
+        // Certification is informational, but must remain visible even when
+        // another source is healthy. Actual local faults take precedence.
+        let localFaults = faults.filter { $0.source != .cloud && $0.reasonCode != "versionUnverified" }
+        if localFaults.contains(where: { $0.health == .sourceUnreadable }) {
+            state = .sourceUnreadable
+        } else if !localFaults.isEmpty {
             state = .needsAttention
+        } else if faults.contains(where: { $0.reasonCode == "versionUnverified" }) {
+            state = .versionUnverified
         } else if observed.contains(where: { $0.health == .healthy }) {
             // A separately configured, optional cloud source cannot invalidate
             // healthy local observation. Its own diagnostics still show failure.
