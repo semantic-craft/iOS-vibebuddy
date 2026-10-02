@@ -36,20 +36,52 @@ by fast-forward and the local dist/appcast.xml synchronized from that published
 branch. Published tags and update files remain unchanged.
 
 41 regenerable build/cache directories in the primary and two merged worktrees
-were removed, accounting for 19.60 GiB of allocated file space before deletion.
+were removed (19.60 GiB), followed by eight unused directories in the Grok
+worktree (7.34 GiB): **26.94 GiB** of allocated file space before deletion.
 This is an allocated-size estimate, not a measurement of APFS physical free-space
 change. Evidence logs/results and published DMGs were moved to the primary
 checkout without creating archive copies. Relative .scratch/ios-parity/,
 .scratch/ios-parity-e2e/ and .scratch/release-1.3.41/ paths now refer to that checkout.
 Obsolete one-time edit helpers and source-baseline copies were removed.
 
-The current Grok release worktree and its caches are removed after independent
-review, merge and synchronization. Final verification and additional allocated
-space are recorded below when completed.
+The final Grok worktree is retained only through independent review and merge;
+its submitted-build archive and necessary evidence move to the primary checkout
+before managed-worktree removal. Builds regenerated for the final regression
+checks are removed after those checks. Final Git/worktree/runtime results are
+recorded in `.scratch/cleanup-20261002/final-verification.json`; removal and move
+manifests remain beside it in the primary checkout.
 
 ## Verification
 
-No product code was changed by cleanup. The integrated Grok feature retains the
+Cleanup itself does not alter behavior. Independent review of the retained
+Grok work found and corrected three state problems: healthy idle phones showed
+reload guidance without a session, failed Mac setup still showed reload guidance,
+and manual hook operations dropped intent/error-only state changes. The phone
+also displays both connected and waiting counts. These source changes follow
+the immutable App Store build 69 (source 425d5d40); no replacement build,
+installation, upload or release was performed during housekeeping.
+
+The manual stale-error regression failed before the fix and passed afterwards.
+**51 focused Mac tests** and **3 iOS Grok tests** passed, with no skips or failures;
+Mac Debug builds passed including the final copy correction. An isolated Mac
+app on :18783 used one actual live Grok registry entry in disposable state.
+A deliberately injected setup error was visible in the discovery card; its
+Agent integration link opened the matching settings, and Retry cleared the
+error, configured hooks and displayed waiting/reload guidance. No synthetic
+task was created. Clearing the disposable registry produced healthy idle status.
+The isolated app and simulator run were stopped and disposable state removed.
+Simulator UI was unavailable to CUA; XCTest card rendering and guidance checks
+passed, but live phone visual acceptance remains pending.
+
+Read-only independent Grok Build review used `grok-4.7-build-fast`, `xhigh`,
+session `01a0fabb-3ed9-7a32-a4b1-3250999689f4`. Initial verdict: MERGE WITH FIXES.
+Re-review of fix commit 03aec4a9: all four items FIXED, final verdict **MERGE**,
+no blocking regression. Its non-blocking copy nit was also corrected: an error
+card says reporting is not configured only when configured is false. Review,
+regression logs and xcresult are retained in `.scratch/grok-release/`; Mac UI
+screenshots are in the existing `_shared-work/iOS-vibebuddy/` evidence directory.
+
+The integrated Grok feature also retains the
 68 focused Mac tests and 184 iOS tests (five environment-dependent skips, zero
 failures), installed Mac HTTP/WebSocket/UI acceptance, and strict distribution
 signature/upload evidence. See [mobile](grok-mobile-1.3.34.md),

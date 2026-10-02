@@ -74,7 +74,9 @@ struct GrokDiscoveryCard: View {
             if let error = status.error {
                 Text("Grok Build connection needs attention").font(.caption)
                 Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                Text("Activity reporting is not configured. Retry to connect.").font(.caption)
+                if !status.configured {
+                    Text("Activity reporting is not configured. Retry to connect.").font(.caption)
+                }
             } else if !status.enabled {
                 Text("Monitoring is off").font(.caption)
             } else if !status.available {
