@@ -224,6 +224,15 @@ struct DashboardSidebar: View {
         .accessibilityLabel("Filter sessions by project")
     }
 
+    private var grokDiscoveries: [GrokDiscoveredSession] {
+        guard agent == nil || agent == .grok, statusFilter == nil else { return [] }
+        return (model.grokMonitoring?.discoveredSessions ?? []).filter { session in
+            let matchesProject = projectScope == .all || Self.title(projectScope) == session.project || Self.title(projectScope) == session.cwd
+            return matchesProject && (query.isEmpty || session.project.localizedCaseInsensitiveContains(query)
+                || session.cwd?.localizedCaseInsensitiveContains(query) == true)
+        }
+    }
+
     @ViewBuilder private var sessionList: some View {
         if labels.iconOnly {
             // The strip has no words, and a session row is all words; the rail
@@ -232,7 +241,10 @@ struct DashboardSidebar: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    if groups.isEmpty {
+                    if let status = model.grokMonitoring {
+                        ForEach(grokDiscoveries) { session in GrokDiscoveryCard(session: session, status: status) }
+                    }
+                    if groups.isEmpty && grokDiscoveries.isEmpty {
                         Text(anyFilter ? "No matching sessions" : "No sessions reporting")
                             .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
                             .padding(.horizontal, 16).padding(.top, 10)

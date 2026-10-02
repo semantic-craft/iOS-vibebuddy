@@ -192,7 +192,11 @@ struct DashboardView: View {
     /// even after its last session ages out, so the rail never shifts under
     /// the pointer.
     private var railItems: [AgentRoster.Item] {
-        AgentRoster.items(model.sessions, keeping: agentFilter)
+        var items = AgentRoster.items(model.sessions, keeping: agentFilter)
+        if model.grokMonitoring?.discoveredSessions.isEmpty == false, !items.contains(where: { $0.agent == .grok }) {
+            items.append(.init(agent: .grok, tally: .init()))
+        }
+        return items
     }
 
     /// What the column's head says about the agent it belongs to.

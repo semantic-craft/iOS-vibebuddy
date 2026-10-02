@@ -107,9 +107,6 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         return (announcer, audio)
     }
 
-    private func holdMainActorUntilAudioEnds() {
-        Thread.sleep(forTimeInterval: 1.2)
-    }
 
     func testFailedPlayerResumeKeepsCurrentAndNextItemPaused() async throws {
         let previous = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
@@ -184,13 +181,23 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
         let (announcer, audio) = try await startedReader()
         defer { announcer.stop() }
-        holdMainActorUntilAudioEnds()
-        XCTAssertFalse(audio.isPlaying)
-        XCTAssertEqual(audio.currentTime, 0)
-        announcer.pause()
-        XCTAssertTrue(announcer.isPaused)
-        announcer.resume()
-        XCTAssertFalse(audio.isPlaying, "A completion awaiting the poll must not be replayed by Pause/Resume")
+        let finished = expectation(description: "Native playback completed")
+        let observer = PhoneAudioCompletionObserver { player, success in
+            XCTAssertTrue(success)
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertTrue(announcer.isBusy, "The completion must still await the announcer poll")
+            XCTAssertTrue(self.player(announcer) === player, "Exercise the retained, completed player")
+            // Exercise the command in the native completion callback, before
+            // the announcer's next poll can clear its player reference.
+            announcer.pause()
+            XCTAssertTrue(announcer.isPaused, "Pause must execute, rather than being an idle no-op")
+            announcer.resume()
+            XCTAssertFalse(player.isPlaying, "A completion awaiting the poll must not be replayed by Pause/Resume")
+            finished.fulfill()
+        }
+        audio.delegate = observer
+        defer { audio.delegate = nil; withExtendedLifetime(observer) {} }
+        await fulfillment(of: [finished], timeout: 10)
     }
 
     func testExplicitPauseResumesFromTheSamePosition() async throws {
@@ -238,11 +245,22 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         defer { UserDefaults.standard.setVolatileDomain(previous, forName: UserDefaults.argumentDomain) }
         let (announcer, audio) = try await startedReader()
         defer { announcer.stop() }
-        holdMainActorUntilAudioEnds()
-        XCTAssertFalse(audio.isPlaying)
-        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil,
-                                        userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+        let finished = expectation(description: "Native playback completed before interruption")
+        let observer = PhoneAudioCompletionObserver { player, success in
+            XCTAssertTrue(success)
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertTrue(announcer.isBusy, "The completion must still await the announcer poll")
+            XCTAssertTrue(self.player(announcer) === player, "Exercise the retained, completed player")
+            NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil,
+                                            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+            finished.fulfill()
+        }
+        audio.delegate = observer
+        defer { audio.delegate = nil; withExtendedLifetime(observer) {} }
+        await fulfillment(of: [finished], timeout: 10)
         for _ in 0..<100 where !announcer.isPaused && announcer.isBusy { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(announcer.isPaused, "The interruption must execute before the completed player is cleared")
+        XCTAssertTrue(player(announcer) === audio)
         announcer.resume()
         XCTAssertFalse(audio.isPlaying)
     }
@@ -381,5 +399,15 @@ final class PhoneSpeechRecoveryTests: XCTestCase {
         announcer.cancelPreview()
         XCTAssertFalse(announcer.canUseSystemSpeech)
         XCTAssertFalse(announcer.isBusy)
+    }
+}
+
+/// The native callback, rather than elapsed wall time, establishes completion.
+@MainActor
+private final class PhoneAudioCompletionObserver: NSObject, @preconcurrency AVAudioPlayerDelegate {
+    private let finished: (AVAudioPlayer, Bool) -> Void
+    init(finished: @escaping (AVAudioPlayer, Bool) -> Void) { self.finished = finished }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        finished(player, flag)
     }
 }

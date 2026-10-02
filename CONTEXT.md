@@ -353,7 +353,18 @@ code, and tests — don't drift to synonyms.
   list of open `grok` processes. A session the daemon saw listed whose process
   has since exited is ended at the next sweep as its `SessionEnd` would have
   ended it; absence alone proves nothing, and while a Grok leader answers
-  (sessions outlive their terminal) nothing is retired.
+  (sessions outlive their terminal) nothing is retired. When terminal monitoring
+  is enabled, live registry entries also populate `GrokMonitoringStatus`'s
+  discovery rows: identity and checkout only, never task progress. A real hook
+  replaces its discovery card with the normal Session. The optional snapshot
+  field `grokMonitoring` carries the same state over HTTP and WebSocket.
+- **Grok terminal monitoring** — explicit intent in the hook install state,
+  scoped to the resolved Grok home, independent of account quota. The Mac switch
+  installs activity hooks and exposes failures/reload steps in place. Existing
+  installs migrate as enabled; explicit removal wins. Disabling removes terminal
+  observations from the live reducer without recording a false exit or completion;
+  recorded history and ACP-hosted tasks are retained. Missing configuration never
+  means connected, and a registry entry alone grants no control channel.
 - **Live usage feed** — `AccountUsageLiveFeed`: quota that arrives on its own
   (status line `rate_limits`, the Codex daemon's `account/rateLimits/*`). The
   usage coordinator treats a live sample like a fetch and holds the spawning

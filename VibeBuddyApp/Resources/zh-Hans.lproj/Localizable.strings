@@ -904,3 +904,18 @@
 
 "Retry Codex history" = "重试 Codex 历史";
 "This page is no longer available. Refresh to load the latest data." = "此分页已不可用。请刷新以读取最新数据。";
+/* Grok Build connection status on iPhone */
+"Grok Build connection needs attention" = "Grok Build 接入需要处理";
+"Grok Build monitoring is off" = "Grok Build 监控未开启";
+"Grok Build was not found on this Mac" = "这台 Mac 尚未找到 Grok Build";
+"Grok Build activity reporting is not configured" = "Grok Build 尚未配置活动上报";
+"Grok Build · Waiting to connect" = "Grok Build · 等待接入";
+"Grok Build · Connected" = "Grok Build · 已连接";
+"Connected: %lld · Waiting for activity: %lld" = "已连接：%lld · 等待活动上报：%lld";
+"Grok Build · Waiting for activity" = "Grok Build · 等待活动上报";
+"Connected sessions: %lld" = "已连接会话：%lld";
+"Discovered, waiting to connect" = "已发现，等待接入";
+"On your Mac, open VibeBuddy Settings → Agent integration and retry the Grok Build connection." = "请在 Mac 上打开 VibeBuddy 设置 → Agent 接入，重试 Grok Build 连接。";
+"On your Mac, open VibeBuddy Settings → Agent integration and turn on Monitor Grok Build. Account quota is a separate setting." = "请在 Mac 上打开 VibeBuddy 设置 → Agent 接入，开启「监控 Grok Build」。账户额度是独立设置。";
+"Open Grok Build on your Mac, then check Agent integration in VibeBuddy Settings." = "请在 Mac 上打开 Grok Build，再检查 VibeBuddy 设置中的 Agent 接入。";
+"In Grok Build on your Mac, run /hooks and press r to reload. If reload is unavailable, start a new session. Updates appear after the next activity." = "请在 Mac 的 Grok Build 中运行 /hooks，再按 r 重载。如果无法重载，请开启新会话；下一次活动后将显示更新。";

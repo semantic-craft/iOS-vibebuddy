@@ -21,6 +21,7 @@ final class DashboardStore: ObservableObject {
     }
 
     @Published private(set) var groups = SessionGroups([])
+    @Published private(set) var grokMonitoring: GrokMonitoringStatus?
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Directories the Mac has seen sessions run in — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []
@@ -287,6 +288,7 @@ final class DashboardStore: ObservableObject {
     }
 
     private func clearContentSource() {
+        grokMonitoring = nil
         contentStyleOperation = UUID()
         contentStyleState = nil
         contentStyleMessage = nil
@@ -1719,6 +1721,7 @@ final class DashboardStore: ObservableObject {
         if sourceID != snapshot.sourceID { completionReads.pause() }
         if sourceID != snapshot.sourceID { recentOutputs = [:] }
         if let previousSource = speechAuthoritySourceID, previousSource != snapshot.sourceID { clearContentSource() }
+        grokMonitoring = snapshot.grokMonitoring
         speechAuthoritySourceID = snapshot.sourceID
         let refreshStyle = sourceID != snapshot.sourceID || contentPresentationRevision != snapshot.contentPresentationRevision
             || wasDisconnected

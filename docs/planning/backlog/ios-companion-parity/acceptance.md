@@ -3,6 +3,12 @@
 日期：2026-10-02。基线：`3b6f481f`（macOS 1.3.40）。分支：`codex/ios-companion-parity`。
 按 to-tickets 拆成 6 票，三个实现子代理并行完成第一、二批，主代理集成验证。
 
+## 证据当前位置
+
+2026-10-02 收尾后，本文的 `.scratch/ios-parity/` 和 `.scratch/ios-parity-e2e/`
+位于主工作区；仅移动现有证据，未新建备份，原已合并工作树已移除。
+iOS 后续正式提交见 [1.3.34 发布记录](../../../qa/grok-ios-1.3.34-distribution.md)。
+
 ## 已实现
 
 - IOSP-01：MiniMax 朗读设置、Mac 摘要 / iPhone 声音与凭据归属、密钥草稿保存 / 取消 / 删除、独立朗读语言及旧配置继承、有效风格音色和模型显示。

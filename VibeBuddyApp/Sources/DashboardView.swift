@@ -67,7 +67,11 @@ struct DashboardView: View {
         InboxProjection(sessions: dashboard.allSessions, now: now, agent: filters.agent)
     }
     private var roster: [AgentRoster.Item] {
-        AgentRoster.items(dashboard.allSessions, keeping: filters.agent, now: now)
+        var items = AgentRoster.items(dashboard.allSessions, keeping: filters.agent, now: now)
+        if dashboard.grokMonitoring != nil && !items.contains(where: { $0.agent == .grok }) {
+            items.append(.init(agent: .grok, tally: .init()))
+        }
+        return items
     }
     private var stream: [AgentSession] { filters.sessions(from: dashboard.allSessions, now: now) }
     private var hiddenCount: Int { filters.hiddenCount(from: dashboard.allSessions, now: now) }
@@ -93,7 +97,7 @@ struct DashboardView: View {
             // The connection is said once, here. Rows only add what the
             // offline state changes for them (a disabled key), and the
             // composer only speaks up when there is a draft it cannot send.
-            if !dashboard.allSessions.isEmpty && dashboard.state != .connected {
+            if (!dashboard.allSessions.isEmpty || dashboard.grokMonitoring != nil) && dashboard.state != .connected {
                 PhoneNotice(symbol: "wifi.exclamationmark",
                             text: dashboard.state == .connecting
                                 ? String(localized: "Reconnecting · showing last snapshot")
@@ -108,7 +112,7 @@ struct DashboardView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             }
-            if dashboard.allSessions.isEmpty {
+            if dashboard.allSessions.isEmpty && dashboard.grokMonitoring == nil {
                 if page == .inbox {
                     inboxTitle
                         .listRowInsets(.init(top: 2, leading: 0, bottom: 0, trailing: 0))
@@ -131,6 +135,7 @@ struct DashboardView: View {
                               openProject: { open(project: $0) },
                               showOlder: { filters.bucket = nil; filters.project = nil; filters.includeInactive = true; page = .list },
                               readPending: { readPending() },
+                              grokMonitoring: dashboard.grokMonitoring,
                               held: dashboard.heldActions,
                               retryHeld: { Task { await dashboard.retryHeldDecisions() } },
                               cancelHeld: { dashboard.cancelHeldDecision(id: $0) })
