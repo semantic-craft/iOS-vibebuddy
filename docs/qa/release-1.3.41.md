@@ -2,6 +2,11 @@
 
 2026-10-02 (Asia/Shanghai). Mac build 59; iPhone / Watch build 68.
 
+Current follow-up: [iOS 1.3.34 (69) supersedes the pending 1.3.33 submission
+and is waiting for App Store review](grok-ios-1.3.34-distribution.md).
+After housekeeping, the evidence paths below refer to the primary checkout;
+existing records were moved there without making archive copies.
+
 The release inherits `3b6f481f` (PR #338), including the language-restart and
 Codex/Cursor integration from PR #337 and the previously merged Cloudflare work.
 New implementation range: `3b6f481f..62b5fbd5`; release metadata: `a9601b25`; review fixes: `41a72c48`.

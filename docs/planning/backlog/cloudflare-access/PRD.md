@@ -1,6 +1,9 @@
 # VibeBuddy 独立 Cloudflare Access 接入 · Spec
 
-Status: ready-for-agent
+Implementation: merged (PR #335)
+
+实现已通过 PR #335 合并；此文件保留有效设计边界，不是待实施工单。
+验证结果及尚未覆盖的设备体验见 [验证记录](verification.md)。
 Date: 2026-10-01
 
 ## Problem Statement
