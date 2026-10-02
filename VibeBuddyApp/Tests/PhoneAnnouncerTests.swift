@@ -185,9 +185,12 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         let observer = PhoneAudioCompletionObserver { player, success in
             XCTAssertTrue(success)
             XCTAssertFalse(player.isPlaying)
+            XCTAssertTrue(announcer.isBusy, "The completion must still await the announcer poll")
+            XCTAssertTrue(self.player(announcer) === player, "Exercise the retained, completed player")
             // Exercise the command in the native completion callback, before
             // the announcer's next poll can clear its player reference.
             announcer.pause()
+            XCTAssertTrue(announcer.isPaused, "Pause must execute, rather than being an idle no-op")
             announcer.resume()
             XCTAssertFalse(player.isPlaying, "A completion awaiting the poll must not be replayed by Pause/Resume")
             finished.fulfill()
@@ -246,6 +249,8 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         let observer = PhoneAudioCompletionObserver { player, success in
             XCTAssertTrue(success)
             XCTAssertFalse(player.isPlaying)
+            XCTAssertTrue(announcer.isBusy, "The completion must still await the announcer poll")
+            XCTAssertTrue(self.player(announcer) === player, "Exercise the retained, completed player")
             NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil,
                                             userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
             finished.fulfill()
@@ -254,6 +259,8 @@ final class PhoneAnnouncerPlaybackTests: XCTestCase {
         defer { audio.delegate = nil; withExtendedLifetime(observer) {} }
         await fulfillment(of: [finished], timeout: 10)
         for _ in 0..<100 where !announcer.isPaused && announcer.isBusy { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(announcer.isPaused, "The interruption must execute before the completed player is cleared")
+        XCTAssertTrue(player(announcer) === audio)
         announcer.resume()
         XCTAssertFalse(audio.isPlaying)
     }
