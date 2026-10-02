@@ -237,7 +237,10 @@ public struct HookInstaller: Sendable {
             if manifest != files.loadManifest() || !files.exists(paths.manifest) { try files.saveManifest(manifest) }
             var state = state
             let previous = files.loadState()
-            if state.uninstalled != previous.uninstalled || !files.exists(paths.state) {
+            if state.uninstalled != previous.uninstalled
+                || state.grokMonitoring != previous.grokMonitoring
+                || state.grokMonitoringErrors != previous.grokMonitoringErrors
+                || !files.exists(paths.state) {
                 state.updatedAt = paths.environment.now()
                 try files.saveState(state)
             }

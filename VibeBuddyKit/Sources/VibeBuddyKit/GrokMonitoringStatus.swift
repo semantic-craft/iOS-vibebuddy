@@ -17,6 +17,11 @@ public struct GrokMonitoringStatus: Codable, Sendable, Equatable {
     public var connectedSessionCount: Int
     public var discoveredSessions: [GrokDiscoveredSession]
 
+    /// Reload helps only an observed session whose reporting hooks are ready.
+    public var needsHookReload: Bool {
+        enabled && available && configured && error == nil && !discoveredSessions.isEmpty
+    }
+
     public init(enabled: Bool, configured: Bool, available: Bool, error: String? = nil,
                 connectedSessionCount: Int, discoveredSessions: [GrokDiscoveredSession]) {
         self.enabled = enabled; self.configured = configured; self.available = available

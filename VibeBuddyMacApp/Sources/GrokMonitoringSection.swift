@@ -29,7 +29,7 @@ struct GrokMonitoringSection: View {
                         Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                             .accessibilityIdentifier("grok-monitoring-error")
                     }
-                    if config.enabled && config.configured && !(status?.discoveredSessions.isEmpty ?? true) {
+                    if error == nil && config.enabled && config.configured && status?.needsHookReload == true {
                         Text("In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event.")
                             .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     }
@@ -67,12 +67,27 @@ struct GrokMonitoringSection: View {
 /// card rather than a synthetic AgentSession or a misleading done/working badge.
 struct GrokDiscoveryCard: View {
     let session: GrokDiscoveredSession
+    let status: GrokMonitoringStatus
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(session.project).font(.headline)
-            Text("Grok Build · Discovered, waiting to connect").font(.caption)
-            Text("In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event.")
-                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            if let error = status.error {
+                Text("Grok Build connection needs attention").font(.caption)
+                Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                Text("Activity reporting is not configured. Retry to connect.").font(.caption)
+            } else if !status.enabled {
+                Text("Monitoring is off").font(.caption)
+            } else if !status.available {
+                Text("Grok Build was not found. Open Grok Build once, then enable monitoring.").font(.caption)
+            } else if !status.configured {
+                Text("Activity reporting is not configured. Retry to connect.").font(.caption)
+            } else {
+                Text("Grok Build · Discovered, waiting to connect").font(.caption)
+                if status.needsHookReload {
+                    Text("In Grok Build, run /hooks and press r to reload. If reload is unavailable, start a new session. Activity updates appear after the next event.")
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+            }
             Button("Open Agent integration") {
                 NotificationCenter.default.post(name: .openAppSettings, object: SettingsPageID.agentCLIs)
             }.buttonStyle(.link)

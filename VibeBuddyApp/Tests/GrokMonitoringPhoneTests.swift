@@ -6,6 +6,22 @@ import VibeBuddyKit
 
 @MainActor
 final class GrokMonitoringPhoneTests: XCTestCase {
+    func testReloadGuidanceRequiresAnObservedSessionAndReadyHooks() {
+        var status = GrokMonitoringStatus(enabled: true, configured: true, available: true,
+            connectedSessionCount: 0, discoveredSessions: [])
+        XCTAssertNil(PhoneGrokMonitoring(status: status).guidance)
+        status.discoveredSessions = [.init(id: "waiting", cwd: "/tmp/project")]
+        let reload = PhoneGrokMonitoring(status: status).guidance
+        XCTAssertNotNil(reload)
+        status.error = "Could not save Grok configuration"
+        XCTAssertNotEqual(PhoneGrokMonitoring(status: status).guidance, reload)
+        XCTAssertFalse(status.needsHookReload)
+        status.error = nil
+        status.configured = false
+        XCTAssertNotEqual(PhoneGrokMonitoring(status: status).guidance, reload)
+        XCTAssertFalse(status.needsHookReload)
+    }
+
     func testDiscoverySnapshotsNeverBecomeTasksAndResetWithTheSource() async throws {
         for reset in 0..<3 {
             let pipe = AsyncThrowingStream<Snapshot, Error>.makeStream()

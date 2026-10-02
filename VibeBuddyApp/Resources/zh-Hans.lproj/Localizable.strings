@@ -911,6 +911,7 @@
 "Grok Build activity reporting is not configured" = "Grok Build 尚未配置活动上报";
 "Grok Build · Waiting to connect" = "Grok Build · 等待接入";
 "Grok Build · Connected" = "Grok Build · 已连接";
+"Connected: %lld · Waiting for activity: %lld" = "已连接：%lld · 等待活动上报：%lld";
 "Grok Build · Waiting for activity" = "Grok Build · 等待活动上报";
 "Connected sessions: %lld" = "已连接会话：%lld";
 "Discovered, waiting to connect" = "已发现，等待接入";

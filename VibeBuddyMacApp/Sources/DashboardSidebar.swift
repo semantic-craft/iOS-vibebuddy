@@ -241,7 +241,9 @@ struct DashboardSidebar: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(grokDiscoveries) { session in GrokDiscoveryCard(session: session) }
+                    if let status = model.grokMonitoring {
+                        ForEach(grokDiscoveries) { session in GrokDiscoveryCard(session: session, status: status) }
+                    }
                     if groups.isEmpty && grokDiscoveries.isEmpty {
                         Text(anyFilter ? "No matching sessions" : "No sessions reporting")
                             .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)

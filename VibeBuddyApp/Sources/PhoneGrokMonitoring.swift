@@ -10,12 +10,17 @@ struct PhoneGrokMonitoring: View {
         if !status.enabled { return String(localized: "Grok Build monitoring is off") }
         if !status.available { return String(localized: "Grok Build was not found on this Mac") }
         if !status.configured { return String(localized: "Grok Build activity reporting is not configured") }
-        if !status.discoveredSessions.isEmpty { return String(localized: "Grok Build · Waiting to connect") }
+        if !status.discoveredSessions.isEmpty {
+            if status.connectedSessionCount > 0 {
+                return String(localized: "Connected: \(status.connectedSessionCount) · Waiting for activity: \(status.discoveredSessions.count)")
+            }
+            return String(localized: "Grok Build · Waiting to connect")
+        }
         if status.connectedSessionCount > 0 { return String(localized: "Grok Build · Connected") }
         return String(localized: "Grok Build · Waiting for activity")
     }
 
-    private var guidance: String {
+    var guidance: String? {
         if status.error != nil {
             return String(localized: "On your Mac, open VibeBuddy Settings → Agent integration and retry the Grok Build connection.")
         }
@@ -28,6 +33,7 @@ struct PhoneGrokMonitoring: View {
         if !status.configured {
             return String(localized: "On your Mac, open VibeBuddy Settings → Agent integration and retry the Grok Build connection.")
         }
+        guard status.needsHookReload else { return nil }
         return String(localized: "In Grok Build on your Mac, run /hooks and press r to reload. If reload is unavailable, start a new session. Updates appear after the next activity.")
     }
 
@@ -61,8 +67,7 @@ struct PhoneGrokMonitoring: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("phone-grok-discovery-\(session.id)")
             }
-            if status.error != nil || !status.enabled || !status.available || !status.configured
-                || status.connectedSessionCount == 0 || !status.discoveredSessions.isEmpty {
+            if let guidance {
                 Text(guidance)
                     .font(CompanionType.font(12))
                     .foregroundStyle(CompanionPalette.ink2)

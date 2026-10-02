@@ -41,8 +41,23 @@ struct GrokMonitoringTests {
         #expect(!home.installer.grokMonitoringConfiguration.configured)
         #expect(home.installer.grokMonitoringConfiguration.error != nil)
         home.source = HookInstallerTests.repo.appendingPathComponent("hooks")
-        #expect(home.installer.setGrokMonitoring(true).failures == 0)
+        #expect(home.installer.install([.grok]).failures == 0)
         #expect(home.installer.grokMonitoringConfiguration.error == nil)
+    }
+
+    @Test("manual hook operations save monitoring intent even when the uninstall list is unchanged")
+    func manualIntentChanges() throws {
+        let home = try HookInstallerTests.Home()
+        defer { home.remove() }
+        try home.mkdir(".grok")
+        let installer = home.installer
+        let key = installer.paths.entryKey(.grok)
+        try installer.files.saveState(.init(grokMonitoring: [key: false]))
+        #expect(installer.install([.grok]).failures == 0)
+        #expect(installer.grokMonitoringConfiguration.enabled)
+        try installer.files.saveState(.init(uninstalled: [key], grokMonitoring: [key: true]))
+        #expect(installer.uninstall([.grok]).failures == 0)
+        #expect(installer.files.loadState().grokMonitoring?[key] == false)
     }
 
     @Test("an already running session is discovered without inventing progress, then becomes one live session")
