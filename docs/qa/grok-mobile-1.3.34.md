@@ -1,5 +1,10 @@
 # Grok monitoring mobile installation and audio regression — 2026-10-02
 
+Follow-up: [Mac 1.3.42 (60) is now installed](grok-mac-1.3.42.md), Grok
+monitoring is enabled, and the actual installed HTTP/WebSocket snapshots carry
+the new status. The Mac 1.3.41 paragraph below records the earlier phone-only
+delivery state.
+
 ## Delivered source
 
 The clean integration branch `codex/grok-monitoring-release` starts at
