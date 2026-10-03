@@ -115,7 +115,10 @@ enum AntigravityNative {
         let paths = raw.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String] } ?? []
         let cwd = paths.first.flatMap { URL(string: $0) }.flatMap { $0.isFileURL ? $0.path : nil }
         let title = sqlite3_column_text(statement, 1).map { String(cString: $0) }
-        return (cwd, title, sqlite3_column_int(statement, 2) == 0)
+        guard sqlite3_column_type(statement, 2) == SQLITE_INTEGER else { return nil }
+        let notFullyIdle = sqlite3_column_int(statement, 2)
+        guard notFullyIdle == 0 || notFullyIdle == 1 else { return nil }
+        return (cwd, title, notFullyIdle == 0)
     }
 
     /// Match the existing Cursor/Copilot source boundary: copy main+WAL to
