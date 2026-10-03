@@ -1,6 +1,6 @@
 # Antigravity 配额与会话观察实施规格
 
-Status: ready-for-agent
+阶段：实现与本次 Agent 验收完成；Mac 已发布，iOS/Watch 等待 Apple 审核。
 
 ## Problem Statement
 
@@ -52,3 +52,5 @@ Status: ready-for-agent
 ## Further Notes
 
 产品决定见 [PRD](PRD.md)，实测依据见 [PROTOTYPE](PROTOTYPE.md)。用户在主会话明确要求推进至集成、E2E 和发版，并授权常规技术取舍自主决定；来源为 2026-10-04 主会话 `01a0f45d-ead5-7121-8f7c-dcc12e61b019` 的直接用户消息 `01a1032c-8b32-72ef-8015-062373195f12` 等。保留项目独立审阅和共享安装协调门槛。
+
+2026-10-04 用户进一步明确本次由 Agent 完成功能验收和收尾，不等待人工签收。验收证据、两轴复核、发布状态及未测量物理行为见 [QA](../../../qa/antigravity-monitor-20261004.md)；这是本任务的完成口径，不把模拟器投影表述为实体推送已送达。

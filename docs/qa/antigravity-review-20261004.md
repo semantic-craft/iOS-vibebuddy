@@ -17,3 +17,7 @@ Counts: Standards 1 P2, fixed; Spec 1 P1 and 1 P2, fixed. No unresolved finding 
 Session `01a10375-cd7b-7d11-859e-fbf1469c1545`, requested and recorded model `grok-4.7-build-fast`, reasoning xhigh, read-only plan permissions, no delegated agents. First output ended cancelled and was not a verdict. Resumed output ended normally and returned **MERGE WITH FIXES**, confirming all four lifecycle/summary fixes and requiring the already prepared UI row hide to be committed. No other verified defect in reviewed hunks. Build/E2E/release are outside that verdict.
 
 Raw local outputs: `.scratch/antigravity-review/grok.json` and `grok-final.json`. Only the final text and recorded model/stop status are used as review evidence; intermediate analysis is not treated as findings.
+
+## Final scoped acceptance review
+
+Standards and Spec reviewers separately re-read through `80dc0a97`, including the `6c3c98a3` creation guard and SPEC stories 16–18. Both found no new concrete defect; the earlier findings remain fixed. They confirmed phone/Watch changes are source labels, quota and existing projections, not APNs, pairing or approval transport. Both accepted closure of AG-01–AG-03 with real-source/native-view evidence and required the QA record to retain unmeasured physical push/haptics and standalone IDE boundaries. These reviews did not rerun tests or prove physical notification delivery. The final publication and task-specific owner acceptance decision are recorded in [QA](antigravity-monitor-20261004.md).
