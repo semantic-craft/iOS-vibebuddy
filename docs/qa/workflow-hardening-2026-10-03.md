@@ -1,6 +1,29 @@
 # Repository workflow hardening — 2026-10-03
 
-## Publication preparation — 2026-10-03
+## Housekeeping closeout — 2026-10-03
+
+The owner subsequently authorized PR merge, local installation and removal of
+confirmed redundant resources. Normal merges reconcile the original local main
+history with the workflow branch and released main; no history was rewritten.
+The publication preparation below is historical, not the current authorization.
+
+The docs, workflow and deployment checks passed on the reconciled branch.
+The transaction installer installed the already-published Mac 1.3.43 (61) from
+its verified DMG. The first attempt correctly stopped when the old process
+would not terminate; its bundle was preserved. After explicitly ending that
+hung process, retry passed unique-process, installed-path, port 9876 and health
+checks. Strict signature verification and Gatekeeper passed. Computer Use
+confirmed Codex receiving activity in the installed app. No new release was
+created; Sparkle UI upgrade, physical iPhone and Watch were not exercised.
+
+Regenerable build caches, superseded 1.3.42 candidates and local distribution
+copies were removed after acceptance. Published tags, gh-pages updates,
+credentials, local configuration, ADRs/research and unfinished acceptance
+records remain. Cleanup details: `.scratch/cleanup-20261003/removed.json` in
+the primary checkout. Reviewed workflow source remains in Git; release evidence
+remains under `~/Projects/_shared-work/iOS-vibebuddy/2026-10-03-mac-1.3.43/`.
+
+## Historical publication preparation — 2026-10-03
 
 The owner authorized pushing the workflow changes on a separate branch, without
 merging or deployment. Branch `codex/workflow-hardening-publish-20261003` starts
