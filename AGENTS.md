@@ -28,6 +28,7 @@ Repository-owned skills live in `docs/agents/skills/` and are tracked here: `ver
 
 | Work | Reference |
 | --- | --- |
+| Finding owning source, choosing scoped checks, or recording delivery evidence | `docs/agents/development.md`; executable profiles: `tools/check.py --list` |
 | Creating, reading, or updating tickets and PRDs — tracked Markdown under `docs/planning/backlog/<feature>/` with an index row, not GitHub Issues and not `.scratch/`; a skill's "publish to the issue tracker" means writing and committing that file | `docs/agents/issue-tracker.md` |
 | Assigning or changing triage state (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` as a `Status:` line) | `docs/agents/triage-labels.md` |
 | Changing domain behavior, terminology, or architecture (single-context layout: `CONTEXT.md` + `docs/adr/`) | `docs/agents/domain.md`, `CONTEXT.md`, and the relevant ADRs; flag a conflict with an existing ADR before implementing against it |

@@ -26,6 +26,9 @@ For work planning, this project uses Markdown tickets under
 for a substantial proposal, explain the intended behavior before investing in a
 large implementation.
 
+Use the [development map](docs/agents/development.md) to locate owning sources,
+choose a scoped check and retain delivery evidence.
+
 ## Make the change easy to review
 
 Keep the diff focused and preserve existing uncommitted work. Explain what the

@@ -139,6 +139,7 @@ swift test --package-path VibeBuddyMac
 | Explore | Start here |
 | --- | --- |
 | Build and run | [Developer setup](docs/getting-started.md#build-from-source) |
+| Change ownership, scoped checks and delivery evidence | [Development map](docs/agents/development.md) |
 | Shared models and voice adapters | [VibeBuddyKit](VibeBuddyKit/Sources/VibeBuddyKit) |
 | Agent observation and local server | [VibeBuddyMacCore](VibeBuddyMac/Sources/VibeBuddyMacCore) |
 | Native apps | [Mac](VibeBuddyMacApp/Sources) · [iPhone](VibeBuddyApp/Sources) · [Watch](VibeBuddyApp/Watch) |

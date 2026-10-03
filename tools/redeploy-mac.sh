@@ -1,41 +1,44 @@
 #!/usr/bin/env bash
-# Build, stably re-sign, and redeploy the vibebuddy Mac app to /Applications.
-#
-# Why re-sign: the build signs ad-hoc ("-"), whose cdhash changes every rebuild.
-# macOS keys Keychain ACLs and TCC grants to that cdhash, so an ad-hoc rebuild
-# re-prompts for the keychain password on every secret read. Signing the built
-# bundle with a STABLE local identity (Apple Development / Developer ID) makes
-# macOS track the grant by the cert's designated requirement instead, so one
-# "Always Allow" survives every future rebuild. Mirrors open-vibe-island's
-# launch-dev-app.sh approach. No Apple Developer Program steps beyond having a
-# codesigning cert in your login keychain (you already do).
+# Prepare a signed local build, then explicitly install it after peer coordination.
 set -euo pipefail
-
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PROJ="$REPO/VibeBuddyMacApp"
-BUILD_PROD="$APP_PROJ/build/Build/Products/Release/VibeBuddyMacApp.app"
 DEST="/Applications/VibeBuddyMacApp.app"
+usage() {
+  cat <<'USAGE'
+Usage:
+  tools/redeploy-mac.sh --prepare
+  tools/redeploy-mac.sh --install /absolute/prepared/VibeBuddyMacApp.app --peer-check-complete
 
-print_running_app_processes() {
-  local pids=()
-  local pid
-  while IFS= read -r pid; do
-    [[ -n "$pid" ]] && pids+=("$pid")
-  done < <(pgrep -x VibeBuddyMacApp 2>/dev/null || true)
-
-  if ((${#pids[@]} > 0)); then
-    local joined
-    joined="$(IFS=,; echo "${pids[*]}")"
-    ps -o pid,ppid,stat,etime,command -p "$joined"
-  fi
+--prepare builds/signs/verifies an isolated candidate; it does not install or launch.
+--install requires prior authorization and a fresh shared-device/peer check:
+  docs/sparkle-setup.md, "The installed app is shared".
+--peer-check-complete attests that this check was completed AFTER preparation.
+It is not authorization, and does not prove hardware is idle. Installs serialize
+across worktrees; failed copies/signatures leave the old app alone, failed startup
+restores it. A previous.app backup is retained beside the installed application.
+USAGE
 }
+case "${1:---help}" in
+  -h|--help) usage; exit 0 ;;
+  --prepare) [[ $# == 1 ]] || { usage; exit 2; } ;;
+  --install)
+    [[ $# == 3 && "$3" == --peer-check-complete && "$2" == /* ]] || { usage; exit 2; }
+    source "$REPO/tools/lib/mac-app-runtime.sh"
+    source "$REPO/tools/lib/install-mac-app.sh"
+    install_mac_app "$2" "$DEST"
+    exit ;;
+  *) usage; exit 2 ;;
+esac
 
+mkdir -p "$REPO/.scratch/deploy"
+PREPARED="$(mktemp -d "$REPO/.scratch/deploy/candidate.XXXXXX")"
+BUILD_PROD="$PREPARED/build/Build/Products/Release/VibeBuddyMacApp.app"
+python3 "$REPO/tools/check.py" --source-state > "$PREPARED/source-before.json"
 echo "▸ regenerating + building Release…"
-( cd "$APP_PROJ" && xcodegen generate >/dev/null \
-  && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp \
-       -configuration Release -derivedDataPath build build \
-       -quiet )
-
+( cd "$APP_PROJ" && xcodegen generate >/dev/null
+  xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp \
+    -configuration Release -derivedDataPath "$PREPARED/build" build -quiet )
 # Prefer a Developer ID, else any Apple Development cert; fall back to ad-hoc.
 pick_identity() {
   local identities type hash
@@ -58,11 +61,14 @@ if [[ -n "${IDENTITY:-}" ]]; then
   codesign --force --deep --sign "$IDENTITY" "$BUILD_PROD"
   # iCloud cues (ADR-0013 D) only with a profile that allows them for this
   # certificate; without one the app is signed exactly as before.
+  # Used by the sourced CloudKit signing helper.
+  # shellcheck disable=SC2034
   CLOUDKIT_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUILD_PROD/Contents/Info.plist")"
+  # shellcheck source=tools/mac-cloudkit-signing.sh
   source "$REPO/tools/mac-cloudkit-signing.sh"
   CK_PROFILE="$(cloudkit_profile_for "$IDENTITY")"
   if [[ -n "$CK_PROFILE" ]]; then
-    CK_ENT="$(mktemp "${TMPDIR:-/tmp}/vb-entitlements.XXXXXX")"
+    CK_ENT="$PREPARED/entitlements.plist"
     cp "$CK_PROFILE" "$BUILD_PROD/Contents/embedded.provisionprofile"
     CK_ENV="$(cloudkit_entitlements "$CK_PROFILE" "$REPO/tools/vibebuddy-mac.entitlements" "$CK_ENT")"
     codesign --force --sign "$IDENTITY" --entitlements "$CK_ENT" "$BUILD_PROD"
@@ -76,51 +82,14 @@ else
   echo "  The keychain will keep re-prompting after each rebuild."
 fi
 
-echo "▸ verifying signature…"
-codesign -dvv "$BUILD_PROD" 2>&1 | grep -iE "Authority|TeamIdentifier|Signature=" || true
-
-echo "▸ deploying to ${DEST} and relaunching…"
-if pids="$(pgrep -x VibeBuddyMacApp 2>/dev/null)"; then
-  echo "▸ stopping existing VibeBuddyMacApp process(es): ${pids//$'\n'/ }"
-  kill -9 $pids 2>/dev/null || true
-fi
-sleep 1
-rm -rf "$DEST"
-ditto "$BUILD_PROD" "$DEST"
-xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
-xattr -dr com.apple.provenance "$DEST" 2>/dev/null || true
-open "$DEST"
-for _ in $(seq 1 80); do
-  if curl -fsS --max-time 1 http://127.0.0.1:9876/health >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.5
-done
-if ! curl -fsS --max-time 2 http://127.0.0.1:9876/health >/dev/null && [[ -n "${CK_PROFILE:-}" ]]; then
-  # The one new way this script can fail: macOS refusing the iCloud
-  # entitlement. Put back an app without it rather than leave none running.
-  echo "⚠ /health not ready with iCloud cues on — redeploying without them" >&2
-  pkill -9 -x VibeBuddyMacApp 2>/dev/null || true
-  rm -f "$BUILD_PROD/Contents/embedded.provisionprofile"
-  codesign --force --sign "$IDENTITY" "$BUILD_PROD"
-  rm -rf "$DEST"; ditto "$BUILD_PROD" "$DEST"
-  xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
-  xattr -dr com.apple.provenance "$DEST" 2>/dev/null || true
-  open "$DEST"
-  for _ in $(seq 1 80); do
-    curl -fsS --max-time 1 http://127.0.0.1:9876/health >/dev/null 2>&1 && break
-    sleep 0.5
-  done
-fi
-if ! curl -fsS --max-time 2 http://127.0.0.1:9876/health >/dev/null; then
-  echo "✗ app launched but /health did not become ready on :9876" >&2
-  exit 1
-fi
-running="$(pgrep -x VibeBuddyMacApp | wc -l | tr -d ' ')"
-if [[ "$running" != "1" ]]; then
-  echo "✗ expected exactly one VibeBuddyMacApp process, found $running" >&2
-  print_running_app_processes >&2
-  exit 1
-fi
-print_running_app_processes
-echo "✓ done. On the next keychain prompt, click \"Always Allow\" once — it now sticks across rebuilds."
+source "$REPO/tools/lib/mac-app-runtime.sh"
+verify_app "$BUILD_PROD"
+ditto "$BUILD_PROD" "$PREPARED/VibeBuddyMacApp.app"
+verify_app "$PREPARED/VibeBuddyMacApp.app"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILD_PROD/Contents/Info.plist" > "$PREPARED/version.txt"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$BUILD_PROD/Contents/Info.plist" >> "$PREPARED/version.txt"
+shasum -a 256 "$PREPARED/VibeBuddyMacApp.app/Contents/MacOS/VibeBuddyMacApp" > "$PREPARED/executable.sha256"
+python3 "$REPO/tools/check.py" --source-state > "$PREPARED/source-after.json"
+cmp "$PREPARED/source-before.json" "$PREPARED/source-after.json" || { echo "Source changed during preparation; rebuild before installation." >&2; exit 1; }
+echo "Prepared (not installed): $PREPARED/VibeBuddyMacApp.app"
+echo "After authorization and a fresh peer/device check, use --install with --peer-check-complete."

@@ -139,6 +139,7 @@ swift test --package-path VibeBuddyMac
 | 想了解什么 | 从这里开始 |
 | --- | --- |
 | 编译与运行 | [开发环境配置](docs/getting-started.md#build-from-source) |
+| 修改归属、按范围检查与交付证据 | [开发导航](docs/agents/development.md) |
 | 共享模型与语音适配器 | [VibeBuddyKit](VibeBuddyKit/Sources/VibeBuddyKit) |
 | Agent 观测与本地服务 | [VibeBuddyMacCore](VibeBuddyMac/Sources/VibeBuddyMacCore) |
 | 原生客户端 | [Mac](VibeBuddyMacApp/Sources) · [iPhone](VibeBuddyApp/Sources) · [Watch](VibeBuddyApp/Watch) |
