@@ -135,7 +135,7 @@ struct WatchAlertCard: View {
             }
 
             HStack(spacing: 4) {
-                Text("\(alert.agent.shortName) · \(alert.project)")
+                Text("\(alert.sourceName) · \(alert.project)")
                     .foregroundStyle(CompanionPalette.ink2)
                 if let allowance = WatchLowAllowance.text(for: alert.agent, in: store.state) {
                     Text("· \(allowance)")

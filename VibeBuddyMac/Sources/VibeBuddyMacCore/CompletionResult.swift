@@ -24,6 +24,7 @@ public enum CompletionResultAvailability: Sendable, Equatable {
 
 /// Separate from progress: failure to prove a result never changes the three states.
 struct CompletionResults {
+    static func textLimit(for agent: AgentKind) -> Int { agent == .antigravity ? 128 * 1024 : 12_000 }
     /// Persisted in `CompletionResultLedger`. Native identity or an observed
     /// Claude prompt boundary is required; the opaque completion UUID is never guessed.
     struct Record: Codable, Equatable, Sendable {
@@ -45,7 +46,7 @@ struct CompletionResults {
             !conflict && !invalidated && completedAt > now.addingTimeInterval(-CompletionResultLedger.retention)
         }
         func frozen(now: Date) -> FrozenCompletionResult? {
-            guard readable(now: now), let text, !text.isEmpty, text.count <= 12_000 else { return nil }
+            guard readable(now: now), let text, !text.isEmpty, text.count <= CompletionResults.textLimit(for: agent) else { return nil }
             return .init(sourceID: sourceID, sessionID: sessionID, completionID: completionID,
                 turnID: turnID, title: title, finalText: text, completedAt: completedAt, observedAt: now)
         }
@@ -290,14 +291,14 @@ struct CompletionResults {
         guard var record = records[id], record.readable(now: now),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if let first = record.text, first != text { record.conflict = true }
-        else if text.count <= 12_000 { record.text = text }
+        else if text.count <= Self.textLimit(for: record.agent) { record.text = text }
         records[id] = record
         if var candidate = candidates[record.sessionID], candidate.completionID == record.completionID {
             if record.conflict {
                 candidate.outcome = .resultUnavailable
             } else if candidate.outcome == nil {
                 candidate.outcome = Self.freeze(text, candidate: candidate, sourceID: record.sourceID,
-                    sessionID: record.sessionID, now: now)
+                    sessionID: record.sessionID, agent: record.agent, now: now)
             }
             candidates[record.sessionID] = candidate
         }
@@ -454,10 +455,10 @@ struct CompletionResults {
     }
 
     private static func freeze(_ text: String, candidate: Candidate, sourceID: String,
-                       sessionID: String, now: Date) -> CompletionResultAvailability {
+                       sessionID: String, agent: AgentKind, now: Date) -> CompletionResultAvailability {
         guard now <= candidate.completedAt.addingTimeInterval(2) else { return .expired }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .resultUnavailable }
-        guard text.count <= 12_000 else { return .resultTooLong }
+        guard text.count <= Self.textLimit(for: agent) else { return .resultTooLong }
         return .ready(FrozenCompletionResult(sourceID: sourceID, sessionID: sessionID,
                      completionID: candidate.completionID, turnID: candidate.turnID,
                      title: candidate.title, finalText: text,

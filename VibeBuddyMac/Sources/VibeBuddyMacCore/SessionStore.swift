@@ -295,6 +295,7 @@ public actor SessionStore {
             return now.timeIntervalSince(evidence.lastObservedAt) < window
         }
         switch session.agent {
+        case .antigravity: return ControlChannel.none
         case .codex:
             if let health = runtimeSignals[.codex]?[.appserver]?.health, !health.isHealthy { return nil }
             return fresh(.appserver, within: Self.appServerAuthorityWindow) ? .appserver : nil
@@ -369,6 +370,25 @@ public actor SessionStore {
     // A detached tmux pane can be waiting, idle or complete; never infer a turn.
     private var cursorPersistentRows: [String: AgentSession] = [:]
     private var cursorPersistentDiscovery: String?
+
+    /// Discovery creates a quiet readable history row; only new lifecycle
+    /// evidence may mint a completion or a request for attention.
+    public func registerAntigravitySession(sessionID: String, source: String,
+                                          cwd: String?, title: String?, at: Date) {
+        reducer.registerAntigravitySession(sessionID: sessionID, source: source, cwd: cwd, title: title, at: at)
+        if let cwd { workingDirectories[sessionID] = cwd }
+        broadcast()
+    }
+    public func reconcileAntigravityHistory(sessionID: String, userStopped: Bool, failed: Bool, at: Date, replacesCompletedTurn: Bool = false) {
+        reducer.reconcileAntigravityHistory(sessionID: sessionID, userStopped: userStopped, failed: failed, at: at, replacesCompletedTurn: replacesCompletedTurn)
+        broadcast()
+    }
+
+    public func markAntigravityObservation(sessionID: String, health: ObservationHealth, at: Date) {
+        guard reducer.sessions[sessionID]?.agent == .antigravity else { return }
+        reducer.recordObservation(sessionID: sessionID, source: .transcript, at: at, health: health)
+        broadcast()
+    }
 
     public func refreshCursorPersistentSessions() async {
         applyCursorPersistentDiscovery(await CursorPersistentSessions.discover())
@@ -1115,6 +1135,16 @@ public actor SessionStore {
             else { grokConnected.insert(event.sessionID) }
         }
         if dropsCursorObserveOnly(event) { return }
+        // Native Antigravity observation owns its exact turn and terminal
+        // identity. Per-invocation hooks corroborate without reopening or
+        // replacing that turn (interactive hooks are not reliably delivered).
+        if event.agent == .antigravity, observationSource == .hook,
+           reducer.sessions[event.sessionID]?.agentSource != nil {
+            reducer.recordObservation(sessionID: event.sessionID, source: .hook,
+                                      at: event.timestamp, health: .healthy)
+            broadcast()
+            return
+        }
         // A turn that ended, from any source: its last steps and any handoff
         // it wrote must be visible to the next reader and pushed snapshot.
         if event.kind == .stop || event.kind == .sessionEnd {

@@ -17,6 +17,7 @@ public struct HistorySessionReference: Sendable {
         case "claude-code": agent = .claude
         case "codex": agent = .codex
         case "cursor": agent = .cursor
+        case "antigravity": agent = .antigravity
         case "grok-build": agent = .grokBuild
         default: throw HistoryToolError.executionFailed("Unknown session agent.")
         }

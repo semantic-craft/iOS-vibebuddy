@@ -8,10 +8,10 @@ import VibeBuddyKit
 /// The providers a quota widget can follow. Lives in the extension, not the
 /// Kit: App Intents metadata is extracted per target (the Watch does the same).
 enum PhoneQuotaProviderChoice: String, AppEnum {
-    case codex, claude, cursor, grok, grokBot
+    case codex, claude, cursor, grok, grokBot, antigravity
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Provider"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .codex: "Codex", .claude: "Claude", .cursor: "Cursor", .grok: "Grok Build", .grokBot: "Grok Bot"
+        .codex: "Codex", .claude: "Claude", .cursor: "Cursor", .grok: "Grok Build", .grokBot: "Grok Bot", .antigravity: "Antigravity"
     ]
     var provider: AccountUsageProvider { AccountUsageProvider(rawValue: rawValue) ?? .claude }
 }
@@ -192,6 +192,7 @@ enum QuotaWidgetWindows {
         case .cursor: return "Cu"
         case .grok: return "G"
         case .grokBot: return "GB"
+        case .antigravity: return "AG"
         }
     }
 }

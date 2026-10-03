@@ -542,10 +542,7 @@ struct OpenCodePlugin {
 
 // MARK: - Antigravity
 
-/// Antigravity (`agy`) loads `~/.gemini/antigravity-cli/hooks.json`, keyed by
-/// hook *name*; vibebuddy manages the single `vibebuddy` spec. agy 1.0.5
-/// loads but does not yet execute hooks (an agy-side bug); the wiring is
-/// ready for when it does.
+/// Shared current Antigravity hooks. Preserve unrelated named hook specs.
 struct AntigravityHooks {
     let paths: HookPaths
     let context: HookInstaller.Context
@@ -556,14 +553,14 @@ struct AntigravityHooks {
     static let toolEvents: Set<String> = ["PreToolUse", "PostToolUse"]
 
     func spec() -> OrderedJSON {
-        let handler = OrderedJSON.obj([
-            "type": .string("command"),
-            "command": .string(ShellWords.quoted(paths.script("vibebuddy-forward.sh").path) + " antigravity"),
-            "timeout": .int(5)])
         return .object(Self.events.map { event in
+            let handler = OrderedJSON.obj([
+                "type": .string("command"),
+                "command": .string(ShellWords.quoted(paths.script("vibebuddy-forward.sh").path) + " antigravity " + event),
+                "timeout": .int(5)])
             // Tool events nest handlers under a matcher; the rest take them directly.
-            .init(key: event, value: Self.toolEvents.contains(event)
-                  ? .array([.obj(["matcher": .string(""), "hooks": .array([handler])])])
+            return .init(key: event, value: Self.toolEvents.contains(event)
+                  ? .array([.obj(["matcher": .string("*"), "hooks": .array([handler])])])
                   : .array([handler]))
         })
     }
@@ -581,7 +578,6 @@ struct AntigravityHooks {
                                                  files: files, lines: &outcome.lines)
             outcome.lines.insert(outcome.changed ? "installed vibebuddy antigravity hook for events: "
                                  + Self.events.joined(separator: ", ") : "antigravity hook already installed", at: 0)
-            outcome.lines.append("note: agy 1.0.5 loads but does not execute hooks; the wiring is ready for when it does.")
             outcome.commands = try ourCommands()
         case .uninstall:
             guard existed, hooks[Self.hookName] != nil else {

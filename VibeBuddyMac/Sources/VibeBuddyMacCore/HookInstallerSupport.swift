@@ -150,7 +150,7 @@ public struct HookPaths: Sendable {
         directory("XDG_CONFIG_HOME", default: ".config").appendingPathComponent("opencode", isDirectory: true)
     }
     public var opencodePlugin: URL { opencodeDirectory.appendingPathComponent("plugins/vibebuddy.js") }
-    public var antigravityDirectory: URL { environment.home.appendingPathComponent(".gemini/antigravity-cli", isDirectory: true) }
+    public var antigravityDirectory: URL { environment.home.appendingPathComponent(".gemini/config", isDirectory: true) }
     public var antigravityHooks: URL { antigravityDirectory.appendingPathComponent("hooks.json") }
 
     /// Presence of this path means the CLI is set up on this Mac. A directory,

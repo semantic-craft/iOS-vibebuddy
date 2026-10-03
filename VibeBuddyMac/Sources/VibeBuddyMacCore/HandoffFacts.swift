@@ -322,6 +322,7 @@ public enum HandoffFacts {
         case .codex: .codex
         case .cursor: .cursor
         case .grokBuild: .grok
+        case .antigravity: .antigravity
         }
     }
 

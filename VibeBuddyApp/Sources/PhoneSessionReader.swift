@@ -61,7 +61,7 @@ struct PhoneSessionReader: View {
                                 Text(ToolActivity.label(for: session))
                                     .foregroundStyle(CompanionPalette.status(state))
                                 if !typeSize.isAccessibilitySize { Text("·") }
-                                Text(session.agent.shortName)
+                                Text(session.agentSourceLabel)
                                 if DashboardFilters.projectTitle(session.dashboardProjectIdentity, among: dashboard.allSessions.map(\.dashboardProjectIdentity)) != session.displayTitle {
                                     if !typeSize.isAccessibilitySize { Text("·") }
                                     Text(DashboardFilters.projectTitle(session.dashboardProjectIdentity, among: dashboard.allSessions.map(\.dashboardProjectIdentity)))

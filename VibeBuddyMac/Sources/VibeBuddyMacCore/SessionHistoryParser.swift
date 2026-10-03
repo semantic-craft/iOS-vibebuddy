@@ -41,6 +41,11 @@ enum SessionHistoryParser {
             warnings.append(SessionHistoryAgent.cursorCoverage)
             if cwd.isEmpty { warnings.append("Original project path could not be resolved from the Cursor transcript directory.") }
         }
+        if agent == .antigravity {
+            nativeID = url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().lastPathComponent
+            source = url.path.contains("/antigravity-cli/") ? "CLI" : url.path.contains("/antigravity-ide/") ? "IDE" : "Desktop"
+            if url.lastPathComponent != "transcript_full.jsonl" { warnings.append("Partial history: short Antigravity transcript excerpt; full source unavailable.") }
+        }
         var conversationUpdatedAt: Date?
         var messages: [SessionHistoryMessage] = []
         var fallback: [SessionHistoryMessage] = []
@@ -66,7 +71,7 @@ enum SessionHistoryParser {
         for (lineNumber, line) in content.split(separator: 10).enumerated() {
             guard let root = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { malformed += 1; continue }
             if agent == .claude, root["isSidechain"] as? Bool == true { omitted += 1; continue }
-            let date = stamp(root["timestamp"]) ?? (agent == .cursor ? cursorTimestamp(root) : nil)
+            let date = stamp(root["timestamp"] ?? root["created_at"]) ?? (agent == .cursor ? cursorTimestamp(root) : nil)
             if let date { conversationUpdatedAt = max(conversationUpdatedAt ?? date, date) }
             let type = root["type"] as? String ?? ""
             if agent != .cursor, let path = root["cwd"] as? String { cwd = path }
@@ -89,6 +94,22 @@ enum SessionHistoryParser {
                 order[key] = lineNumber
                 let message = SessionHistoryMessage(id: key, role: role, text: bounded, timestamp: date, toolName: tool, kind: kind ?? (role == .user && isInjectedContext(text) ? .meta : .text), groupID: groupID, toolCallID: callID, isToolOutput: output, isError: isError)
                 if fallbackOnly { fallback.append(message) } else { messages.append(message) }
+            }
+            if agent == .antigravity {
+                let content = root["content"] as? String ?? ""
+                if !(root["truncated_fields"] as? [String] ?? []).isEmpty { warnings.append("Partial history: native source marks truncated content.") }
+                let group = "antigravity-step-\(root["step_index"] as? Int ?? lineNumber)"
+                switch type {
+                case "USER_INPUT": append(.user, content, "user", groupID: group)
+                case "PLANNER_RESPONSE":
+                    append(.assistant, content, "response", groupID: group)
+                    if let thought = root["thinking"] as? String { append(.assistant, thought, "thinking", kind: .thinking, groupID: group) }
+                    for (index, call) in (root["tool_calls"] as? [[String: Any]] ?? []).enumerated() {
+                        append(.tool, string(call["args"]), "tool-\(index)", call["name"] as? String, groupID: group)
+                    }
+                default: append(.tool, content, "result", type, groupID: group, output: true, isError: root["status"] as? String == "ERROR")
+                }
+                continue
             }
             if agent == .cursor {
                 let events = CursorTranscripts.parse(line: String(decoding: line, as: UTF8.self), fullContent: true)

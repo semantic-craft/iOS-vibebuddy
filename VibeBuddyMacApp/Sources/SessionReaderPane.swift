@@ -235,6 +235,7 @@ struct SessionReaderPane: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 AgentBadge(agent: subject.agent)
+                if let source = live.sourceSurfaceLabel { Text(source) }
                 dot
                 Text(subject.projectName).lineLimit(1).truncationMode(.middle)
                     .help(subject.projectPath ?? subject.projectName)

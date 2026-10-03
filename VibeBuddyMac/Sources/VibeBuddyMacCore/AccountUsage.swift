@@ -17,6 +17,7 @@ public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
     /// Stable identity for extra windows (model-week, Spark, …). Nil on
     /// cached primary/secondary rows that predate this field.
     public var key: String?
+    public var poolKey: String?
 
     public var id: String { key ?? kind.rawValue }
 
@@ -26,7 +27,8 @@ public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
         windowDurationMinutes: Int?,
         resetsAt: Date?,
         label: String? = nil,
-        key: String? = nil
+        key: String? = nil,
+        poolKey: String? = nil
     ) {
         self.kind = kind
         self.usedPercent = usedPercent
@@ -34,6 +36,7 @@ public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
         self.resetsAt = resetsAt
         self.label = label
         self.key = key
+        self.poolKey = poolKey
     }
 
     public static func extra(
@@ -80,7 +83,8 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
 
     /// Extra Grok spend is not the shared subscription allowance.
     public var quotaWindows: [AccountUsageWindow] {
-        provider == .grok ? [primary].compactMap { $0 } : windows
+        if provider == .antigravity { return displayWindows }
+        return provider == .grok ? [primary].compactMap { $0 } : windows
     }
 
     public var windows: [AccountUsageWindow] {
@@ -105,6 +109,11 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
     /// so the Mac and the wrist cannot disagree about what a pair is.
     public var independentPools: [AccountUsageWindow] {
         let pools = quotaWindows
+        if !pools.isEmpty, pools.allSatisfy({ $0.poolKey != nil }) {
+            return Dictionary(grouping: pools, by: { $0.poolKey! }).values.compactMap { group in
+                group.max { $0.usedPercent < $1.usedPercent }
+            }
+        }
         guard pools.count > 1, Set(pools.map(\.windowDurationMinutes)).count == 1 else { return [] }
         return pools
     }
@@ -155,7 +164,7 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
     /// A live primary/secondary sample (status line, rate-limit stream) must
     /// not erase extras the collector already learned.
     public func preservingUnspecifiedExtras(from previous: AccountUsageSnapshot?) -> AccountUsageSnapshot {
-        guard let previous, previous.provider == provider else { return self }
+        guard provider != .antigravity, let previous, previous.provider == provider else { return self }
         var result = self
         let incoming = extraWindows ?? []
         let prior = previous.extraWindows ?? []

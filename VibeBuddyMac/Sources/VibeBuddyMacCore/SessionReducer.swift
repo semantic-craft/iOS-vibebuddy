@@ -77,11 +77,41 @@ public struct SessionReducer: Sendable {
         sessions[sessionID]?.checkoutPath = path
     }
 
+    public mutating func registerAntigravitySession(sessionID: String, source: String,
+        cwd: String?, title: String?, at: Date) {
+        if sessions[sessionID] == nil {
+            var row = AgentSession(id: sessionID, agent: .antigravity, project: cwd.map(Self.projectName) ?? "Antigravity",
+                checkoutPath: cwd, status: .done, name: title, statusSince: at, updatedAt: at)
+            row.historyOnly = true
+            sessions[sessionID] = row
+        }
+        guard sessions[sessionID]?.agent == .antigravity else { return }
+        sessions[sessionID]?.agentSource = source
+        sessions[sessionID]?.controlChannel = ControlChannel.none
+        if let cwd { sessions[sessionID]?.checkoutPath = cwd; sessions[sessionID]?.project = Self.projectName(cwd) }
+        if let title { sessions[sessionID]?.name = title }
+    }
+
+    public mutating func reconcileAntigravityHistory(sessionID: String, userStopped: Bool, failed: Bool, at: Date, replacesCompletedTurn: Bool = false) {
+        guard var row = sessions[sessionID], row.agent == .antigravity,
+              row.status != .done || row.completionID == nil || replacesCompletedTurn else { return }
+        row.status = .done; row.waitKind = nil; row.activeTool = nil
+        row.pendingQuestion = nil; row.pendingApproval = nil
+        row.userStopped = userStopped; row.failed = failed
+        row.completionID = nil; row.hasUnreadCompletion = false
+        row.historyOnly = true; row.updatedAt = at; row.statusSince = at
+        sessions[sessionID] = row
+    }
+
     public mutating func apply(
         _ event: HookEvent,
         observationSource: ObservationSource? = nil,
         recordsEvidence: Bool = true
     ) {
+        if event.agent == .antigravity {
+            sessions[event.sessionID]?.historyOnly = nil
+            sessions[event.sessionID]?.controlChannel = ControlChannel.none
+        }
         restoredWorking.remove(event.sessionID)
         // Bootstrap carries a verified active boundary on the existing tool
         // or waiting observation, without replaying an old prompt event.
@@ -443,7 +473,7 @@ public struct SessionReducer: Sendable {
     /// `working`/`done` sessions are never touched — they self-correct via events.
     public mutating func reconcile(now: Date, lastActivity: [String: Date], staleAfter: TimeInterval) {
         let stale = sessions.values.filter { s in
-            guard s.status == .needsResponse else { return false }
+            guard s.status == .needsResponse, s.agent != .antigravity else { return false }
             let answered = lastActivity[s.id].map { $0 > s.statusSince } ?? false
             let abandoned = now.timeIntervalSince(s.updatedAt) > staleAfter
             return answered || abandoned
