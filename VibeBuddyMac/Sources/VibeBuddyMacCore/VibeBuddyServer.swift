@@ -91,6 +91,7 @@ public struct VibeBuddyServer: Sendable {
     /// host state, exactly like the Codex rollout source.
     public let cursorTranscriptMonitor: CursorTranscriptMonitor?
     public let antigravityCLIMonitor: AntigravityCLIMonitor?
+    public let antigravityDesktopMonitor: AntigravityDesktopMonitor?
     /// Cursor's Cloud Agents API: the live source for `bc-` conversations, which
     /// run on Cursor's machines and so reach no hook and write no transcript.
     /// Doing nothing until an API key is stored is the client's own business, so
@@ -150,6 +151,7 @@ public struct VibeBuddyServer: Sendable {
                 grokACP: GrokACPMonitor? = nil,
                 cursorTranscriptMonitor: CursorTranscriptMonitor? = nil,
                 antigravityCLIMonitor: AntigravityCLIMonitor? = nil,
+                antigravityDesktopMonitor: AntigravityDesktopMonitor? = nil,
                 cursorCloud: CursorCloudAgentClient = CursorCloudAgentClient(),
                 cursorCloudMonitor: CursorCloudAgentMonitor? = nil,
                 onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
@@ -194,6 +196,7 @@ public struct VibeBuddyServer: Sendable {
         self.grokACP = grokACP
         self.cursorTranscriptMonitor = cursorTranscriptMonitor
         self.antigravityCLIMonitor = antigravityCLIMonitor
+        self.antigravityDesktopMonitor = antigravityDesktopMonitor
         self.cursorCloud = cursorCloud
         self.cursorCloudMonitor = cursorCloudMonitor
         self.onDevicePaired = onDevicePaired
@@ -251,6 +254,8 @@ public struct VibeBuddyServer: Sendable {
         }
         defer { cursorPersistentTask.cancel() }
 
+        let antigravityDesktopTask = antigravityDesktopMonitor.map { monitor in Task { await monitor.run(store: store) } }
+        defer { antigravityDesktopTask?.cancel() }
         let antigravityTask = antigravityCLIMonitor.map { monitor in Task { await monitor.run(store: store) } }
         defer { antigravityTask?.cancel() }
         let cursorTask = cursorTranscriptMonitor.map { monitor in

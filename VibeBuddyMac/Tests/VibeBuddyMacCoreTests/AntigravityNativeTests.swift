@@ -56,6 +56,15 @@ struct AntigravityNativeTests {
         await monitor.poll(store: store, now: Date())
         let body = await store.completionBody(sessionID: "native", completionID: "antigravity-cli-3-4")
         #expect(body.text == "The complete native result.")
+        let restoredStore = SessionStore()
+        let restoredMonitor = AntigravityCLIMonitor(home: home)
+        await restoredMonitor.poll(store: restoredStore, now: Date())
+        try sql("PRAGMA user_version=2")
+        await restoredMonitor.poll(store: restoredStore, now: Date())
+        let history = await restoredStore.snapshot(now: Date()).sessions.first { $0.id == "native" }
+        #expect(history?.historyOnly == true)
+        #expect(history?.completionID == nil)
+        #expect(history?.hasUnreadCompletion != true)
     }
 
     @Test func fullTranscriptIsReadByNativeIdentityWithoutShortExcerpt() async throws {

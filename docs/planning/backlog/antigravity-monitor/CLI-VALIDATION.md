@@ -7,9 +7,9 @@ CLI monitor 自动发现原生 conversation 数据库，全文路径按同一原
 
 ## 已运行
 
-- `swift test --package-path VibeBuddyMac --filter 'Antigravity|HookInstallerTests|CompletionResultTests'`：62 项通过。
+- `swift test --package-path VibeBuddyMac --filter 'Antigravity|HookInstallerTests|CompletionResultTests'`：合并后 68 项通过。
   新增 4 项边界回归覆盖 fullyIdle、WAITING→取消→新轮完成与正文、full 优于 short、
-  大于 12k 正文与 ledger 持久化。包括实际发现的 WAL 副本读取边界。
+  大于 12k 正文与 ledger 持久化、历史重扫不重播。包括实际发现的 WAL 副本读取边界。
 - `python3 tools/check.py docs`：通过。
 - `verify-vibebuddy` 隔离 daemon，独立 HOME，最终端口 **18779**，doctor 全项通过。
 - 回放父任务从真实 agy 1.2.16 权限等待及批准后保存的 SQLite/full 日志：

@@ -62,11 +62,16 @@ public actor AntigravityCLIMonitor {
             let calls = latestPlanner?["tool_calls"] as? [[String: Any]] ?? []
             let callIndex = native.lastIndex - (latestPlanner?["step_index"] as? Int ?? -1) - 1
             let pendingCall = calls.indices.contains(callIndex) ? calls[callIndex] : calls.count == 1 ? calls[0] : nil
-            let question = pendingCall?["name"] as? String == "ask_question"
-                ? pendingCall.flatMap(AntigravityNative.question) : nil
+            let isQuestion = pendingCall?["name"] as? String == "ask_question"
+            let question = isQuestion ? (pendingCall.flatMap(AntigravityNative.question)
+                ?? "Antigravity has a question; details unavailable. Return to the CLI.") : nil
+            let knownPermission = native.lastType == 132 && pendingCall?["name"] as? String == "run_command"
             let summary = AntigravityNative.summary(database: root.appendingPathComponent("conversation_summaries.db"), sessionID: id)
             let terminal = native.terminalIndex == native.lastIndex && !native.waiting
             let succeeded = terminal && native.reason == 4 && native.lastStatus == 3 && summary?.fullyIdle != false
+            // The summary can catch up after the foreground DB has settled;
+            // keep checking until its background work is explicitly idle.
+            if terminal && native.reason == 4 && summary?.fullyIdle == false { fingerprints[id] = nil }
             let cancelled = terminal && native.reason == 2
             let failed = terminal && [1, 3, 6, 11].contains(native.reason ?? 0)
             let ended = succeeded || cancelled || failed
@@ -74,6 +79,11 @@ public actor AntigravityCLIMonitor {
             let title = prompt?["content"] as? String
             await store.registerAntigravitySession(sessionID: id, source: "CLI", cwd: summary?.cwd,
                 title: summary?.title ?? title.map { String(Self.userText($0).prefix(120)) }, at: now)
+            if native.waiting && !isQuestion && !knownPermission {
+                fingerprints[id] = nil
+                await store.markAntigravityObservation(sessionID: id, health: .unknownVersion, at: now)
+                continue
+            }
             await store.markAntigravityObservation(sessionID: id, health: .healthy, at: now)
             let missedNewTurn = userIndices[id].map { $0 != userIndex } == true
             userIndices[id] = userIndex
@@ -83,7 +93,7 @@ public actor AntigravityCLIMonitor {
                 phases[id] = phase; historicalEndings[id] = phase
                 continue
             }
-            if historical && ended {
+            if (historical || phases[id] == nil) && ended {
                 phases[id] = phase; historicalEndings[id] = phase
                 await store.reconcileAntigravityHistory(sessionID: id, userStopped: cancelled, failed: failed, at: now)
                 continue
