@@ -18,12 +18,22 @@ app_running() {
 }
 stop_app() {
   local pid attempt
+  local targets=()
+  # Classify the complete snapshot before signaling any process.
   for pid in $(app_pids); do
+    kill -0 "$pid" 2>/dev/null || continue
     if ! pid_is_app "$pid" "$1"; then
+      kill -0 "$pid" 2>/dev/null || continue
       echo "Another app instance exists (PID $pid); refusing to stop it." >&2
       return 1
     fi
-    kill -TERM "$pid" || return 1
+    targets+=("$pid")
+  done
+  for pid in "${targets[@]}"; do
+    if ! kill -TERM "$pid" 2>/dev/null; then
+      kill -0 "$pid" 2>/dev/null || continue
+      return 1
+    fi
     for ((attempt=0; attempt<40; attempt++)); do
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.25

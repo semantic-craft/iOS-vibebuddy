@@ -28,18 +28,18 @@ install_mac_app() (
   finish() {
     result=$?
     trap - EXIT INT TERM
+    [[ -z "$work" ]] || echo "Installation evidence / recovery: $work"
     if (( ! success && stopped )); then
       # A missing staged bundle means it has been moved into destination.
       if [[ ! -e "$work/$name" && -e "$destination" ]]; then
-        if ! stop_app "$destination"; then
+        if ! stop_app "$destination" && app_running "$destination"; then
           echo "Cannot stop candidate; recovery files preserved at $work" >&2
-          release_lock
           exit 1
         fi
-        mv "$destination" "$work/failed.app" || { release_lock; exit 1; }
+        mv "$destination" "$work/failed.app" || { echo "Restore failed; lock and recovery pointer retained at $lock" >&2; exit 1; }
       fi
       if [[ -e "$work/previous.app" ]]; then
-        mv "$work/previous.app" "$destination" || { release_lock; exit 1; }
+        mv "$work/previous.app" "$destination" || { echo "Restore failed; lock and recovery pointer retained at $lock" >&2; exit 1; }
       fi
       if (( had_previous && was_running )); then
         if start_app "$destination" && app_ready "$destination"; then
@@ -49,7 +49,6 @@ install_mac_app() (
         fi
       fi
     fi
-    [[ -z "$work" ]] || echo "Installation evidence / recovery: $work"
     release_lock
     exit "$result"
   }
@@ -63,8 +62,8 @@ install_mac_app() (
   # Copy and verify before stopping anything. Rename stays on the same volume.
   ditto "$source_app" "$work/$name" || exit 1
   verify_app "$work/$name" || exit 1
-  stopped=1
   stop_app "$destination" || exit 1
+  stopped=1
   if (( had_previous )); then mv "$destination" "$work/previous.app" || exit 1; fi
   mv "$work/$name" "$destination" || exit 1
   start_app "$destination" || exit 1

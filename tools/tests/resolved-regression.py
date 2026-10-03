@@ -27,3 +27,10 @@ with tempfile.TemporaryDirectory(prefix="vb-resolved-test-") as folder:
     assert module.run(command, path) == 1
     assert json.loads(path.read_bytes()) == changed
     print("PASS unexpected version change retained and reported as failure")
+
+    path.write_bytes(original_bytes)
+    changed = {**original, "originHash": "new-manifest"}
+    command[-1] = json.dumps(changed)
+    assert module.run(command, path) == 1
+    assert json.loads(path.read_bytes()) == changed
+    print("PASS hash-only change retained and reported as failure")

@@ -11,9 +11,17 @@ if [[ "${1:-}" == --case ]]; then
     [[ "$mode" != copy-failure ]] || return 1
     cp -R "$1" "$2"
   }
+  mv() {
+    if [[ "$mode" == restore-move-failure && "$1" == */previous.app ]]; then return 1; fi
+    command mv "$@"
+  }
   app_running() { [[ -e "$root/running" ]]; }
   stop_app() {
     [[ "$mode" != stop-failure ]] || return 1
+    if [[ "$mode" == foreign-after-exit && "$(cat "$1/version")" == new ]]; then
+      rm -f "$root/running"
+      return 1
+    fi
     rm -f "$root/running"
   }
   start_app() {
@@ -21,14 +29,14 @@ if [[ "${1:-}" == --case ]]; then
     touch "$root/running"
   }
   app_ready() {
-    [[ "$mode" != health-failure || "$(cat "$1/version")" != new ]]
+    [[ "$mode" != health-failure && "$mode" != restore-move-failure && "$mode" != foreign-after-exit || "$(cat "$1/version")" != new ]]
   }
   install_mac_app "$root/candidate.app" "$root/Applications/VibeBuddyMacApp.app"
   exit
 fi
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/vb-install-tests.XXXXXX")"
 trap 'rm -rf "$fixture"' EXIT
-for mode in success copy-failure bad-signature launch-failure health-failure stop-failure locked first-install-failure; do
+for mode in success copy-failure bad-signature launch-failure health-failure stop-failure locked first-install-failure restore-move-failure foreign-after-exit; do
   root="$fixture/$mode"
   mkdir -p "$root/candidate.app" "$root/Applications/VibeBuddyMacApp.app"
   echo new > "$root/candidate.app/version"
@@ -47,6 +55,15 @@ for mode in success copy-failure bad-signature launch-failure health-failure sto
     expected=new
   else
     [[ "$mode" != success ]] || { cat "$root/result.log"; exit 1; }
+  fi
+  if [[ "$mode" == restore-move-failure ]]; then
+    lock="$root/Applications/.VibeBuddyMacApp.app.install-lock"
+    [[ -f "$lock/owner.txt" ]]
+    grep -q 'recovery=' "$lock/owner.txt"
+    grep -q 'Installation evidence / recovery:' "$root/result.log"
+    [[ ! -e "$root/Applications/VibeBuddyMacApp.app" ]]
+    echo "PASS $mode"
+    continue
   fi
   if [[ "$mode" == first-install-failure ]]; then
     [[ ! -e "$root/Applications/VibeBuddyMacApp.app" && ! -e "$root/running" ]]
@@ -88,3 +105,25 @@ PLIST
 else
   echo 'SKIP native signature verification: requires macOS'
 fi
+
+# Run the production stop function with deterministic process/syscall boundaries.
+(
+  source "$repo/tools/lib/mac-app-runtime.sh"
+  app_pids() { echo '101 102'; }
+  pid_is_app() { [[ "$1" == 101 ]]; }
+  kill() {
+    [[ "$1" == -0 ]] && return 0
+    echo signal >> "$fixture/signals"
+  }
+  if stop_app /fixture > /dev/null 2>&1; then exit 1; fi
+  [[ ! -e "$fixture/signals" ]]
+  app_pids() { echo 101; }
+  pid_is_app() { return 0; }
+  calls=0
+  kill() {
+    if [[ "$1" == -TERM ]]; then calls=1; return 1; fi
+    [[ "$calls" == 0 ]]
+  }
+  stop_app /fixture
+  echo 'PASS runtime classifies before signaling and tolerates ESRCH'
+)

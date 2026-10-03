@@ -16,7 +16,8 @@ def is_cli_pruning(before, after):
     new_pins = {pin["identity"]: pin for pin in new["pins"]}
     old_rest = {k: v for k, v in old.items() if k not in ("originHash", "pins")}
     new_rest = {k: v for k, v in new.items() if k not in ("originHash", "pins")}
-    return (old_rest == new_rest and set(old_pins) - set(new_pins) <= GUI_ONLY
+    removed = set(old_pins) - set(new_pins)
+    return (old_rest == new_rest and bool(removed) and removed <= GUI_ONLY
             and all(old_pins.get(key) == value for key, value in new_pins.items()))
 
 
@@ -34,7 +35,7 @@ def run(command, resolved):
                 expected = False
             if expected:
                 resolved.write_bytes(before)
-                print("Restored SwiftPM's GUI-only Package.resolved pruning.", flush=True)
+                print("Restored SwiftPM's GUI-only Package.resolved pruning.", file=sys.stderr, flush=True)
             else:
                 # Preserve both versions; an unexpected pin update is not ours to undo.
                 with tempfile.NamedTemporaryFile(prefix="vibebuddy-resolved-", delete=False) as backup:

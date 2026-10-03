@@ -127,9 +127,10 @@ No push, installation or publication is included.
 
 ### Installed application
 
-No production app was stopped/replaced or launched, no production token was
-written, and this work did not bind `:9876`. Real installed-app restart/rollback,
-real-agent behavior, phone/Watch flows and Sparkle update installation remain
-unverified by this change. Installing the candidate needs authorization covering
-replacement and a fresh peer/device check; the completed local checks do not
-establish those runtime outcomes. Existing app compiler warnings remain unchanged.
+The housekeeping run directly installed the published Mac 1.3.43 (61) DMG.
+An old hung process required explicit operator termination after the installer
+refused replacement. Retry passed process/path/port/health checks; signature and
+Gatekeeper checks passed, and Computer Use confirmed live Codex reception.
+Post-swap rollback was tested with disposable fixtures, not the live application.
+Phone, Watch and Sparkle UI installation remain untested in this run. No new
+release or credential/configuration change was made.
