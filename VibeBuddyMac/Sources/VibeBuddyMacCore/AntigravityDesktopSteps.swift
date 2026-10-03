@@ -30,7 +30,19 @@ public struct AntigravityDesktopSteps: Decodable, Sendable {
             let toolCalls: [Tool]?
             struct Tool: Decodable, Sendable { let name: String? }
         }
-        struct Interaction: Decodable, Sendable { let askQuestion: QuestionSet? }
+        struct Interaction: Decodable, Sendable {
+            let askQuestion: QuestionSet?
+            // Native 2.19.1 RequestedInteraction oneof fields 3, 21 and 23.
+            // Their response messages carry confirm/allow, unlike askQuestion.
+            let runCommand: Confirmation?
+            let permission: Permission?
+            let approvalInteraction: Confirmation?
+            struct Confirmation: Decodable, Sendable {}
+            struct Permission: Decodable, Sendable {
+                let reason: String?
+                let actionDescription: String?
+            }
+        }
         struct QuestionSet: Decodable, Sendable {
             let questions: [Question]?
             struct Question: Decodable, Sendable { let question: String? }
@@ -48,11 +60,20 @@ public struct AntigravityDesktopSteps: Decodable, Sendable {
            ["CORTEX_STEP_STATUS_CANCELED", "CORTEX_STEP_STATUS_CANCELLED"].contains(last?.status ?? "") {
             state = .cancelled
         } else if let waiting = current.last(where: { $0.status == "CORTEX_STEP_STATUS_WAITING" && ($0.requestedInteraction != nil || $0.askQuestion != nil) }) {
-            let questions = waiting.requestedInteraction?.askQuestion ?? waiting.askQuestion
-            let text = questions?.questions?.compactMap(\.question).joined(separator: "\n")
-            let permission = waiting.type?.contains("PERMISSION") == true || waiting.type?.contains("APPROVAL") == true
-            state = .waiting(permission ? .permission : .question,
-                text?.isEmpty == false ? text : "Waiting for a response in Antigravity")
+            let interaction = waiting.requestedInteraction
+            if let questions = interaction?.askQuestion ?? waiting.askQuestion {
+                let text = questions.questions?.compactMap(\.question).joined(separator: "\n")
+                state = .waiting(.question, text?.isEmpty == false ? text : "Waiting for a response in Antigravity")
+            } else if interaction?.runCommand != nil || interaction?.permission != nil || interaction?.approvalInteraction != nil {
+                let details = [interaction?.permission?.actionDescription, interaction?.permission?.reason]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+                state = .waiting(.permission, details.isEmpty ? "Approval requested in Antigravity" : details)
+            } else {
+                // Decodable ignores unknown oneof fields; an opaque interaction
+                // is not evidence that the user was asked a question.
+                state = .unknown
+            }
         } else if conversation.status.hasSuffix("RUNNING") {
             state = .working
         } else if conversation.status.hasSuffix("IDLE"), last?.status == "CORTEX_STEP_STATUS_ERROR",
