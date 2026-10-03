@@ -49,6 +49,15 @@ For source ownership and checks, use the [development map](docs/agents/developme
   lifecycle/tool hooks arrived but the tested escalation produced no approval
   card or rollout waiting event. Hook presence alone does not establish
   approval coverage.
+- **Antigravity CLI conversation** — the native conversation id joins CLI hooks,
+  `~/.gemini/antigravity-cli/conversations/<id>.db` and the `brain/<id>` full
+  transcript. Native SQLite WAITING steps identify a question or permission;
+  executor termination reason plus the matching last step confirms success,
+  cancellation or failure. A transcript step marked DONE is not a turn ending.
+  Discovery imports completed history quietly. The read-only control channel
+  is `none`, and `agentSource` labels CLI separately from Desktop/IDE. The
+  reader prefers `transcript_full.jsonl`; short-only history is an explicit
+  excerpt and is never supplied as a complete completion body.
 - **Cursor conversation / composer** — one Cursor chat, in the IDE's Agent panel
   or in `cursor-agent`. Its **composer id** is its identity everywhere:
   Cursor's hooks send it as `conversation_id`, its transcript directory is named
@@ -688,7 +697,7 @@ For source ownership and checks, use the [development map](docs/agents/developme
   before the start boundary or text arrives; an existing legacy UUID cannot be
   assigned from a later ending. `CompletionResultLedger`
   (`completion-results.json`) keeps the result index (seven days, at most 512
-  records and 8 MiB encoded result data, 12,000 characters per body). Reads recheck
+  records and 8 MiB encoded result data, 12,000 characters per body; Antigravity native full results allow 128 Ki characters, matching the reader block budget; larger bodies are explicitly unavailable as too long). Reads recheck
   expiry. Codex recovery reads an explicitly named successful turn from a bounded
   transcript scan; Claude's successful Stop text can be used before its transcript
   flushes. Missing evidence remains unavailable, never the last assistant message

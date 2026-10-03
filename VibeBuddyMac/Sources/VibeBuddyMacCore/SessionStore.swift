@@ -1135,6 +1135,16 @@ public actor SessionStore {
             else { grokConnected.insert(event.sessionID) }
         }
         if dropsCursorObserveOnly(event) { return }
+        // Native Antigravity observation owns its exact turn and terminal
+        // identity. Per-invocation hooks corroborate without reopening or
+        // replacing that turn (interactive hooks are not reliably delivered).
+        if event.agent == .antigravity, observationSource == .hook,
+           reducer.sessions[event.sessionID]?.agentSource != nil {
+            reducer.recordObservation(sessionID: event.sessionID, source: .hook,
+                                      at: event.timestamp, health: .healthy)
+            broadcast()
+            return
+        }
         // A turn that ended, from any source: its last steps and any handoff
         // it wrote must be visible to the next reader and pushed snapshot.
         if event.kind == .stop || event.kind == .sessionEnd {

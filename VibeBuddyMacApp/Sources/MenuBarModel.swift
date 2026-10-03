@@ -660,6 +660,7 @@ final class MenuBarModel: ObservableObject {
                                      cursorACP: cursorACP,
                                      grokACP: grokACP,
                                      cursorTranscriptMonitor: cursorTranscriptMonitor,
+                                     antigravityCLIMonitor: AntigravityCLIMonitor.forCurrentRun(),
                                      cursorCloudMonitor: cursorCloudMonitor,
                                      onCompletionReminder: { [weak self] session in
                                          guard let self else { return false }

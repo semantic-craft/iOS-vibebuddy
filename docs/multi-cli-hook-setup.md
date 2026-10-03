@@ -81,17 +81,21 @@ Python is involved. What it guarantees:
 | Claude Code | `claude` | `~/.claude/settings.json` | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | Codex CLI | `codex` | `~/.codex/hooks.json` (`notify` untouched) | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | OpenCode | `opencode` | `~/.config/opencode/` plugin | Claude-compatible hooks | ⚠️ template |
-| Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
+| Antigravity | `antigravity` | `~/.gemini/config/hooks.json` | Named command hooks + native read-only observation | agy 1.2.16: headless hooks verified; interactive hook gap covered by native state |
 | Grok Build | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks (camelCase envelope); sessions vibebuddy starts are hosted over ACP | ✅ tested (1.0.40) |
 | Cursor | `cursor` | `~/.cursor/hooks.json` (merged, user level) | JSON `command` hooks (camelCase event names); `--approval` gates `preToolUse` | ✅ wired (3.20; IDE acceptance pending) |
 | GitHub Copilot CLI | `copilot` | `~/.copilot/session-store.db` | read-only session history | history only |
 
 ✅ = wired and exercised. ⚠️ template = the source routing + display are done in
 the app; the config snippet below needs validation against the installed CLI.
-Antigravity's VibeBuddy decoder and source routing are ready, but the installed
-`agy` 1.0.5 binary loads `hooks.json` without executing command hooks, even with
-explicit `enabled: true`, `PreToolUse`, matcher `run_command`, and a trusted
-workspace.
+Antigravity 1.2.16 uses camelCase hook payloads (`conversationId`,
+`workspacePaths`, `transcriptPath`). VibeBuddy's wrapper supplies the event
+name. Headless hooks executed in acceptance; the interactive CLI's `/hooks`
+listed the project configuration but did not execute those handlers. The
+read-only CLI monitor therefore discovers native conversations and checks
+SQLite execution endings/waiting steps; step DONE or file silence is never
+completion evidence. Full native transcripts feed the existing reader.
+See [the Antigravity evidence](planning/backlog/antigravity-monitor/PROTOTYPE.md).
 
 ### Claude Code (`~/.claude/settings.json`)
 
@@ -110,8 +114,8 @@ workspace.
 ```
 
 OpenCode follows the same shape with
-`agent=<their source>`. Antigravity uses
-a Gemini plugin that shells out to the same curl. Copilot CLI is integrated
+`agent=<their source>`. Antigravity uses named command-hook configuration
+with `vibebuddy-forward.sh antigravity <event>`; its hooks observe only. Copilot CLI is integrated
 through its local history database, following [Wake's adapter](https://github.com/iAmCorey/Wake/blob/main/crates/wake-core/src/adapters/copilot.rs).
 The Mac reads sessions with turns, their project/branch/title, and the latest
 12 dialogue entries (600 characters each). It checks database and WAL changes

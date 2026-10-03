@@ -122,6 +122,7 @@ struct VibeBuddyDaemon {
             cursorACP: cursorACP,
             grokACP: grokACP,
             cursorTranscriptMonitor: CursorTranscriptMonitor(),
+            antigravityCLIMonitor: AntigravityCLIMonitor.forCurrentRun(),
             cursorCloudMonitor: cloudMonitor(environment: env, port: port),
             cursorFollowups: cursorFollowups)
         // The phone's Usage sheet reads token spend off the snapshot, so a

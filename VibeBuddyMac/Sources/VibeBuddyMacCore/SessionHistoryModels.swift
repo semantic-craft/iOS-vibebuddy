@@ -2,17 +2,17 @@ import Foundation
 import VibeBuddyKit
 
 public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
-    case claude, codex, cursor, grokBuild
+    case claude, codex, cursor, grokBuild, antigravity
     public var displayName: String {
-        switch self { case .claude: "Claude Code"; case .codex: "Codex"; case .cursor: "Cursor"; case .grokBuild: "Grok Build" }
+        switch self { case .claude: "Claude Code"; case .codex: "Codex"; case .cursor: "Cursor"; case .grokBuild: "Grok Build"; case .antigravity: "Antigravity" }
     }
     public var keyName: String {
-        switch self { case .claude: "claude-code"; case .codex: "codex"; case .cursor: "cursor"; case .grokBuild: "grok-build" }
+        switch self { case .claude: "claude-code"; case .codex: "codex"; case .cursor: "cursor"; case .grokBuild: "grok-build"; case .antigravity: "antigravity" }
     }
     public var supportsTranscript: Bool { self != .grokBuild }
     /// The live agent this reader covers.
     public var kind: AgentKind {
-        switch self { case .claude: .claudeCode; case .codex: .codex; case .cursor: .cursor; case .grokBuild: .grok }
+        switch self { case .claude: .claudeCode; case .codex: .codex; case .cursor: .cursor; case .grokBuild: .grok; case .antigravity: .antigravity }
     }
     public static let cursorCoverage = "Cursor local transcript: user/assistant text and tool calls only; no tool results or thinking. IDE/CLI provenance is not recorded; encrypted IDE history and cloud agents are not covered."
     /// Grok Build keeps no transcript VibeBuddy reads; its key parses for handoff facts only.

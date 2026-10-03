@@ -8,6 +8,7 @@ public enum HistoryIdentity {
         case .claudeCode: agent = "claude-code"
         case .codex: agent = "codex"
         case .cursor: agent = "cursor"
+        case .antigravity: agent = "antigravity"
         default: return nil
         }
         guard !session.id.isEmpty, session.id.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "-_".unicodeScalars.contains($0) }) else { return nil }
