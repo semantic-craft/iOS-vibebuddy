@@ -7,7 +7,8 @@ disable-model-invocation: true
 
 # Hand off a VibeBuddy task
 
-Read `.agents/skills/handoff/SKILL.md` and apply its writing discipline. This wrapper
+Read the installed global `handoff` skill (`~/.agents/skills/handoff/SKILL.md`)
+and apply its writing discipline. Matt skills no longer use project-local links. This wrapper
 adds the project's source identity and placement contract; it does not duplicate
 the underlying skill or add a dispatch/start mechanism. If that local dependency
 is unavailable, report the missing skill rather than pretending to have applied it.
@@ -19,6 +20,10 @@ absolute path in the owning ticket's Comments. In a worktree, use the ticket's
 established absolute `.scratch/<feature>/` root. Do not migrate old notes or
 silently overwrite an existing same-day note; use a distinguishing agent/session
 suffix in `<from-agent>` when needed.
+
+Keep durable decisions and acceptance results in the owning ticket or QA record
+([delivery evidence](../../development.md#installation-and-closeout)); the local
+handoff links those records and must not be their only copy.
 
 Before writing, get the recorded facts for your own session (ADR-0023). Determine
 your native ID as described below, then run:

@@ -3,6 +3,13 @@
 The shared vocabulary for vibebuddy. Use these terms verbatim in issues, ADRs,
 code, and tests — don't drift to synonyms.
 
+Jump to: [Core](#core) · [Mac side](#mac-side) · [Buddy / pet](#buddy--pet) ·
+[Voice](#voice) · [Observability](#observability-2026-09) ·
+[Completion summaries and Mac reading](#completion-summaries-and-mac-reading) ·
+[iPhone inbox](#iphone-inbox-2026-09-13-adr-0022) ·
+[Autonomous task desk](#autonomous-task-desk-2026-09-13).
+For source ownership and checks, use the [development map](docs/agents/development.md).
+
 ## Core
 
 - **Session** (`AgentSession`) — one coding-agent run on the Mac (Claude Code or
