@@ -16,11 +16,11 @@ private extension ProviderQuota {
 }
 
 enum QuotaPlatform: String, AppEnum {
-    case codex, claude, grok, cursor, grokBot, both, all
+    case codex, claude, grok, cursor, grokBot, antigravity, both, all
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Platform"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
         .codex: "Codex", .claude: "Claude", .grok: "Grok Build", .cursor: "Cursor",
-        .grokBot: "Grok Bot",
+        .grokBot: "Grok Bot", .antigravity: "Antigravity",
         .both: "Codex + Claude", .all: "All providers"
     ]
     var selection: WatchQuotaSelection { WatchQuotaSelection(rawValue: rawValue)! }
@@ -72,7 +72,7 @@ struct QuotaProvider: AppIntentTimelineProvider {
         return QuotaEntry(date: .now, configuration: configuration, quotas: readQuotas())
     }
     func recommendations() -> [AppIntentRecommendation<QuotaConfiguration>] {
-        [QuotaPlatform.codex, .claude, .cursor, .grok, .grokBot].map { platform in
+        [QuotaPlatform.codex, .claude, .cursor, .grok, .grokBot, .antigravity].map { platform in
             let configuration = QuotaConfiguration()
             configuration.platform = platform
             configuration.style = .ring
@@ -155,6 +155,7 @@ struct QuotaWidgetView: View {
         case .grok: return "G"
         case .cursor: return "Cu"
         case .grokBot: return "GB"
+        case .antigravity: return "AG"
         }
     }
     private func color(_ provider: AccountUsageProvider) -> Color {
@@ -164,6 +165,7 @@ struct QuotaWidgetView: View {
         case .grok: return .indigo
         case .cursor: return .purple
         case .grokBot: return .mint
+        case .antigravity: return .blue
         }
     }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {

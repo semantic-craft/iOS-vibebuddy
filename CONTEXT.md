@@ -592,7 +592,7 @@ For source ownership and checks, use the [development map](docs/agents/developme
   only records with a token. Expiring a push token retains the phone identity,
   so push availability never decides whether that phone is paired.
 - **AccountUsage** — provider quota (Codex app-server RPC, Claude rate-limit probe,
-  Cursor/Grok local sources): window, remaining, reset, freshness, `stale` /
+  Cursor/Grok local sources, Antigravity official CLI `/usage`): window, remaining, reset, freshness, `stale` /
   unavailable reason, plus extra named windows (Claude model-week, Codex Spark),
   credits remaining, and extra-usage spend when the local source reports them.
   Collected by isolated, individually switchable adapters that can never move
@@ -616,6 +616,11 @@ For source ownership and checks, use the [development map](docs/agents/developme
   the wrist reads the real week. What a list shows and the order it shows it in
   stay defined together, so a row reading 31% never sits below one reading
   41%.
+  Antigravity supplies explicit model groups (`poolKey`): each group's weekly
+  and five-hour windows constrain that group together. Mac and Watch list the
+  tightest current window per group, and compact single readings name the
+  tightest group/window. All windows and reset times remain in detail. These
+  readings belong to the CLI account; desktop account equivalence is not assumed.
   The iPhone Usage page and its home- and lock-screen quota widgets consume the
   same `ProviderQuota`: the page reads the live dashboard and keeps the Kit's
   15-minute stale rule; the widgets read a `PhoneQuotaSnapshot` the app writes

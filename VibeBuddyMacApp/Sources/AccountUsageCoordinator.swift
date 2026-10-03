@@ -41,7 +41,7 @@ final class AccountUsageCoordinator: ObservableObject {
         case .claude: 15 * 60
         case .codex: 20 * 60
         case .grok: 15 * 60
-        case .cursor, .grokBot: 15 * 60
+        case .cursor, .grokBot, .antigravity: 15 * 60
         }
     }
     private let collectors: [AccountUsageProvider: AccountUsageCollector]
@@ -58,7 +58,9 @@ final class AccountUsageCoordinator: ObservableObject {
         let grokEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grok), default: true)
         let cursorEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .cursor), default: true)
         let grokBotEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grokBot), default: false)
+        let antigravityEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .antigravity), default: true)
         collectionEnabled = [
+            .antigravity: antigravityEnabled,
             .codex: codexEnabled,
             .claude: claudeEnabled,
             .grok: grokEnabled,
@@ -66,6 +68,7 @@ final class AccountUsageCoordinator: ObservableObject {
             .grokBot: grokBotEnabled,
         ]
         states = [
+            .antigravity: antigravityEnabled ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil) : .disabled,
             .grokBot: grokBotEnabled ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil) : .disabled,
             .codex: codexEnabled
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
@@ -81,6 +84,7 @@ final class AccountUsageCoordinator: ObservableObject {
                 : .disabled,
         ]
         collectors = [
+            .antigravity: AccountUsageCollector(provider: AntigravityUsageProvider(), cache: AccountUsageFileCache(provider: .antigravity), enabled: antigravityEnabled),
             .grokBot: AccountUsageCollector(provider: GrokBotUsageProvider(), cache: AccountUsageFileCache(provider: .grokBot), enabled: grokBotEnabled),
             .codex: AccountUsageCollector(
                 provider: CodexAppServerUsageProvider(),

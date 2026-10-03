@@ -1169,7 +1169,7 @@ final class DashboardStore: ObservableObject {
                 if demoState == .limit, quota.weeklyRemainingPercent != nil { quota.weeklyRemainingPercent = 4 }
             case .cursor:
                 quota.accountLabel = "Pro"
-            case .grokBot:
+            case .grokBot, .antigravity:
                 break
             }
             if demoState == .stale, quota.observedAt != nil {
