@@ -80,7 +80,7 @@ public struct SessionReducer: Sendable {
     public mutating func registerAntigravitySession(sessionID: String, source: String,
         cwd: String?, title: String?, at: Date) {
         if sessions[sessionID] == nil {
-            var row = AgentSession(id: sessionID, agent: .antigravity, project: cwd ?? "Antigravity",
+            var row = AgentSession(id: sessionID, agent: .antigravity, project: cwd.map(Self.projectName) ?? "Antigravity",
                 checkoutPath: cwd, status: .done, name: title, statusSince: at, updatedAt: at)
             row.historyOnly = true
             sessions[sessionID] = row
@@ -88,13 +88,13 @@ public struct SessionReducer: Sendable {
         guard sessions[sessionID]?.agent == .antigravity else { return }
         sessions[sessionID]?.agentSource = source
         sessions[sessionID]?.controlChannel = ControlChannel.none
-        if let cwd { sessions[sessionID]?.checkoutPath = cwd }
+        if let cwd { sessions[sessionID]?.checkoutPath = cwd; sessions[sessionID]?.project = Self.projectName(cwd) }
         if let title { sessions[sessionID]?.name = title }
     }
 
-    public mutating func reconcileAntigravityHistory(sessionID: String, userStopped: Bool, failed: Bool, at: Date) {
+    public mutating func reconcileAntigravityHistory(sessionID: String, userStopped: Bool, failed: Bool, at: Date, replacesCompletedTurn: Bool = false) {
         guard var row = sessions[sessionID], row.agent == .antigravity,
-              row.status != .done else { return }
+              row.status != .done || row.completionID == nil || replacesCompletedTurn else { return }
         row.status = .done; row.waitKind = nil; row.activeTool = nil
         row.pendingQuestion = nil; row.pendingApproval = nil
         row.userStopped = userStopped; row.failed = failed

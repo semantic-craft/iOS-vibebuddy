@@ -379,8 +379,8 @@ public actor SessionStore {
         if let cwd { workingDirectories[sessionID] = cwd }
         broadcast()
     }
-    public func reconcileAntigravityHistory(sessionID: String, userStopped: Bool, failed: Bool, at: Date) {
-        reducer.reconcileAntigravityHistory(sessionID: sessionID, userStopped: userStopped, failed: failed, at: at)
+    public func reconcileAntigravityHistory(sessionID: String, userStopped: Bool, failed: Bool, at: Date, replacesCompletedTurn: Bool = false) {
+        reducer.reconcileAntigravityHistory(sessionID: sessionID, userStopped: userStopped, failed: failed, at: at, replacesCompletedTurn: replacesCompletedTurn)
         broadcast()
     }
 

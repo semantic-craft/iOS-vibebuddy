@@ -47,13 +47,16 @@ public struct AntigravityDesktopSteps: Decodable, Sendable {
         if conversation.status.hasSuffix("IDLE"),
            ["CORTEX_STEP_STATUS_CANCELED", "CORTEX_STEP_STATUS_CANCELLED"].contains(last?.status ?? "") {
             state = .cancelled
-        } else if let waiting = current.last(where: { $0.status == "CORTEX_STEP_STATUS_WAITING" }) {
+        } else if let waiting = current.last(where: { $0.status == "CORTEX_STEP_STATUS_WAITING" && ($0.requestedInteraction != nil || $0.askQuestion != nil) }) {
             let questions = waiting.requestedInteraction?.askQuestion ?? waiting.askQuestion
             let text = questions?.questions?.compactMap(\.question).joined(separator: "\n")
-            state = .waiting(questions == nil ? .permission : .question, text?.isEmpty == false ? text : nil)
+            let permission = waiting.type?.contains("PERMISSION") == true || waiting.type?.contains("APPROVAL") == true
+            state = .waiting(permission ? .permission : .question,
+                text?.isEmpty == false ? text : "Waiting for a response in Antigravity")
         } else if conversation.status.hasSuffix("RUNNING") {
             state = .working
-        } else if conversation.status.hasSuffix("IDLE"), last?.status == "CORTEX_STEP_STATUS_ERROR" {
+        } else if conversation.status.hasSuffix("IDLE"), last?.status == "CORTEX_STEP_STATUS_ERROR",
+                  ["CORTEX_STEP_TYPE_PLANNER_RESPONSE", "CORTEX_STEP_TYPE_ERROR"].contains(last?.type ?? "") {
             state = .failed
         } else if conversation.status.hasSuffix("IDLE"), last?.type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
                   last?.status == "CORTEX_STEP_STATUS_DONE", last?.plannerResponse?.toolCalls?.isEmpty != false {

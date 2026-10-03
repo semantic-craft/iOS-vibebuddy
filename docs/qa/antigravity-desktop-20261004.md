@@ -13,9 +13,11 @@ Durable evidence: `~/Projects/_shared-work/iOS-vibebuddy/antigravity-desktop-202
 - `native-rpc/results.json`: initial real-client failure.
 - `native-rpc-taskdelegate/results.json`: successful real TLS/RPC read after the fix.
 - `tool-cancel-red/results.json`: reproduced incorrect terminal classification of a cancelled tool while the session remains RUNNING.
-- `scoped-pass/results.json`: three checks passed, including the real read-only RPC check. Command: `tools/check.py mac --filter AntigravityDesktop`, with the opt-in synthetic cancelled-conversation ID supplied as `VIBEBUDDY_ANTIGRAVITY_CANCELLED_PROBE`.
+- `scoped-pass/results.json`: three checks passed, including the real read-only RPC check.
+- `integrated-pass/results.json`: all three tests passed, but the runner flagged a source fingerprint change while this QA note was edited.
+- `final-pass/results.json`: authoritative post-commit repetition after merging the shared quota/source integration and quiet cross-turn reconciliation. Command: `tools/check.py mac --filter AntigravityDesktop`, with the opt-in synthetic cancelled-conversation ID supplied as `VIBEBUDDY_ANTIGRAVITY_CANCELLED_PROBE`.
 
-The regression boundary checks WAITING precedence over RUNNING, cancellation clearing a question, individual tool cancellation remaining working, initial historical completion staying quiet, and cancelled endings carrying no successful result. Unchanged terminal summaries avoid repeat step reads. Active rows have priority and oldest-read-first scheduling, at most four requests per batch and an eight-second scheduling budget (an already-started batch may consume its five-second request deadline). Rows not covered by that budget explicitly carry observation uncertainty.
+The regression boundary checks WAITING precedence over RUNNING, cancellation clearing a question, individual tool cancellation remaining working, initial historical completion staying quiet, and cancelled endings carrying no successful result. Unchanged terminal summaries avoid repeat step reads. Active rows have priority and oldest-read-first scheduling, at most four requests per batch and an eight-second scheduling budget (an already-started batch may consume its five-second request deadline). Rows not covered by that budget explicitly carry observation uncertainty. A new already-terminal turn clears stale prior-turn state quietly; it cannot replay a historical completion. WAITING only requests user attention when a native interaction payload is present; ordinary tool errors do not become terminal execution failures.
 
 ## Remaining acceptance
 
