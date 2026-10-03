@@ -92,3 +92,17 @@ Only explicitly whitelisted read RPCs retry overload `-32001`: at most three
 attempts with bounded jitter. Subscription, approval responses and turn/thread
 writes never enter that retry path. Repeated completion/usage messages and
 repeated request IDs are suppressed without discarding an enriched final item.
+
+## 2026-10-02 Desktop alpha compatibility
+
+A completed Desktop/vscode turn reports `cli_version: 0.159.0-alpha.12.1`.
+`Fixtures/codex-desktop-159-alpha.jsonl` in the Mac core tests retains its
+start, custom tool call/result, token usage and completion shapes; private
+text, paths and identities are replaced. `desktop159AlphaCompatibility`
+replays these through the production parser and health detector. Certification
+covers that exact build; `0.159.0-alpha.12.2` remains unverified.
+
+The Mac integration summary distinguishes an unverified source version
+(informational) from an unreadable source (warning). Invalid source data stays
+a fault, and actual local faults take precedence over version certification.
+This does not certify app-server control, Hook delivery or phone approvals.

@@ -17,7 +17,7 @@ struct AgentIntegrationRegression {
         let codex = AgentIntegrationStatus(configured: true, hookInjected: false, diagnostics: [
             .init(source: .rollout, health: .unknownVersion, lastObservedAt: now, reasonCode: "versionUnverified")
         ])
-        precondition(codex.state == .needsAttention && codex.sources == [.rollout],
+        precondition(codex.state == .versionUnverified && codex.sources == [.rollout],
                      "An unverified Codex version is observed, but must not be advertised as healthy")
         let grok = AgentIntegrationStatus(configured: true, hookInjected: false, diagnostics: [
             .init(source: .transcript, health: .temporarilySilent, reasonCode: "awaitingActivity")
@@ -35,13 +35,22 @@ struct AgentIntegrationRegression {
         let unreadable = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
             .init(source: .transcript, health: .sourceUnreadable, lastObservedAt: now)
         ])
-        precondition(unreadable.state == .needsAttention, "A Hook marker must not hide unreadable sources")
+        precondition(unreadable.state == .sourceUnreadable, "A Hook marker must not hide unreadable sources")
         let mixedCodex = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
             .init(source: .appserver, health: .healthy, lastObservedAt: now),
             .init(source: .rollout, health: .unknownVersion, reasonCode: "versionUnverified")
         ])
-        precondition(mixedCodex.state == .needsAttention && mixedCodex.sources.contains(.rollout),
+        precondition(mixedCodex.state == .versionUnverified && mixedCodex.sources.contains(.rollout),
                      "A healthy sibling must not hide an unverified rollout or omit its source name")
+        let corruptCodex = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
+            .init(source: .rollout, health: .unknownVersion, reasonCode: "invalidSourceData")
+        ])
+        precondition(corruptCodex.state == .needsAttention, "Invalid data is a fault, not an unverified version")
+        let brokenSibling = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
+            .init(source: .rollout, health: .unknownVersion, reasonCode: "versionUnverified"),
+            .init(source: .hook, health: .sourceUnreadable)
+        ])
+        precondition(brokenSibling.state == .sourceUnreadable, "An unverified version must not hide a read failure")
         let wiredIdle = AgentIntegrationStatus(configured: true, hookInjected: true, diagnostics: [
             .init(source: .transcript, health: .temporarilySilent, reasonCode: "awaitingActivity")
         ])

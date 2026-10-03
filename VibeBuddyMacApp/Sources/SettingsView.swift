@@ -589,6 +589,8 @@ private struct AgentCLIsPage: View {
         switch state {
         case .receiving: SettingsPill("Receiving activity", tone: .ok)
         case .waiting: SettingsPill("Waiting for activity", tone: .neutral)
+        case .versionUnverified: SettingsPill("Source version not yet verified", tone: .neutral)
+        case .sourceUnreadable: SettingsPill("Source could not be read", tone: .warn)
         case .needsAttention: SettingsPill("Source needs attention", tone: .warn)
         case .hookConfigured: SettingsPill("Hook configured", tone: .neutral)
         case .hookMissing: SettingsPill("Hook not configured", tone: .neutral)
