@@ -1,34 +1,34 @@
 import Foundation
 import VibeBuddyKit
 
-/// Parses Antigravity (`agy`) / Gemini-CLI hook payloads into a normalized
-/// `HookEvent`. The envelope is **snake_case Claude-shape** (`hook_event_name`,
-/// `session_id`, `cwd`, `tool_name`, `tool_response.error`) — it differs from
-/// Claude only in the event *names*. The decoder accepts both name families:
-/// Gemini-native (`BeforeAgent`/`BeforeTool`/`AfterTool`/`AfterAgent`) and the
-/// Antigravity-2.0 Claude-style spelling (`PreToolUse`/`PostToolUse`/`Stop`/…),
-/// so it works whichever the live `agy` build emits. Unknown events and malformed
-/// input return `nil` (fail-open).
+/// Current Antigravity camelCase hooks carry identity but not the event name.
+/// The fail-open wrapper supplies `event`; native transcripts supply recovery.
 public enum AntigravityParser {
     public static func parse(_ data: Data, receivedAt: Date) -> HookEvent? {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        guard let raw = try? decoder.decode(RawHook.self, from: data),
-              let sessionID = raw.sessionId,
-              let kind = mapKind(raw.hookEventName)
-        else { return nil }
-
-        return HookEvent(
-            kind: kind,
-            sessionID: sessionID,
-            agent: .antigravity,
-            cwd: raw.cwd,
-            toolName: raw.toolName,
-            message: raw.message,
-            transcriptPath: raw.transcriptPath,
-            toolError: kind == .postToolUse && detectToolError(data),
-            timestamp: receivedAt
-        )
+        guard let envelope = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let raw = envelope["payload"] as? [String: Any] ?? envelope
+        let eventName = envelope["event"] as? String ?? raw["hook_event_name"] as? String ?? ""
+        guard let id = raw["conversationId"] as? String ?? raw["session_id"] as? String,
+              !id.isEmpty, var kind = mapKind(eventName) else { return nil }
+        if eventName == "PreInvocation", (raw["invocationNum"] as? Int ?? 0) > 0 { kind = .sessionMetadataChanged }
+        let modern = raw["conversationId"] != nil
+        if modern, kind == .stop, raw["fullyIdle"] as? Bool != true { return nil }
+        let reason = raw["terminationReason"] as? String ?? ""
+        let cancelled = reason == "USER_CANCELED"
+        let error = raw["error"] as? String
+        let success: Bool? = kind == .stop && modern
+            ? (reason == "NO_TOOL_CALL" && (error ?? "").isEmpty) : nil
+        let tool = raw["toolCall"] as? [String: Any]
+        return HookEvent(kind: kind, sessionID: id, agent: .antigravity,
+            cwd: (raw["workspacePaths"] as? [String])?.first ?? raw["cwd"] as? String,
+            toolName: tool?["name"] as? String ?? raw["tool_name"] as? String,
+            message: cancelled ? "Turn cancelled" : (error?.isEmpty == false ? error : raw["message"] as? String),
+            transcriptPath: raw["transcriptPath"] as? String ?? raw["transcript_path"] as? String,
+            model: raw["modelName"] as? String,
+            toolError: kind == .postToolUse && ((error?.isEmpty == false) || detectToolError(data)),
+            timestamp: receivedAt, userStopped: cancelled,
+            completionText: success == true ? raw["finalModelOutput"] as? String : nil,
+            completionSucceeded: success)
     }
 
     /// A failed `AfterTool`/`PostToolUse`. Gemini signals failure with a present
@@ -58,10 +58,8 @@ public enum AntigravityParser {
 
     private static func mapKind(_ name: String) -> HookEvent.Kind? {
         switch name {
-        // agy 1.0.5 surface (confirmed live via /hooks): PreToolUse, PostToolUse,
-        // PreInvocation, PostInvocation, Stop. agy has no SessionStart, so the
-        // first event (PreInvocation, before the turn's first LLM call) creates the
-        // session as working. PostInvocation is redundant → ignored.
+        // Only the first invocation starts a turn; PostInvocation is not a
+        // terminal event. Native observation covers interactive hook gaps.
         case "PreInvocation":                    return .userPromptSubmit
         // Gemini-native + Antigravity-2.0 Claude-style names (kept for tolerance
         // across agy/gemini builds).
@@ -77,12 +75,4 @@ public enum AntigravityParser {
         }
     }
 
-    private struct RawHook: Decodable {
-        let hookEventName: String
-        let sessionId: String?
-        let cwd: String?
-        let toolName: String?
-        let message: String?
-        let transcriptPath: String?
-    }
 }

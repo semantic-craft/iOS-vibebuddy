@@ -12,7 +12,7 @@ public actor SessionTranscriptReader {
     private var located: [String: URL] = [:]
     private var slot: (path: String, revision: String, transcript: HistoryTranscript)?
 
-    public init(claudeHome: URL? = nil, codexHome: URL? = nil, cursorHome: URL? = nil,
+    public init(claudeHome: URL? = nil, codexHome: URL? = nil, cursorHome: URL? = nil, antigravityHome: URL? = nil,
                 environment: [String: String] = ProcessInfo.processInfo.environment) {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let claude = claudeHome ?? environment["CLAUDE_CONFIG_DIR"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".claude")
@@ -20,11 +20,15 @@ public actor SessionTranscriptReader {
         let cursor = cursorHome.map { $0.appendingPathComponent("projects") }
             ?? environment["VIBEBUDDY_CURSOR_HOME"].map { URL(fileURLWithPath: $0).appendingPathComponent("projects") }
             ?? CursorTranscripts.projectsRoot(home: home)
+        let antigravity = antigravityHome ?? home.appendingPathComponent(".gemini")
         let configured: [(URL, SessionHistoryAgent)] = [
             (claude.appendingPathComponent("projects"), .claude),
             (codex.appendingPathComponent("sessions"), .codex),
             (codex.appendingPathComponent("archived_sessions"), .codex),
-            (cursor, .cursor)]
+            (cursor, .cursor),
+            (antigravity.appendingPathComponent("antigravity-cli/brain"), .antigravity),
+            (antigravity.appendingPathComponent("antigravity/brain"), .antigravity),
+            (antigravity.appendingPathComponent("antigravity-ide/brain"), .antigravity)]
         roots = configured.map { (url: $0.0.resolvingSymlinksInPath(), agent: $0.1) }
     }
 
@@ -37,6 +41,7 @@ public actor SessionTranscriptReader {
         return SessionTranscriptReader(claudeHome: root.appendingPathComponent("agents/claude"),
                                        codexHome: root.appendingPathComponent("agents/codex"),
                                        cursorHome: root.appendingPathComponent("agents/cursor"),
+                                       antigravityHome: root.appendingPathComponent("agents/antigravity/.gemini"),
                                        environment: environment)
     }
 
@@ -76,7 +81,7 @@ public actor SessionTranscriptReader {
     static let missWindow: Duration = .seconds(5)
 
     private func locate(_ reference: HistorySessionReference) throws -> URL {
-        if let cached = located[reference.key], Self.isPlainFile(cached) { return cached }
+        if let cached = located[reference.key], Self.isPlainFile(cached), reference.agent != .antigravity { return cached }
         located[reference.key] = nil
         // A session not written yet is asked for on every reader refresh; the
         // Codex lookup walks thousands of rollout files, so a miss is kept briefly.
@@ -107,6 +112,10 @@ public actor SessionTranscriptReader {
                     let stem = file.deletingPathExtension().lastPathComponent
                     if stem == reference.nativeID || stem.hasSuffix("-" + reference.nativeID) { found.append(file) }
                 }
+            case .antigravity:
+                let logs = root.appendingPathComponent(reference.nativeID).appendingPathComponent(".system_generated/logs")
+                let full = logs.appendingPathComponent("transcript_full.jsonl")
+                found.append(Self.isPlainFile(full) ? full : logs.appendingPathComponent("transcript.jsonl"))
             case .grokBuild:
                 continue
             }

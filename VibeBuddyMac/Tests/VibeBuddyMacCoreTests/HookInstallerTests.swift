@@ -73,7 +73,7 @@ struct HookInstallerTests {
 
     static let managed = [
         ".claude/settings.json", ".codex/config.toml", ".codex/hooks.json", ".grok/hooks/vibebuddy.json",
-        ".gemini/antigravity-cli/hooks.json", ".config/opencode/plugins/vibebuddy.js", ".cursor/hooks.json",
+        ".gemini/config/hooks.json", ".config/opencode/plugins/vibebuddy.js", ".cursor/hooks.json",
     ]
     static let userClaudeHook = "echo i-am-a-user-hook"
     static let userCodexNotify = #"notify = ["/Applications/Existing Notifier.app/Contents/MacOS/notifier", "turn-ended"]"#
@@ -92,7 +92,7 @@ struct HookInstallerTests {
         try home.write(".qwen/settings.json", "{}\n")
         try home.write(".kimi-code/config.toml", "default_model = \"x\"\n\n[[hooks]]\nevent = \"Stop\"\n")
         try home.mkdir(".grok")
-        try home.mkdir(".gemini/antigravity-cli")
+        try home.mkdir(".gemini/config")
         try home.mkdir(".config/opencode")
         try home.write(".cursor/hooks.json",
             #"{"version":1,"hooks":{"beforeShellExecution":[{"command":"\#(Self.userCursorHook)","failClosed":true}]}}"# + "\n")
@@ -239,7 +239,7 @@ struct HookInstallerTests {
         #expect(codexLeft == [Self.userCodexHook])
         #expect(!home.exists(".grok/hooks/vibebuddy.json"))
         #expect(!home.exists(".config/opencode/plugins/vibebuddy.js"))
-        #expect(!home.exists(".gemini/antigravity-cli/hooks.json"))
+        #expect(!home.exists(".gemini/config/hooks.json"))
         let cursorAfter = try home.json(".cursor/hooks.json")
         #expect(cursorAfter["version"] as? Int == 1)
         let cursorLeft = (cursorAfter["hooks"] as? [String: [[String: Any]]] ?? [:]).values.joined()
@@ -1028,14 +1028,14 @@ struct HookInstallerTests {
     func antigravity() throws {
         let home = try Home()
         defer { home.remove() }
-        try home.write(".gemini/antigravity-cli/hooks.json", #"{"mine":{"Stop":[{"type":"command","command":"x"}]}}"#)
+        try home.write(".gemini/config/hooks.json", #"{"mine":{"Stop":[{"type":"command","command":"x"}]}}"#)
         _ = home.installer.install([.antigravity])
-        let doc = try home.json(".gemini/antigravity-cli/hooks.json")
+        let doc = try home.json(".gemini/config/hooks.json")
         #expect(doc["mine"] != nil)
         let spec = try #require(doc["vibebuddy"] as? [String: Any])
         #expect(Set(spec.keys) == Set(AntigravityHooks.events))
         _ = home.installer.uninstall([.antigravity])
-        #expect(Set(try home.json(".gemini/antigravity-cli/hooks.json").keys) == ["mine"])
+        #expect(Set(try home.json(".gemini/config/hooks.json").keys) == ["mine"])
     }
 
     // MARK: - Installer output agrees with the Settings diagnostics

@@ -37,7 +37,19 @@ AUTH_HEADER=; [ -n "$TOKEN" ] && AUTH_HEADER="Authorization: Bearer $TOKEN"
 
 # Fire-and-forget: discard the response body (-o /dev/null) so a blocking hook
 # (e.g. Grok PreToolUse) never mistakes our stdout for an allow/deny decision.
-curl -sS --connect-timeout "$CONNECT_TIME" --max-time "$MAX_TIME" -o /dev/null \
+forward_input() {
+    if [ "$SOURCE" = "antigravity" ]; then
+        case "${2:-}" in
+            PreInvocation|PreToolUse|PostToolUse|Stop)
+                printf '{"event":"%s","payload":' "$2"
+                cat
+                printf '}'
+                return ;;
+        esac
+    fi
+    cat
+}
+forward_input "$@" | curl -sS --connect-timeout "$CONNECT_TIME" --max-time "$MAX_TIME" -o /dev/null \
   -H @/dev/fd/3 -X POST --data-binary @- \
   "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null 3<<EOF || true
 $AUTH_HEADER

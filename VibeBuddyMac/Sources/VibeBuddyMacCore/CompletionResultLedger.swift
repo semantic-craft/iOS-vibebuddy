@@ -69,7 +69,7 @@ struct CompletionResultLedger {
             guard records[record.id] == record, !record.sourceID.isEmpty, !record.sessionID.isEmpty,
                   !record.completionID.isEmpty, record.completedAt >= (record.startedAt ?? .distantPast),
                   record.agent != .codex || record.turnID?.isEmpty == false,
-                  record.text.map({ $0.count <= 12_000 }) ?? true,
+                  record.text.map({ $0.count <= CompletionResults.textLimit(for: record.agent) }) ?? true,
                   let data = try? JSONEncoder().encode(record), bytes + data.count <= maximumResultBytes else { continue }
             bytes += data.count
             kept[record.id] = record
