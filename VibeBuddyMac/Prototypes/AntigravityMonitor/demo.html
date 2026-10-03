@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Antigravity 接入原型 · 状态证据</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#243247;font:16px/1.6 system-ui,sans-serif}main{max-width:1050px;margin:42px auto;padding:0 24px}h1{font-size:30px;line-height:1.3}h2{font-size:19px;margin:0 0 14px}.tag{color:#245baf;font-size:13px;font-weight:700;letter-spacing:1px}.muted{color:#586579}section{background:white;border:1px solid #dae1ec;border-radius:14px;padding:24px;margin:18px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}dl{display:grid;grid-template-columns:110px 1fr;gap:10px;margin:0}dt{color:#627087}dd{margin:0;overflow-wrap:anywhere}button{background:white;border:1px solid #b8c7dc;color:#245baf;padding:10px 14px;border-radius:8px;font:inherit;cursor:pointer;margin:4px}button:hover,button[aria-selected=true]{background:#e8f0ff;border-color:#245baf}button:disabled{opacity:.45;cursor:default}.state{font-size:25px;color:#245baf;font-weight:650}.note{padding:12px 15px;background:#eef3fb;border-radius:8px}#result{white-space:pre-wrap;overflow-wrap:anywhere}#log{font-size:14px;max-height:140px;overflow:auto}.full{grid-column:1/-1}@media(max-width:700px){.grid{grid-template-columns:1fr}main{margin:20px auto;padding:0 12px}section{padding:18px}}
+</style>
+<main><div class="tag">THROWAWAY PROTOTYPE · 2026-10-04</div>
+<h1>Antigravity：看见状态，也看见证据</h1>
+<p>要回答的问题：CLI 日志、官方 hooks 与桌面会话接口，能否共同支撑可靠的只读监视？本页是离线状态模型，按钮不会操作真实任务。实测结论与假设场景分别标注。</p>
+<section><h2>已取得的真实证据</h2><ul>
+<li>agy 1.2.16：配额 JSON 返回 Gemini / Claude + GPT 两组的周窗口与五小时窗口。</li>
+<li>CLI 测试：收到 PreInvocation、PostToolUse、Stop；Stop.fullyIdle=true；原生日志最后结果与 CLI 输出一致。</li>
+<li>桌面 2.19.1：本地会话接口成功返回 RUNNING / IDLE，并与原应用运行画面对照。</li>
+<li>真实问题等待：CLI 日志有未完成的 ask_question；桌面总状态仍为 RUNNING，但步骤明确为 ASK_QUESTION / WAITING。桌面取消后步骤为 CANCELED。</li>
+<li>80 行长结果：短日志被截断；完整日志与 CLI 的 5,600 字符输出一致（仅忽略末尾换行）。</li>
+</ul><p class="muted">权限审批、故障、后台任务和三端通知仍未完成真实验收。下方按钮用于回放与推演，不能证明上游覆盖所有情形。</p></section>
+<section aria-live="polite"><div class="grid"><div><h2>当前会话</h2><div id="status" class="state"></div><dl id="session"></dl></div><div><h2>当前配额</h2><dl id="quota"></dl></div><div class="full"><h2>任务正文</h2><div id="result"></div></div></div><p id="change" class="note"></p></section>
+<section><h2>自由操作</h2><div id="actions"></div><p class="muted">身份相同的来源合并；日志沉默或连接断开不代表任务完成；等待时只能回原应用处理。</p></section>
+<section><h2>引导场景</h2><div role="tablist" id="tabs"></div><p id="scenario"></p><div id="steps"></div></section>
+<section><h2>本次操作记录</h2><ol id="log"></ol><button id="reset">重置演示</button></section></main>
+<script>
+// Pure throwaway reducer: source adapters are NOT implemented by this HTML.
+const initial=()=>({id:'prototype-session',sources:[],state:'unknown',health:'未接入',wait:'无',body:'暂无正文',quota:'未读取',groups:[],completionCount:0,turn:0,endedTurn:-1,last:'尚未收到事件'});
+function reduce(s,a){
+ const n={...s,sources:[...s.sources],groups:[...s.groups],last:a.label};
+ if(a.kind==='start'){n.state='working';n.health='正常';n.wait='无';n.turn++;n.body='正在读取测试文件……';}
+ if(a.kind==='source'){if(!n.sources.includes(a.value))n.sources.push(a.value);n.health='正常';}
+ if(a.kind==='wait'&&n.state==='working'){n.state='needsResponse';n.health='正常';n.wait='请回原应用回答 Alpha / Beta';}
+ if(a.kind==='resume'&&n.state==='needsResponse'){n.state='working';n.health='正常';n.wait='无';}
+ if(a.kind==='end'&&['working','needsResponse'].includes(n.state)){n.state='done';n.health='正常';n.wait='无';n.body='ANTIGRAVITY_PROTOTYPE_OK\nANTIGRAVITY_PROTOTYPE_FIXTURE_20261004';if(n.endedTurn!==n.turn){n.completionCount++;n.endedTurn=n.turn;}}
+ if(a.kind==='background'&&n.state==='working'){n.last='结束事件注明后台仍在运行，继续显示运行中';}
+ if(a.kind==='lost'){n.health='失联，状态待确认';n.quota=n.groups.length?'已过期':'不可用';}
+ if(a.kind==='silence'){n.last='30 秒无新日志：不推断完成';}
+ if(a.kind==='toolError'){n.last='单次工具失败：不改变整个会话状态';}
+ if(a.kind==='fatal'){n.state='failed';n.wait='无';n.body='已收到明确的会话终止错误（模拟）';}
+ if(a.kind==='cancel'){n.state='done';n.health='正常';n.wait='无';n.body='原应用报告已取消。取消不计为成功完成提醒。';}
+ if(a.kind==='quota'){n.quota='固定样本 · 非实时';n.groups=[['Gemini 周','99% · 10月11日 02:11 重置'],['Gemini 五小时','99% · 10月4日 07:11 重置'],['Claude + GPT 周','62% · 10月11日 02:07 重置'],['Claude + GPT 五小时','25% · 10月4日 07:07 重置（最紧张）']];}
+ return n;
+}
+</script>
+<script>
+const A=[{label:'收到开始事件',kind:'start'},{label:'发现 CLI 日志',kind:'source',value:'CLI 日志'},{label:'发现同一会话的 hook',kind:'source',value:'CLI hook'},{label:'收到问题等待信号',kind:'wait'},{label:'在原应用回答后恢复',kind:'resume'},{label:'收到最终结束及正文',kind:'end'},{label:'结束但后台仍运行（模拟）',kind:'background'},{label:'连接断开（模拟）',kind:'lost'},{label:'30 秒没有日志（模拟）',kind:'silence'},{label:'单次工具出错（模拟）',kind:'toolError'},{label:'明确终止失败（模拟）',kind:'fatal'},{label:'读取配额示例',kind:'quota'},{label:'原应用报告取消',kind:'cancel'},{label:'读取桌面步骤',kind:'source',value:'桌面步骤 RPC'}];
+const cases=[{name:'真实 CLI 路径',text:'来源：此次真实任务的事件与正文。回放只展示已观察的开始、读取和结束路径。',steps:[1,0,2,11,5,5]},
+{name:'等待与继续',text:'CLI 实测问题与回答信号；中间插入一次模拟失联。这里只观察原应用中的动作，不提供远程控制。',steps:[1,0,3,7,4,5]},
+{name:'桌面等待与取消',text:'桌面真实观测：总状态 RUNNING 并不排除等待；步骤 WAITING 提供真实问题，取消后步骤为 CANCELED。',steps:[13,0,3,12]},
+{name:'失联与后台任务',text:'设计场景：任务仍未结束时，沉默、掉线和局部错误不能产生完成提醒。',steps:[1,0,6,8,9,7]},
+{name:'会话失败',text:'设计场景：只有明确的会话终止错误才标失败。',steps:[1,0,9,10]}];
+let state=initial(),history=[],selected=0,step=0;
+const labels={unknown:'尚未确认',working:'运行中',needsResponse:'等待用户',done:'已完成',failed:'已失败'};
+function field(dl,k,v){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v;dl.append(dt,dd);}
+function render(){document.getElementById('status').textContent=labels[state.state];const s=document.getElementById('session');s.replaceChildren();[['会话',state.id],['观测来源',state.sources.join('、')||'无'],['观测健康',state.health],['等待原因',state.wait],['控制能力','只读 · 回原应用处理'],['本轮',state.turn],['完成提醒次数',state.completionCount]].forEach(([k,v])=>field(s,k,v));const q=document.getElementById('quota');q.replaceChildren();field(q,'新鲜度',state.quota);state.groups.forEach(([k,v])=>field(q,k,v));document.getElementById('result').textContent=state.body;document.getElementById('change').textContent=state.last;const log=document.getElementById('log');log.replaceChildren();history.slice(-12).forEach(t=>{const li=document.createElement('li');li.textContent=t;log.append(li)});renderSteps();}
+function dispatch(a){state=reduce(state,a);history.push(a.label+' → '+labels[state.state]+' / '+state.health);render();}
+A.forEach(a=>{const b=document.createElement('button');b.textContent=a.label;b.onclick=()=>dispatch(a);document.getElementById('actions').append(b)});
+cases.forEach((c,i)=>{const b=document.createElement('button');b.textContent=c.name;b.setAttribute('role','tab');b.onclick=()=>{selected=i;step=0;state=initial();history=[];render()};document.getElementById('tabs').append(b)});
+function renderSteps(){[...document.getElementById('tabs').children].forEach((b,i)=>b.setAttribute('aria-selected',i===selected));document.getElementById('scenario').textContent=cases[selected].text;const target=document.getElementById('steps');target.replaceChildren();cases[selected].steps.forEach((idx,i)=>{const b=document.createElement('button');b.textContent=(i+1)+'. '+A[idx].label;b.disabled=i!==step;b.onclick=()=>{step++;dispatch(A[idx])};target.append(b)})}
+document.getElementById('reset').onclick=()=>{state=initial();history=[];step=0;render()};render();
+</script></html>
