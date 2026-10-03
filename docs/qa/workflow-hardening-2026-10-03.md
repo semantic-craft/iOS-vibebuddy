@@ -65,6 +65,29 @@ The retained candidate was strictly verified again after copying to durable stor
 
 ## Remaining acceptance boundary
 
+### Skill entry repair — 2026-10-03
+
+A follow-up inspection at `61d03fc3` found the three project skill entries
+missing even though their tracked originals existed. Restored only the ignored
+relative links under `.agents/skills/` for `verify-vibebuddy`,
+`vibebuddy-history` and `vibebuddy-handoff`. The existing `.claude/skills`
+link resolves through that same directory. Skill source files and the existing
+uncommitted AGENTS wiring clarification were left unchanged.
+
+All three entries resolve to their repository originals through both paths;
+Git ignores the links. Wiring evidence (including original-file hashes) is in
+`~/Projects/_shared-work/iOS-vibebuddy/2026-10-03-skill-entry-repair/wiring.json`.
+The scoped documentation checks are recorded beside it in `docs/results.json`
+and `commit-docs/results.json` (final documentation).
+The next Codex turn's host-provided skill catalog listed all three project
+skills at `.agents/skills/`, confirming Codex discovery. Claude discovery and
+actual skill invocation were not tested. The owner accepted the repair and
+authorized a local commit of the wiring clarification and this record on
+2026-10-03. The links remain local and ignored; application behavior is unchanged.
+No push, installation or publication is included.
+
+### Installed application
+
 No production app was stopped/replaced or launched, no production token was
 written, and this work did not bind `:9876`. Real installed-app restart/rollback,
 real-agent behavior, phone/Watch flows and Sparkle update installation remain
