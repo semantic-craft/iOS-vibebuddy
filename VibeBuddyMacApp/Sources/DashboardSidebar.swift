@@ -171,10 +171,12 @@ struct DashboardSidebar: View {
 
     /// New task in the agent's name: the rail's choice is the one the sheet
     /// opens on, so starting work is the same gesture as reading it.
-    private var newTaskRow: some View {
-        SidebarRow(systemName: "plus.square",
-                   title: agent == nil ? "New task" : LocalizedStringKey(String(localized: "New \(agentName) task")),
-                   shortcut: "⌘N", action: onNewTask)
+    @ViewBuilder private var newTaskRow: some View {
+        if agent != .antigravity {
+            SidebarRow(systemName: "plus.square",
+                       title: agent == nil ? "New task" : LocalizedStringKey(String(localized: "New \(agentName) task")),
+                       shortcut: "⌘N", action: onNewTask)
+        }
     }
 
     // MARK: Sessions

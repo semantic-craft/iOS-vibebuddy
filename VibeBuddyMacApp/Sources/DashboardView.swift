@@ -332,9 +332,10 @@ struct DashboardView: View {
         }
         .background {
             Group {
-                // ⌘N opens New task; the sheet itself explains when no agent
-                // can start yet, so the entry is never disabled.
-                Button("") { showNewTask = true }.keyboardShortcut("n", modifiers: .command)
+                // Antigravity is an observation-only surface.
+                if agentFilter != .antigravity {
+                    Button("") { showNewTask = true }.keyboardShortcut("n", modifiers: .command)
+                }
                 Button("") { openBucket(.needsYou) }.keyboardShortcut("1", modifiers: .command)
                 Button("") { openBucket(.working) }.keyboardShortcut("2", modifiers: .command)
                 Button("") { openBucket(.done) }.keyboardShortcut("3", modifiers: .command)
