@@ -1,6 +1,6 @@
 # Antigravity 配额与会话观察：首版范围
 
-阶段：首版产品范围已确认，接入代码已实施；三端端到端验收和发布进行中。见 [集成验收记录](../../../qa/antigravity-monitor-20261004.md)。
+阶段：首版实现与 Agent 功能验收完成；Mac 已发布，iOS/Watch 已提交 Apple 并等待审核。见 [集成验收记录](../../../qa/antigravity-monitor-20261004.md)。
 日期：2026-10-04。
 来源：本次 grill-with-docs 对话，用户对 Q1–Q4 回答“按推荐”，对 Q5 回答“就按你的推荐来”。
 研究：[接入方案与开源看板比较](../../../research/antigravity-monitor-2026-10-04.md)。
@@ -57,4 +57,4 @@
 ## 当前交付状态
 
 已交付研究、范围、独立原型与配额/CLI/桌面接入；来源依据见 [PROTOTYPE](PROTOTYPE.md)，实施依据见 [SPEC](SPEC.md)。
-本地集成已提交；已签名候选在共享安装之外运行，尚未替换 `/Applications`。真实三端链路、独立评审与发布状态持续记录在 [集成验收记录](../../../qa/antigravity-monitor-20261004.md)，不能把构建通过当作全部验收。
+PR #344 已合并；Mac 1.3.44 (62) 已安装至 `/Applications` 并公开发布，旧版 Sparkle 自动升级通过。iOS/Watch 1.3.35 (70) 已提交并等待 Apple 审核。真实三端链路、独立评审、用户指定的本次 Agent 验收边界及未测量项见 [集成验收记录](../../../qa/antigravity-monitor-20261004.md)。
