@@ -7,7 +7,7 @@ import VibeBuddyKit
 /// legacy `codex` / `claude` / `both` so saved complication URLs keep working;
 /// unknown future paths fall back to `.both` instead of failing open.
 enum WatchQuotaSelection: String, CaseIterable, Identifiable {
-    case codex, claude, grok, cursor, grokBot, both, all
+    case codex, claude, grok, cursor, grokBot, antigravity, both, all
     var id: String { rawValue }
     var providers: [AccountUsageProvider] {
         switch self {
@@ -16,6 +16,7 @@ enum WatchQuotaSelection: String, CaseIterable, Identifiable {
         case .grok: [.grok]
         case .cursor: [.cursor]
         case .grokBot: [.grokBot]
+        case .antigravity: [.antigravity]
         case .both: [.codex, .claude]
         case .all: AccountUsageProvider.allCases
         }

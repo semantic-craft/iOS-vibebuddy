@@ -10,6 +10,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
     case grok
     case cursor
     case grokBot
+    case antigravity
 
     public var id: String { rawValue }
 
@@ -20,6 +21,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
         case .grok: return "Grok Build"
         case .cursor: return "Cursor"
         case .grokBot: return "Grok Bot"
+        case .antigravity: return "Antigravity"
         }
     }
 }
@@ -154,6 +156,8 @@ public enum QuotaWindowStatus: String, Sendable {
 
 /// A single source reading. The timestamp never changes during relay or rendering.
 public struct QuotaWindow: Codable, Equatable, Sendable {
+    /// Explicit independent model pool; multiple time windows may share it.
+    public var poolKey: String?
     public var label: String?
     public var remainingPercent: Int?
     public var durationMinutes: Int?
@@ -161,7 +165,8 @@ public struct QuotaWindow: Codable, Equatable, Sendable {
     public var observedAt: Date?
     public var isCached: Bool?
 
-    public init(remainingPercent: Int?, durationMinutes: Int?, resetsAt: Date?, observedAt: Date?, isCached: Bool? = nil, label: String? = nil) {
+    public init(remainingPercent: Int?, durationMinutes: Int?, resetsAt: Date?, observedAt: Date?, isCached: Bool? = nil, label: String? = nil, poolKey: String? = nil) {
+        self.poolKey = poolKey
         self.label = label
         self.remainingPercent = remainingPercent.flatMap { (0...100).contains($0) ? $0 : nil }
         self.durationMinutes = durationMinutes.flatMap { $0 > 0 ? $0 : nil }
@@ -236,7 +241,8 @@ public extension ProviderQuota {
     /// takes its own row, tightest first, because hiding the exhausted one
     /// behind the comfortable one is the reading that gets someone stuck.
     func stripWindows(preferring kind: QuotaWindowKind = .weekly, now: Date = Date()) -> [QuotaWindow] {
-        samePeriodPools(now: now) ?? [displayWindow(preferring: kind, now: now)]
+        if let pools = modelPoolWindows(now: now) { return pools }
+        return samePeriodPools(now: now) ?? [displayWindow(preferring: kind, now: now)]
     }
 
     /// Every independent pool as its own reading, tightest first, judged
@@ -264,6 +270,7 @@ public extension ProviderQuota {
     /// rather than promoting one. Weekly/short stay exact; monthly periods
     /// remain labeled by duration via otherWindows.
     func displayWindow(preferring kind: QuotaWindowKind = .weekly, now: Date = Date()) -> QuotaWindow {
+        if let tightest = modelPoolWindows(now: now)?.first { return tightest }
         if let tightest = samePeriodPools(now: now)?.first { return tightest }
         let preferred = window(kind)
         if preferred.remainingPercent != nil { return preferred }
@@ -276,6 +283,16 @@ public extension ProviderQuota {
             return stampingCache(other)
         }
         return preferred
+    }
+
+    /// Each explicitly identified model pool contributes its tightest current window.
+    /// Reset windows remain available for detail but cannot mask the other live window.
+    private func modelPoolWindows(now: Date) -> [QuotaWindow]? {
+        let windows = independentWindows
+        guard !windows.isEmpty, windows.allSatisfy({ $0.poolKey != nil }) else { return nil }
+        return Dictionary(grouping: windows, by: { $0.poolKey! }).values.compactMap { pool in
+            pool.min { ($0.currentRemainingPercent(now: now) ?? 101) < ($1.currentRemainingPercent(now: now) ?? 101) }
+        }.sorted { ($0.currentRemainingPercent(now: now) ?? 101) < ($1.currentRemainingPercent(now: now) ?? 101) }
     }
 
     /// A relayed window inherits the provider's cached flag: a pool read from

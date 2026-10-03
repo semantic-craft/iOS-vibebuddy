@@ -9,6 +9,7 @@ public extension AccountUsageProvider {
         case .cursor: return .cursor
         case .grok: return .grok
         case .grokBot: return .grokBot
+        case .antigravity: return .antigravity
         }
     }
 }
