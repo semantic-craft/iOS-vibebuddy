@@ -8,6 +8,11 @@
 
 | ID | 内容 | 票据 | 状态 | 说明 |
 |---|---|---|---|---|
+| AG-MON | Antigravity 配额与 CLI / 桌面会话观察 | [首版范围](antigravity-monitor/PRD.md) · [原型结论](antigravity-monitor/PROTOTYPE.md) | 实施中 | [实施规格](antigravity-monitor/SPEC.md)；保留原型缺口与三端验收要求 |
+| AG-01 | 三端模型组配额 | [ticket](antigravity-monitor/issues/01-quota.md) | ready-for-agent | Blocked by: None |
+| AG-02 | CLI 自动发现、等待与完整结果 | [ticket](antigravity-monitor/issues/02-cli.md) | ready-for-agent | Blocked by: None |
+| AG-03 | 桌面自动发现与步骤状态 | [ticket](antigravity-monitor/issues/03-desktop.md) | ready-for-agent | Blocked by: 02-cli |
+| AG-04 | 三端端到端验收及发布 | [ticket](antigravity-monitor/issues/04-acceptance-release.md) | ready-for-agent | Blocked by: 01-quota, 02-cli, 03-desktop |
 | IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 真机、MiniMax 凭据及可操作的模拟器图形界面 |
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
