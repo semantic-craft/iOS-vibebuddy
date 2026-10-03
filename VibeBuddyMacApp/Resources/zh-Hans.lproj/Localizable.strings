@@ -1432,3 +1432,6 @@
 "Grok Build · Discovered, waiting to connect" = "Grok Build · 已发现，等待接入";
 "Open Agent integration" = "打开 Agent 接入";
 "Installs hooks for every detected CLI. Grok Build can also be connected using its monitoring switch above." = "为已检测到的 CLI 安装 hooks。Grok Build 也可通过上方监控开关接入。";
+
+"Source version not yet verified" = "来源版本尚未验证";
+"Source could not be read" = "接入来源读取失败";
