@@ -18,11 +18,7 @@ Keep a small number of fast tests for critical pure logic or a reproduced regres
 
 ## Skills
 
-`.agents/skills/` links to originals in `xw-skills`; `.claude/skills/` points at those links. Both are untracked. Edit originals and keep valid links.
-
-Repository-owned skills live in `docs/agents/skills/` and are tracked here: `verify-vibebuddy` (isolated runtime acceptance), `vibebuddy-history` (resuming from handoff notes and `vibebuddy-mcp facts`), `vibebuddy-handoff` (source-identified handoff notes). Link them into the local face when needed:
-
-    ln -s ../../docs/agents/skills/vibebuddy-history .agents/skills/vibebuddy-history
+Repository-owned skills live in `docs/agents/skills/` and are tracked here: `verify-vibebuddy` (isolated runtime acceptance), `vibebuddy-history` (resuming from handoff notes and `vibebuddy-mcp facts`), `vibebuddy-handoff` (source-identified handoff notes). Discover them through `.agents/skills/`; wiring follows the global `SKILLS-OPS.md`.
 
 ## Task references
 
