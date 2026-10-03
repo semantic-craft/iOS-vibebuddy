@@ -295,6 +295,7 @@ public actor SessionStore {
             return now.timeIntervalSince(evidence.lastObservedAt) < window
         }
         switch session.agent {
+        case .antigravity: return ControlChannel.none
         case .codex:
             if let health = runtimeSignals[.codex]?[.appserver]?.health, !health.isHealthy { return nil }
             return fresh(.appserver, within: Self.appServerAuthorityWindow) ? .appserver : nil
@@ -369,6 +370,25 @@ public actor SessionStore {
     // A detached tmux pane can be waiting, idle or complete; never infer a turn.
     private var cursorPersistentRows: [String: AgentSession] = [:]
     private var cursorPersistentDiscovery: String?
+
+    /// Discovery creates a quiet readable history row; only new lifecycle
+    /// evidence may mint a completion or a request for attention.
+    public func registerAntigravitySession(sessionID: String, source: String,
+                                          cwd: String?, title: String?, at: Date) {
+        reducer.registerAntigravitySession(sessionID: sessionID, source: source, cwd: cwd, title: title, at: at)
+        if let cwd { workingDirectories[sessionID] = cwd }
+        broadcast()
+    }
+    public func reconcileAntigravityHistory(sessionID: String, userStopped: Bool, failed: Bool, at: Date) {
+        reducer.reconcileAntigravityHistory(sessionID: sessionID, userStopped: userStopped, failed: failed, at: at)
+        broadcast()
+    }
+
+    public func markAntigravityObservation(sessionID: String, health: ObservationHealth, at: Date) {
+        guard reducer.sessions[sessionID]?.agent == .antigravity else { return }
+        reducer.recordObservation(sessionID: sessionID, source: .transcript, at: at, health: health)
+        broadcast()
+    }
 
     public func refreshCursorPersistentSessions() async {
         applyCursorPersistentDiscovery(await CursorPersistentSessions.discover())

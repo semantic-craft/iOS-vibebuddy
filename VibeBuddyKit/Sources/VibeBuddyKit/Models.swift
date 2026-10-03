@@ -494,6 +494,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// but the thread id (which is the session id) addresses the conversation
     /// itself, and ChatGPT.app opens it from `codex://threads/<id>`. Optional so
     /// payloads from older Macs decode as "not a Desktop session".
+    /// Native application surface when one agent has several independent clients.
+    public var agentSource: String?
     public var desktopThreadID: String?
     public var summary: String?
     public var tokens: Int?
