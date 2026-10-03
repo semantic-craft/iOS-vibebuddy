@@ -539,7 +539,8 @@ struct AgentSessionRow: View {
         case .project(let path):
             name = path.hasPrefix("/") ? URL(fileURLWithPath: path).lastPathComponent : path
         }
-        return showAgent ? "\(session.agent.shortName) · \(name)" : name
+        if showAgent { return "\(session.agentSourceLabel) · \(name)" }
+        return session.sourceSurfaceLabel.map { "\($0) · \(name)" } ?? name
     }
 }
 

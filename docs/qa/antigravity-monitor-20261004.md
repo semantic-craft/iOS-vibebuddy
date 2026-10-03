@@ -32,3 +32,9 @@
 ## 交付边界
 
 本记录会追加实际命令、源提交、证据路径和未运行项。构建通过、服务快照正确、模拟器画面、真机送达、用户验收分别记录。生产安装前重新核实共享 app 的其他会话/设备使用情况。
+
+## 权限等待来源补证
+
+交互式 CLI 在隔离工作区请求执行 `printf ANTIGRAVITY_PERMISSION_PROBE`，原终端真实展示 Run this command?。一次性批准后输出 `ANTIGRAVITY_PERMISSION_DONE` 并回到空闲，随后 `/exit` 退出。原生 SQLite 步骤从 `(type=132,status=9)` 变成 `(132,3)`，追加最终 planner 行。只读备份、全文和观察记录位于 `~/Projects/_shared-work/iOS-vibebuddy/antigravity-integration-20261004/permission-probe/`。这是来源补证，产品 monitor 尚未运行。
+
+`/hooks` 界面确认项目的被动捕获 handler 已加载，但交互式运行未生成捕获文件；需原生数据库承担权威状态，不能用已加载配置冒充 hooks 已交付。

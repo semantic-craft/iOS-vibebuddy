@@ -942,6 +942,7 @@ private struct TaskRow: View {
                             // part that gets cut.
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(stateWord).foregroundStyle(CompanionPalette.status(state))
+                                if let source = session.sourceSurfaceLabel { Text(source) }
                                 if let detail {
                                     Text(detail).lineLimit(2)
                                         .font(detail == session.ledgerSummary ? CompanionType.mono(12) : CompanionType.font(13))
@@ -953,6 +954,7 @@ private struct TaskRow: View {
                         } else {
                         HStack(spacing: 5) {
                             Text(stateWord).foregroundStyle(CompanionPalette.status(state))
+                                if let source = session.sourceSurfaceLabel { Text(source) }
                             if let detail {
                                 Text("·")
                                 Text(detail).lineLimit(1).truncationMode(.tail)
