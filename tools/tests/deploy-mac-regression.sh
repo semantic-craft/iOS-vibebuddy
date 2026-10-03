@@ -127,3 +127,7 @@ fi
   stop_app /fixture
   echo 'PASS runtime classifies before signaling and tolerates ESRCH'
 )
+
+# macOS ships Bash 3.2: nounset must tolerate an empty process snapshot.
+/bin/bash -c 'set -eu; source "$1/tools/lib/mac-app-runtime.sh"; app_pids() { :; }; stop_app /fixture' _ "$repo"
+echo 'PASS system Bash empty process snapshot'

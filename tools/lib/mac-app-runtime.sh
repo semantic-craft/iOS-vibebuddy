@@ -29,6 +29,7 @@ stop_app() {
     fi
     targets+=("$pid")
   done
+  ((${#targets[@]})) || return 0
   for pid in "${targets[@]}"; do
     if ! kill -TERM "$pid" 2>/dev/null; then
       kill -0 "$pid" 2>/dev/null || continue
