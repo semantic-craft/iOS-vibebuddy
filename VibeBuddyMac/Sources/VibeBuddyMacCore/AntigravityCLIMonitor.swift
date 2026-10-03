@@ -6,6 +6,7 @@ import VibeBuddyKit
 public actor AntigravityCLIMonitor {
     private let root: URL
     private var fingerprints: [String: String] = [:]
+    private var healthBySession: [String: ObservationHealth] = [:]
     private var initialized = false
     private var historicalEndings: [String: String] = [:]
     private var phases: [String: String] = [:]
@@ -27,15 +28,37 @@ public actor AntigravityCLIMonitor {
     }
     public func poll(store: SessionStore, now: Date) async {
         let directory = root.appendingPathComponent("conversations")
-        let files = ((try? FileManager.default.contentsOfDirectory(at: directory,
+        let candidates = ((try? FileManager.default.contentsOfDirectory(at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])) ?? [])
             .filter { $0.pathExtension == "db" }
-            .sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast)
-                > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast) }
+        // SQLite may leave the main file untouched throughout a resumed turn.
+        // Rank each conversation by all native sources, then retain live rows
+        // outside the bounded history-discovery budget.
+        let ranked: [(URL, Date)] = candidates.map { database -> (URL, Date) in
+            let id = database.deletingPathExtension().lastPathComponent
+            let logs = root.appendingPathComponent("brain/\(id)/.system_generated/logs")
+            let sources = [database, URL(fileURLWithPath: database.path + "-wal"),
+                logs.appendingPathComponent("transcript_full.jsonl"), logs.appendingPathComponent("transcript.jsonl")]
+            let modified = sources.compactMap {
+                (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            }.max() ?? .distantPast
+            return (database, modified)
+        }
+        let sorted = ranked.sorted { lhs, rhs in
+            if lhs.1 == rhs.1 { return lhs.0.path < rhs.0.path }
+            return lhs.1 > rhs.1
+        }
+        let files: [URL] = sorted.map { $0.0 }
+        let activeIDs = Set(phases.filter { !$0.value.hasPrefix("ended:") }.keys)
+        let liveFiles = files.filter { activeIDs.contains($0.deletingPathExtension().lastPathComponent) }
+        let historyFiles = files.filter { !activeIDs.contains($0.deletingPathExtension().lastPathComponent) }.prefix(200)
+        let summaryDatabase = root.appendingPathComponent("conversation_summaries.db")
+        let summaryRevision = [summaryDatabase, URL(fileURLWithPath: summaryDatabase.path + "-wal")]
+            .map { SessionTranscriptReader.sourceRevision($0) ?? "missing" }.joined(separator: "|")
         let historical = !initialized
         initialized = true
         var found = Set<String>()
-        for database in files.prefix(200) {
+        for database in liveFiles + Array(historyFiles) {
             if Task.isCancelled { return }
             let id = database.deletingPathExtension().lastPathComponent
             guard (try? HistorySessionReference("antigravity:" + id)) != nil else { continue }
@@ -45,9 +68,9 @@ public actor AntigravityCLIMonitor {
             let short = logs.appendingPathComponent("transcript.jsonl")
             let file = FileManager.default.fileExists(atPath: full.path) ? full : short
             let fingerprint = [database, URL(fileURLWithPath: database.path + "-wal"), file]
-                .map { SessionTranscriptReader.sourceRevision($0) ?? "missing" }.joined(separator: "|")
+                .map { SessionTranscriptReader.sourceRevision($0) ?? "missing" }.joined(separator: "|") + "|" + summaryRevision
             if fingerprints[id] == fingerprint {
-                await store.markAntigravityObservation(sessionID: id, health: .healthy, at: now)
+                await store.markAntigravityObservation(sessionID: id, health: healthBySession[id] ?? .healthy, at: now)
                 continue
             }
             guard let native = AntigravityNative.state(database: database, sessionID: id),
@@ -66,9 +89,9 @@ public actor AntigravityCLIMonitor {
             let question = isQuestion ? (pendingCall.flatMap(AntigravityNative.question)
                 ?? "Antigravity has a question; details unavailable. Return to the CLI.") : nil
             let knownPermission = native.lastType == 132 && pendingCall?["name"] as? String == "run_command"
-            let summary = AntigravityNative.summary(database: root.appendingPathComponent("conversation_summaries.db"), sessionID: id)
+            let summary = AntigravityNative.summary(database: summaryDatabase, sessionID: id)
             let terminal = native.terminalIndex == native.lastIndex && !native.waiting
-            let succeeded = terminal && native.reason == 4 && native.lastStatus == 3 && summary?.fullyIdle != false
+            let succeeded = terminal && native.reason == 4 && native.lastStatus == 3 && summary?.fullyIdle == true
             // The summary can catch up after the foreground DB has settled;
             // keep checking until its background work is explicitly idle.
             if terminal && native.reason == 4 && summary?.fullyIdle == false { fingerprints[id] = nil }
@@ -79,11 +102,21 @@ public actor AntigravityCLIMonitor {
             let title = prompt?["content"] as? String
             await store.registerAntigravitySession(sessionID: id, source: "CLI", cwd: summary?.cwd,
                 title: summary?.title ?? title.map { String(Self.userText($0).prefix(120)) }, at: now)
-            if native.waiting && !isQuestion && !knownPermission {
+            // Foreground completion alone cannot attest that background work
+            // finished. Keep the lifecycle until the native summary is readable.
+            if terminal && native.reason == 4 && summary == nil {
+                healthBySession[id] = .sourceUnreadable
                 fingerprints[id] = nil
+                await store.markAntigravityObservation(sessionID: id, health: .sourceUnreadable, at: now)
+                continue
+            }
+            let unknownEnding = terminal && !ended && !(native.reason == 4 && summary?.fullyIdle == false)
+            if native.waiting && !isQuestion && !knownPermission || unknownEnding {
+                healthBySession[id] = .unknownVersion
                 await store.markAntigravityObservation(sessionID: id, health: .unknownVersion, at: now)
                 continue
             }
+            healthBySession[id] = .healthy
             await store.markAntigravityObservation(sessionID: id, health: .healthy, at: now)
             let missedNewTurn = userIndices[id].map { $0 != userIndex } == true
             userIndices[id] = userIndex
@@ -116,7 +149,7 @@ public actor AntigravityCLIMonitor {
                         completionSucceeded: succeeded, sourceCompletionID: turnID + "-\(native.lastIndex)"))
                 } else {
                     let wasKnown = phases[id] != nil
-                    if !wasKnown || phases[id]?.hasPrefix("ended:") == true || phases[id]?.hasPrefix("working:") == true && phases[id] != phase && !native.waiting {
+                    if missedNewTurn || !wasKnown || phases[id]?.hasPrefix("ended:") == true || phases[id]?.hasPrefix("working:") == true && phases[id] != phase && !native.waiting {
                         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: id, agent: .antigravity,
                             message: title.map(Self.userText), transcriptPath: file.path,
                             observationSource: .transcript, timestamp: now, turnID: turnID))
