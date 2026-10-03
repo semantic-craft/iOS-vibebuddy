@@ -83,6 +83,9 @@ public enum WatchStopBlock: String, Codable, Equatable, Sendable {
         case .macNeedsSetup:
             return String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here.", bundle: .module)
         case .agentUnsupported:
+            if agent == .antigravity {
+                return String(localized: "Stop this in Antigravity on your Mac.", bundle: .module)
+            }
             guard let agent else {
                 return String(localized: "This agent can't take instructions from the phone yet — use the terminal.", bundle: .module)
             }
@@ -95,6 +98,7 @@ public enum WatchStopBlock: String, Codable, Equatable, Sendable {
 public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     /// Absent in older relays/caches; never infer an agent from display text.
     public var agent: AgentKind?
+    public var agentSource: String? = nil
     public var sessionID: String
     public var completionID: String?
     public var title: String
@@ -119,6 +123,7 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
 
     public init(_ session: AgentSession) {
         agent = session.agent
+        agentSource = session.agentSource
         sessionID = session.id
         completionID = session.completionID
         title = String(session.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))
@@ -147,7 +152,11 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         statusSince = session.statusSince
     }
 
-    public var sourceName: String { agent?.displayName ?? String(localized: "Unknown source", bundle: .module) }
+    public var sourceName: String {
+        let name = agent?.displayName ?? String(localized: "Unknown source", bundle: .module)
+        guard let surface = agent?.surfaceLabel(agentSource) else { return name }
+        return "\(name) · \(surface)"
+    }
 
     public var complicationTask: Self {
         var compact = self

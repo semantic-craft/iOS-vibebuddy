@@ -402,6 +402,8 @@ struct UsageSourcesPage: View {
 
     private func sourceDescription(_ provider: AccountUsageProvider) -> String {
         switch provider {
+        case .antigravity:
+            String(localized: "Reads the official Antigravity CLI /usage command. Desktop account may differ.")
         case .codex:
             String(localized: "Reads account allowance from the official local Codex app-server.")
         case .claude:

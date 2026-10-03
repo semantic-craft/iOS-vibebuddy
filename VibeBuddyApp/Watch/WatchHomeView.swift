@@ -51,7 +51,7 @@ struct WatchHomeView: View {
                 ForEach(others) { alert in
                     WatchSessionRow(state: .requiresInput,
                                     title: WatchSessionRow.title(for: alert),
-                                    detail: "\(alert.agent.shortName) · \(alert.project)",
+                                    detail: "\(alert.sourceName) · \(alert.project)",
                                     trailing: WatchFormat.duration(alert.waitedFor(now: now))) {
                         store.openSession(alert.sessionId)
                     }

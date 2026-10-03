@@ -60,6 +60,10 @@ public struct SessionActionSupport: Equatable, Sendable {
         case .some(.none) where session.agent == .cursor: return unreachableCursorSupport(intent: intent, session: session)
         default: break
         }
+        if session.agent == .antigravity {
+            return SessionActionSupport(intent: intent,
+                unsupportedReason: String(localized: "Continue in Antigravity on your Mac. This session is read-only here.", bundle: .module))
+        }
         guard session.agent == .codex else {
             return SessionActionSupport(
                 intent: intent,
@@ -194,6 +198,9 @@ public struct SessionActionSupport: Equatable, Sendable {
     }
 
     private static func stopUnsupportedReason(for agent: AgentKind) -> String {
+        if agent == .antigravity {
+            return String(localized: "Stop this in Antigravity on your Mac.", bundle: .module)
+        }
         if agent == .cursor {
             // A Cursor chat in the IDE exposes no interrupt on its hooks; only a
             // CLI vibebuddy hosts over ACP or a cloud run can be stopped, and
@@ -271,6 +278,9 @@ public enum WaitHandling: String, Codable, Equatable, Sendable {
 
     public static func resolve(for session: AgentSession) -> WaitHandling {
         guard session.status == .needsResponse else { return .unavailable }
+        // Native observation proves the wait but exposes no write channel.
+        if session.agent == .antigravity { return .macNativePrompt }
+
         if session.waitKind == .permission {
             switch ApprovalEligibility.unavailableReason(for: session) {
             case nil: return .remoteAvailable
