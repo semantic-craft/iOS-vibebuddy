@@ -91,7 +91,8 @@ public actor AntigravityDesktopMonitor {
                 let missedBoundary = previous == nil || previous?.conversation.turnID != conversation.turnID
                 if missedBoundary && [.succeeded, .cancelled, .failed].contains(observation.state) {
                     await store.reconcileAntigravityHistory(sessionID: conversation.id,
-                        userStopped: observation.state == .cancelled, failed: observation.state == .failed, at: now)
+                        userStopped: observation.state == .cancelled, failed: observation.state == .failed, at: now,
+                        replacesCompletedTurn: previous != nil && previous?.conversation.turnID != conversation.turnID)
                 }
                 for event in events(for: observation, now: now) { await store.ingest(event) }
             }
