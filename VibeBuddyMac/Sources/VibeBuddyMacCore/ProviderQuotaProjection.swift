@@ -42,7 +42,16 @@ public extension ProviderQuota {
         let project: (AccountUsageWindow) -> QuotaWindow = { window in
             QuotaWindow(remainingPercent: Self.remaining(fromUsedPercent: window.usedPercent),
                         durationMinutes: window.windowDurationMinutes, resetsAt: window.resetsAt,
-                        observedAt: snapshot.fetchedAt, isCached: state.isStale, label: window.label)
+                        observedAt: snapshot.fetchedAt, isCached: state.isStale, label: window.label, poolKey: window.poolKey)
+        }
+        if provider == .antigravity {
+            let windows = snapshot.quotaWindows.map(project)
+            self.init(provider: provider, accountLabel: snapshot.accountLabel,
+                      otherWindows: windows.isEmpty ? nil : windows,
+                      observedAt: windows.isEmpty ? nil : snapshot.fetchedAt,
+                      unavailableReason: state.unavailableReason?.displayText(provider: provider),
+                      isCached: state.isStale)
+            return
         }
         let others = snapshot.quotaWindows.filter {
             // Preserve independent pools even when they share a duration.

@@ -100,6 +100,8 @@ public struct WatchSessionCounts: Codable, Equatable, Sendable {
 public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     public var sessionId: String
     public var agent: AgentKind
+    public var agentSource: String? = nil
+    public var sourceName: String { agent.sessionLabel(agentSource) }
     public var project: String
     public var waitKind: WaitKind
     /// The session's own one-line summary, as shown on the iPhone.
@@ -139,6 +141,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     public init(
         sessionId: String,
         agent: AgentKind,
+        agentSource: String? = nil,
         project: String,
         waitKind: WaitKind,
         summary: String? = nil,
@@ -153,6 +156,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     ) {
         self.sessionId = sessionId
         self.agent = agent
+        self.agentSource = agentSource
         self.project = project
         self.waitKind = waitKind
         self.summary = summary
@@ -514,6 +518,7 @@ public enum WatchDashboardProjection {
         return WatchAlert(
             sessionId: session.id,
             agent: session.agent,
+            agentSource: session.agentSource,
             project: session.project,
             waitKind: waitKind,
             summary: session.summary,

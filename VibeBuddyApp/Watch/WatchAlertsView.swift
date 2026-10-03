@@ -23,7 +23,7 @@ struct WatchAlertsView: View {
                         ForEach(state.alerts) { alert in
                             WatchSessionRow(state: .requiresInput,
                                             title: WatchSessionRow.title(for: alert),
-                                            detail: "\(alert.agent.shortName) · \(alert.project) · \(kind(alert))",
+                                            detail: "\(alert.sourceName) · \(alert.project) · \(kind(alert))",
                                             trailing: WatchFormat.duration(alert.waitedFor(now: now))) {
                                 store.openSession(alert.sessionId)
                             }
