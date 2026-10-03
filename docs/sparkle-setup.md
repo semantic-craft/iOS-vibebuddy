@@ -153,6 +153,13 @@ Verification that does not need the shared app belongs in the isolated daemon
 instead (`docs/agents/skills/verify-vibebuddy/SKILL.md`): its own port, its own
 `HOME`, never `:9876`.
 
+## Local build and installation
+
+Use `tools/redeploy-mac.sh --prepare`, then an authorized `--install <candidate>
+--peer-check-complete` after the fresh peer/device check above. Preparation never
+launches the app. For locking, rollback, retained backups and source evidence, see
+[local installation](agents/development.md#installation-and-closeout).
+
 ## Verify the DMG, not the installed copy
 
 The installed app may be an unnotarized local build. Validate the published DMG
