@@ -36,7 +36,7 @@ enum SettingsModelTestOperations {
             case .qwen: QwenRealtimeSession(apiKey: apiKey, model: model, workspaceID: workspace, useIntl: international)
             case .openai: OpenAIVoiceSession.make(apiKey: apiKey, model: model)
             case .doubao: DoubaoRealtimeSession(apiKey: apiKey, model: model)
-            case .deepseek, .minimax: nil
+            case .deepseek, .minimax, .gemini: nil
             }
         }
     }
@@ -88,7 +88,7 @@ enum SettingsModelTestOperations {
         case .missingProvider: "Choose a completion summary provider before testing."
         case .missingModel: "Enter a text model ID to test summaries."
         case .missingKey: "Add this provider’s API key in Provider connection."
-        case .invalidModel: "The text model ID contains unsupported characters."
+        case .invalidModel: "The text model is unavailable or does not support summaries. Choose a supported text model or restore the default."
         case .invalidWorkspace: "Check the Qwen workspace ID in Provider connection."
         case .unauthorized: "The provider rejected access. Check the key, model and region."
         case .quotaExceeded: "The provider’s plan quota or balance is exhausted. Check your account before retrying."

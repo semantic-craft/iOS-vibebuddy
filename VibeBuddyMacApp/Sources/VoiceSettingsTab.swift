@@ -636,6 +636,13 @@ private struct SummaryFeatureRow: View {
                    detail: detail, tests: tests, reveal: reveal) {
             // Summaries are text: the two-tier line without a voice cell.
             ControlLine.textOnly(feature: .summaries, provider: { providerPicker }, model: { modelField }, trailing: { sampleButton })
+            if let provider, provider == .gemini {
+                Button("Restore default text model") {
+                    modelID = CompletionSummaryConfiguration.recommendedModel(provider)
+                }
+                .disabled(tests.isBusy)
+                .accessibilityIdentifier("restoreGeminiSummaryModel")
+            }
             SettingsOperationAvailability(tests: tests, purpose: .summary, reading: reader.busy)
         }
         .onAppear { credential.refresh() }

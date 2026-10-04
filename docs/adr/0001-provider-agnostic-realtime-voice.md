@@ -189,3 +189,11 @@ live acceptance; the model defaults now have a bounded local benchmark (below).
 
 Sources and limits: `docs/agents/minimax-tts-research.md`; measured selection:
 `docs/agents/minimax-benchmark-2026-10-01.md`.
+
+## Gemini reintroduced by purpose (2026-10-04)
+
+The owner approved restoring summaries, read-aloud and conversation ([PRD](../planning/backlog/gemini-provider-suite/PRD.md)), superseding the removal above. This first slice enables summaries; the speech pickers wait for their adapters.
+
+Swift uses the device-local key directly (ADR-0002). Google GenAI SDK v2.24.0 is the pinned protocol reference; no Firebase or Python/JS runtime is added. Summaries use independent Interactions with `store=false`, no tools/history, and only final `model_output` text; existing limits, cancellation and evidence checks apply.
+
+Both platforms stop retirement cleanup; explicit preferences remain, deleted keys cannot be recovered and features are not newly enabled. The initial summary default is `gemini-3.5-flash-lite`, pending comparison with `gemini-3.8-flash`; custom choices remain and invalid models fail without fallback. The agent source alias `gemini` still denotes Antigravity.
