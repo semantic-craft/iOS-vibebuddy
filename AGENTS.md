@@ -4,7 +4,7 @@ Agent-facing configuration for the iOS-vibebuddy repo. Global rules apply first;
 
 ## Delivery boundaries
 
-The task goal determines whether delivery includes installation, the production port `:9876`, login-token setup under `~/Library/Application Support/vibebuddy/`, release, or cross-machine sync; these steps do not require repeated authorization. Check shared-app ownership before replacing `/Applications/VibeBuddyMacApp.app`: it is one copy shared by every session on this Mac, and replacing it kills any real-device acceptance another session is running — check for a peer run first (`docs/sparkle-setup.md`, § The installed app is shared). Configured credentials may be used for an authorized operation; reading secrets for context is not implied.
+The task goal authorizes the delivery steps it includes: installation, the production port `:9876`, login-token setup under `~/Library/Application Support/vibebuddy/`, release, or cross-machine sync, without separate per-step approval. Check shared-app ownership before replacing `/Applications/VibeBuddyMacApp.app`: it is one copy shared by every session on this Mac, and replacing it kills any real-device acceptance another session is running — check for a peer run first (`docs/sparkle-setup.md`, § The installed app is shared). If a peer is using that copy, defer replacement, continue independent work, and report the remaining installation step. Configured credentials may be used for an authorized operation; reading secrets for context is not implied.
 
 ## Verification
 
