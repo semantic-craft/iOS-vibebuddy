@@ -132,8 +132,13 @@ public enum SpeechSynthesis {
                            defaultVoice: MiniMaxSpeechSynthesizer.defaultVoice, supportsStyle: true) {
                 MiniMaxSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, style: $0.style)
             }
+        case .gemini:
+            return Support(defaultModel: GeminiSpeechSynthesizer.defaultModel,
+                           defaultVoice: GeminiSpeechSynthesizer.defaultVoice, supportsStyle: true) {
+                GeminiSpeechSynthesizer(model: $0.model, voice: $0.voice, persona: $0.persona)
+            }
         case .deepseek:
-            return nil   // Text-only: DeepSeek publishes no speech API.
+            return nil
         }
     }
 
@@ -149,6 +154,6 @@ public enum SpeechSynthesis {
     /// characters, while one vendor request stays short enough to answer
     /// inside its timeout (Qwen also truncates past about two minutes).
     public static func synthesizer(_ configuration: SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? {
-        support(configuration.provider).map { ChunkedSpeechSynthesizer(base: $0.make(configuration)) }
+        support(configuration.provider).map { ChunkedSpeechSynthesizer(base: $0.make(configuration), joinsWAV: configuration.provider == .gemini) }
     }
 }

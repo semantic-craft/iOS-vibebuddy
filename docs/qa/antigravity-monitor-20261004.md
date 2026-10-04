@@ -1,6 +1,6 @@
 # Antigravity monitor：集成与发布验收记录
 
-状态：实现及本轮 Agent 功能验收完成；Mac 1.3.44 (62) 已安装、公开发布且旧版自动升级通过；iOS/Watch 1.3.35 (70) 已提交 Apple，当前等待审核，尚未公开上架。实体推送/触觉与独立 IDE 未测量，详见末节。
+状态：实现及本轮 Agent 功能验收完成；Mac 1.3.44 (62) 已安装、公开发布且旧版自动升级通过；iOS/Watch 1.3.35 (70) 已提交 Apple，当前等待审核，尚未公开上架。后续实体 Watch 锁屏提醒与触觉补验通过；独立 IDE 已由用户排除。同会话连续提问未再次发送的观察见 AG-05。
 
 ## 来源与范围
 
@@ -98,4 +98,17 @@
 
 两轴补充审阅确认本次 iPhone/Watch 变更为来源标签、配额和既有任务投影，没有改动 APNs、配对或批准传输。真实来源 → adapter → snapshot → 三端原生画面、等待/取消/恢复/完整结果，加上关键回归检查，构成本次功能验收依据。AG-01–AG-04 已完成，按项目惯例删除已完成工单及索引行；产品范围、规格和本记录长期保留。
 
-仍未测量：实体手机锁屏 APNs、Watch 触觉/腕上操作；独立 IDE；真实桌面权限等待（已核实协议、桌面问题等待及 CLI 真实权限等待）。实际执行失败未另行制造，工具错误与终止区分由 scoped 检查覆盖。以上不是已通过项，也不要求用户接手本轮验收；Apple 审核结果尚未产生。
+截至 05:44 未测量（后续变化见末节）：实体手机锁屏 APNs、Watch 触觉/腕上操作；独立 IDE；真实桌面权限等待（已核实协议、桌面问题等待及 CLI 真实权限等待）。实际执行失败未另行制造，工具错误与终止区分由 scoped 检查覆盖。以上不是已通过项，也不要求用户接手本轮验收；Apple 审核结果尚未产生。
+
+## 实体 Watch 补验与范围澄清（后续轮次）
+
+用户明确排除独立 Antigravity IDE，故前文“独立 IDE 未测量”保留为历史事实，不再列为本次验收缺口。用户授权现在进行手表验收，并确认手机联网锁屏、手表佩戴解锁且回到表盘、两端关闭专注模式。已发现 Hermes 的手机版本为 1.3.34 (69)，先构建并安装 1.3.35 (70) Debug 真机包；Watch 最新回传仍为 69，需确认新包已在手表接管后继续。补验原始证据位于 `antigravity-integration-20261004/physical-watch/`。
+
+### 补验结果：锁屏提醒与触觉通过
+
+- 手机安装 1.3.35 (70) Debug；签名 `aps-environment=development`，Mac 现有 APNs `sandbox=true`，未改动凭据或 provider 配置。手表真实回传 `build=70`，且有 `refresh.active.received`，证据 `watch-ready.json`。
+- 第一轮 `AGWATCH-70` 于 10:02:53（Asia/Shanghai）APNs accepted；用户当时正在手表应用内，报告没看到提醒，故不计作表盘通知通过。
+- 同一 CLI 会话 `9b527596-6e50-497f-818a-1cc5b3e824a4` 回答完成后立即提交 R2，快照显示新问题 `AGWATCH-70-R2`，但最终发送日志中没有该轮新 needs_answer。未查明是快照转换、去重还是其他原因；单列 [AG-05](../planning/backlog/antigravity-monitor/issues/05-repeat-wait-cue.md)，不将重试问题隐藏在本轮通过结论中。
+- 改用新真实 CLI 会话 `abd82ed0-4a4c-43ec-a124-7efe88cd5327`，问题 `AGWATCH-70-R3: 手表通知测试`，10:05:12 APNs accepted。用户明确回报在手机锁屏、手表表盘状态下“看到了，也震动了”。这是物理观察证据；Apple 接收记录本身不证明腕上送达。
+- 在原 CLI 回答 Continue 后，两会话均 done、waitKind 清空；R3 正文 `AGWATCH_70_R3_DONE`，completion `antigravity-cli-0-3`。两个本任务 CLI 均已 `/exit`，保留真实会话历史。Antigravity 为只读接入，本轮不要求或宣称手表远程批准通过；未补做 Mac 重启后的重复推送及手机重开后的不重播检查。
+- 持久证据同前述 `physical-watch/`：`setup.json`、`watch-ready.json`、`r3-waiting-snapshot.json`、`r3-delivery.json`、`watch-after-r3.json`、`resolved-snapshot.json`、`final-delivery.json`、`result.json`。记录已区分第一轮无效条件、R2 待核查和 R3 物理通过。

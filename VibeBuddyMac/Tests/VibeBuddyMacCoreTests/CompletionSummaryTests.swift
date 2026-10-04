@@ -5,6 +5,59 @@ import VibeBuddyKit
 
 @Suite(.serialized)
 struct CompletionSummaryTests {
+    @Test func geminiStatelessSummaryUsesOnlyFinalTextAndReportsUsage() async throws {
+        let body = Data(#"{"status":"completed","steps":[{"type":"thought","summary":[{"type":"text","text":"Private reasoning"}]},{"type":"model_output","content":[{"type":"text","text":"The routing fix passed tests; device verification is pending."}]}],"usage":{"total_input_tokens":80,"total_output_tokens":22,"total_tokens":107,"total_cached_tokens":12,"total_thought_tokens":5}}"#.utf8)
+        let session = session(body: body)
+        defer { session.invalidateAndCancel() }
+        let result = await CompletionSummaryHTTP(session: session).generate(input: input(),
+            configuration: configuration(.gemini), key: "synthetic", timeout: 12)
+        #expect(result.failure == nil)
+        #expect(result.text == "The routing fix passed tests; device verification is pending.")
+        #expect(result.usage == .init(inputTokens: 80, outputTokens: 22, totalTokens: 107, cachedInputTokens: 12, reasoningTokens: 5))
+        let request = try #require(SummaryStub.state.lastRequest)
+        #expect(request.url?.absoluteString == "https://generativelanguage.googleapis.com/v1beta/interactions")
+        #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "synthetic")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+        let payload = try #require(request.httpBody)
+        let sent = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+        #expect(sent["store"] as? Bool == false)
+        #expect(sent["previous_interaction_id"] == nil && sent["tools"] == nil)
+        #expect(sent["system_instruction"] as? String != nil)
+    }
+
+    @Test func gemini38UsesSupportedThinkingLevel() throws {
+        for (model, level) in [("gemini-3.5-flash-lite", "minimal"), ("gemini-3.8-flash", "low")] {
+            var config = configuration(.gemini)
+            config.modelID = model
+            let request = try CompletionSummaryHTTP.request(input: input(), configuration: config, key: "synthetic", timeout: 12)
+            let data = try #require(request.httpBody)
+            let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let generation = try #require(body["generation_config"] as? [String: Any])
+            #expect(generation["thinking_level"] as? String == level)
+        }
+    }
+
+    @Test func geminiRejectsPartialOrToolOutputAndExplainsUnavailableModel() async throws {
+        for body in [
+            #"{"status":"incomplete","steps":[{"type":"model_output","content":[{"type":"text","text":"Looks complete."}]}]}"#,
+            #"{"status":"completed","steps":[{"type":"function_call","name":"send_message","arguments":{}},{"type":"model_output","content":[{"type":"text","text":"Sent."}]}]}"#
+        ] {
+            let session = session(body: Data(body.utf8))
+            let result = await CompletionSummaryHTTP(session: session).generate(input: input(), configuration: configuration(.gemini), key: "synthetic", timeout: 12)
+            session.invalidateAndCancel()
+            #expect(result.text == nil && result.failure != nil)
+        }
+        let missing = session(body: Data(#"{"error":{"code":404,"message":"private diagnostic"}}"#.utf8), status: 404)
+        defer { missing.invalidateAndCancel() }
+        let response = await CompletionSummaryHTTP(session: missing).generate(input: input(), configuration: configuration(.gemini), key: "synthetic", timeout: 12)
+        #expect(response.failure == .invalidModel)
+        #expect(response.text == nil)
+        let keyError = session(body: Data(#"{"error":{"code":400,"details":[{"reason":"API_KEY_INVALID"}]}}"#.utf8), status: 400)
+        defer { keyError.invalidateAndCancel() }
+        let rejected = await CompletionSummaryHTTP(session: keyError).generate(input: input(), configuration: configuration(.gemini), key: "synthetic", timeout: 12)
+        #expect(rejected.failure == .unauthorized)
+    }
+
     @Test func miniMaxDefaultUsesLowReasoningInsteadOfRejectedDisabledMode() throws {
         let config = CompletionSummaryConfiguration(enabled: true, provider: .minimax,
             modelID: CompletionSummaryConfiguration.recommendedModel(.minimax))
@@ -185,7 +238,7 @@ struct CompletionSummaryTests {
             #expect(request.httpMethod == "POST")
             #expect(request.timeoutInterval == 4)
             #expect(body["model"] as? String == "configured-text-model")
-            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-key")
+            #expect(request.value(forHTTPHeaderField: provider == .gemini ? "x-goog-api-key" : "Authorization") == (provider == .gemini ? "synthetic-key" : "Bearer synthetic-key"))
             // The model ID is body data for every provider; it can never move the endpoint.
             var hostile = configuration(provider); hostile.modelID = "m?x=/y#z"
             let hostileRequest = try CompletionSummaryHTTP.request(input: input(), configuration: hostile, key: "k", timeout: 1)
@@ -197,6 +250,11 @@ struct CompletionSummaryTests {
                 #expect(body["tool_choice"] as? String == "none")
                 #expect((body["tools"] as? [Any])?.isEmpty == true)
                 #expect((body["input"] as? [Any])?.count == 1)
+            } else if provider == .gemini {
+                let user = try #require((body["input"] as? String)?.data(using: .utf8))
+                let payload = try #require(JSONSerialization.jsonObject(with: user) as? [String: String])
+                #expect(Set(payload.keys) == ["title", "finalText"])
+                #expect(payload["finalText"] == input().finalText)
             } else {
                 let messages = try #require(body["messages"] as? [[String: String]])
                 #expect(messages.map { $0["role"] } == ["system", "user"])
@@ -454,7 +512,20 @@ private final class SummaryStub: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let plan = Self.state.started()
+        var captured = request
+        if captured.httpBody == nil, let stream = captured.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var body = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+            captured.httpBody = body
+        }
+        let plan = Self.state.started(request: captured)
         let work = DispatchWorkItem { [self] in
             let deliver = lock.withLock { if ended { return false }; ended = true; return true }
             guard deliver else { return }
@@ -476,12 +547,14 @@ private final class SummaryStub: URLProtocol, @unchecked Sendable {
         private let lock = NSLock()
         private var plan = Plan(body: Data(), delay: 0, status: 200)
         private var count = 0, active = 0, peak = 0
+        private var request: URLRequest?
+        var lastRequest: URLRequest? { lock.withLock { request } }
         var requestCount: Int { lock.withLock { count } }
         var maximumActive: Int { lock.withLock { peak } }
         func reset(body: Data, delay: TimeInterval, status: Int) {
-            lock.withLock { plan = .init(body: body, delay: delay, status: status); count = 0; active = 0; peak = 0 }
+            lock.withLock { plan = .init(body: body, delay: delay, status: status); count = 0; active = 0; peak = 0; request = nil }
         }
-        func started() -> Plan { lock.withLock { count += 1; active += 1; peak = max(peak, active); return plan } }
+        func started(request: URLRequest) -> Plan { lock.withLock { self.request = request; count += 1; active += 1; peak = max(peak, active); return plan } }
         func ended() { lock.withLock { active -= 1 } }
     }
 }

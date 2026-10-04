@@ -1,7 +1,8 @@
 # Full-duplex voice processing and interruption
 
 **Status:** Accepted (2026-09-08); supersedes the half-duplex decision of 2026-06-05.
-Amended 2026-09-25: Gemini Live was removed (ADR-0001); its mentions below are historical.
+Amended 2026-09-25: Gemini Live was removed (ADR-0001).
+Amended 2026-10-04: Gemini Live is restored; the interruption rules below apply again.
 The historical filename is retained for existing links.
 
 ## Decision
@@ -116,3 +117,12 @@ failure also remains visible; it is not silently treated as successful cleanup.
 These changes require separate real-device Bluetooth, interruption and post-call
 volume acceptance. Control-flow fault injection and builds do not establish that
 physical acceptance.
+
+## Gemini return (2026-10-04)
+
+The new Gemini Live adapter reuses the existing native full-duplex audio engine
+and AEC. It does not restore the June half-duplex gate. The planning document's
+half-duplex reference was stale relative to this accepted decision. Gemini input
+remains PCM16 at 16 kHz and playback at 24 kHz. Hardware recovery, microphone
+ownership and post-call voice-processing release continue through the same
+platform paths; new protocol tests do not establish device acoustic acceptance.

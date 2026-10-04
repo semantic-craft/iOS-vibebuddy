@@ -13,6 +13,13 @@ final class SettingsCredential: ObservableObject {
         /// Must preserve the old value on failure (KeychainStore updates in place).
         var write: (String?, String) -> Bool
 
+        /// Explicit acceptance runs consume the inherited key, never personal
+        /// Keychain state. Editing cannot replace a process environment value.
+        static func injectedKey(_ key: String?) -> Storage {
+            let present = !(key ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return Storage(exists: { _ in present }, read: { _ in present ? key : nil }, write: { _, _ in false })
+        }
+
         static let live = Storage(
             exists: { KeychainStore.exists($0) },
             read: { KeychainStore.get($0) },
@@ -30,9 +37,12 @@ final class SettingsCredential: ObservableObject {
     @Published private(set) var removalFailed = false
     @Published private(set) var revision = 0
 
-    init(_ provider: VoiceProvider, storage: Storage = .live) {
+    init(_ provider: VoiceProvider, storage: Storage? = nil) {
         self.provider = provider
-        self.storage = storage
+        if let storage { self.storage = storage }
+        else if provider == .gemini, E2ERunConfiguration.current != nil {
+            self.storage = .injectedKey(ProcessInfo.processInfo.environment["GEMINI_API_KEY"])
+        } else { self.storage = .live }
     }
     var configured: Bool {
         loaded ? !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : present

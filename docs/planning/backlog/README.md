@@ -8,7 +8,13 @@
 
 | ID | 内容 | 票据 | 状态 | 说明 |
 |---|---|---|---|---|
+| GEM-PRD | Gemini 摘要、朗读与实时通话 | [PRD](gemini-provider-suite/PRD.md) · [依赖总览](gemini-provider-suite/TICKET-PLAN.md) | ready-for-human | 三用途代码已集成；设备实听、配对手机与真实操作验收待完成 |
+| GEM-01 | 配置 Gemini 并获得真实任务摘要 | [ticket](gemini-provider-suite/issues/01-configuration-summary.md) | ready-for-human | 默认摘要模型比较及应用呈现通过；待配对手机与重启验收 |
+| GEM-02 | 在 Mac/iPhone 用 Gemini 朗读结果 | [ticket](gemini-provider-suite/issues/02-read-aloud.md) | ready-for-human | 原生TTS与WAV分段已接通；待两端实听及队列控制 |
+| GEM-03 | 在 Mac/iPhone 用 Gemini 通话并操作任务 | [ticket](gemini-provider-suite/issues/03-live-conversation.md) | ready-for-human | 原生Live两轮/工具回执通过；待实机语音操作指定任务 |
+| GEM-04 | 三用途联合验收与现有供应商回归 | [ticket](gemini-provider-suite/issues/04-integration-acceptance.md) | ready-for-human | 构建、回归与评审已执行；剩余设备联合验收 |
 | AG-MON | Antigravity 配额与 CLI / 桌面会话观察 | [首版范围](antigravity-monitor/PRD.md) · [原型结论](antigravity-monitor/PROTOTYPE.md) | 已交付 | Mac 1.3.44 已发布；iOS 1.3.35 等待 Apple 审核；[验收与边界](../../qa/antigravity-monitor-20261004.md) |
+| AG-05 | 同会话连续提问的新提醒核查 | [ticket](antigravity-monitor/issues/05-repeat-wait-cue.md) | needs-triage | 实体验收发现 R2 无新发送记录；R3 表盘提醒与触觉通过 |
 | IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 真机、MiniMax 凭据及可操作的模拟器图形界面 |
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |

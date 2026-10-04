@@ -24,12 +24,6 @@ struct VibeBuddyMenuBarApp: App {
         let role = AppRuntime.role
         self.role = role
         placementRecovery = MenuBarPlacementRecovery(enabled: role == .primary)
-        // Gemini was removed; its settings fall back before any view reads them.
-        // The Keychain delete runs off the launch path so a Keychain prompt can
-        // never hold the menu bar up.
-        VoiceSettings.removeRetiredGeminiSettings(deleteKey: { account in
-            Task.detached(priority: .utility) { KeychainStore.set(nil, for: account) }
-        })
         let model = MenuBarModel(runtimeEnabled: role == .primary)
         self.model = model
         delegate.model = model

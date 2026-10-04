@@ -26,6 +26,16 @@ struct CompletionSummaryHTTP: Sendable {
             try Task.checkCancellation()
             guard let http = response as? HTTPURLResponse else { return .init(failure: .invalidResponse) }
             guard (200..<300).contains(http.statusCode) else {
+                if configuration.provider == .gemini {
+                    if http.statusCode == 404 { return .init(failure: .invalidModel) }
+                    if http.statusCode == 400 {
+                        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                        let error = root?["error"] as? [String: Any]
+                        let details = error?["details"] as? [[String: Any]]
+                        let invalidKey = details?.contains { $0["reason"] as? String == "API_KEY_INVALID" } == true
+                        return .init(failure: invalidKey ? .unauthorized : .invalidInput)
+                    }
+                }
                 let failure: CompletionSummaryFailure = switch http.statusCode {
                 case 401, 403: .unauthorized
                 case 429: .rateLimited
@@ -53,6 +63,15 @@ struct CompletionSummaryHTTP: Sendable {
         let body: [String: Any]
         switch provider {
         case .doubao: throw CompletionSummaryFailure.missingProvider
+        case .gemini:
+            // Google GenAI SDK v2.25.0 Interactions schema: a fresh stateless
+            // request; no history or tools. Thinking is never visible output.
+            endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+            body = ["model": c.modelID, "input": user, "system_instruction": instructions,
+                    "store": false, "stream": false,
+                    "generation_config": ["thinking_level": c.modelID == "gemini-3.5-flash-lite" ? "minimal" : "low",
+                                          "thinking_summaries": "none",
+                                          "max_output_tokens": purpose == .notice ? 1024 : 3000]]
         case .qwen:
             let host: String
             if let workspace = c.qwenWorkspaceID {
@@ -103,7 +122,11 @@ struct CompletionSummaryHTTP: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        if provider == .gemini {
+            request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
+        } else {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -175,6 +198,21 @@ struct CompletionSummaryHTTP: Sendable {
         var pieces: [String] = []
         switch provider {
         case .doubao: return fail(.missingProvider)
+        case .gemini:
+            guard root["status"] as? String == "completed",
+                  absent(root["errors"]) || (root["errors"] as? [Any])?.isEmpty == true else { return fail(.incompleteOutput) }
+            guard let steps = root["steps"] as? [[String: Any]] else { return fail(.invalidResponse) }
+            for step in steps {
+                if step["type"] as? String == "thought" { continue }
+                guard step["type"] as? String == "model_output", absent(step["error"]),
+                      let content = step["content"] as? [[String: Any]] else { return fail(.invalidOutput) }
+                // Match the SDK's output_text: only the last model output.
+                pieces = []
+                for part in content {
+                    guard part["type"] as? String == "text", let text = part["text"] as? String else { return fail(.invalidOutput) }
+                    pieces.append(text)
+                }
+            }
         // DeepSeek mirrors the OpenAI chat-completions schema Qwen also serves.
         case .qwen, .deepseek, .minimax:
             guard let choices = root["choices"] as? [[String: Any]], choices.count == 1,
@@ -224,6 +262,10 @@ struct CompletionSummaryHTTP: Sendable {
         func number(_ value: Any?) -> Int? { guard let n = value as? Int, n >= 0 else { return nil }; return n }
         switch provider {
         case .doubao: return nil
+        case .gemini:
+            return .init(inputTokens: number(u["total_input_tokens"]), outputTokens: number(u["total_output_tokens"]),
+                         totalTokens: number(u["total_tokens"]), cachedInputTokens: number(u["total_cached_tokens"]),
+                         reasoningTokens: number(u["total_thought_tokens"]))
         case .qwen, .deepseek, .minimax:
             return .init(inputTokens: number(u["prompt_tokens"]), outputTokens: number(u["completion_tokens"]), totalTokens: number(u["total_tokens"]),
                          cachedInputTokens: number((u["prompt_tokens_details"] as? [String: Any])?["cached_tokens"]),
