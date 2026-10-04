@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reads text longer than one vendor request by splitting it at sentence ends,
-/// synthesizing the pieces two at a time, and joining the MP3s in order.
+/// synthesizing the pieces two at a time, and joining their audio in order.
 ///
 /// A spoken summary is up to 900 characters plus its title, but a single
 /// request has to stay short: Doubao took 39 s for 880 characters (past the
@@ -18,6 +18,9 @@ struct ChunkedSpeechSynthesizer: SpeechSynthesizer {
     static let concurrency = 2
 
     let base: any SpeechSynthesizer
+    /// Gemini returns complete WAV files; concatenating those leaves a player
+    /// reading only the first RIFF. Other vendors retain their MP3 join path.
+    var joinsWAV = false
 
     func synthesize(_ text: String, apiKey: String) async throws -> Data {
         guard text.count <= Self.totalLimit else { throw SpeechSynthesisFailure.configuration }
@@ -45,10 +48,15 @@ struct ChunkedSpeechSynthesizer: SpeechSynthesizer {
         var joined = Data()
         for (index, data) in audio.enumerated() {
             guard let data else { throw SpeechSynthesisFailure.emptyAudio }
-            joined.append(index == 0 ? data : Self.droppingID3(data))
-            guard joined.count <= Self.maximumBytes else { throw SpeechSynthesisFailure.excessiveAudio }
+            try Task.checkCancellation()
+            if joinsWAV {
+                joined.append(try GeminiSpeechSynthesizer.pcm16(fromWAV: data))
+            } else {
+                joined.append(index == 0 ? data : Self.droppingID3(data))
+            }
+            guard joined.count <= Self.maximumBytes - (joinsWAV ? 44 : 0) else { throw SpeechSynthesisFailure.excessiveAudio }
         }
-        return joined
+        return joinsWAV ? SpeechSynthesisHTTP.wav(pcm16: joined, sampleRate: 24_000) : joined
     }
 
     /// Pieces of at most `pieceLimit` characters, cut after a sentence end
