@@ -154,6 +154,6 @@ public enum SpeechSynthesis {
     /// characters, while one vendor request stays short enough to answer
     /// inside its timeout (Qwen also truncates past about two minutes).
     public static func synthesizer(_ configuration: SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? {
-        support(configuration.provider).map { ChunkedSpeechSynthesizer(base: $0.make(configuration)) }
+        support(configuration.provider).map { ChunkedSpeechSynthesizer(base: $0.make(configuration), joinsWAV: configuration.provider == .gemini) }
     }
 }

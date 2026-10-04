@@ -103,11 +103,13 @@ public struct GeminiSpeechSynthesizer: SpeechSynthesizer {
               let wav = Data(base64Encoded: encoded) else { throw SpeechSynthesisFailure.transport }
         guard !wav.isEmpty else { throw SpeechSynthesisFailure.emptyAudio }
         guard wav.count <= SpeechSynthesisHTTP.maximumBytes else { throw SpeechSynthesisFailure.excessiveAudio }
-        try validateWAV(wav)
+        _ = try pcm16(fromWAV: wav)
         return wav
     }
 
-    private static func validateWAV(_ data: Data) throws {
+    /// Extracts samples only after validating the exact unary format requested above.
+    /// Used by the chunked reader to rebuild one container for all speech pieces.
+    static func pcm16(fromWAV data: Data) throws -> Data {
         let bytes = [UInt8](data)
         func u32(_ offset: Int) -> Int {
             (0..<4).reduce(0) { $0 | (Int(bytes[offset + $1]) << (8 * $1)) }
@@ -118,7 +120,7 @@ public struct GeminiSpeechSynthesizer: SpeechSynthesizer {
         }
         var offset = 12
         var hasFormat = false
-        var hasSamples = false
+        var samples = Data()
         while offset + 8 <= bytes.count {
             let length = u32(offset + 4)
             let start = offset + 8
@@ -133,11 +135,12 @@ public struct GeminiSpeechSynthesizer: SpeechSynthesizer {
             }
             if tag(offset, "data") {
                 guard length > 0, length.isMultiple(of: 2) else { throw SpeechSynthesisFailure.emptyAudio }
-                hasSamples = true
+                samples.append(contentsOf: bytes[start..<start + length])
             }
             offset = start + length + (length % 2)
         }
-        guard hasFormat, hasSamples, offset == bytes.count else { throw SpeechSynthesisFailure.transport }
+        guard hasFormat, !samples.isEmpty, offset == bytes.count else { throw SpeechSynthesisFailure.transport }
+        return samples
     }
 }
 
