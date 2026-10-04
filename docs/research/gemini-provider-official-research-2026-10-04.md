@@ -84,7 +84,7 @@
 
 用户本轮已明确三项全部覆盖、可独立选择。以下是实现建议，尚未修改产品代码或将技术选型记为已接受 ADR。
 
-现有 [ADR-0001](../adr/0001-provider-agnostic-realtime-voice.md) 于 2026-09-25 记录了全面移除 Gemini；实施本轮目标时须追加重新引入的修订。[ADR-0002](../adr/0002-byo-key-direct-to-provider.md) 保持自带 Key、设备直连、无 VibeBuddy 云服务。[ADR-0004](../adr/0004-half-duplex-mic-gating-not-aec.md) 的半双工麦克风门控继续适用。
+现有 [ADR-0001](../adr/0001-provider-agnostic-realtime-voice.md) 于 2026-09-25 记录了全面移除 Gemini；实施本轮目标时须追加重新引入的修订。[ADR-0002](../adr/0002-byo-key-direct-to-provider.md) 保持自带 Key、设备直连、无 VibeBuddy 云服务。[ADR-0004](../adr/0004-half-duplex-mic-gating-not-aec.md) 已于 2026-09-08 改为全双工/AEC，继续复用现有管线（实施核对时纠正按历史文件名作出的误读）。
 
 | 接入位置 | 需要完成的工作 |
 | --- | --- |
@@ -108,3 +108,7 @@ SDK 使用建议：产品保持 Swift URLSession HTTP/WebSocket 适配；官方 
 4. 添加有价值的协议/迁移回归检查，按 [development](../agents/development.md) 运行受影响的 Kit/Mac 检查与两端构建，再按 [verify-vibebuddy](../agents/skills/verify-vibebuddy/SKILL.md) 做隔离端到端验收。开发凭据显式经项目入口注入；正式用户仍用原有 Keychain 方式。
 
 本次交付仅为研究与候选方案；没有安装 SDK、真实模型调用、应用构建、产品改动、提交、推送或安装。模型与 SDK 文档差异已经记录，账户可用性、延迟、中文质量和设备音频仍未验证。
+
+## Swift 实调用补充（2026-10-04）
+
+3.8 Flash 不接受 `thinking_level=minimal`，真实请求返回 HTTP 400；[官方模型文档](https://ai.google.dev/gemini-api/docs/latest-model?hl=en) 明确支持 low/medium/high。摘要适配器对 3.5 Flash-Lite 保留 minimal，对 3.8 Flash 使用 low，并补回归检查；默认选择依据修正参数后的同批样本比较。

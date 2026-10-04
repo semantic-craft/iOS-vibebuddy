@@ -11,7 +11,7 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 ## 工作边界
 
 - 增加 GeminiRealtimeSession 并接入两端现有通话与设置连接检查，使用 `gemini-3.8-live`。
-- 把 setup、音频、转写、工具调用/取消、轮次结束与连接结束映射到现有事件；维持半双工和任务目标核验。
+- 把 setup、音频、转写、工具调用/取消、轮次结束与连接结束映射到现有事件；沿用现有全双工/AEC 管线和任务目标核验。
 - 按 PRD 显式 BLOCKING，固定 SDK/schema 核对新协议，不复制过期示例。只复用现有动作，不扩展权限。
 
 ## Acceptance criteria

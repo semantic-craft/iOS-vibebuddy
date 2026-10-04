@@ -64,12 +64,13 @@ struct CompletionSummaryHTTP: Sendable {
         switch provider {
         case .doubao: throw CompletionSummaryFailure.missingProvider
         case .gemini:
-            // Google GenAI SDK v2.24.0 Interactions schema: a fresh stateless
+            // Google GenAI SDK v2.25.0 Interactions schema: a fresh stateless
             // request; no history or tools. Thinking is never visible output.
             endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
             body = ["model": c.modelID, "input": user, "system_instruction": instructions,
                     "store": false, "stream": false,
-                    "generation_config": ["thinking_level": "minimal", "thinking_summaries": "none",
+                    "generation_config": ["thinking_level": c.modelID == "gemini-3.5-flash-lite" ? "minimal" : "low",
+                                          "thinking_summaries": "none",
                                           "max_output_tokens": purpose == .notice ? 1024 : 3000]]
         case .qwen:
             let host: String
