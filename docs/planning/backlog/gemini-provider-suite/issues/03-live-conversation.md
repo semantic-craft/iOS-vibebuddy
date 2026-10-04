@@ -1,6 +1,6 @@
 # GEM-03：在 Mac/iPhone 用 Gemini 通话并操作任务
 
-Status: ready-for-agent
+Status: ready-for-human
 Blocked by: [GEM-01](01-configuration-summary.md)
 日期：2026-10-04
 Parent: [Gemini 三用途接入 PRD](../PRD.md)
@@ -41,3 +41,9 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 - TDD 首次回归因适配器尚不存在而编译失败；实现后定向运行 GeminiRealtimeSessionTests、VoiceCallCoordinatorTests、VoiceTargetCheckTests、ProviderLimitSignalTests，45 项通过；真实调用测试默认跳过。`git diff --check` 通过。
 - `GeminiLiveAcceptanceTests` 提供显式启用、90 秒有界的原生真实音频两轮检查，接受外部 PCM 与状态回执文件，不自动读取 Keychain。由集成验收记录实际调用结果。
 - 待集成：两端构建、原生真实模型音频/状态调用、两端麦克风与扬声器实听、授权任务操作和真实时限。协议重放不等于设备验收。
+
+## 集成进度（2026-10-04）
+
+代码已合入 `codex/gemini-provider-suite`；具体模型调用、构建、回归、评审和未测边界统一见[验收记录](../../../../qa/gemini-suite-20261004.md)。上文切片记录反映当时状态，以本段与验收记录为最新进度。
+
+Swift Live 已实际完成两轮 PCM 输入、两次状态工具调用及关联回执；原生设置连接检查通过。回执是隔离状态样本，尚未证明真实任务操作。待两端麦克风短通话、指定任务受控操作与回执、取消及恢复的设备验收。

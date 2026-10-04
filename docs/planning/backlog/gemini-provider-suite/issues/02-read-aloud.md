@@ -1,6 +1,6 @@
 # GEM-02：在 Mac/iPhone 用 Gemini 朗读结果
 
-Status: ready-for-agent
+Status: ready-for-human
 Blocked by: [GEM-01](01-configuration-summary.md)
 日期：2026-10-04
 Parent: [Gemini 三用途接入 PRD](../PRD.md)
@@ -21,7 +21,7 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 - [ ] Mac/iPhone 均朗读真实结果，中文、英文标识符和数字可听清，正文事实不被增删；需要比较音色质量时按 PRD 对比 Flash TTS 并记录依据。
 - [ ] 暂停、停止、跳过、重播和连续队列遵循现有行为；已取消的合成结果不进入播放队列，听取不改变已读状态。
 - [ ] 已有通话可暂停朗读，手动队列恢复沿用现有规则；Gemini 与 Gemini 的完整联动留到 GEM-04。
-- [ ] 空/错误 MIME/过大音频、拒绝、限流与网络错误有界处理且可见；固定版本官方 SDK 对照产物与产品音频均记录格式。
+- [x] 空/错误 MIME/过大音频、拒绝、限流与网络错误有界处理且可见；固定版本官方 SDK 对照产物与产品音频均记录格式。
 - [ ] 受影响合成/队列测试与两端构建通过；分别记录生成音频、播放器完成、设备实听证据。
 
 **验证先例：** SpeechSynthesisDecodingTests、MiniMaxSpeechTests、ChunkedSpeechSynthesizerTests、CompletionSpeechQueueTests。
@@ -38,3 +38,9 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 - 定向 Kit 检查：`GeminiSpeechTests|VoicePurposeSettingsTests|VoiceCatalogTests|VoiceDefaultsInCatalogTests|VoiceStyleTests|ChunkedSpeechSynthesizerTests|CompletionSpeechQueueTests`，46 项通过；真实调用测试默认关闭。红阶段先复现缺失合成器及供应商无法跟随，随后转绿。
 - 真实合成入口：仅显式设置 `GEMINI_SPEECH_ACCEPTANCE=1` 才运行 `GeminiSpeechTests/liveGeminiSpeech`，使用已有环境 `GEMINI_API_KEY`，可由 `GEMINI_SPEECH_OUTPUT` 保存 WAV；测试不读取 Keychain、不打印 Key 或正文。
 - 仍待集成验收：真实 Swift 合成、两端构建、设备试听/任务结果实听与队列控制。音频生成与播放器完成分别记录，不能替代听感验收。此工单保持未完成，由 GEM-04 汇总证据。
+
+## 集成进度（2026-10-04）
+
+代码已合入 `codex/gemini-provider-suite`；具体模型调用、构建、回归、评审和未测边界统一见[验收记录](../../../../qa/gemini-suite-20261004.md)。上文切片记录反映当时状态，以本段与验收记录为最新进度。
+
+Swift TTS 已实际生成中文样例；Mac/iOS 构建通过。真实长文检查发现 WAV 分段拼接截断，已纳入同一轮修复与回归。待 Mac/iPhone 实听、正文完整性与队列控制验收；音频文件生成不是播放/听感通过。
