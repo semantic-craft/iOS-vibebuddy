@@ -362,41 +362,6 @@ public enum VoiceSettings {
         VoiceLanguage(rawValue: defaults.string(forKey: conversationLanguageKey) ?? "") ?? .english
     }
 
-    /// Gemini was removed on 2026-09-25 (ADR-0001 amendment). A setting that
-    /// still names it would sit on a value no picker lists, so each purpose
-    /// falls back explicitly, never to another vendor on the user's behalf:
-    /// conversation returns to the default provider **with the companion off**
-    /// (the consent was given for Gemini), summaries become not configured,
-    /// and read-aloud stops pinning and follows summaries. Gemini's own model,
-    /// voice and style values and its Keychain key go too. Idempotent; runs at
-    /// launch. The Keychain delete is tried
-    /// **once**: on the Mac an item written by a differently signed build can
-    /// raise an authorization prompt, and a denied prompt must not return at
-    /// every launch — the orphaned key has no reader left.
-    static let retiredGeminiKeyCleanupKey = "retiredGeminiKeyCleanupAttempted"
-    public static func removeRetiredGeminiSettings(defaults: UserDefaults = .standard,
-                                                   keyExists: (String) -> Bool = { KeychainStore.exists($0) },
-                                                   deleteKey: (String) -> Void = { KeychainStore.set(nil, for: $0) }) {
-        let retired = "gemini"
-        if defaults.string(forKey: providerKey) == retired {
-            // Summaries still inheriting the shared value inherited Gemini.
-            if defaults.object(forKey: summaryProviderKey) == nil { defaults.set("", forKey: summaryProviderKey) }
-            defaults.removeObject(forKey: providerKey)
-            defaults.set(false, forKey: companionEnabledKey)
-        }
-        if defaults.string(forKey: summaryProviderKey) == retired { defaults.set("", forKey: summaryProviderKey) }
-        if defaults.string(forKey: readAloudProviderKey) == retired { defaults.set("", forKey: readAloudProviderKey) }
-        for key in ["voiceModel", "voiceVoice", "readAloud.model", "readAloud.voice", "readAloud.style",
-                    "completionSummaryModel"].map({ "\($0).\(retired)" }) {
-            defaults.removeObject(forKey: key)
-        }
-        let account = "\(retired).apiKey"
-        if !defaults.bool(forKey: retiredGeminiKeyCleanupKey) {
-            defaults.set(true, forKey: retiredGeminiKeyCleanupKey)
-            if keyExists(account) { deleteKey(account) }
-        }
-    }
-
     /// Per-provider model / voice ID UserDefaults keys (one set each).
     public static func modelKey(_ p: VoiceProvider) -> String { "voiceModel.\(p.rawValue)" }
     public static func voiceKey(_ p: VoiceProvider) -> String { "voiceVoice.\(p.rawValue)" }
@@ -427,6 +392,10 @@ public enum VoiceSettings {
     /// not one, so the conversation path can never reach a text-only vendor.
     public static var provider: VoiceProvider {
         let stored = VoiceProvider(rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "")
+        // Keep a restored Gemini selection even while its speech adapter is
+        // staged off. The caller's capability guard must refuse it, never
+        // start a different vendor using consent originally given to Gemini.
+        if stored == .gemini { return .gemini }
         return stored.flatMap { $0.supportsVoice ? $0 : nil } ?? .qwen
     }
 

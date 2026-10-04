@@ -35,6 +35,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         case .qwen: "qwen3.8-flash"
         case .openai: "gpt-5.6-luna"
         case .deepseek: "deepseek-flash"
+        case .gemini: "gemini-3.5-flash-lite"
         case .minimax: "MiniMax-M3.1-Flash-Preview"
         case .doubao: ""
         }
@@ -77,6 +78,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
             case .qwen: name = "DASHSCOPE_API_KEY"
             case .openai: name = "OPENAI_API_KEY"
             case .deepseek: name = "DEEPSEEK_API_KEY"
+            case .gemini: name = "GEMINI_API_KEY"
             case .minimax: name = "MINIMAX_API_KEY"
             case .doubao: return nil
             }
@@ -91,6 +93,9 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         guard let provider, provider.supportsCompletionSummaries else { return .missingProvider }
         if modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .missingModel }
         if provider == .openai, modelID.hasPrefix("gpt-live-") || modelID.hasPrefix("gpt-realtime") {
+            return .invalidModel
+        }
+        if provider == .gemini, modelID.contains("-tts") || modelID.contains("-live") {
             return .invalidModel
         }
         if provider == .qwen, let workspace = qwenWorkspaceID,

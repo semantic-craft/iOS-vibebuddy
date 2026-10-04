@@ -33,4 +33,12 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 
 遵循父规格的范围与验收规则；真实调用、设备听感、安装/发布与本地检查分别记录。缺少条件时完成可用检查并留下具体缺口，不能将模拟通过标为真实验收通过。只运行受影响的检查，保留其他会话改动。
 
-尚未实施。完成时记录代码版本、实际检查、端到端证据及剩余限制。
+2026-10-04：配置和摘要代码切片已实施，完整验收仍未关闭。
+
+- 恢复 Gemini 摘要供应商及 Mac 账户设置；两端启动不再删除 Gemini Key/偏好。当前语音用途尚未启用；手机摘要仍由来源 Mac 提供，手机 Key 入口随后续语音切片开放。
+- 原生 Interactions 请求显式 `store=false`，没有 tools/history；只解码最终 `model_output`，排除思考、工具输出与未完成结果，映射用量及安全错误。保留现有取消、轮次/配置失效和呈现限制。
+- 暂定默认 `gemini-3.5-flash-lite`，由集成验收同批比较后定案。显式旧型号保留；404 提示选择受支持文本模型，设置可恢复默认。Gemini E2E 凭据只读 `GEMINI_API_KEY`，缺失不回退个人 Keychain；普通用户仍用 Keychain。
+- 协议核对固定 Google JS GenAI [v2.24.0 Interactions schema](https://github.com/googleapis/js-genai/blob/v2.24.0/src/gaos/models/interactions/interaction.ts)、[model-output](https://github.com/googleapis/js-genai/blob/v2.24.0/src/gaos/models/interactions/model-output-step.ts)及 usage/generation-config。
+- 设置回归先复现 Gemini 选择被读成 nil，再通过；HTTP 服务回放覆盖最终正文/用量、无状态认证请求、拒绝残缺及工具输出、不可用型号与错误 Key。受影响 Mac 26 项、Kit 9 项通过，真实模型调用未在此切片执行。
+- 检查基线 `a1c94ef5` 加本切片未提交差异；完整源指纹和日志：`~/Projects/_shared-work/iOS-vibebuddy/gemini-suite-20261004/gem01-local-checks/` 下 mac/kit 的 results.json。
+- 剩余：集成分支真实摘要比较、Mac/配对手机来源与轮次验收、两端原生构建；由 GEM-04 汇总。尚无安装、发布或用户验收结论。
