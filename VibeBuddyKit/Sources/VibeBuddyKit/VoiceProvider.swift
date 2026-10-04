@@ -61,11 +61,11 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     /// Microphone capture rate the backend expects (Hz). Output is 24 kHz for all.
     public var inputSampleRate: Double {
         switch self {
-        case .qwen, .doubao: return 16_000
+        case .qwen, .doubao, .gemini: return 16_000
         case .openai:        return 24_000
         // No realtime adapter: no microphone path opens for this vendor. Kept plain rather
         // than zero so a mistaken caller misconfigures instead of trapping.
-        case .deepseek, .minimax, .gemini: return 16_000
+        case .deepseek, .minimax: return 16_000
         }
     }
 

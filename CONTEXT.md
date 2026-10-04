@@ -235,9 +235,10 @@ For source ownership and checks, use the [development map](docs/agents/developme
   visible, explained once), the Mac panel's command row, the Mac dashboard's
   sidebar (its Voice row) and the expanded Glance. Its glyph follows the voice phase.
 - **VoiceProvider** — a vendor the companion talks to: `qwen`, `openai`,
-  `doubao`, `deepseek` or `minimax`. Each has its own key. (Gemini was removed on
-  2026-09-25, ADR-0001; the agent source `gemini` is Antigravity, not a
-  VoiceProvider.) The realtime backends
+  `doubao`, `deepseek`, `minimax` or `gemini`. Each has its own device-local key.
+  Gemini covers summaries, read-aloud and realtime conversation; its 2026-09-25
+  removal and 2026-10-04 return are recorded in ADR-0001. The separate agent
+  source string `gemini` still denotes Antigravity. The realtime backends
   also have a model, voice and input sample rate; `supportsVoice` says which
   ones those are. `deepseek` is **text-only**; `minimax` supports summaries and
   TTS but not realtime conversation. `voiceProviders` excludes both;
@@ -856,16 +857,17 @@ Notification suppression requires a positively identified task view (currently t
   read-aloud entry: the pending queue spoken in
   order (stuck and waiting first, then unread results), ten at most, each
   item bound to its round and re-checked before it is spoken; pause, skip,
-  replay, stop. The voice companion's provider speaks when it has a key,
-  otherwise the system voice on iPhone. Mac uses its configured read-aloud
+  replay, stop. iPhone explicitly selects system speech or a speech provider;
+  its initial selection inherits the previous voice provider only when it has
+  a key. Later choices remain independent. Mac uses its configured read-aloud
   provider and shares its ten-item queue with automatic Announcement; the
   Voice and reading panel exposes both. Nothing it does marks a result read; a live
   voice call pauses it, and manual reading requires explicit resume afterward.
   Background, automatic reading remains the Mac's
   **Announcement**.
 - **Voice page** — the sheet behind the mic: the read-aloud queue, the
-  conversation, and pause / mic / skip. It says which side the microphone is
-  on (half duplex, ADR-0004). Closing it stops nothing. Its two extra voice
+  conversation, and pause / mic / skip. Capture stays active during playback
+  with native voice processing and echo cancellation (ADR-0004). Closing it stops nothing. Its two extra voice
   tools, *mark read* and *instruct*, confirm a displayed round as read or
   send free text to a running or finished session; both report the
   application's receipt, never the agent's completion.

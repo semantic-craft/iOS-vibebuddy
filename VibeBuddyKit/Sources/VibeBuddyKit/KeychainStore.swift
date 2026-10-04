@@ -392,10 +392,6 @@ public enum VoiceSettings {
     /// not one, so the conversation path can never reach a text-only vendor.
     public static var provider: VoiceProvider {
         let stored = VoiceProvider(rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "")
-        // Keep a restored Gemini selection even while its speech adapter is
-        // staged off. The caller's capability guard must refuse it, never
-        // start a different vendor using consent originally given to Gemini.
-        if stored == .gemini { return .gemini }
         return stored.flatMap { $0.supportsVoice ? $0 : nil } ?? .qwen
     }
 
