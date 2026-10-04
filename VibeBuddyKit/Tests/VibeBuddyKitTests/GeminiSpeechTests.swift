@@ -63,8 +63,12 @@ struct GeminiSpeechTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["GEMINI_SPEECH_ACCEPTANCE"] == "1"))
     func liveGeminiSpeech() async throws {
         let key = try #require(ProcessInfo.processInfo.environment["GEMINI_API_KEY"])
-        let line = "任务已完成，12 项检查通过。SwiftUI 设备验收仍待完成。"
-        let data = try await GeminiSpeechSynthesizer().synthesize(line, apiKey: key)
+        let line = try ProcessInfo.processInfo.environment["GEMINI_SPEECH_TEXT_PATH"]
+            .map { try String(contentsOfFile: $0, encoding: .utf8) }
+            ?? "任务已完成，12 项检查通过。SwiftUI 设备验收仍待完成。"
+        let config = SpeechSynthesisConfiguration(provider: .gemini, model: GeminiSpeechSynthesizer.defaultModel, voice: "Kore")
+        let synthesizer = try #require(SpeechSynthesis.synthesizer(config))
+        let data = try await synthesizer.synthesize(line, apiKey: key)
         #expect(data.count > 1_000)
         if let output = ProcessInfo.processInfo.environment["GEMINI_SPEECH_OUTPUT"] {
             try data.write(to: URL(fileURLWithPath: output), options: .atomic)
