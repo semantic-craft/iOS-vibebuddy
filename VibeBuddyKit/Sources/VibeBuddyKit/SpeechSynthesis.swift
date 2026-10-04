@@ -132,8 +132,13 @@ public enum SpeechSynthesis {
                            defaultVoice: MiniMaxSpeechSynthesizer.defaultVoice, supportsStyle: true) {
                 MiniMaxSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, style: $0.style)
             }
-        case .deepseek, .gemini:
-            return nil   // No synthesizer is enabled for these integrations.
+        case .gemini:
+            return Support(defaultModel: GeminiSpeechSynthesizer.defaultModel,
+                           defaultVoice: GeminiSpeechSynthesizer.defaultVoice, supportsStyle: true) {
+                GeminiSpeechSynthesizer(model: $0.model, voice: $0.voice, persona: $0.persona)
+            }
+        case .deepseek:
+            return nil
         }
     }
 

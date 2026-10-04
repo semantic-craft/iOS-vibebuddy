@@ -143,7 +143,9 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
             address = "https://platform.minimax.cn/docs/api-reference/speech-t2a-http"
         case (.gemini, .conversation):
             address = "https://ai.google.dev/gemini-api/docs/live-api"
-        case (.minimax, .conversation), (.gemini, .speechSynthesis): return nil
+        case (.gemini, .speechSynthesis):
+            address = "https://ai.google.dev/gemini-api/docs/speech-generation"
+        case (.minimax, .conversation): return nil
         case (.gemini, .text):
             address = "https://ai.google.dev/gemini-api/docs/text-generation"
         case (.deepseek, .text):

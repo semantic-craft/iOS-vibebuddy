@@ -32,4 +32,9 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 
 遵循父规格的范围与验收规则；真实调用、设备听感、安装/发布与本地检查分别记录。缺少条件时完成可用检查并留下具体缺口，不能将模拟通过标为真实验收通过。只运行受影响的检查，保留其他会话改动。
 
-尚未实施。完成时记录代码版本、实际检查、端到端证据及剩余限制。
+本地实现（2026-10-04，集成基线 `d3a2231f`）：增加共享 Gemini Interactions TTS 适配器，正文与风格注解分离、`store=false`，解析原始 `steps[].content[]` 音频而非 SDK 的便利属性。下载和解码音频均有上限，验证完整 PCM16/24 kHz/单声道 WAV；支持取消、错误分类以及已有分段/队列路径。启用两端共用的朗读供应商/预置声音/风格设置，Mac 隔离运行显式读取已注入的 Gemini Key；手机沿用 provider.apiKey 路径。
+
+- 官方协议依据：[TTS 指南](https://ai.google.dev/gemini-api/docs/speech-generation)，Google GenAI SDK 2.25.0；原始 REST 音频位于 `steps[type=model_output].content[type=audio]`，`output_audio` 是 SDK 便利属性。
+- 定向 Kit 检查：`GeminiSpeechTests|VoicePurposeSettingsTests|VoiceCatalogTests|VoiceDefaultsInCatalogTests|VoiceStyleTests|ChunkedSpeechSynthesizerTests|CompletionSpeechQueueTests`，46 项通过；真实调用测试默认关闭。红阶段先复现缺失合成器及供应商无法跟随，随后转绿。
+- 真实合成入口：仅显式设置 `GEMINI_SPEECH_ACCEPTANCE=1` 才运行 `GeminiSpeechTests/liveGeminiSpeech`，使用已有环境 `GEMINI_API_KEY`，可由 `GEMINI_SPEECH_OUTPUT` 保存 WAV；测试不读取 Keychain、不打印 Key 或正文。
+- 仍待集成验收：真实 Swift 合成、两端构建、设备试听/任务结果实听与队列控制。音频生成与播放器完成分别记录，不能替代听感验收。此工单保持未完成，由 GEM-04 汇总证据。

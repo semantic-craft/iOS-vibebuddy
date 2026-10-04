@@ -25,6 +25,18 @@ struct CompletionSummaryTests {
         #expect(sent["system_instruction"] as? String != nil)
     }
 
+    @Test func gemini38UsesSupportedThinkingLevel() throws {
+        for (model, level) in [("gemini-3.5-flash-lite", "minimal"), ("gemini-3.8-flash", "low")] {
+            var config = configuration(.gemini)
+            config.modelID = model
+            let request = try CompletionSummaryHTTP.request(input: input(), configuration: config, key: "synthetic", timeout: 12)
+            let data = try #require(request.httpBody)
+            let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let generation = try #require(body["generation_config"] as? [String: Any])
+            #expect(generation["thinking_level"] as? String == level)
+        }
+    }
+
     @Test func geminiRejectsPartialOrToolOutputAndExplainsUnavailableModel() async throws {
         for body in [
             #"{"status":"incomplete","steps":[{"type":"model_output","content":[{"type":"text","text":"Looks complete."}]}]}"#,

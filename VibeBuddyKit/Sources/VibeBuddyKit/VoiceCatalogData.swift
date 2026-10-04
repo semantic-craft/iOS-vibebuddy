@@ -19,6 +19,20 @@ import Foundation
 /// cloned voices, newly released ones, and these.
 extension VoiceCatalog {
     static let catalog: [Key: [CatalogVoice]] = [
+        // Kore verified by the google-genai 2.25.0 Live acceptance probe.
+        Key(.conversation, .gemini): [
+            .init("Kore", "Kore", category: "Live voices"),
+        ],
+        // Gemini prebuilt studio voices: official speech-generation guide, 2026-10-04.
+        // The initial preset list is intentionally short; custom voice IDs remain editable.
+        Key(.readAloud, .gemini): [
+            .init("Kore", "Kore", "Firm", category: "Studio voices"),
+            .init("Puck", "Puck", "Upbeat", category: "Studio voices"),
+            .init("Charon", "Charon", "Informative", category: "Studio voices"),
+            .init("Aoede", "Aoede", "Breezy", category: "Studio voices"),
+            .init("Leda", "Leda", "Youthful", category: "Studio voices"),
+            .init("Enceladus", "Enceladus", "Breathy", category: "Studio voices"),
+        ],
         // MiniMax official system voices, checked 2026-10-01.
         // https://platform.minimax.cn/docs/faq/system-voice-id
         Key(.readAloud, .minimax): [
