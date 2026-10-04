@@ -36,7 +36,8 @@ enum SettingsModelTestOperations {
             case .qwen: QwenRealtimeSession(apiKey: apiKey, model: model, workspaceID: workspace, useIntl: international)
             case .openai: OpenAIVoiceSession.make(apiKey: apiKey, model: model)
             case .doubao: DoubaoRealtimeSession(apiKey: apiKey, model: model)
-            case .deepseek, .minimax, .gemini: nil
+            case .gemini: GeminiRealtimeSession(apiKey: apiKey, model: model)
+            case .deepseek, .minimax: nil
             }
         }
     }

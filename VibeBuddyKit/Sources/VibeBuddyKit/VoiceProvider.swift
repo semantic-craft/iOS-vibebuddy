@@ -18,7 +18,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
 
     /// Whether this integration supports realtime conversation. MiniMax has
     /// text and TTS adapters only; read-aloud has its own capability list.
-    public var supportsVoice: Bool { self != .deepseek && self != .minimax && self != .gemini }
+    public var supportsVoice: Bool { self != .deepseek && self != .minimax }
     public static var voiceProviders: [Self] { allCases.filter(\.supportsVoice) }
 
     public static var readAloudProviders: [Self] { allCases.filter { SpeechSynthesis.support($0) != nil } }
@@ -53,7 +53,8 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return "qwen-audio-3.0-realtime-plus"
         case .openai: return "gpt-live-1"
         case .doubao: return "1.2.6.1"
-        case .deepseek, .minimax, .gemini: return ""
+        case .gemini: return "gemini-3.8-live"
+        case .deepseek, .minimax: return ""
         }
     }
 
@@ -78,7 +79,8 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return "longanqian"   // Qwen-Audio system voice (multilingual)
         case .openai: return "marin"
         case .doubao: return "zh_female_vv_jupiter_bigtts"   // Chinese; English → the catalog
-        case .deepseek, .minimax, .gemini: return ""                            // No realtime conversation voice
+        case .gemini: return "Kore"
+        case .deepseek, .minimax: return ""                            // No realtime conversation voice
         }
     }
 
@@ -139,9 +141,11 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
             address = "https://platform.minimax.cn/docs/api-reference/text-chat-openai"
         case (.minimax, .speechSynthesis):
             address = "https://platform.minimax.cn/docs/api-reference/speech-t2a-http"
+        case (.gemini, .conversation):
+            address = "https://ai.google.dev/gemini-api/docs/live-api"
         case (.gemini, .speechSynthesis):
             address = "https://ai.google.dev/gemini-api/docs/speech-generation"
-        case (.minimax, .conversation), (.gemini, .conversation): return nil
+        case (.minimax, .conversation): return nil
         case (.gemini, .text):
             address = "https://ai.google.dev/gemini-api/docs/text-generation"
         case (.deepseek, .text):
