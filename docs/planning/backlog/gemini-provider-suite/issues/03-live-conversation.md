@@ -33,4 +33,11 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 
 遵循父规格的范围与验收规则；真实调用、设备听感、安装/发布与本地检查分别记录。缺少条件时完成可用检查并留下具体缺口，不能将模拟通过标为真实验收通过。只运行受影响的检查，保留其他会话改动。
 
-尚未实施。完成时记录代码版本、实际检查、端到端证据及剩余限制。
+2026-10-04 实现记录（设备验收未完成，保持开放）：
+
+- 新增原生 `GeminiRealtimeSession`，用 `x-goog-api-key` 请求头建立连接，不把 Key 放入 URL。按固定官方 `google-genai 2.25.0` schema 发送 AUDIO、转写及显式 BLOCKING 工具声明；工具结果保留 id/name 并等待 socket 发送完成。
+- Mac/iPhone 通话与设置连接检查均接入，默认 `gemini-3.8-live` / `Kore`。现有音频基础设施、任务目标核验与受控操作不变；连接检查仍不加载任务工具。
+- 连接确认、连续轮次、输入/输出转写、取消身份、打断后迟到输出、关闭后旧连接回调隔离已实现。GoAway 只作预告；收到该预告后的正常 WebSocket 关闭才分类为供应商到顶。
+- TDD 首次回归因适配器尚不存在而编译失败；实现后定向运行 GeminiRealtimeSessionTests、VoiceCallCoordinatorTests、VoiceTargetCheckTests、ProviderLimitSignalTests，45 项通过；真实调用测试默认跳过。`git diff --check` 通过。
+- `GeminiLiveAcceptanceTests` 提供显式启用、90 秒有界的原生真实音频两轮检查，接受外部 PCM 与状态回执文件，不自动读取 Keychain。由集成验收记录实际调用结果。
+- 待集成：两端构建、原生真实模型音频/状态调用、两端麦克风与扬声器实听、授权任务操作和真实时限。协议重放不等于设备验收。

@@ -501,7 +501,8 @@ private struct ProviderSection: View {
         case .qwen: session = QwenRealtimeSession(apiKey: key, model: effectiveModel, workspaceID: workspace.isEmpty ? nil : workspace, useIntl: intl)
         case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: effectiveModel)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: effectiveModel)
-        case .deepseek, .minimax, .gemini: return   // Text-only: never offered as a voice provider.
+        case .gemini: session = GeminiRealtimeSession(apiKey: key, model: effectiveModel)
+        case .deepseek, .minimax: return   // Text-only: never offered as a voice provider.
         }
         connectionTest.start(session, voice: effectiveVoice)
     }
@@ -542,7 +543,8 @@ private struct ProviderSection: View {
         case .qwen:   return "e.g. longanqian / longanlufeng"
         case .openai: return "e.g. marin / cedar"
         case .doubao: return "zh_female_vv_jupiter_bigtts"
-        case .deepseek, .minimax, .gemini: return ""
+        case .gemini: return "e.g. Kore / Puck"
+        case .deepseek, .minimax: return ""
         }
     }
 }
