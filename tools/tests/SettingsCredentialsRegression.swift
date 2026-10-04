@@ -55,6 +55,19 @@ struct SettingsCredentialsRegression {
         precondition(credential.remove())
         precondition(stored == nil && !credential.configured && credential.revision == 2)
         precondition(accounts.allSatisfy { $0 == VoiceProvider.qwen.keychainAccount })
+        let injected = SettingsCredential(.gemini, storage: .injectedKey("synthetic-gemini-key"))
+        injected.refresh()
+        precondition(injected.configured && !injected.loaded)
+        precondition(injected.loadForUse() == "synthetic-gemini-key")
+        injected.beginEditing()
+        injected.edit("replacement")
+        precondition(!injected.save() && injected.loadForUse() == "synthetic-gemini-key",
+                     "An injected run must not pretend that a Keychain write changes its effective credential")
+        precondition(!injected.remove() && injected.configured)
+        let missingInjected = SettingsCredential(.gemini, storage: .injectedKey(nil))
+        missingInjected.refresh()
+        precondition(!missingInjected.configured && missingInjected.loadForUse() == nil,
+                     "Missing injected credentials never fall back to a stored personal key")
         print("PASS: draft cancellation, saved-only reads, empty draft, failed save/retry, explicit removal and stable account")
     }
 }

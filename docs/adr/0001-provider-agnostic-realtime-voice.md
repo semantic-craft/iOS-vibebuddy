@@ -5,7 +5,7 @@ targets Qwen-Audio 3.0 Realtime (`qwen-audio-3.0-realtime-plus`) instead of
 Qwen3.5-Omni Realtime, with an optional Bailian workspace-specific endpoint;
 amended 2026-09-23 — a provider's per-connection limit ends the call as
 `ended(providerLimit)` with a one-tap redial (below); amended 2026-09-25 —
-Gemini Live removed (below). Gemini mentions above that date are historical.
+Gemini Live removed; amended 2026-10-04 — all three Gemini purposes restored (below).
 
 The voice companion talks to four cloud realtime vendors (Qwen-Audio
 Realtime, OpenAI GPT-Live or Realtime, Gemini Live, Doubao Realtime). We put them all behind one `RealtimeVoiceProvider`
@@ -192,8 +192,9 @@ Sources and limits: `docs/agents/minimax-tts-research.md`; measured selection:
 
 ## Gemini reintroduced by purpose (2026-10-04)
 
-The owner approved restoring summaries, read-aloud and conversation ([PRD](../planning/backlog/gemini-provider-suite/PRD.md)), superseding the removal above. This first slice enables summaries; the speech pickers wait for their adapters.
+The owner approved restoring summaries, read-aloud and conversation ([PRD](../planning/backlog/gemini-provider-suite/PRD.md)), superseding the removal above. All three adapters and their purpose-specific settings are now connected on Mac and iPhone.
 
 Swift uses the device-local key directly (ADR-0002). Google GenAI SDK v2.24.0 is the pinned protocol reference; no Firebase or Python/JS runtime is added. Summaries use independent Interactions with `store=false`, no tools/history, and only final `model_output` text; existing limits, cancellation and evidence checks apply.
 
-Both platforms stop retirement cleanup; explicit preferences remain, deleted keys cannot be recovered and features are not newly enabled. The initial summary default is `gemini-3.5-flash-lite`, pending comparison with `gemini-3.8-flash`; custom choices remain and invalid models fail without fallback. The agent source alias `gemini` still denotes Antigravity.
+Both platforms stop retirement cleanup; explicit preferences remain, deleted keys cannot be recovered and features are not newly enabled. The summary default remains `gemini-3.5-flash-lite` after the bounded comparison with `gemini-3.8-flash`; custom choices remain and invalid models fail without fallback. The agent source alias `gemini` still denotes Antigravity.
+TTS uses `gemini-3.8-flash-lite-tts`, separate literal text/style and validated complete WAV playback. Live uses `gemini-3.8-live`, waits for setup acknowledgement, maps audio/transcription and explicitly BLOCKING tool calls, and preserves cancellation and receipts. GoAway is a warning; only subsequent clean closure ends as a provider limit. Redial starts fresh. Existing full-duplex/AEC behavior in ADR-0004 is unchanged. Protocol/build results and remaining real-device acceptance are recorded separately in [QA](../qa/gemini-suite-20261004.md).
