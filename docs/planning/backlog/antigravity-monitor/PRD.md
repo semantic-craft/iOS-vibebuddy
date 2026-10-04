@@ -58,3 +58,7 @@
 
 已交付研究、范围、独立原型与配额/CLI/桌面接入；来源依据见 [PROTOTYPE](PROTOTYPE.md)，实施依据见 [SPEC](SPEC.md)。
 PR #344 已合并；Mac 1.3.44 (62) 已安装至 `/Applications` 并公开发布，旧版 Sparkle 自动升级通过。iOS/Watch 1.3.35 (70) 已提交并等待 Apple 审核。真实三端链路、独立评审、用户指定的本次 Agent 验收边界及未测量项见 [集成验收记录](../../../qa/antigravity-monitor-20261004.md)。
+
+## 后续范围澄清（2026-10-04）
+
+用户明确确认独立 Antigravity IDE 不纳入本次范围；已安装桌面 app 与 CLI 的接入保持原范围。独立 IDE 不再作为本次未完成验收项。实体 Watch 提醒与触觉验收由用户授权继续补测，结果追加到集成验收记录。
