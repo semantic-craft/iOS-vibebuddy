@@ -4,9 +4,11 @@
 
 ## 来源与交付边界
 
-集成分支 `codex/gemini-provider-suite`，基线 `5af77f161cd28386beeda8b6c98853811013f43e`。范围见 [PRD](../planning/backlog/gemini-provider-suite/PRD.md)，依赖与剩余项见 [工单总览](../planning/backlog/gemini-provider-suite/TICKET-PLAN.md)。所有变更在独立工作树实施，原始工作区未修改。按用户调用的 implement-spec 完成本地提交与合入；未推送、安装、发布或获得用户体验验收。
+集成分支 `codex/gemini-provider-suite`，基线 `5af77f161cd28386beeda8b6c98853811013f43e`。范围见 [PRD](../planning/backlog/gemini-provider-suite/PRD.md)，依赖与剩余项见 [工单总览](../planning/backlog/gemini-provider-suite/TICKET-PLAN.md)。所有变更在独立工作树实施，原始工作区未修改。实现已通过 [PR #346](https://github.com/semantic-craft/iOS-vibebuddy/pull/346) 合入 `main`（`e088a80f`）。Mac 1.3.45（63）已发布；iOS 1.3.36（71）于 2026-10-04 17:29 +0800 提交，提交时 Apple 显示 Waiting for Review，审核通过后自动发布。共享已安装 Mac 应用未替换，设备体验验收仍未完成。
 
 持久证据根目录：`~/Projects/_shared-work/iOS-vibebuddy/gemini-suite-20261004/`。以下相对路径均指该目录。凭据通过项目 `.envrc` 的既有白名单显式注入有界测试/隔离应用；编译、回归和评审不加载凭据。Key 未回显、未写入 Keychain。音频产物与少量任务结果仅存于本机证据目录。
+
+发布签名、公证、公开下载包与更新源核对记录见持久目录 `release/release-status.md`；iOS 提审截图为 `release/ios-review-submitted.jpg`。提交审核不等于公开上架。
 
 ## 摘要选择与协议
 

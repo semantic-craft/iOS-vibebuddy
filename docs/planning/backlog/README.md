@@ -1,4 +1,4 @@
-# 施工清单（2026-10-02 更新）
+# 施工清单（2026-10-04 更新）
 
 这里只列**未完成**的施工项。已完成的改动看 `git log` 和已合并的 PR；各版本做了什么：Mac 看 [GitHub Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases)，iOS 看 App Store 的 What's New。票据做完就删文件和行（见 `docs/agents/issue-tracker.md`）。
 
@@ -13,7 +13,6 @@
 | GEM-02 | 在 Mac/iPhone 用 Gemini 朗读结果 | [ticket](gemini-provider-suite/issues/02-read-aloud.md) | ready-for-human | 原生TTS与WAV分段已接通；待两端实听及队列控制 |
 | GEM-03 | 在 Mac/iPhone 用 Gemini 通话并操作任务 | [ticket](gemini-provider-suite/issues/03-live-conversation.md) | ready-for-human | 原生Live两轮/工具回执通过；待实机语音操作指定任务 |
 | GEM-04 | 三用途联合验收与现有供应商回归 | [ticket](gemini-provider-suite/issues/04-integration-acceptance.md) | ready-for-human | 构建、回归与评审已执行；剩余设备联合验收 |
-| AG-MON | Antigravity 配额与 CLI / 桌面会话观察 | [首版范围](antigravity-monitor/PRD.md) · [原型结论](antigravity-monitor/PROTOTYPE.md) | 已交付 | Mac 1.3.44 已发布；iOS 1.3.35 等待 Apple 审核；[验收与边界](../../qa/antigravity-monitor-20261004.md) |
 | AG-05 | 同会话连续提问的新提醒核查 | [ticket](antigravity-monitor/issues/05-repeat-wait-cue.md) | needs-triage | 实体验收发现 R2 无新发送记录；R3 表盘提醒与触觉通过 |
 | IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 真机、MiniMax 凭据及可操作的模拟器图形界面 |
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |

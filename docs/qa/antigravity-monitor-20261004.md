@@ -112,3 +112,7 @@
 - 改用新真实 CLI 会话 `abd82ed0-4a4c-43ec-a124-7efe88cd5327`，问题 `AGWATCH-70-R3: 手表通知测试`，10:05:12 APNs accepted。用户明确回报在手机锁屏、手表表盘状态下“看到了，也震动了”。这是物理观察证据；Apple 接收记录本身不证明腕上送达。
 - 在原 CLI 回答 Continue 后，两会话均 done、waitKind 清空；R3 正文 `AGWATCH_70_R3_DONE`，completion `antigravity-cli-0-3`。两个本任务 CLI 均已 `/exit`，保留真实会话历史。Antigravity 为只读接入，本轮不要求或宣称手表远程批准通过；未补做 Mac 重启后的重复推送及手机重开后的不重播检查。
 - 持久证据同前述 `physical-watch/`：`setup.json`、`watch-ready.json`、`r3-waiting-snapshot.json`、`r3-delivery.json`、`watch-after-r3.json`、`resolved-snapshot.json`、`final-delivery.json`、`result.json`。记录已区分第一轮无效条件、R2 待核查和 R3 物理通过。
+
+## 后续发布状态（2026-10-04）
+
+iOS 1.3.35（70）的待审提交已被包含同一 Antigravity 改动的 1.3.36（71）替代；后者于 17:29 +0800 提交，提交时显示 Waiting for Review。Mac 最新发布为 1.3.45。发布证据与剩余 Gemini 设备验收见 [Gemini 验收记录](gemini-suite-20261004.md)。本页以上保留各次验收发生时的版本和结果；AG-05 连续提醒问题继续保留在施工清单。
