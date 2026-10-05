@@ -8,6 +8,7 @@
 
 | ID | 内容 | 票据 | 状态 | 说明 |
 |---|---|---|---|---|
+| AIC-23 | Agent工程检查与安装计划 | [ticket](agent-engineering-contract/issues/01-agent-contract.md) · [PRD](agent-engineering-contract/PRD.md) | ready-for-agent | 待总协调明确指定唯一工程 owner，发布不等于已领取。指定 owner 开工前检查既有 writer 与共享 App 的 peer 验收；peer 使用中不替换共享 App，继续独立工作并记录未安装。计划与检查不启动生产端口、不读取私人 history、不启动第二个生产菜单栏实例。实际安装仅在具体任务范围内、peer 检查允许后执行。 |
 | GEM-PRD | Gemini 摘要、朗读与实时通话 | [PRD](gemini-provider-suite/PRD.md) · [依赖总览](gemini-provider-suite/TICKET-PLAN.md) | ready-for-human | 三用途代码已集成；设备实听、配对手机与真实操作验收待完成 |
 | GEM-01 | 配置 Gemini 并获得真实任务摘要 | [ticket](gemini-provider-suite/issues/01-configuration-summary.md) | ready-for-human | 默认摘要模型比较及应用呈现通过；待配对手机与重启验收 |
 | GEM-02 | 在 Mac/iPhone 用 Gemini 朗读结果 | [ticket](gemini-provider-suite/issues/02-read-aloud.md) | ready-for-human | 原生TTS与WAV分段已接通；待两端实听及队列控制 |
@@ -79,10 +80,3 @@
 
 - `~/Projects/_shared-work/archive/iOS-vibebuddy-scratch-2026-09-23.tgz`：完整的 `.scratch`，含已完成工单、HTML 计划、探针和证据；`CHECKLIST.md` 链接的两份 HTML 实施手册和探针源码也在这里。
 - 各轮验收证据在 `~/Projects/_shared-work/iOS-vibebuddy/` 下按日期分目录。
-
-
-## Agent engineering contract
-
-| ID | Work | Ticket | Status | Start |
-| --- | --- | --- | --- | --- |
-| AIC-23 | Engineering plan and receipts | [ticket](agent-engineering-contract/issues/23-agent-contract.md) · [PRD](agent-engineering-contract/PRD.md) | ready-for-agent | Claim one owner; preserve shared-app peer acceptance |

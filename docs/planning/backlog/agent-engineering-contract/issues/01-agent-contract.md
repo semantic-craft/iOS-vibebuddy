@@ -1,8 +1,10 @@
-# 23: 把工程检查与安装计划交给 Agent
+# 01: 把工程检查与安装计划交给 Agent
 
 <!-- agent-infra:20261005:23 -->
 
 **Status:** ready-for-agent
+
+批次引用：AI-20261005-23；本功能内编号01。
 
 ## Parent / Spec
 
@@ -14,13 +16,11 @@ Agent能看到逐检查结果、目标端口/数据目录/共享App影响与安�
 
 ## Owner and start condition
 
-待协调者指定唯一实现 owner；本票发布不构成已领取
-
-指定唯一工程owner；先检查共享App的peer验收，不替换被使用的App。
+待总协调明确指定唯一工程 owner，发布不等于已领取。指定 owner 开工前检查既有 writer 与共享 App 的 peer 验收；peer 使用中不替换共享 App，继续独立工作并记录未安装。计划与检查不启动生产端口、不读取私人 history、不启动第二个生产菜单栏实例。实际安装仅在具体任务范围内、peer 检查允许后执行。
 
 ## Current evidence / duplication check
 
-status/facts已有只读MCP；check results.json已实现；GEM/IOSP/GROK/SET既有待验票不重开。
+复用 tools/check.py 与现有 results.json、verify-vibebuddy 隔离验收和 docs/sparkle-setup.md 的共享App检查；不新造第二套检查器。status/facts已有只读MCP；GEM/IOSP/GROK/SET既有待验票不重开。
 
 在本项目现有票与PR基础上补剩余缺口，已closed/done成果保持原状态；发布前已查当前issue/PR及适用本地tracker，领取时再查新claim和代码。
 
@@ -29,11 +29,11 @@ status/facts已有只读MCP；check results.json已实现；GEM/IOSP/GROK/SET既
 - [ ] Synthetic：保留JSON-RPC framing/isError与CLI0/1/2；安装plan不写Application/端口/登录配置，skip/limitation可解析。
 - [ ] Real service / actual entry：隔离工程检查输出可消费；安装前只读识别共享App peer，占用时继续独立工作且保留未安装状态。
 - [ ] Product：后续指定安装从计划到回执可核验；实机/手机/语音未验不能标通过，纯读status不强加dry-run。
-- [ ] 回填受验提交、实际命令/结果、产物身份/hash、证据位置与未运行项。代码、测试、合并、部署、产品验收和用户接受分别报告。
+- [ ] 回填受验提交、实际命令/结果、产物身份/hash、未运行项及不含个人home路径的证据指针；完整本地证据由owner保留。代码、测试、合并、部署、产品验收和用户接受分别报告。
 
 ## Blocked by
 
-- None（无技术票前置；仍须满足下方Start条件）。
+- None（无技术票前置；仍须满足上述 Owner and start condition）。
 
 ## Implementation route
 

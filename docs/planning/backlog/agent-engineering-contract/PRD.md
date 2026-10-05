@@ -30,7 +30,7 @@
 
 ## Tickets and blocking edges
 
-- [23](issues/23-agent-contract.md) — blocked by: none；start: 指定唯一工程owner；先检查共享App的peer验收，不替换被使用的App。
+- [23](issues/01-agent-contract.md) — blocked by: none；start: 待总协调明确指定唯一工程 owner，发布不等于已领取。指定 owner 开工前检查既有 writer 与共享 App 的 peer 验收；peer 使用中不替换共享 App，继续独立工作并记录未安装。计划与检查不启动生产端口、不读取私人 history、不启动第二个生产菜单栏实例。实际安装仅在具体任务范围内、peer 检查允许后执行。
 
 ## Further Notes
 
