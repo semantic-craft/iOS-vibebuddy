@@ -15,6 +15,15 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class CheckArguments(argparse.ArgumentParser):
+    def error(self, message):
+        if "--json" in sys.argv:
+            print(json.dumps({"schema_version": 1, "status": "error", "exit_code": 2,
+                              "error": {"code": "invalid_arguments", "message": message}}))
+            raise SystemExit(2)
+        super().error(message)
+
+
 def git(*args):
     return subprocess.check_output(["git", "-C", str(ROOT), *args])
 
@@ -78,7 +87,8 @@ def commands(profile, test_filter):
         scripts = ["tools/redeploy-mac.sh", "tools/lib/install-mac-app.sh",
                    "tools/lib/mac-app-runtime.sh", "tools/tests/deploy-mac-regression.sh"]
         return [["bash", "-n", p] for p in scripts] + [
-            ["bash", "tools/tests/deploy-mac-regression.sh"]]
+            ["bash", "tools/tests/deploy-mac-regression.sh"],
+            [sys.executable, "tools/tests/engineering-contract-regression.py"]]
     if profile in ("kit", "mac"):
         cmd = ["swift", "test", "--package-path", "VibeBuddyKit" if profile == "kit" else "VibeBuddyMac"]
         if test_filter:
@@ -111,11 +121,12 @@ LIMITS = {
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = CheckArguments(description=__doc__)
     parser.add_argument("profile", nargs="?", choices=LIMITS)
     parser.add_argument("--filter", help="Swift test filter for kit/mac; omit to run that package's suite")
     parser.add_argument("--output", type=Path, help="New evidence directory outside tracked source paths")
     parser.add_argument("--list", action="store_true", help="List checks and what they cannot prove")
+    parser.add_argument("--json", action="store_true", help="Emit one JSON result on stdout; progress stays on stderr")
     parser.add_argument("--source-state", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--check-docs", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -125,6 +136,9 @@ def main():
     if args.check_docs:
         return check_docs()
     if args.list:
+        if args.json:
+            print(json.dumps({"schema_version": 1, "profiles": LIMITS, "exit_code": 0}))
+            return 0
         for profile, limit in LIMITS.items():
             print(f"{profile}: {limit}")
         return 0
@@ -138,17 +152,21 @@ def main():
         ignored = subprocess.run(["git", "check-ignore", "-q", str(output)], cwd=ROOT).returncode == 0
         if not ignored:
             parser.error("evidence inside the repo must be gitignored; use .scratch/checks or an external directory")
-    output.mkdir(parents=True, exist_ok=False)
+    try:
+        output.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        parser.error("evidence directory already exists; choose a new directory")
     before = source_state()
-    report = {"started_utc": stamp, "profile": args.profile, "source_before": before,
+    report = {"schema_version": 1, "started_utc": stamp, "profile": args.profile, "source_before": before,
               "checks": [], "limitations": LIMITS[args.profile]}
+    progress = sys.stderr if args.json else sys.stdout
     planned = commands(args.profile, args.filter)
     report["planned_commands"] = planned
     result = 0
     try:
         for index, cmd in enumerate(planned, 1):
             log = output / f"{index:02d}.log"
-            print(f"Running: {' '.join(cmd)}\nLog: {log}", flush=True)
+            print(f"Running: {' '.join(cmd)}\nLog: {log}", file=progress, flush=True)
             start = time.monotonic()
             try:
                 with log.open("w") as stream:
@@ -157,21 +175,28 @@ def main():
                 log.write_text(str(exc) + "\n")
                 code = 127
             verification_error = None
+            with log.open(errors="replace") as stream:
+                skips = [line.strip() for line in stream if line.startswith(("SKIP ", "SKIP:"))]
             if code == 0 and args.profile in ("kit", "mac"):
                 text = log.read_text(errors="replace")
                 counts = re.findall(r"(?:Executed|Test run with) ([0-9]+) tests?\b", text)
                 if "No matching test cases were run" in text or not any(int(n) > 0 for n in counts):
                     verification_error = "Swift reported success but no executed tests; check the filter and log."
             report["checks"].append({"command": cmd, "exit_code": code,
+                                     "status": ("passed_with_skips" if skips else "passed") if code == 0 and not verification_error else "failed",
+                                     "skips": skips,
                                      "verification_error": verification_error,
                                      "seconds": round(time.monotonic() - start, 3), "log": log.name})
-            print(f"{'PASS' if code == 0 and not verification_error else 'FAIL'} ({report['checks'][-1]['seconds']}s)", flush=True)
+            print(f"{'PASS' if code == 0 and not verification_error else 'FAIL'} ({report['checks'][-1]['seconds']}s)", file=progress, flush=True)
             if code or verification_error:
                 result = 1
                 break
     except KeyboardInterrupt:
         result = 130
         report["interrupted"] = True
+    except (OSError, subprocess.SubprocessError) as exc:
+        result = 1
+        report["error"] = {"code": "check_unavailable", "message": str(exc)}
     finally:
         report["not_run"] = planned[len(report["checks"]):]
         report["source_after"] = source_state()
@@ -179,12 +204,23 @@ def main():
         if report["source_changed_during_run"]:
             result = result or 1
         report["exit_code"] = result
+        report["status"] = ("passed_with_skips" if any(c["skips"] for c in report["checks"]) else "passed") if result == 0 else "failed"
+        report["result_path"] = str(output / "results.json")
         (output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
-        print(f"Result: {output / 'results.json'}\nLimit: {report['limitations']}")
+        print(f"Result: {output / 'results.json'}\nLimit: {report['limitations']}", file=progress)
         if report["source_changed_during_run"]:
-            print("Source changed during checks; inspect before claiming this version passed.")
+            print("Source changed during checks; inspect before claiming this version passed.", file=progress)
+        if args.json:
+            print(json.dumps(report))
     return result
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (OSError, subprocess.SubprocessError) as exc:
+        if "--json" not in sys.argv:
+            raise
+        print(json.dumps({"schema_version": 1, "status": "error", "exit_code": 1,
+                          "error": {"code": "check_unavailable", "message": str(exc)}}))
+        sys.exit(1)

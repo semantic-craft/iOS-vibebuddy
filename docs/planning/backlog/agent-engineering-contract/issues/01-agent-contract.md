@@ -4,6 +4,15 @@
 
 **Status:** ready-for-agent
 
+**Owner:** VibeBuddy23 coordinator task `01a1032c-8835-7361-b7c8-13a2836af030`;
+explicitly assigned 2026-10-05. Implementation in isolated branch
+`codex/vibebuddy23-agent-contract`, based on `2fa30a2d`; no parallel writer or
+open PR for this ticket found at claim. Original dirty checkout is preserved.
+
+**Delivery:** implementation and scoped verification prepared for Draft PR;
+not merged, installed, released or owner-accepted. Evidence and limits:
+[engineering contract QA](../../../../qa/agent-engineering-contract-20261005.md).
+
 批次引用：AI-20261005-23；本功能内编号01。
 
 ## Parent / Spec
