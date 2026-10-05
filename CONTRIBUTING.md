@@ -17,7 +17,7 @@ iPhone and Apple Watch. Contributions in English or Simplified Chinese are welco
 Read [AGENTS.md](AGENTS.md) for project rules and
 [getting started](docs/getting-started.md#build-from-source) for local setup.
 Changes to behavior or architecture should also follow the
-[domain guide](docs/agents/domain.md), [CONTEXT.md](CONTEXT.md) and relevant
+[domain guide](docs/agents/domain.md), [GLOSSARY.md](GLOSSARY.md) and relevant
 [architecture decisions](docs/adr).
 
 For work planning, this project uses Markdown tickets under

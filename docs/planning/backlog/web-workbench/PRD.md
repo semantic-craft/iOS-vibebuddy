@@ -12,7 +12,7 @@
 
 ## 已核实的基础
 
-- VibeBuddy 已有 `AgentSession`、`Snapshot.sourceID`、HTTP `/snapshot` 与实时 `/ws`。会话状态、控制能力与来源由 Mac 提供，见 [CONTEXT](../../../../CONTEXT.md) 和 [ADR-0020](../../../adr/0020-autonomous-task-progress-desk.md)。
+- VibeBuddy 已有 `AgentSession`、`Snapshot.sourceID`、HTTP `/snapshot` 与实时 `/ws`。会话状态、控制能力与来源由 Mac 提供，见 [GLOSSARY](../../../../GLOSSARY.md) 和 [ADR-0020](../../../adr/0020-autonomous-task-progress-desk.md)。
 - 现有 `/ws` 只接受请求头 bearer，见 `VibeBuddyMac/Sources/VibeBuddyMacCore/VibeBuddyServer.swift` 的 `buildApplication()`；浏览器接入需单独设计认证，不能假定现有原生客户端连接代码可以直接复用。
 - Writing Infra 是技能、参考文件与脚本仓库；论文工作发生在各论文项目中。其 README 指向 `docs/paper-canvas.md` 和 `docs/argument-state.md` 等项目产物；不是已经可调用的任务服务。证据：同级 `writing-infra/README.md`，2026-10-01 只读检查。
 - 本机 `anamra/README.zh-CN.md` 描述了 Inbox、Today、Review、Planning 等本地工作流；本轮没有核实其内部 schema 或导出 API。

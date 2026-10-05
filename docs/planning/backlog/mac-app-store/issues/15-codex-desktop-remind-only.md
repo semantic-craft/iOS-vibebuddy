@@ -11,7 +11,7 @@ Spec: Spec v2（本工作线综合稿）+ 2026-09-08 用户范围裁定
 
 用户授权 Codex 配置目录后，商店版通过 Codex rollout stream 观察真实 Desktop Session 的开始、进行与结束，并在 Mac、iPhone 与通知里如实呈现进度。**不提供审批或回答入口，也不提示「正在等待批准」**——2026-09-08 实测确认 Codex 不把审批等待写入 rollout，沙盒又连不上 app-server 实时通道，用户已裁定砍掉等待提醒。Jump 只激活宿主应用，不定位线程。
 
-> **2026-09-09 — 排除等待提醒的前提正在复审，不要当成已定论。** rollout 无审批记录已独立复证（起 `approvalPolicy: "untrusted"` 的线程跑命令，审批确实发生，rollout 里三种 marker 一个都没有）。但当时判定“没有可用信号”只权衡了 rollout 与 app-server socket 两条通道，漏了 hooks：实测 daemon 会为经 `thread/start` 创建的线程触发 `~/.codex/hooks.json` 里 `source: "user"` 的 hook，**包括同步的 `permissionRequest` 网关**，且它先于审批扇出完成。CONTEXT.md 的 “Codex Desktop does not execute user CLI hooks” 对 0.153.4 已过时。
+> **2026-09-09 — 排除等待提醒的前提正在复审，不要当成已定论。** rollout 无审批记录已独立复证（起 `approvalPolicy: "untrusted"` 的线程跑命令，审批确实发生，rollout 里三种 marker 一个都没有）。但当时判定“没有可用信号”只权衡了 rollout 与 app-server socket 两条通道，漏了 hooks：实测 daemon 会为经 `thread/start` 创建的线程触发 `~/.codex/hooks.json` 里 `source: "user"` 的 hook，**包括同步的 `permissionRequest` 网关**，且它先于审批扇出完成。GLOSSARY.md 的 “Codex Desktop does not execute user CLI hooks” 对 0.153.4 已过时。
 >
 > 现行范围（只做进度观察）在用户重裁前不变，本票可以照常实施。但**不要在代码注释、UI 文案或票 18 的审核材料里写“Codex Desktop 的等待无法被观察”**——那句话现在没有证据支持。补验很便宜：在 Codex Desktop 里跑一条需要审批的命令，看 vibebuddy 是否收到 `permissionRequest`。
 >

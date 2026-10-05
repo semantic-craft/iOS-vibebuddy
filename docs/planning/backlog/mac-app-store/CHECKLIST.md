@@ -8,7 +8,7 @@
 
 路线已定为独立沙盒商店版（守望与放行），综合 spec 见 [SPEC-store-v2.md](SPEC-store-v2.md)；历史开票依据保留 [SPEC-store-v1.md](SPEC-store-v1.md)，工作票为 09–18；02–08 已作废。下一张可执行票：**09**（从零实现），随后 10 与 11 可并行；13 是关卡，通过前不投入 14 及之后。MAS-15 已于 2026-09-23 重裁：维持只观察 Codex Desktop 进度（见票 15 Comments）。
 
-本轮第一阶段已完成（[评估记录](evidence/PLAN-REVIEW.md)）：逐票静态核对并修订 IMPLEMENTATION-PLAN.html 与 09–18 的 Comments；全部票仍 not-started / unassigned。用户现指定由 Grok Build 实施、Codex 后续独立设计复核与 E2E。将 [Grok 主提示词](GROK-BUILD-PROMPT.md) 交给 Grok 后从 09 领取；本任务尚未启动任何执行会话。历史票据中的“本轮仅整理”是开票阶段记录，不覆盖用户后续交付实施提示词的授权。
+本轮第一阶段已完成（历史评估记录 `evidence/PLAN-REVIEW.md`（当前仓库未保留））：逐票静态核对并修订 IMPLEMENTATION-PLAN.html 与 09–18 的 Comments；全部票仍 not-started / unassigned。用户现指定由 Grok Build 实施、Codex 后续独立设计复核与 E2E。将 存档中的 Grok 主提示词 `GROK-BUILD-PROMPT.md` 交给 Grok 后从 09 领取；本任务尚未启动任何执行会话。历史票据中的“本轮仅整理”是开票阶段记录，不覆盖用户后续交付实施提示词的授权。
 
 下次先核对 HEAD、工作区与 owner；第一阶段 HEAD=053a87b；本次复核另见语音/音频及相关 ADR 的并行 WIP，均未改动，实施前重新核对当前基线。09 先完成独立 target 与最小运行隔离。13 未通过，14–18 一律不领票；17 另依赖 14 的安装器接管。待解问题：14 的 OpenCode bundle 引用/双向命令识别，15 的真实 Desktop rollout 等待信号，17 的 Keychain 共享与直接版签名不变边界。不得靠删功能、伪造等待或改直接版来绕过。
 
@@ -24,7 +24,7 @@ Grok Build 领取了 09 并在 `~/Projects/iOS-vibebuddy-wt/mac-app-store`（分
 
 09 的 6 条 AC 无一有证据：未做 Apple Development 重签、未验证 9880 监听与容器 home、未做真机 Pairing。`evidence/grok-build/` 不存在，HANDOFF.md 与 DESIGN-DECISIONS.md 未写。附带确认：`tools/vibebuddy-store.entitlements` 本身有效，重签探针 app 后 `codesign -d --entitlements` 实见 `app-sandbox`。
 
-14 / 15 / 17 的技术未知已实测裁定，记录在 [evidence/triage/TRIAGE-14-15-17.md](evidence/triage/TRIAGE-14-15-17.md)：14 与 17 转 ready-for-agent；15 的答案是否定的（Codex rollout 不持久化审批等待事件），用户 2026-09-08 裁定**砍掉 Desktop 等待提醒、保留任务进度观察**，票 15 已按此重写并转 ready-for-agent，票 18 的审核材料需写明该差异。14 另需票 11 把目录授权扩到 `~/.config/opencode` 等其它 CLI 配置目录。 **2026-09-09 补充**：rollout 无审批记录已独立复证，但该裁定当时未权衡 hooks 通道——实测 `permissionRequest` hook 会为 app-server 线程触发（CONTEXT 里“Desktop 不执行用户 hooks”对 0.153.4 已过时）。裁定前提有反证，待用户重裁；重裁前票 15 维持现行范围。见 evidence/triage/TRIAGE-14-15-17.md 的 2026-09-09 后续节。
+14 / 15 / 17 的技术未知已实测裁定，记录在 [evidence/triage/TRIAGE-14-15-17.md](evidence/triage/TRIAGE-14-15-17.md)：14 与 17 转 ready-for-agent；15 的答案是否定的（Codex rollout 不持久化审批等待事件），用户 2026-09-08 裁定**砍掉 Desktop 等待提醒、保留任务进度观察**，票 15 已按此重写并转 ready-for-agent，票 18 的审核材料需写明该差异。14 另需票 11 把目录授权扩到 `~/.config/opencode` 等其它 CLI 配置目录。 **2026-09-09 补充**：rollout 无审批记录已独立复证，但该裁定当时未权衡 hooks 通道——实测 `permissionRequest` hook 会为 app-server 线程触发（GLOSSARY 里“Desktop 不执行用户 hooks”对 0.153.4 已过时）。裁定前提有反证，待用户重裁；重裁前票 15 维持现行范围。见 evidence/triage/TRIAGE-14-15-17.md 的 2026-09-09 后续节。
 
 ## 准备成果
 
@@ -34,17 +34,17 @@ Grok Build 领取了 09 并在 `~/Projects/iOS-vibebuddy-wt/mac-app-store`（分
 
 - [x] 当前源码与 Apple 要求的静态调研，见 [RESEARCH.md](RESEARCH.md)。
 - [x] 四路线比较与候选 [spec](PRD.md)。
-- [x] [Claude 提示词](CLAUDE-CODE-PROMPT.md)；回复见 [CLAUDE-REVIEW.md](CLAUDE-REVIEW.md)（2026-09-07）。
+- [x] 存档中的 Claude 提示词 `CLAUDE-CODE-PROMPT.md`；回复见 [CLAUDE-REVIEW.md](CLAUDE-REVIEW.md)（2026-09-07）。
 - [x] 旧 8 张候选票已由正式 09–18 取代。
 - [x] 对裁决报告的评析与开票 spec，见 [SPEC-store-v1.md](SPEC-store-v1.md)（2026-09-08）：A1–A4 已回写现存 CLAUDE-REVIEW.md 与 RESULTS.md 的相关结论；独立原裁决报告在本目录未找到，未声称修改该原件。W1–W8 映射到 09–18，13 为关卡。
 - [~] 沙盒运行实验：探针级已跑（socket / 网络 / exec / 文件），端到端真实 agent 闭环未跑。证据 `evidence/`。
 - [x] 路线确定（独立沙盒商店版，2026-09-08）；正式开发按 09–18 推进。
-- [x] 逐票实施方案 [IMPLEMENTATION-PLAN.html](IMPLEMENTATION-PLAN.html)（2026-09-08，Codex 静态评估已修订，等待用户确认实施；票文件仍是权威）。
+- [x] 逐票实施方案 存档中的 `IMPLEMENTATION-PLAN.html`（2026-09-08，Codex 静态评估已修订，等待用户确认实施；票文件仍是权威）。
 - [ ] 真机端到端验收、商店归档与审核准备。
 
 | ID | 工作票 | Blocked by | 当前进度 |
 |---|---|---|---|
-| MAS-01 | [独立评审与规则复核](issues/01-independent-review.md) | 无 | **已完成** 2026-09-07 → [CLAUDE-REVIEW.md](CLAUDE-REVIEW.md) |
+| MAS-01 | 独立评审与规则复核（历史票已移除） | 无 | **已完成** 2026-09-07 → [CLAUDE-REVIEW.md](CLAUDE-REVIEW.md) |
 | MAS-02…08 | 候选票 | — | **作废** 2026-09-08，由 09–18 取代 |
 | MAS-09 | [商店版启动后可与 iPhone Pairing](issues/09-store-target-pairs.md) | 无 | **从零重做**（2026-09-23：原实现未提交且已丢失；[旧实测](evidence/claude-09/RESULTS-09.md)只作参考） |
 | MAS-10 | [商店版重启后保留 Pairing 与应用数据](issues/10-container-storage.md) | 09 | 未开始，ready-for-agent |

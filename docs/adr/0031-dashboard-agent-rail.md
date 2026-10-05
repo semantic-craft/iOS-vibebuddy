@@ -7,7 +7,7 @@
   libraries and every reading rule. Amends ADR-0014's phone hub by putting the
   agent above its tiles. Keeps ADR-0017's tokens, flat register and "quota
   detail lives on Usage". Adds the terms *Agent rail*, *Agent column* and
-  *Agent strip* to `CONTEXT.md`.
+  *Agent strip* to `GLOSSARY.md`.
 
 ## Context
 

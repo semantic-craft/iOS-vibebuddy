@@ -6,7 +6,7 @@
   then expandable evidence* → head, jumps, body, dock) and its Recent output
   pane; keeps ADR-0020's state, result identity and reading semantics, ADR-0017's
   tokens and flat register, ADR-0019's session keys and transcript reading.
-  Adds the terms *Session reader* and *Reader source* to `CONTEXT.md`.
+  Adds the terms *Session reader* and *Reader source* to `GLOSSARY.md`.
 
 ## Context
 

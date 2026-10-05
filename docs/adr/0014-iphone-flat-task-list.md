@@ -59,7 +59,7 @@ hidden rows back ("Show N older") and Customize has the same switch.
   (`ActivityCat`), the Watch (`WatchCat`), the Mac glance and dashboard, the
   menu-bar mark and the app icon — so the character is still the product's face;
   it just no longer opens the phone's list. Zero bundled artwork still holds.
-- **CONTEXT's "tap the pet to talk" is now phone-specific copy**: on iOS it is
+- **GLOSSARY's "tap the pet to talk" is now phone-specific copy**: on iOS it is
   "tap the mic". The glossary is updated with the surface.
 - **The widget, Live Activity and Watch relay keep the Mac's full session set.**
   The window is applied in the phone's list, not in `DashboardStore.install`, so

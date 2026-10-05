@@ -53,7 +53,7 @@ iOS 1.3.34 (69) 已正式提交 App Store，等待审核。
 - 入口和提示：`VibeBuddyMacApp/Sources/SettingsView.swift`、`HookSetup.swift`、会话卡片及中英文资源；控件需有稳定 AX ID，能读出对象、开关值、状态和下一步。
 - 接入和发现：复用 `HookInstaller`、`GrokHome`、`GrokActiveSessions`、`GrokSessionLocator`、`SessionStore` 现有边界；先核对实际运行版本的文件结构。
 - 注册表只提供发现与存活证据；保留 PID 校验、leader 下不能以终端退出推定会话结束等规则。不扫描所有历史目录冒充活跃会话，不重复接管 ACP 托管会话。
-- 此方案扩展 `CONTEXT.md` 中注册表仅用于退出清理的描述，实施时同步更新文档；不能将“发现会话”写成拥有实时控制通道。
+- 此方案扩展 `GLOSSARY.md` 中注册表仅用于退出清理的描述，实施时同步更新文档；不能将“发现会话”写成拥有实时控制通道。
 - 保留 ADR-0030 的终端会话与 VibeBuddy 托管会话边界：本票不引入 leader attach、不新增审批 gate、不改变 Grok permission mode。沿用 ADR-0009 的本地认证，不生成或替换生产 token。
 - 这是 Grok Build 的独立可实施项；与 [SET-01](../../mac-settings-usability/issues/01-settings-ux-dx-ax.md) 的设置清晰度工作关联，但不扩展为全部 Agent 的接入重构，不涉及 Grok Bot。
 - 编辑前核对当前 Git 差异，尤其已有设置、中文字符串与连接功能改动；保留其他工作的未提交修改。

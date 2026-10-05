@@ -1,8 +1,9 @@
 # Gemini 摘要、朗读与实时通话
 
-Status: ready-for-agent
+Status: ready-for-human
 日期：2026-10-04
-阶段：规格完成，待拆实施工单；产品尚未实现。
+阶段：三用途实现已随 PR #346 合入 main；设备实听、配对手机及真实任务操作验收未完成。
+本 PRD 的问题陈述记录原始基线；当前交付与剩余项见 [验收记录](../../../qa/gemini-suite-20261004.md)。
 代码基线：`5af77f161cd28386beeda8b6c98853811013f43e`
 
 ## Problem Statement
@@ -102,7 +103,7 @@ Status: ready-for-agent
 ## Further Notes
 
 - [官方研究及源码定位](../../../research/gemini-provider-official-research-2026-10-04.md)保存供应商协议、SDK 固定源码与本地接入位置；本规格不重复文件级施工清单。
-- 领域依据：[CONTEXT](../../../../CONTEXT.md)、[ADR-0001](../../../adr/0001-provider-agnostic-realtime-voice.md)、[ADR-0002](../../../adr/0002-byo-key-direct-to-provider.md)、[ADR-0004](../../../adr/0004-half-duplex-mic-gating-not-aec.md)、[ADR-0008](../../../adr/0008-voice-actions-via-function-calling.md)。
+- 领域依据：[GLOSSARY](../../../../GLOSSARY.md)、[ADR-0001](../../../adr/0001-provider-agnostic-realtime-voice.md)、[ADR-0002](../../../adr/0002-byo-key-direct-to-provider.md)、[ADR-0004](../../../adr/0004-half-duplex-mic-gating-not-aec.md)、[ADR-0008](../../../adr/0008-voice-actions-via-function-calling.md)。
 - 检查与验收依据：[development](../../../agents/development.md)、[verify-vibebuddy](../../../agents/skills/verify-vibebuddy/SKILL.md)。本次仅编写规格，未声称上述产品验收已执行。
 - 下一阶段按 to-tickets 拆有依赖的端到端工单；按配置与摘要、朗读、实时通话、整体验收组织，三项全部完成才达到用户目标。
 

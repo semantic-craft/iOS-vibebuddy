@@ -125,7 +125,7 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
     /// Deliberately `quotaWindows`, not `displayWindows`. A scoped window — a
     /// Claude model-week, Codex Spark, Grok's extra usage — subdivides one
     /// allowance and must never be the number that stands for the account
-    /// (CONTEXT.md); a Fable week at 95% used would otherwise ring the Mac at
+    /// (GLOSSARY.md); a Fable week at 95% used would otherwise ring the Mac at
     /// 5% while the wrist read the real week at 60%.
     public func headlineWindows() -> [AccountUsageWindow] {
         let pools = independentPools

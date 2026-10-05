@@ -1,11 +1,18 @@
 # 09 — 商店版启动后可与 iPhone Pairing
 
 Status: ready-for-agent
-Progress: in-progress
+Progress: not-started
 Priority: next-cycle-important
-Owner: Claude（2026-09-08 从 Grok Build 接手）
+Owner: unassigned（旧领取已失效；2026-09-23 确认未提交实现丢失）
 Blocked by: None (can start immediately)
 Spec: Spec v2（本工作线综合稿）
+
+## 当前状态（2026-10-05 核对）
+
+旧实现未进入 main，当前 `VibeBuddyMacApp/project.yml` 没有商店 target。
+依照 [CHECKLIST](../CHECKLIST.md) 与 backlog 索引，此票须从零重做；
+不是只差手机配对。历史 Comments 保留，全部商店验收仍未核实。
+本次 housekeeping 不启动商店开发。
 
 ## What to build
 

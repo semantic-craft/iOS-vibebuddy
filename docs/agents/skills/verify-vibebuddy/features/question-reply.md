@@ -36,6 +36,6 @@ Preconditions:
 
 - AskUserQuestion is handled on **`/approval`**, not `/hook`. A Notification that says "which revision" paints the dashboard but does not create a held `QuestionRegistry` wait.
 - Presence at the Mac makes the phone card read-only; isolated `vibebuddyd` does not claim presence.
-- An expired Answer must not fall through to steer or `turn/start` (`CONTEXT.md` Session action).
+- An expired Answer must not fall through to steer or `turn/start` (`GLOSSARY.md` Session action).
 - Multi-select questions need `answers` with arrays. The helper's `--text` only fills the first item (same as an older phone client).
 - Codex Desktop questions may never be answerable from VibeBuddy. Record `verified-unreachable` if `pendingQuestion.answerable` is `false` or missing on a Desktop-origin session.
