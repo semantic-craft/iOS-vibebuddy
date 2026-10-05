@@ -4,11 +4,28 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PROJ="$REPO/VibeBuddyMacApp"
 DEST="/Applications/VibeBuddyMacApp.app"
+INSTALL_JSON=0
+args=()
+for arg in "$@"; do
+  if [[ "$arg" == --json ]]; then INSTALL_JSON=1; else args+=("$arg"); fi
+done
+set -- ${args[@]+"${args[@]}"}
+invalid_arguments() {
+  if (( INSTALL_JSON )); then
+    echo '{"schema_version":1,"status":"error","exit_code":2,"error":{"code":"invalid_arguments","message":"Use --plan/--dry-run ABSOLUTE_APP [--peer-check-complete], or --install ABSOLUTE_APP --peer-check-complete; --json supports these operations only."}}'
+  else usage >&2; fi
+  exit 2
+}
 usage() {
   cat <<'USAGE'
 Usage:
   tools/redeploy-mac.sh --prepare
   tools/redeploy-mac.sh --install /absolute/prepared/VibeBuddyMacApp.app --peer-check-complete
+  tools/redeploy-mac.sh --plan /absolute/prepared/VibeBuddyMacApp.app [--peer-check-complete]
+
+--plan (alias --dry-run) emits JSON without writing, signing, stopping or launching.
+It discloses process/port reads and unknown peer ownership; exit 1 means blocked.
+--json on --install emits one receipt on stdout; diagnostics go to stderr.
 
 --prepare builds/signs/verifies an isolated candidate; it does not install or launch.
 --install requires prior authorization and a fresh shared-device/peer check:
@@ -20,15 +37,20 @@ restores it. A previous.app backup is retained beside the installed application.
 USAGE
 }
 case "${1:---help}" in
-  -h|--help) usage; exit 0 ;;
-  --prepare) [[ $# == 1 ]] || { usage; exit 2; } ;;
+  -h|--help) (( ! INSTALL_JSON )) || invalid_arguments; usage; exit 0 ;;
+  --prepare) [[ $# == 1 && "$INSTALL_JSON" == 0 ]] || invalid_arguments ;;
+  --plan|--dry-run)
+    [[ $# -ge 2 && $# -le 3 && "$2" == /* && ( $# == 2 || "$3" == --peer-check-complete ) ]] || invalid_arguments
+    checked=0
+    [[ $# == 2 ]] || checked=1
+    exec python3 "$REPO/tools/install-contract.py" plan "$2" "$DEST" "$checked" ;;
   --install)
-    [[ $# == 3 && "$3" == --peer-check-complete && "$2" == /* ]] || { usage; exit 2; }
+    [[ $# == 3 && "$3" == --peer-check-complete && "$2" == /* ]] || invalid_arguments
     source "$REPO/tools/lib/mac-app-runtime.sh"
     source "$REPO/tools/lib/install-mac-app.sh"
     install_mac_app "$2" "$DEST"
     exit ;;
-  *) usage; exit 2 ;;
+  *) invalid_arguments ;;
 esac
 
 mkdir -p "$REPO/.scratch/deploy"

@@ -60,6 +60,50 @@ fixture on macOS; they never launch the installed app or bind `:9876`.
 
 ## Installation and closeout
 
+### Machine-readable checks and installation plans
+
+`python3 tools/check.py docs --json` emits one JSON object on stdout, identical
+to its `results.json`; progress goes to stderr. `--list --json` lists the profiles.
+`schema_version: 1` adds per-check `status` and `skips` while retaining command
+exit codes, source fingerprints, `not_run` and limitations. A `SKIP ` / `SKIP:`
+line in a check log is exposed as `passed_with_skips`, never silently converted
+to proof of that capability. Exit 0 means the requested checks passed (possibly
+with explicit skips), 1 means failure/unavailable, 2 means invalid arguments.
+Interrupts retain exit 130. Existing human output remains the default.
+
+Before any authorized installation:
+
+```bash
+tools/redeploy-mac.sh --plan /absolute/candidate/VibeBuddyMacApp.app
+# --dry-run is an alias, not a rehearsal of installation.
+```
+
+The plan is always JSON. It reads only candidate metadata/executable, destination
+symlink/lock existence, process executable mappings and TCP listener ownership.
+It reports target port/data directory, future effects, blockers, checks not run
+and unknowns. No lock, evidence directory, application, token or configuration is
+written; no app is signed, stopped or launched and no network request is sent.
+Exit 1 means blocked (including unavailable process inspection); exit 2 means
+invalid invocation. `--peer-check-complete` may record an already completed
+coordination check, but cannot establish physical device ownership. Plans expire
+as observations: the existing install lock, signature and process guards still
+run at execution. Signature and device checks are explicitly not proven by a plan.
+
+For an installation already authorized and coordinated, append `--json` to
+`--install ... --peer-check-complete`. Stdout contains one receipt; diagnostics
+use stderr. The same receipt is retained in the transaction recovery directory as
+`receipt.json`, even without `--json`. It includes operation identity, stage,
+candidate/installed artifact identity, rollback state, exit code and limitations.
+Failures before reservation have no operation/recovery directory; inspect the
+reported lock. `failed` with `rollback: restored` still exits nonzero; a missing
+receipt, `unknown`, or a surviving lock requires reconciliation with `owner.txt`
+and the named recovery directory, never blind replay. SIGKILL/power loss cannot
+guarantee a final receipt. No receipt proves phone, Watch or voice acceptance.
+
+`--prepare` remains the existing human-oriented build/sign operation, not a
+dry-run, and does not accept `--json`. Read-only MCP status/facts and their
+JSON-RPC framing/`isError` and CLI 0/1/2 contract are unchanged.
+
 `tools/redeploy-mac.sh --prepare` builds in a unique `.scratch/deploy/` directory,
 signs and strictly verifies the candidate, and records source fingerprints,
 version/build and executable SHA-256. It does not install or launch it. If the

@@ -18,12 +18,14 @@ spec.loader.exec_module(checks)
 def run(name, command_list, states=None, profile="docs"):
     with tempfile.TemporaryDirectory(prefix="vb-check-report-") as temporary:
         output = Path(temporary) / "evidence"
-        with patch.object(sys, "argv", ["check.py", profile, "--output", str(output)]), \
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["check.py", profile, "--output", str(output), "--json"]), \
              patch.object(checks, "commands", return_value=command_list), \
              patch.object(checks, "source_state", side_effect=states or [{"head": "fixture"}] * 2), \
-             contextlib.redirect_stdout(io.StringIO()):
+             contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
             result = checks.main()
         report = json.loads((output / "results.json").read_text())
+        assert json.loads(captured.getvalue()) == report, name
         assert result == report["exit_code"], name
         return result, report
 
@@ -51,3 +53,8 @@ assert result == 0
 result, report = run("source drift", [positive], [{"head": "before"}, {"head": "after"}], profile="kit")
 assert result != 0 and report["source_changed_during_run"]
 print("PASS executed Swift test passes only with unchanged source")
+
+result, report = run("explicit unavailable capability", [[sys.executable, "-c", "print('  SKIP hardware: unavailable')"]])
+assert result == 0 and report["status"] == "passed_with_skips"
+assert report["checks"][0]["skips"] == ["SKIP hardware: unavailable"]
+print("PASS explicit skipped capability remains machine-readable")
