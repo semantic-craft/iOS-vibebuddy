@@ -62,10 +62,22 @@ manifest. Public records intentionally omit personal absolute paths and logs.
 
 ## Review and delivery limits
 
-Standards/spec review is performed in this task with no additional agents, as
-explicitly requested. The normal independent Grok Build review remains a merge
-gate; it is not claimed to have run. Draft PR only; no merge or GitHub-hosted CI.
-The existing production installation/recovery workflow is not exercised against
-the shared app in this ticket. No phone, Watch, voice, cloud or device behavior is
-claimed verified. A later authorized install must recheck peers and consume its
-own receipt. No new production permission is implied by the plan or these tests.
+Author Standards/spec review and local validation are complete. Independent review
+remains required under `docs/agents/pr-review.md`; the owner replaced the former
+Grok reviewer with AGY CLI Gemini on 2026-10-05. Three historical Grok attempts
+produced no complete verdict: one input-offloading failure and two interrupted
+runs. The first CLI ledger recorded one call and $0.04929456; usage/cost and
+server cancellation state for the interrupted runs remain unknown. They are not
+approvals and will not be retried. Review results for each subsequent exact head
+are recorded on PR #350 and in the local evidence manifest.
+
+Draft PR only; no merge, installation or release is authorized by this ticket.
+The initial PR creation automatically triggered the public repository's default
+CodeQL run 37264467360, subsequently cancelled. This is not evidence of private
+quota consumption. No global Actions settings or existing automation were removed;
+local validation does not require a hosted runner.
+
+The production installation/recovery workflow is not exercised against the shared
+app in this ticket. No phone, Watch, voice, cloud or device behavior is claimed
+verified. A later authorized install must recheck peers and consume its own
+receipt. No new production permission is implied by the plan or these tests.
