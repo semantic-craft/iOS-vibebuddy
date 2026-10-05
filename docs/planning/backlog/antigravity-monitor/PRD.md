@@ -22,7 +22,7 @@
 
 ## 继承的领域约定
 
-- 沿用 [CONTEXT](../../../../GLOSSARY.md) 的 Session、needsResponse、working、done、
+- 沿用 [GLOSSARY](../../../../GLOSSARY.md) 的 Session、needsResponse、working、done、
   waitKind、ObservationHealth、Control channel 与 AccountUsage，不创建平行词汇表。
 - 一次工具错误不自动判会话失败；观测中断不自动判完成。
 - 观察到等待不意味着拥有控制通道；只读等待没有远程审批或回答按钮。

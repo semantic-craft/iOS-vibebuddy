@@ -115,7 +115,7 @@ public enum WatchHaptics {
     ///   - a category the person switched off is never said at all;
     ///   - Quiet silences the session cues, and *not* quota, which is
     ///     independent of Quiet mode and Quiet hours and answers only to its own
-    ///     switch (CONTEXT: NotificationCategory / SessionAttention).
+    ///     switch (GLOSSARY: NotificationCategory / SessionAttention).
     public static func rhythm(for category: NotificationCategory,
                               categories: NotificationCategoryPrefs,
                               quiet: Bool) -> [WristHapticBeat] {

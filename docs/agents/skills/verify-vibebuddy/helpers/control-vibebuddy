@@ -44,7 +44,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 find_repo() {
   local d="$script_dir"
   while [[ "$d" != "/" ]]; do
-    if [[ -f "$d/VibeBuddyMac/Package.swift" && -f "$d/GLOSSARY.md" ]]; then
+    if [[ -f "$d/VibeBuddyMac/Package.swift" ]]; then
       printf '%s\n' "$d"
       return 0
     fi

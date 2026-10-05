@@ -63,7 +63,7 @@ The implementation must provide a deliberate isolated Grok opt-in before
 claiming Mac end-to-end acceptance. No installed-app replacement is required
 by this decision.
 
-README, CONTEXT and setup instructions must describe ACP as supported only
+README, GLOSSARY and setup instructions must describe ACP as supported only
 when the corresponding implementation has passed these gates and merged.
 
 ## Amendment 1 (2026-09-24): restart recovery, and what a leader offers

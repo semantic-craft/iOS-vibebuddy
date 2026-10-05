@@ -24,7 +24,7 @@ Grok Build 领取了 09 并在 `~/Projects/iOS-vibebuddy-wt/mac-app-store`（分
 
 09 的 6 条 AC 无一有证据：未做 Apple Development 重签、未验证 9880 监听与容器 home、未做真机 Pairing。`evidence/grok-build/` 不存在，HANDOFF.md 与 DESIGN-DECISIONS.md 未写。附带确认：`tools/vibebuddy-store.entitlements` 本身有效，重签探针 app 后 `codesign -d --entitlements` 实见 `app-sandbox`。
 
-14 / 15 / 17 的技术未知已实测裁定，记录在 [evidence/triage/TRIAGE-14-15-17.md](evidence/triage/TRIAGE-14-15-17.md)：14 与 17 转 ready-for-agent；15 的答案是否定的（Codex rollout 不持久化审批等待事件），用户 2026-09-08 裁定**砍掉 Desktop 等待提醒、保留任务进度观察**，票 15 已按此重写并转 ready-for-agent，票 18 的审核材料需写明该差异。14 另需票 11 把目录授权扩到 `~/.config/opencode` 等其它 CLI 配置目录。 **2026-09-09 补充**：rollout 无审批记录已独立复证，但该裁定当时未权衡 hooks 通道——实测 `permissionRequest` hook 会为 app-server 线程触发（CONTEXT 里“Desktop 不执行用户 hooks”对 0.153.4 已过时）。裁定前提有反证，待用户重裁；重裁前票 15 维持现行范围。见 evidence/triage/TRIAGE-14-15-17.md 的 2026-09-09 后续节。
+14 / 15 / 17 的技术未知已实测裁定，记录在 [evidence/triage/TRIAGE-14-15-17.md](evidence/triage/TRIAGE-14-15-17.md)：14 与 17 转 ready-for-agent；15 的答案是否定的（Codex rollout 不持久化审批等待事件），用户 2026-09-08 裁定**砍掉 Desktop 等待提醒、保留任务进度观察**，票 15 已按此重写并转 ready-for-agent，票 18 的审核材料需写明该差异。14 另需票 11 把目录授权扩到 `~/.config/opencode` 等其它 CLI 配置目录。 **2026-09-09 补充**：rollout 无审批记录已独立复证，但该裁定当时未权衡 hooks 通道——实测 `permissionRequest` hook 会为 app-server 线程触发（GLOSSARY 里“Desktop 不执行用户 hooks”对 0.153.4 已过时）。裁定前提有反证，待用户重裁；重裁前票 15 维持现行范围。见 evidence/triage/TRIAGE-14-15-17.md 的 2026-09-09 后续节。
 
 ## 准备成果
 

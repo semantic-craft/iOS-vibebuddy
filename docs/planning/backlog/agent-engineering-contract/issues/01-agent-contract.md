@@ -2,12 +2,12 @@
 
 <!-- agent-infra:20261005:23 -->
 
-**Status:** ready-for-human
+Status: ready-for-human
 
-**Owner:** VibeBuddy23 coordinator task `01a1032c-8835-7361-b7c8-13a2836af030`;
-explicitly assigned 2026-10-05. Implementation in isolated branch
-`codex/vibebuddy23-agent-contract`, based on `2fa30a2d`; no parallel writer or
-open PR for this ticket found at claim. Original dirty checkout is preserved.
+Owner: unassigned for the remaining designated product acceptance.
+Implementation owner: VibeBuddy23 coordinator task `01a1032c-8835-7361-b7c8-13a2836af030`
+completed engineering delivery in PR #350. The old implementation branch is
+historical evidence, not an active claim.
 
 **Delivery:** implementation and scoped engineering acceptance merged through
 [PR #350](https://github.com/semantic-craft/iOS-vibebuddy/pull/350), merge
