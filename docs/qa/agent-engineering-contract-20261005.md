@@ -79,9 +79,14 @@ custom agent but still advertised shell, write and subagent tools despite
 was not confirmed. Terminal result: ERROR/interrupted, one reported turn,
 27,752 input tokens and no output tokens; monetary cost is unknown. No final
 review or observed tool execution occurred. A read-only discovery check in an
-empty disposable Git root also did not list the custom agent. Review remains
-blocked pending a supported, runtime-verifiable restricted AGY configuration;
-no provider fallback or new login was attempted.
+empty disposable Git root also did not list the custom agent. That historical attempt did not prove the restriction or a review verdict; no
+provider fallback or new login was attempted. Follow-up inspection found that
+the init tool list is a catalogue, not proof of an execution grant. The revised
+recipe uses explicit `view_file`, plan mode without disabled slash expansion,
+an isolated packet, no broad inherited grants, OS-denied source/packet writes
+and shell execution, and exact-path checks on completed tool events. Final
+acceptance still requires a complete report and terminal SUCCESS for the head
+identified in the PR evidence.
 
 Draft PR only; no merge, installation or release is authorized by this ticket.
 The initial PR creation automatically triggered the public repository's default
