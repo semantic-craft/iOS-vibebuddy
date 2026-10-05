@@ -98,3 +98,33 @@ The production installation/recovery workflow is not exercised against the share
 app in this ticket. No phone, Watch, voice, cloud or device behavior is claimed
 verified. A later authorized install must recheck peers and consume its own
 receipt. No new production permission is implied by the plan or these tests.
+
+## Completed AGY round and triage
+
+AGY Gemini 3.8 Flash High returned terminal SUCCESS for `f68ad56b` in 150.9
+seconds (conversation `09aed358-5473-44a5-bb92-ed033e8d64eb`), verdict MERGE WITH
+FIXES. Only `view_file` on the exact isolated public packet occurred; the final
+report identifies the base and head and does not claim independent test runs.
+The official plan+sandbox route used an explicit read-only tool list, no slash
+expansion disabling, no broad inherited grants, and OS-denied shell execution,
+packet/source writes and private rules. The sole native child execution exception
+was the existing-login keychain helper; a pre-dispatch denial before adding that
+exception reported zero turns/tokens. The successful round reports one turn,
+63,475 input tokens, 53,580 output tokens including 51,316 thinking tokens,
+28,617 cache-read tokens and 117,055 total tokens. Monetary cost is unknown;
+these are CLI field values, not independently reconciled billing.
+
+Author triage of the four findings (reviewer locations used packet line numbers):
+
+- Array splitting (`tools/redeploy-mac.sh`): not reproduced; the existing inner
+  quoted array expansion preserves whitespace under system Bash. Retained it,
+  with a real CLI plan regression using `candidate build.app` as evidence.
+- JSON-only invocation: confirmed red (`--json` printed usage and exited 0).
+  It and help-with-JSON now return the documented JSON argument error/2.
+- Indented skip marker: accepted; strip leading whitespace for prefix detection,
+  with the existing consumer regression now emitting an indented skip.
+- Relative helper candidate: accepted; reject before identity/process observation.
+
+The fixes require focused independent re-review of the new exact head before
+approval. The authorized single live review round is complete; no automatic
+review retry, provider fallback, merge or installation follows from this result.

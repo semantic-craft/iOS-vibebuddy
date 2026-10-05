@@ -64,11 +64,11 @@ def observe_processes(destination):
 def plan(candidate, destination, peer_checked=False):
     app = Path(candidate)
     dest = Path(destination)
+    if not app.is_absolute():
+        raise ValueError("candidate must be an absolute path")
     artifact = identity(app)
     peers, listeners, unknown, process_reads = observe_processes(dest)
     blockers = []
-    if not app.is_absolute():
-        raise ValueError("candidate must be an absolute path")
     if artifact.get("bundle_id") != "com.vibebuddy.mac" or not artifact.get("executable"):
         blockers.append("invalid_candidate")
     if dest.is_symlink():

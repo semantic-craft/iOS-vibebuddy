@@ -37,7 +37,7 @@ restores it. A previous.app backup is retained beside the installed application.
 USAGE
 }
 case "${1:---help}" in
-  -h|--help) usage; exit 0 ;;
+  -h|--help) (( ! INSTALL_JSON )) || invalid_arguments; usage; exit 0 ;;
   --prepare) [[ $# == 1 && "$INSTALL_JSON" == 0 ]] || invalid_arguments ;;
   --plan|--dry-run)
     [[ $# -ge 2 && $# -le 3 && "$2" == /* && ( $# == 2 || "$3" == --peer-check-complete ) ]] || invalid_arguments

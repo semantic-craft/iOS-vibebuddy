@@ -54,7 +54,7 @@ result, report = run("source drift", [positive], [{"head": "before"}, {"head": "
 assert result != 0 and report["source_changed_during_run"]
 print("PASS executed Swift test passes only with unchanged source")
 
-result, report = run("explicit unavailable capability", [[sys.executable, "-c", "print('SKIP hardware: unavailable')"]])
+result, report = run("explicit unavailable capability", [[sys.executable, "-c", "print('  SKIP hardware: unavailable')"]])
 assert result == 0 and report["status"] == "passed_with_skips"
 assert report["checks"][0]["skips"] == ["SKIP hardware: unavailable"]
 print("PASS explicit skipped capability remains machine-readable")

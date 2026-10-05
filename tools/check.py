@@ -176,7 +176,7 @@ def main():
                 code = 127
             verification_error = None
             with log.open(errors="replace") as stream:
-                skips = [line.strip() for line in stream if line.startswith(("SKIP ", "SKIP:"))]
+                skips = [line.strip() for line in stream if line.lstrip().startswith(("SKIP ", "SKIP:"))]
             if code == 0 and args.profile in ("kit", "mac"):
                 text = log.read_text(errors="replace")
                 counts = re.findall(r"(?:Executed|Test run with) ([0-9]+) tests?\b", text)

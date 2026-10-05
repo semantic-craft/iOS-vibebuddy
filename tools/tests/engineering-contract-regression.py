@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix="vb-engineering-contract-") as temporary
     assert not (root / "absent").exists()
     print("PASS check JSON is consumable and equals results.json; argument errors are JSON/2")
 
-    app = root / "candidate.app"
+    app = root / "candidate build.app"
     binary = app / "Contents/MacOS/VibeBuddyMacApp"
     binary.parent.mkdir(parents=True)
     # A real harmless process, not a daemon/UI imitation. Never binds a port.
@@ -52,8 +52,11 @@ with tempfile.TemporaryDirectory(prefix="vb-engineering-contract-") as temporary
         plistlib.dump({"CFBundleIdentifier": "com.vibebuddy.mac",
                       "CFBundleShortVersionString": "fixture", "CFBundleVersion": "1"}, stream)
     deploy = ["/bin/bash", str(ROOT / "tools/redeploy-mac.sh")]
+    run([*deploy, "--json"], 2)
+    run([*deploy, "--help", "--json"], 2)
     before = fingerprint(root)
     plan = run([*deploy, "--plan", str(app), "--json"], 1)
+    assert plan["candidate"]["path"] == str(app), "candidate path with spaces was split"
     assert plan["dry_run"] and plan["effects"]["performed"] == []
     assert plan["effects"]["network"] == [] and "peer_check_required" in plan["blockers"]
     assert plan["checks_not_run"] and plan["effects"]["unknown"]
