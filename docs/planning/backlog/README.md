@@ -79,3 +79,10 @@
 
 - `~/Projects/_shared-work/archive/iOS-vibebuddy-scratch-2026-09-23.tgz`：完整的 `.scratch`，含已完成工单、HTML 计划、探针和证据；`CHECKLIST.md` 链接的两份 HTML 实施手册和探针源码也在这里。
 - 各轮验收证据在 `~/Projects/_shared-work/iOS-vibebuddy/` 下按日期分目录。
+
+
+## Agent engineering contract
+
+| ID | Work | Ticket | Status | Start |
+| --- | --- | --- | --- | --- |
+| AIC-23 | Engineering plan and receipts | [ticket](agent-engineering-contract/issues/23-agent-contract.md) · [PRD](agent-engineering-contract/PRD.md) | ready-for-agent | Claim one owner; preserve shared-app peer acceptance |
