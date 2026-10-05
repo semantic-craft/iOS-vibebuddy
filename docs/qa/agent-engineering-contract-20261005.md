@@ -88,7 +88,9 @@ and shell execution, and exact-path checks on completed tool events. Final
 acceptance still requires a complete report and terminal SUCCESS for the head
 identified in the PR evidence.
 
-Draft PR only; no merge, installation or release is authorized by this ticket.
+At initial implementation the delivery boundary was Draft PR only. Subsequent
+explicit owner authorization covered the normal merge recorded below; it did not
+authorize a production installation or App release.
 The initial PR creation automatically triggered the public repository's default
 CodeQL run 37264467360, subsequently cancelled. This is not evidence of private
 quota consumption. No global Actions settings or existing automation were removed;
@@ -128,3 +130,27 @@ Author triage of the four findings (reviewer locations used packet line numbers)
 The fixes require focused independent re-review of the new exact head before
 approval. The authorized single live review round is complete; no automatic
 review retry, provider fallback, merge or installation follows from this result.
+
+
+## Exact-head review and merge closeout (2026-10-05)
+
+Focused independent AGY CLI Gemini review of `3c3c76edb0109e3aa8d6e02a2de8ea6a8f28ecc0`
+returned terminal SUCCESS / MERGE (conversation
+`0f3cf72c-6e6b-4d20-816b-ab09841059bb`, 47.71 seconds). The only completed tools
+were exact-packet `view_file` reads under the documented OS and CLI restrictions.
+Reported usage: 51,888 input, 13,417 output (12,014 thinking), 65,305 total tokens;
+monetary cost is unknown. The full report and trace are retained by the owner.
+
+The final head passed deployment 6, workflow 2 and docs 2 checks plus ShellCheck;
+no skips/not-run checks or source drift. The existing public CodeQL run
+37270720802 passed. No hosted workflow was manually dispatched.
+
+[PR #350](https://github.com/semantic-craft/iOS-vibebuddy/pull/350) merged normally
+at `430c29390078ec42025ba2a67f8e3ca5c33e3587`. Merge tree
+`9c7fa8e40f566d5b09a719862f47ceb327329dd4` equals the reviewed head tree.
+Post-merge actual CLI checks verified JSON listing/docs, JSON argument error/2,
+and a blocked read-only plan for a disposable missing candidate with spaces.
+The plan had empty performed effects and did not change fixture files.
+[Published merge evidence](https://github.com/semantic-craft/iOS-vibebuddy/pull/350#issuecomment-5992746257)
+records these results. Production install/recovery and device/voice acceptance
+remain unverified; no shared app was replaced or launched.

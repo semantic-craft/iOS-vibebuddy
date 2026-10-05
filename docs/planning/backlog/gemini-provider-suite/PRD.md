@@ -102,7 +102,7 @@ Status: ready-for-agent
 ## Further Notes
 
 - [官方研究及源码定位](../../../research/gemini-provider-official-research-2026-10-04.md)保存供应商协议、SDK 固定源码与本地接入位置；本规格不重复文件级施工清单。
-- 领域依据：[CONTEXT](../../../../CONTEXT.md)、[ADR-0001](../../../adr/0001-provider-agnostic-realtime-voice.md)、[ADR-0002](../../../adr/0002-byo-key-direct-to-provider.md)、[ADR-0004](../../../adr/0004-half-duplex-mic-gating-not-aec.md)、[ADR-0008](../../../adr/0008-voice-actions-via-function-calling.md)。
+- 领域依据：[CONTEXT](../../../../GLOSSARY.md)、[ADR-0001](../../../adr/0001-provider-agnostic-realtime-voice.md)、[ADR-0002](../../../adr/0002-byo-key-direct-to-provider.md)、[ADR-0004](../../../adr/0004-half-duplex-mic-gating-not-aec.md)、[ADR-0008](../../../adr/0008-voice-actions-via-function-calling.md)。
 - 检查与验收依据：[development](../../../agents/development.md)、[verify-vibebuddy](../../../agents/skills/verify-vibebuddy/SKILL.md)。本次仅编写规格，未声称上述产品验收已执行。
 - 下一阶段按 to-tickets 拆有依赖的端到端工单；按配置与摘要、朗读、实时通话、整体验收组织，三项全部完成才达到用户目标。
 

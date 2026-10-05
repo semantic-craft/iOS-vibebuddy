@@ -2,15 +2,20 @@
 
 <!-- agent-infra:20261005:23 -->
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **Owner:** VibeBuddy23 coordinator task `01a1032c-8835-7361-b7c8-13a2836af030`;
 explicitly assigned 2026-10-05. Implementation in isolated branch
 `codex/vibebuddy23-agent-contract`, based on `2fa30a2d`; no parallel writer or
 open PR for this ticket found at claim. Original dirty checkout is preserved.
 
-**Delivery:** implementation and scoped verification prepared for Draft PR;
-not merged, installed, released or owner-accepted. Evidence and limits:
+**Delivery:** implementation and scoped engineering acceptance merged through
+[PR #350](https://github.com/semantic-craft/iOS-vibebuddy/pull/350), merge
+`430c29390078ec42025ba2a67f8e3ca5c33e3587`, reviewed head
+`3c3c76edb0109e3aa8d6e02a2de8ea6a8f28ecc0`. Independent AGY Gemini verdict:
+MERGE. No production installation, device/voice acceptance or owner acceptance
+is claimed. The later designated installation and its real receipt remain
+unverified; retain this ticket for that product acceptance boundary. See
 [engineering contract QA](../../../../qa/agent-engineering-contract-20261005.md).
 
 批次引用：AI-20261005-23；本功能内编号01。

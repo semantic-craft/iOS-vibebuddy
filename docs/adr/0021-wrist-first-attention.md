@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-13
-- Amends: the *Completion reminder* term in `CONTEXT.md` (fixed five-minute
+- Amends: the *Completion reminder* term in `GLOSSARY.md` (fixed five-minute
   cadence, twelve at most → backing-off cadence, four at most); ADR-0017 §5
   (the Watch's counts are no longer a table on the home); ADR-0012 stands
   (the Watch still schedules nothing of its own).
@@ -124,7 +124,7 @@ what lets a wrist action travel while the phone is in a pocket.
 
 ## Consequences
 
-- `CONTEXT.md`'s *Completion reminder* term is amended; ticket 06 of
+- `GLOSSARY.md`'s *Completion reminder* term is amended; ticket 06 of
   `mobile-watch-task-control` ("follow 保持固定 5 分钟、最多 12 次") is
   superseded on that one point by the owner's 2026-09-13 direction.
 - The Watch's *Waiting* page survives for the many-alerts case, with rows that
@@ -175,7 +175,7 @@ wrist answers "which rounds ended since I last read, and how", not only "who
 needs me now". This is an extension of this ADR, not a new dashboard, and it
 lands as an amendment rather than a new decision record.
 
-- **Recap entry, Recap horizon, Recap** (terms in `CONTEXT.md`). The Mac's
+- **Recap entry, Recap horizon, Recap** (terms in `GLOSSARY.md`). The Mac's
   `RecapLedger` records every ended round — `completed` or `failed`, never one
   the user stopped — for seven days, and the snapshot carries `recap`: the
   entries after the **horizon** (the moment the user last confirmed a recap)
