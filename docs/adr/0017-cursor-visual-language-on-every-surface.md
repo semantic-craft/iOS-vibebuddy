@@ -82,7 +82,7 @@ closed the same way.
   for which sessions count as *current* on every summary line, so no surface
   reports "All quiet" while another still counts or reminds. That rule is its
   own change (spec `.scratch/cursor-visual-language/`, ticket 03) and will be
-  recorded in `CONTEXT.md` when it lands.
+  recorded in `GLOSSARY.md` when it lands.
 - Implementation is tracked as tickets 01–09 in
   `.scratch/cursor-visual-language/`. As of this ADR the tokens, the iPhone
   list, the menu panel and the Settings pages are on the branch; the font

@@ -209,7 +209,7 @@ Acceptance is same-machine relay.
   (4) a real Claude Code to Codex relay on one machine as acceptance.
 - `SessionHistoryAgent` grows `cursor` and `grokBuild`; the Mac History scope
   shows those conversations, a visible product change listed in acceptance.
-- `CONTEXT.md` gains **Session key**, **History reference**, **Live status
+- `GLOSSARY.md` gains **Session key**, **History reference**, **Live status
   (tool)**, **Handoff note**. `docs/session-history.md` drops the future-work
   sentence and gains a per-source capability table and a Connect section.
 - Tests: tool definitions stable; CLI and MCP print identical bytes; exit

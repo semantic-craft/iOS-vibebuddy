@@ -190,7 +190,7 @@ file list is reported to the user before work resumes. This is Matt's
 
 ## Consequences
 
-- `CONTEXT.md` gains **Handoff facts**, **Handoff record**, **Continue
+- `GLOSSARY.md` gains **Handoff facts**, **Handoff record**, **Continue
   with**; the **Handoff note** entry gains the facts block.
 - `vibebuddy-mcp` grows a seventh read-only tool; the CLI/MCP byte-identity
   test, the store-unchanged test and the schema-validated argument path
@@ -253,7 +253,7 @@ version got wrong; the decision changes accordingly.
   the text instead") remains a fallback, not the fix. It is recomputed from
   the final selected checkout when the directory changes and at dispatch,
   preserving the person's other prompt edits.
-- Consequences: `CONTEXT.md` gains **Continuation record**; Handoff record,
+- Consequences: `GLOSSARY.md` gains **Continuation record**; Handoff record,
   Continue with… and Recent directories are updated. `vibebuddy-mcp` reads
   two more files and still writes none. Acceptance for this amendment runs
   through the isolated daemon's `/dispatch` against a real Codex, with a

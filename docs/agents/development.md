@@ -22,7 +22,7 @@ XcodeGen's [Mac](../../VibeBuddyMacApp/project.yml) and
 [iOS](../../VibeBuddyApp/project.yml) `project.yml` files own project settings,
 versions and generated Info.plists. Edit those specifications; regenerate the
 ignored `.xcodeproj` and Info.plist outputs. `dist/` contains build products,
-not source. See [domain vocabulary](../../CONTEXT.md) and relevant [ADRs](../adr)
+not source. See [domain vocabulary](../../GLOSSARY.md) and relevant [ADRs](../adr)
 when changing behavior. A shared model change can affect every native surface;
 a UI-only edit normally stays in its owning app.
 

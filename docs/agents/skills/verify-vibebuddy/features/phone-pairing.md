@@ -37,7 +37,7 @@ Preconditions:
 ## Gotchas
 
 - The window is **120 seconds**. If `POST /device` is `403` after `--pair`, the window expired — relaunch with `--pair`, do not retry against a stale process.
-- Saved pairing is not proof the phone is online or that push works (`CONTEXT.md` Pairing / Push coverage).
+- Saved pairing is not proof the phone is online or that push works (`GLOSSARY.md` Pairing / Push coverage).
 - `POST /device` is token-gated. A 401 is a wrong bearer, not a closed window.
 - Historical registrations without recorded consent show as **registered**, not **paired**, in Settings.
 - `scripts/phone_qa_harness.sh` defaults to `:9876` and the login token file. Do not point it at production during this skill.

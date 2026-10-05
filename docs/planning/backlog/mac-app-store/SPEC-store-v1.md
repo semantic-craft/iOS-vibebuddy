@@ -86,7 +86,7 @@ Status: candidate
 
 **复证 2026-09-08 的结论：rollout 不写审批。** 起线程（`approvalPolicy: "untrusted"`）跑一条命令，审批确实发生并被拒绝，该线程 rollout 里 `exec_approval_request` / `apply_patch_approval_request` / `elicitation_request` 一个都没有。时间线只有 `custom_tool_call` →（不可见的等待）→ `custom_tool_call_output`（内含 `Rejected("rejected by user")`），被拒的命令连 `CommandExecution` 的 `item_completed` 都没产生。
 
-**新证据：hooks 会为 app-server 线程触发。** 同一条线程上，`hook/started` / `hook/completed` 报出 `~/.codex/hooks.json` 里 `source: "user"` 的 hook 真的运行了，其中包括同步的 `permissionRequest` 网关，且它在审批请求扇出给订阅连接**之前**完成。这与 CONTEXT.md 的 “Codex Desktop does not execute user CLI hooks” 矛盾——该句对 0.153.4 已过时。
+**新证据：hooks 会为 app-server 线程触发。** 同一条线程上，`hook/started` / `hook/completed` 报出 `~/.codex/hooks.json` 里 `source: "user"` 的 hook 真的运行了，其中包括同步的 `permissionRequest` 网关，且它在审批请求扇出给订阅连接**之前**完成。这与 GLOSSARY.md 的 “Codex Desktop does not execute user CLI hooks” 矛盾——该句对 0.153.4 已过时。
 
 **为什么这会推翻原裁定**：TRIAGE-14-15-17 判定“没有可用信号”时只权衡了两条通道——rollout（无记录）与 app-server socket（沙盒 EPERM）。hooks 不在候选里，正因为上面那句已过时的前提。如果 Desktop 线程确实触发 hooks，那么它的等待信号与应答能力就与 Codex CLI 完全同路，收敛成票 13 的入站闭环问题，而不是 Codex 侧的硬限制。这正是原裁定选项 3“另找信号”当时认为不可行的东西。
 
