@@ -71,6 +71,18 @@ server cancellation state for the interrupted runs remain unknown. They are not
 approvals and will not be retried. Review results for each subsequent exact head
 are recorded on PR #350 and in the local evidence manifest.
 
+AGY 1.2.16 listed `gemini-3.8-flash-high` and reused existing OAuth under an
+OS sandbox denying unrelated rules, plugins and hooks (startup reported zero
+hooks). The first review targeted `4b2801d7`; its init event selected the requested
+custom agent but still advertised shell, write and subagent tools despite
+`tools: []`. The owner stopped that invocation because the requested tool boundary
+was not confirmed. Terminal result: ERROR/interrupted, one reported turn,
+27,752 input tokens and no output tokens; monetary cost is unknown. No final
+review or observed tool execution occurred. A read-only discovery check in an
+empty disposable Git root also did not list the custom agent. Review remains
+blocked pending a supported, runtime-verifiable restricted AGY configuration;
+no provider fallback or new login was attempted.
+
 Draft PR only; no merge, installation or release is authorized by this ticket.
 The initial PR creation automatically triggered the public repository's default
 CodeQL run 37264467360, subsequently cancelled. This is not evidence of private
