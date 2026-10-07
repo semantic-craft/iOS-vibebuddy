@@ -6,15 +6,7 @@ Agent-facing configuration for the iOS-vibebuddy repo. Global rules apply first;
 
 The task goal authorizes the delivery steps it includes: installation, the production port `:9876`, login-token setup under `~/Library/Application Support/vibebuddy/`, release, or cross-machine sync, without separate per-step approval. Check shared-app ownership before replacing `/Applications/VibeBuddyMacApp.app`: it is one copy shared by every session on this Mac, and replacing it kills any real-device acceptance another session is running — check for a peer run first (`docs/sparkle-setup.md`, § The installed app is shared). If a peer is using that copy, defer replacement, continue independent work, and report the remaining installation step. Configured credentials may be used for an authorized operation; reading secrets for context is not implied.
 
-## Verification
-
-Personal-use project. For app or daemon behavior changes, accept end to end: build and run the affected app or daemon, exercise the affected flow with real Claude Code or Codex data within the authorized scope, and check the snapshot, UI, notification, recovery, or installation behavior the change touches. Check only affected behaviors.
-
-Run without asking: `swift build` / `swift test` in this checkout, XcodeGen and simulator builds, and an isolated `vibebuddyd` on a non-9876 port with a disposable HOME (`verify-vibebuddy` owns that recipe). Never launch a second production menu-bar instance.
-
-If real-device or installed-app acceptance needs an unavailable device or an effect outside the task scope, finish the implementation and the available checks, then report that specific gap; the other checks do not prove it.
-
-Keep a small number of fast tests for critical pure logic or a reproduced regression. No coverage targets, test-first mandates, or per-edge-case matrices; do not let test expansion displace end-to-end validation. Which tests earn their place (keep/delete rubric, sources): `docs/agents/testing-policy-research.md`.
+Before changing app or daemon behavior, running app/daemon acceptance, or claiming verification complete, read **Verification** in [CODING_STANDARDS.md](CODING_STANDARDS.md). Apply its affected-flow end-to-end standard, isolated runtime boundary, and explicit treatment of unavailable real-device or installed-app acceptance.
 
 ## Skills
 
