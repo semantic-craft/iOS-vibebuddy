@@ -5,6 +5,23 @@ import Foundation
 public enum AnnouncementCopy {
     public static func text(for session: AgentSession, sound: NotificationSound, language: VoiceLanguage = .english) -> String? {
         let title = session.displayTitle
+        if language == .japanese {
+            switch sound {
+            case .agentDone:
+                guard session.status == .done else { return nil }
+                return "\(title)の今回の応答が終了しました。タスクを開いて結果を確認してください。"
+            case .needsApproval:
+                guard session.status == .needsResponse else { return nil }
+                return "\(title)は承認をお待ちしています。タスクを開いて依頼を確認してください。"
+            case .needsAnswer:
+                guard session.status == .needsResponse else { return nil }
+                return "\(title)は回答をお待ちしています。タスクを開いて質問を確認してください。"
+            case .agentStuck:
+                guard session.status == .done, session.failed == true else { return nil }
+                return "\(title)は問題が発生して停止しました。タスクを開いて原因を確認してください。"
+            default: return nil
+            }
+        }
         if language == .chinese {
             switch sound {
             case .agentDone:

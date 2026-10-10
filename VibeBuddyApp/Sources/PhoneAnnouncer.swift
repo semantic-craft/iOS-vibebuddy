@@ -274,7 +274,7 @@ final class PhoneAnnouncer: ObservableObject {
         guard let latest else { return }
         guard sourceIdentity?() == latest.source else { sourceChanged(); return }
         cancelPreview()
-        let prefix = PhoneReadAloudSelection.language() == .chinese ? "此前播报。" : "Previous announcement. "
+        let prefix = PhoneReadAloudSelection.language().replayIntroduction
         let runID = run
         queue.enqueue(id: "replay/" + UUID().uuidString, priority: true) { [weak self] in
             guard let self, self.run == runID else { return }
@@ -324,7 +324,7 @@ final class PhoneAnnouncer: ObservableObject {
             guard let self, !Task.isCancelled, self.generation == previewGeneration else { return }
             let language = PhoneReadAloudSelection.language()
             let text = PhoneReadAloudSelection.load().voiceStyle.previewLine(language)
-                ?? (language == .chinese ? "这是本机播报试听。任务已经完成，下一步请查看结果。" : "This is a voice preview. The task is complete. Please review the result.")
+                ?? language.readAloudPreview
             let item = AnnouncementPlan.Item(sessionID: "preview", title: "", sound: .agentDone, round: "preview")
             await self.play(text: text, item: item, position: nil, remember: false, validate: { true })
             guard !Task.isCancelled, self.generation == previewGeneration else { return }
@@ -435,7 +435,7 @@ final class PhoneAnnouncer: ObservableObject {
                 let synthesizer = AVSpeechSynthesizer()
                 systemVoice = synthesizer
                 let utterance = AVSpeechUtterance(string: text)
-                utterance.voice = AVSpeechSynthesisVoice(language: PhoneReadAloudSelection.language() == .chinese ? "zh-CN" : "en-US")
+                utterance.voice = AVSpeechSynthesisVoice(language: PhoneReadAloudSelection.language().bcp47)
                 // delegate is weak: keep this exact utterance's lifecycle alive
                 // until a terminal callback, cancellation, or timeout.
                 let lifecycle = SystemSpeechLifecycle(synthesizer: synthesizer, utterance: utterance)

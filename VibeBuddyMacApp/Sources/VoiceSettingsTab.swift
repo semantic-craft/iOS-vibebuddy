@@ -82,6 +82,7 @@ struct VoiceFeaturesPage: View {
     @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
     @AppStorage(VoiceSettings.readAloudProviderKey) private var readAloudChoice = ""
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
+    @AppStorage(VoiceSettings.summaryLanguageKey) private var summaryLanguage = ""
     @AppStorage(ContentStyleConfiguration.defaultsKey) private var contentStyleChoice = ContentStyleConfiguration.default.style.rawValue
     @AppStorage(ContentStyleConfiguration.customPromptKey) private var customContentPrompt = ""
 
@@ -103,6 +104,16 @@ struct VoiceFeaturesPage: View {
                     SettingsBlockRow {
                         ContentStylePreferences()
                     }
+                    SettingsRow("Summary and reading language") {
+                        Picker("Summary and reading language", selection: $summaryLanguage) {
+                            Text("Follow conversation language").tag("")
+                            Text("English").tag(VoiceLanguage.english.rawValue)
+                            Text(verbatim: "中文").tag(VoiceLanguage.chinese.rawValue)
+                            Text(verbatim: "日本語").tag(VoiceLanguage.japanese.rawValue)
+                        }
+                        .labelsHidden().accessibilityIdentifier("summaryReadingLanguage")
+                        .onChange(of: summaryLanguage) { _, _ in tests.invalidate() }
+                    }
                 }
                 SettingsSection("Models and services") {
                     SettingsBlockRow {
@@ -116,7 +127,7 @@ struct VoiceFeaturesPage: View {
                     .id(VoiceFeature.conversation)
                     SettingsBlockRow {
                         SummaryFeatureRow(provider: summaryProvider, tests: tests, credentials: credentials,
-                                          reader: model.readAloud, language: language,
+                                          reader: model.readAloud, language: summaryLanguage.isEmpty ? language : summaryLanguage,
                                           selection: summarySelection, reveal: { reveal($0, .summaries) })
                             .id("summaries-\(summaryProvider?.rawValue ?? "")")
                     }
@@ -134,14 +145,14 @@ struct VoiceFeaturesPage: View {
                 }
 
                 SettingsSection("Shared",
-                                footnote: "Shared by all three features, and it decides which voice each provider defaults to.") {
-                    SettingsRow("Voice and summary language") {
+                                footnote: "Summaries follow this language unless a summary and reading language is selected.") {
+                    SettingsRow("Conversation language") {
                         Picker("", selection: $language) {
                             Text("English").tag(VoiceLanguage.english.rawValue)
                             Text(verbatim: "中文").tag(VoiceLanguage.chinese.rawValue)
                         }
                         .labelsHidden().pickerStyle(.segmented).fixedSize()
-                        .accessibilityLabel("Voice and summary language")
+                        .accessibilityLabel("Conversation language")
                         .onChange(of: language) { _, _ in
                             tests.invalidate()
                             model.voiceChat.reloadProviderIfActive()

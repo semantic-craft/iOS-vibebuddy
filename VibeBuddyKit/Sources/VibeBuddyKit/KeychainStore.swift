@@ -185,12 +185,14 @@ public enum PushDeviceIdentity {
 public enum VoiceLanguage: String, CaseIterable, Sendable {
     case english = "en"
     case chinese = "zh"
+    case japanese = "ja"
 
     /// BCP-47 locale string for the realtime voice session's language.
     public var bcp47: String {
         switch self {
         case .english: return "en-US"
         case .chinese: return "zh-CN"
+        case .japanese: return "ja-JP"
         }
     }
 
@@ -199,6 +201,7 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
         switch self {
         case .english: return "Always reply in English."
         case .chinese: return "Always reply in Chinese (简体中文)."
+        case .japanese: return "Always reply in natural Japanese (日本語). Keep code identifiers unchanged."
         }
     }
 
@@ -207,6 +210,23 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
         switch self {
         case .english: return "English"
         case .chinese: return "Chinese"
+        case .japanese: return "Japanese"
+        }
+    }
+
+    public var readAloudPreview: String {
+        switch self {
+        case .english: "This is a voice preview. The task is complete. Device verification is still pending."
+        case .chinese: "这是播报试听。任务已经完成，设备验收仍待进行。"
+        case .japanese: "音声のプレビューです。作業は完了しました。端末での確認はまだ行っていません。"
+        }
+    }
+
+    public var replayIntroduction: String {
+        switch self {
+        case .english: "Previous announcement. "
+        case .chinese: "此前播报。"
+        case .japanese: "前回の読み上げです。"
         }
     }
 }
@@ -215,6 +235,12 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
 /// Keychain (user-provided, BYO); the rest are plain UserDefaults values. The
 /// companion is available whenever a key is present — no separate enable toggle.
 public enum VoiceSettings {
+    /// Summaries and Mac read-aloud may use a different language from live chat.
+    public static let summaryLanguageKey = "summaryLanguage"
+    public static func summaryLanguage(defaults: UserDefaults = .standard) -> VoiceLanguage {
+        VoiceLanguage(rawValue: defaults.string(forKey: summaryLanguageKey) ?? "")
+            ?? conversationLanguage(defaults: defaults)
+    }
     public static let openAILiveBackendModelKey = "voiceOpenAILiveBackendModel"
     public static func openAILiveBackendModel(defaults: UserDefaults = .standard) -> String {
         let value = (defaults.string(forKey: openAILiveBackendModelKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -311,8 +337,8 @@ public enum VoiceSettings {
                                       defaults: UserDefaults = .standard) -> String {
         let v = (defaults.string(forKey: readAloudVoiceKey(p)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard v.isEmpty else { return v }
-        let spoken = language ?? conversationLanguage(defaults: defaults)
+        let spoken = language ?? summaryLanguage(defaults: defaults)
+        guard v.isEmpty else { return VoiceCatalog.readingVoice(v, provider: p, language: spoken) }
         return languageDefault(.readAloud, p, spoken,
                                curated: SpeechSynthesis.support(p)?.defaultVoice ?? "")
     }
@@ -354,7 +380,7 @@ public enum VoiceSettings {
         return SpeechSynthesisConfiguration(provider: p,
             model: readAloudModel(p, defaults: defaults), voice: readAloudVoice(p, language: language, defaults: defaults),
             qwenWorkspaceID: workspace.isEmpty ? nil : workspace, qwenUseIntl: defaults.bool(forKey: regionIntlKey),
-            style: readAloudStyle(p, defaults: defaults), language: language ?? conversationLanguage(defaults: defaults))
+            style: readAloudStyle(p, defaults: defaults), language: language ?? summaryLanguage(defaults: defaults))
     }
 
     /// The shared conversation language, from an injectable store.

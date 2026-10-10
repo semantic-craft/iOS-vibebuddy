@@ -40,18 +40,24 @@ public enum VoiceStyle: String, Sendable, CaseIterable, Equatable, Hashable {
         case (.serious, .chinese):
             return .init(tone: "严肃冷静、公事公办的新闻播报",
                          speaker: "严肃端庄的新闻播音员，语气沉稳克制，吐字清晰，不带笑意。", language)
+        case (.serious, .japanese):
+            return .init(tone: "冷静で厳格なニュース読み", speaker: "落ち着いたニュースの語り手。明瞭な発音で、抑制された口調。", language)
         case (.serious, .english):
             return .init(tone: "serious, calm, matter-of-fact newsreader",
                          speaker: "A serious news anchor: steady, restrained, crisp diction, no smile in the voice.", language)
         case (.coquettish, .chinese):
             return .init(tone: "撒娇卖萌、嗲嗲的夹子音",
                          speaker: "撒娇卖萌的年轻女生，声音甜嗲，语调上扬，尾音拖长，像在邀功求夸奖。", language)
+        case (.coquettish, .japanese):
+            return .init(tone: "甘く可愛らしい", speaker: "可愛らしい大人の女性。明るく甘い声で、語尾を柔らかく伸ばす。", language)
         case (.coquettish, .english):
             return .init(tone: "cutesy, pouty, sing-song",
                          speaker: "A cutesy young woman, sugary and pouty, rising pitch, drawn-out endings.", language)
         case (.sultry, .chinese):
             return .init(tone: "慵懒暧昧、压低声音、气声很重、带点撩人",
                          speaker: "慵懒性感的成熟女性，压低嗓音，气声很重，语速缓慢，像在耳边低语。", language)
+        case (.sultry, .japanese):
+            return .init(tone: "低く息混じりで、ゆったりとした", speaker: "落ち着いた大人の女性。低い息混じりの声で、ゆっくり囁く。", language)
         case (.sultry, .english):
             return .init(tone: "lazy, husky, breathy and flirtatious",
                          speaker: "A sultry woman, low and breathy, slow and lazy, as if whispering close by.", language)
@@ -91,14 +97,20 @@ public enum VoiceStyle: String, Sendable, CaseIterable, Equatable, Hashable {
             return nil
         case (.serious, .chinese):
             return "播报人设：严肃的新闻播音员。用正式、克制的书面口吻，句子完整利落，不用语气词、感叹号和波浪号。"
+        case (.serious, .japanese):
+            return "語り手は冷静なニュースのアナウンサー。正式で簡潔な文を使い、感嘆詞や感嘆符を避ける。"
         case (.serious, .english):
             return "Persona: a serious newsreader. Formal, restrained sentences; no interjections, exclamation marks or tildes."
         case (.coquettish, .chinese):
             return "播报人设：爱撒娇的小女生在向对方邀功。可以自称“人家”，句尾多用“啦、哦、嘛、呢”和“～”，偶尔用“好不好嘛”“快夸夸我”这类撒娇的话；这些只改语气，不增删事实。说失败原因的那一句和最后一句不撒娇、不加语气词，最后一句仍是记录里等你做的事或最终结果。"
+        case (.coquettish, .japanese):
+            return "語り手は明るく甘えた口調の大人の女性。柔らかい語尾を使うが、事実を追加・省略しない。失敗原因と最後の文は平易に述べ、最後は記録上の次の行動または結果で締める。"
         case (.coquettish, .english):
             return "Persona: a cutesy, pouty girl showing off her work. Playful sing-song phrasing, soft interjections like \"hehe\" and \"pretty please\"; tone only — never add or drop facts. The sentence giving a failure's cause and the final sentence stay plain, and the final sentence is still what the record waits on you for, or the end result."
         case (.sultry, .chinese):
             return "播报人设：慵懒暧昧的成熟女性在耳边低语。多用短句和“嗯……”“呢”，用省略号制造停顿，语气放慢、带点撩人；这些只改语气，不增删事实。说失败原因的那一句和最后一句不加语气词，最后一句仍是记录里等你做的事或最终结果。"
+        case (.sultry, .japanese):
+            return "語り手は落ち着いた大人の女性。短い文と自然な間で、ゆったり語る。事実を追加・省略しない。失敗原因と最後の文は平易に述べ、最後は記録上の次の行動または結果で締める。"
         case (.sultry, .english):
             return "Persona: a lazy, flirtatious woman murmuring close by. Short sentences, soft \"mm…\" and ellipsis pauses; tone only — never add or drop facts. The sentence giving a failure's cause and the final sentence stay plain, and the final sentence is still what the record waits on you for, or the end result."
         }
@@ -110,6 +122,9 @@ public enum VoiceStyle: String, Sendable, CaseIterable, Equatable, Hashable {
     public func previewLine(_ language: VoiceLanguage) -> String? {
         switch (self, language) {
         case (.standard, _): return nil
+        case (.serious, .japanese): return "作業が完了し、テストはすべて通過しました。次は端末での確認です。"
+        case (.coquettish, .japanese): return "作業が終わったよ。テストも全部通ったの。あとは端末で確認してね。"
+        case (.sultry, .japanese): return "作業は……完了しました。テストも通っています。あとは、端末での確認です。"
         case (.serious, .chinese): return "任务已经完成，测试全部通过。下一步是在手机上验收。"
         case (.serious, .english): return "The task is complete and all checks passed. Next, confirm it on your phone."
         case (.coquettish, .chinese): return "人家把任务做完啦～测试全都通过了哦。就等你在手机上看一眼嘛，快夸夸我！"
@@ -150,6 +165,7 @@ public struct VoicePersona: Sendable, Equatable {
         switch language {
         case .chinese: "用\(tone)的语气演绎下面这句话："
         case .english: "Perform the next lines in a \(tone) voice:"
+        case .japanese: "次の文章を、\(tone)口調で読んでください："
         }
     }
 }

@@ -250,11 +250,13 @@ final class DashboardStore: ObservableObject {
         if state == .connected, let pairing {
             do {
                 let request = ContentPresentationRequest(sourceID: context.source, target: target,
-                                                         voiceStyle: PhoneReadAloudSelection.load().voiceStyle)
+                                                         voiceStyle: PhoneReadAloudSelection.load().voiceStyle,
+                                                         language: PhoneReadAloudSelection.languageOverride())
                 let response = try await decisionClient.presentation(pairing, request: request)
                 guard sameConnection(context), speechContext == context, state == .connected,
                       response.request.sourceID == request.sourceID, response.request.target == request.target,
                       response.request.purpose == request.purpose, response.revision == context.revision,
+                      response.request.language == request.language,
                       !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       allSessions.contains(where: target.matches) else { throw ContentRequestFailure.conflict }
                 return Announcement(text: response.text, context: context, target: target, savedFallback: !response.generated, savedCompletionNotice: nil)
@@ -263,6 +265,8 @@ final class DashboardStore: ObservableObject {
             catch { }
         }
         try Task.checkCancellation()
+        // A saved notice may be Chinese or English. Do not present it as Japanese.
+        if PhoneReadAloudSelection.language() == .japanese { throw ContentRequestFailure.unavailable }
         guard sameConnection(context), speechContext == context,
               let current = AnnouncementPlan.stillCurrent(item, in: allSessions), target.matches(current) else {
             throw ContentRequestFailure.conflict

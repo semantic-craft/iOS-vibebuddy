@@ -8,11 +8,14 @@ public struct MiniMaxSpeechSynthesizer: SpeechSynthesizer {
     let model: String
     let voice: String
     let style: VoiceStyle
+    let language: VoiceLanguage?
 
-    public init(model: String = defaultModel, voice: String = defaultVoice, style: VoiceStyle = .standard) {
+    public init(model: String = defaultModel, voice: String = defaultVoice, style: VoiceStyle = .standard,
+                language: VoiceLanguage? = nil) {
         self.model = model.isEmpty ? Self.defaultModel : model
         self.voice = voice.isEmpty ? Self.defaultVoice : voice
         self.style = style
+        self.language = language
     }
 
     func requestBody(_ text: String) -> [String: Any] {
@@ -26,9 +29,11 @@ public struct MiniMaxSpeechSynthesizer: SpeechSynthesizer {
         case .coquettish: speed = 1.05; pitch = 1
         case .sultry: speed = 0.9; pitch = -1
         }
-        return ["model": model, "text": text, "stream": false, "output_format": "hex",
+        var body: [String: Any] = ["model": model, "text": text, "stream": false, "output_format": "hex",
                 "voice_setting": ["voice_id": voice, "speed": speed, "vol": 1, "pitch": pitch],
                 "audio_setting": ["sample_rate": 32000, "bitrate": 128000, "format": "mp3", "channel": 1]]
+        if language == .japanese { body["language_boost"] = "Japanese" }
+        return body
     }
 
     public func synthesize(_ text: String, apiKey: String) async throws -> Data {

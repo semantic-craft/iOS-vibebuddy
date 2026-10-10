@@ -85,17 +85,26 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     }
 
     public var apiKey: String? {
-        if self == .gemini, E2ERunConfiguration.current != nil {
-            return ProcessInfo.processInfo.environment["GEMINI_API_KEY"]
+        if let name = acceptanceKeyName, E2ERunConfiguration.current != nil {
+            return ProcessInfo.processInfo.environment[name]
         }
         return KeychainStore.get(keychainAccount)
     }
     /// Whether a key is stored, without reading it — see `KeychainStore.exists`.
     public var hasAPIKey: Bool {
-        if self == .gemini, E2ERunConfiguration.current != nil {
-            return !(ProcessInfo.processInfo.environment["GEMINI_API_KEY"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if let name = acceptanceKeyName, E2ERunConfiguration.current != nil {
+            return !(ProcessInfo.processInfo.environment[name] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return KeychainStore.exists(keychainAccount)
+    }
+
+    /// Explicit isolated acceptance only; ordinary apps keep their saved keys.
+    public var acceptanceKeyName: String? {
+        switch self {
+        case .gemini: "GEMINI_API_KEY"
+        case .minimax: "MINIMAX_API_KEY"
+        default: nil
+        }
     }
 
     /// Where to browse this provider's available model IDs.

@@ -40,8 +40,8 @@ final class SettingsCredential: ObservableObject {
     init(_ provider: VoiceProvider, storage: Storage? = nil) {
         self.provider = provider
         if let storage { self.storage = storage }
-        else if provider == .gemini, E2ERunConfiguration.current != nil {
-            self.storage = .injectedKey(ProcessInfo.processInfo.environment["GEMINI_API_KEY"])
+        else if let name = provider.acceptanceKeyName, E2ERunConfiguration.current != nil {
+            self.storage = .injectedKey(ProcessInfo.processInfo.environment[name])
         } else { self.storage = .live }
     }
     var configured: Bool {

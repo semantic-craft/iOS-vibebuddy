@@ -6,6 +6,9 @@ enum PhoneReadAloudSelection: Equatable {
     case provider(VoiceProvider)
 
     static let languageKey = "phone.readAloud.language"
+    static func languageOverride(defaults: UserDefaults = .standard) -> VoiceLanguage? {
+        VoiceLanguage(rawValue: defaults.string(forKey: languageKey) ?? "")
+    }
 
     /// An absent override keeps the previous conversation-language behavior.
     static func language(defaults: UserDefaults = .standard) -> VoiceLanguage {

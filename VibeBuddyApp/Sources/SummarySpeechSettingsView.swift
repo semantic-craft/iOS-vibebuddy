@@ -87,9 +87,10 @@ struct SummarySpeechSettingsView: View {
                     Text("Follow conversation language").tag("")
                     Text("English").tag(VoiceLanguage.english.rawValue)
                     Text("简体中文").tag(VoiceLanguage.chinese.rawValue)
+                    Text(verbatim: "日本語").tag(VoiceLanguage.japanese.rawValue)
                 }
                 .accessibilityIdentifier("phone-reading-language")
-                Text("Reading language controls the device voice. Summary wording and language are configured on your Mac.").foregroundStyle(.secondary)
+                Text("Choose a language for the voice and newly generated spoken summaries. Connect to an updated Mac to generate Japanese summaries.").foregroundStyle(.secondary)
                 Picker("Speech service", selection: $selectionRaw) {
                     Text("System speech").tag("system")
                     ForEach(VoiceProvider.allCases.filter { SpeechSynthesis.support($0) != nil }, id: \.rawValue) {
@@ -188,9 +189,9 @@ private struct PhoneProviderSpeechSettings: View {
 
     var body: some View {
         let configuration = VoiceSettings.readAloudConfiguration(provider, language: language)
-        let voices = VoiceCatalog.voices(.readAloud, provider)
+        let voices = VoiceCatalog.voices(.readAloud, provider).filter { $0.speaks(language) }
         let styledVoice = style.voice(for: provider, language: configuration.language, qwenUseIntl: intl)
-        let standardVoice = selectedVoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? configuration.voice : selectedVoice
+        let standardVoice = configuration.voice
         let displayedVoice = styledVoice?.voice ?? standardVoice
         let voiceSelection = Binding(get: { styledVoice?.voice ?? standardVoice }, set: { value in
             selectedVoice = value
@@ -233,6 +234,9 @@ private struct PhoneProviderSpeechSettings: View {
             }
             Link("Get an API key", destination: provider.apiKeyURL)
             if let keyMessage { Text(keyMessage).foregroundStyle(.secondary) }
+            if configuration.effectiveModel != configuration.model {
+                LabeledContent("Voice model", value: configuration.effectiveModel)
+            }
             TextField("Speech model", text: Binding(get: { styledVoice?.model ?? model }, set: { model = $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
                 .disabled(SpeechSynthesis.supportsStyle(provider) && style.voice(for: provider, language: configuration.language, qwenUseIntl: intl) != nil)
             if let modelURL = provider.modelDocumentationURL(for: .speechSynthesis, model: styledVoice?.model ?? model) {

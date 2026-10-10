@@ -33,7 +33,7 @@ extension VoiceCatalog {
             .init("Leda", "Leda", "Youthful", category: "Studio voices"),
             .init("Enceladus", "Enceladus", "Breathy", category: "Studio voices"),
         ],
-        // MiniMax official system voices, checked 2026-10-01.
+        // MiniMax official system voices; Japanese presets checked 2026-10-10.
         // https://platform.minimax.cn/docs/faq/system-voice-id
         Key(.readAloud, .minimax): [
             .init("Chinese (Mandarin)_News_Anchor", "新闻女声", language: .chinese, category: "中文"),
@@ -44,6 +44,12 @@ extension VoiceCatalog {
             .init("male-qn-qingse", "青涩青年", language: .chinese, category: "中文"),
             .init("English_Trustworthy_Man", "Trustworthy Man", language: .english, category: "English"),
             .init("English_Graceful_Lady", "Graceful Lady", language: .english, category: "English"),
+            .init("Japanese_CalmLady", "Calm Lady", "落ち着いた女性", language: .japanese, category: "日本語"),
+            .init("Japanese_KindLady", "Kind Lady", "優しい女性", language: .japanese, category: "日本語"),
+            .init("Japanese_DependableWoman", "Dependable Woman", "頼れる女性", language: .japanese, category: "日本語"),
+            .init("Japanese_GentleButler", "Gentle Butler", "穏やかな執事", language: .japanese, category: "日本語"),
+            .init("Japanese_IntellectualSenior", "Intellectual Senior", "知的な先輩", language: .japanese, category: "日本語"),
+            .init("Japanese_OptimisticYouth", "Optimistic Youth", "明るい青年", language: .japanese, category: "日本語"),
         ],
         // MARK: Qwen
 
@@ -69,6 +75,11 @@ extension VoiceCatalog {
             .init("longpaopao_v3.6", "龙泡泡", "Soft and cute", language: .chinese, category: "儿童陪伴"),
             .init("longhuohuo_v3.6", "龙火火", "Mischievous boy", language: .chinese, category: "角色音"),
             .init("longchuanshu_v3.6", "龙川叔", "Sichuan-accented uncle", language: .chinese, category: "角色音"),
+            // Japanese shortlist uses the documented 3.1 multilingual family.
+            // https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list (2026-10-10)
+            .init("longanfengyue_v3.1", "龙安风悦 3.1", "日本語・多語種", language: .japanese, category: "日本語", core: true, requiredModel: QwenSpeechSynthesizer.styledModel),
+            .init("longanlingxin_v3.1", "龙安灵心 3.1", "日本語・多語種", language: .japanese, category: "日本語", core: true, requiredModel: QwenSpeechSynthesizer.styledModel),
+            .init("xunanchuan_v3.1", "许南川 3.1", "男性・日本語・多語種", language: .japanese, category: "日本語", core: true, requiredModel: QwenSpeechSynthesizer.styledModel),
         ],
 
         // MARK: OpenAI — realtime is ten, speech is thirteen.
@@ -93,20 +104,20 @@ extension VoiceCatalog {
             .init("en_female_stokie_uranus_bigtts", "Stokie", "US English", language: .english, category: "多语种", core: true),
         ],
         Key(.readAloud, .doubao): [
-            .init("zh_female_vv_uranus_bigtts", "Vivi 2.0", "Emotional range, ASMR", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_xiaohe_uranus_bigtts", "小何 2.0", "Emotional range, ASMR", language: .chinese, category: "通用场景", core: true),
-            .init("zh_male_m191_uranus_bigtts", "云舟 2.0", "Emotional range, ASMR", language: .chinese, category: "通用场景", core: true),
-            .init("zh_male_taocheng_uranus_bigtts", "小天 2.0", "Crisp, magnetic", language: .chinese, category: "通用场景", core: true),
-            .init("zh_male_liufei_uranus_bigtts", "刘飞 2.0", "Steady narrator", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_qingxinnvsheng_uranus_bigtts", "清新女声 2.0", "Fresh, clear", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_tianmeixiaoyuan_uranus_bigtts", "甜美小源 2.0", "Sweet", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_tianmeitaozi_uranus_bigtts", "甜美桃子 2.0", "Sweet", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_sophie_uranus_bigtts", "魅力苏菲 2.0", "Charming", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_linjianvhai_uranus_bigtts", "邻家女孩 2.0", "Girl next door", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_meilinvyou_uranus_bigtts", "魅力女友 2.0", "Charming", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_qiaopinv_uranus_bigtts", "俏皮女声 2.0", "Playful", language: .chinese, category: "通用场景", core: true),
-            .init("zh_female_shuangkuaisisi_uranus_bigtts", "爽快思思 2.0", "Brisk", language: .chinese, category: "通用场景", core: true),
-            .init("zh_male_wennuanahu_uranus_bigtts", "温暖阿虎 2.0", "Warm, conversational", language: .chinese, category: "语音闲聊", core: true),
+            .init("zh_female_vv_uranus_bigtts", "Vivi 2.0", "Emotional range, ASMR", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_xiaohe_uranus_bigtts", "小何 2.0", "Emotional range, ASMR", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_male_m191_uranus_bigtts", "云舟 2.0", "Emotional range, ASMR", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_male_taocheng_uranus_bigtts", "小天 2.0", "Crisp, magnetic", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_male_liufei_uranus_bigtts", "刘飞 2.0", "Steady narrator", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_qingxinnvsheng_uranus_bigtts", "清新女声 2.0", "Fresh, clear", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_tianmeixiaoyuan_uranus_bigtts", "甜美小源 2.0", "Sweet", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_tianmeitaozi_uranus_bigtts", "甜美桃子 2.0", "Sweet", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_sophie_uranus_bigtts", "魅力苏菲 2.0", "Charming", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_linjianvhai_uranus_bigtts", "邻家女孩 2.0", "Girl next door", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_meilinvyou_uranus_bigtts", "魅力女友 2.0", "Charming", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_qiaopinv_uranus_bigtts", "俏皮女声 2.0", "Playful", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_female_shuangkuaisisi_uranus_bigtts", "爽快思思 2.0", "Brisk", language: .chinese, category: "通用场景", core: true, additionalLanguages: [.japanese]),
+            .init("zh_male_wennuanahu_uranus_bigtts", "温暖阿虎 2.0", "Warm, conversational", language: .chinese, category: "语音闲聊", core: true, additionalLanguages: [.japanese]),
             .init("en_male_tim_uranus_bigtts", "Tim", "US English", language: .english, category: "多语种", core: true),
             .init("en_female_dacey_uranus_bigtts", "Dacey", "US English", language: .english, category: "多语种", core: true),
             .init("en_female_stokie_uranus_bigtts", "Stokie", "US English", language: .english, category: "多语种", core: true),
@@ -114,11 +125,11 @@ extension VoiceCatalog {
             .init("ICL_uranus_en_male_ethan_tob", "Ethan 2.0", "Australian English", language: .english, category: "多语种"),
             .init("ICL_uranus_en_male_alastor_tob", "Alastor 2.0", "British English", language: .english, category: "多语种"),
             .init("ICL_uranus_en_male_noah_tob", "Noah 2.0", "US English", language: .english, category: "多语种"),
-            .init("zh_female_cancan_uranus_bigtts", "知性灿灿 2.0", "Composed", language: .chinese, category: "角色扮演"),
-            .init("zh_female_sajiaoxuemei_uranus_bigtts", "撒娇学妹 2.0", "Coy", language: .chinese, category: "角色扮演"),
-            .init("zh_female_kefunvsheng_uranus_bigtts", "暖阳女声 2.0", "Customer service", language: .chinese, category: "客服场景"),
-            .init("zh_female_xiaoxue_uranus_bigtts", "儿童绘本 2.0", "Picture books", language: .chinese, category: "有声阅读"),
-            .init("zh_female_jitangnv_uranus_bigtts", "鸡汤女 2.0", "Inspirational narration", language: .chinese, category: "视频配音"),
+            .init("zh_female_cancan_uranus_bigtts", "知性灿灿 2.0", "Composed", language: .chinese, category: "角色扮演", additionalLanguages: [.japanese]),
+            .init("zh_female_sajiaoxuemei_uranus_bigtts", "撒娇学妹 2.0", "Coy", language: .chinese, category: "角色扮演", additionalLanguages: [.japanese]),
+            .init("zh_female_kefunvsheng_uranus_bigtts", "暖阳女声 2.0", "Customer service", language: .chinese, category: "客服场景", additionalLanguages: [.japanese]),
+            .init("zh_female_xiaoxue_uranus_bigtts", "儿童绘本 2.0", "Picture books", language: .chinese, category: "有声阅读", additionalLanguages: [.japanese]),
+            .init("zh_female_jitangnv_uranus_bigtts", "鸡汤女 2.0", "Inspirational narration", language: .chinese, category: "视频配音", additionalLanguages: [.japanese]),
         ],
     ]
 

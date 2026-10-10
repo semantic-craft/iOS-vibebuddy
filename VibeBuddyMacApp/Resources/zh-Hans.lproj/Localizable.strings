@@ -1435,3 +1435,8 @@
 
 "Source version not yet verified" = "来源版本尚未验证";
 "Source could not be read" = "接入来源读取失败";
+
+"Summary and reading language" = "摘要与播报语言";
+"Voice model" = "当前音色模型";
+"Summaries follow this language unless a summary and reading language is selected." = "未单独选择摘要与播报语言时，摘要跟随对话语言。";
+"Choose a language for the voice and newly generated spoken summaries. Connect to an updated Mac to generate Japanese summaries." = "选择音色和新生成的语音摘要所用的语言。生成日语摘要需要连接已更新的 Mac。";

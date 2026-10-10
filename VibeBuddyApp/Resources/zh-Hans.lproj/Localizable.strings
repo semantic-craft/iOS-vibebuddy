@@ -919,3 +919,8 @@
 "On your Mac, open VibeBuddy Settings → Agent integration and turn on Monitor Grok Build. Account quota is a separate setting." = "请在 Mac 上打开 VibeBuddy 设置 → Agent 接入，开启「监控 Grok Build」。账户额度是独立设置。";
 "Open Grok Build on your Mac, then check Agent integration in VibeBuddy Settings." = "请在 Mac 上打开 Grok Build，再检查 VibeBuddy 设置中的 Agent 接入。";
 "In Grok Build on your Mac, run /hooks and press r to reload. If reload is unavailable, start a new session. Updates appear after the next activity." = "请在 Mac 的 Grok Build 中运行 /hooks，再按 r 重载。如果无法重载，请开启新会话；下一次活动后将显示更新。";
+
+"Summary and reading language" = "摘要与播报语言";
+"Voice model" = "当前音色模型";
+"Summaries follow this language unless a summary and reading language is selected." = "未单独选择摘要与播报语言时，摘要跟随对话语言。";
+"Choose a language for the voice and newly generated spoken summaries. Connect to an updated Mac to generate Japanese summaries." = "选择音色和新生成的语音摘要所用的语言。生成日语摘要需要连接已更新的 Mac。";

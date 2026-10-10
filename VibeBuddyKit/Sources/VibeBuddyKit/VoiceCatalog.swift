@@ -14,26 +14,33 @@ public struct CatalogVoice: Sendable, Equatable, Identifiable {
     public let name: String
     /// One line of character, as the vendor describes it. May be empty.
     public let trait: String
-    /// `nil` when the vendor documents the voice as multilingual.
+    /// Primary catalog language; nil for presets offered in every language.
+    /// A curated subset of a multilingual family can name its supported additions.
     public let language: VoiceLanguage?
+    public let additionalLanguages: [VoiceLanguage]
+    /// A preset from a different model family must carry its compatible model.
+    public let requiredModel: String?
     /// The vendor's own grouping, shown as the section header.
     public let category: String
     /// In the vendor's own recommended tier — their signal, not our taste.
     public let isCore: Bool
 
     public init(_ id: String, _ name: String, _ trait: String = "",
-                language: VoiceLanguage? = nil, category: String, core: Bool = false) {
+                language: VoiceLanguage? = nil, category: String, core: Bool = false,
+                additionalLanguages: [VoiceLanguage] = [], requiredModel: String? = nil) {
         self.id = id
         self.name = name
         self.trait = trait
         self.language = language
+        self.additionalLanguages = additionalLanguages
+        self.requiredModel = requiredModel
         self.category = category
         self.isCore = core
     }
 
     /// True for the conversation language, and for a multilingual voice always.
     public func speaks(_ language: VoiceLanguage) -> Bool {
-        self.language == nil || self.language == language
+        self.language == nil || self.language == language || additionalLanguages.contains(language)
     }
     /// "Mary · Warm British" — the ID only when it carries no separate name.
     public var label: String {
@@ -50,6 +57,13 @@ public struct VoiceGroup: Sendable, Equatable, Identifiable {
 }
 
 public enum VoiceCatalog {
+    /// Keep custom IDs; replace a known incompatible preset for Japanese reading.
+    public static func readingVoice(_ id: String, provider: VoiceProvider, language: VoiceLanguage) -> String {
+        guard language == .japanese,
+              let selected = voices(.readAloud, provider).first(where: { $0.id == id }),
+              !selected.speaks(language) else { return id }
+        return defaultVoice(.readAloud, provider, language: language) ?? id
+    }
     /// Past this many, a dropdown stops being a way to choose and the control
     /// becomes a shortlist plus a searchable list of everything.
     public static let tierLimit = 15
