@@ -250,19 +250,23 @@ final class DashboardStore: ObservableObject {
         if state == .connected, let pairing {
             do {
                 let request = ContentPresentationRequest(sourceID: context.source, target: target,
-                                                         voiceStyle: PhoneReadAloudSelection.load().voiceStyle)
+                                                         voiceStyle: PhoneReadAloudSelection.load().voiceStyle,
+                                                         language: PhoneReadAloudSelection.languageOverride())
                 let response = try await decisionClient.presentation(pairing, request: request)
                 guard sameConnection(context), speechContext == context, state == .connected,
                       response.request.sourceID == request.sourceID, response.request.target == request.target,
                       response.request.purpose == request.purpose, response.revision == context.revision,
                       !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       allSessions.contains(where: target.matches) else { throw ContentRequestFailure.conflict }
+                guard response.request.language == request.language else { throw ContentRequestFailure.unavailable }
                 return Announcement(text: response.text, context: context, target: target, savedFallback: !response.generated, savedCompletionNotice: nil)
             } catch ContentRequestFailure.conflict { throw ContentRequestFailure.conflict }
             catch is CancellationError { throw CancellationError() }
             catch { }
         }
         try Task.checkCancellation()
+        // A saved notice may be Chinese or English. Do not present it as Japanese.
+        if PhoneReadAloudSelection.language() == .japanese { throw ContentRequestFailure.unavailable }
         guard sameConnection(context), speechContext == context,
               let current = AnnouncementPlan.stillCurrent(item, in: allSessions), target.matches(current) else {
             throw ContentRequestFailure.conflict

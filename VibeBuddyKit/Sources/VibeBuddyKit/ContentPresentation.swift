@@ -28,13 +28,16 @@ public struct ContentPresentationRequest: Codable, Hashable, Sendable {
     /// of a persona, and the phone and the Mac each keep their own. Absent on
     /// the wire for `.standard`, so a request without a style is unchanged.
     public let voiceStyle: VoiceStyle
+    /// Device-selected speech language; absent keeps the Mac's configured language.
+    public let language: VoiceLanguage?
 
     public init(sourceID: String, target: ContentPresentationTarget, purpose: SummaryPurpose = .speech,
-                voiceStyle: VoiceStyle = .standard) {
+                voiceStyle: VoiceStyle = .standard, language: VoiceLanguage? = nil) {
         self.sourceID = sourceID; self.target = target; self.purpose = purpose; self.voiceStyle = voiceStyle
+        self.language = language
     }
 
-    private enum CodingKeys: String, CodingKey { case sourceID, target, purpose, voiceStyle }
+    private enum CodingKeys: String, CodingKey { case sourceID, target, purpose, voiceStyle, language }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -44,6 +47,7 @@ public struct ContentPresentationRequest: Codable, Hashable, Sendable {
         // A persona from a newer peer reads as `.standard` rather than failing
         // the whole request.
         voiceStyle = VoiceStyle(stored: try c.decodeIfPresent(String.self, forKey: .voiceStyle))
+        language = try c.decodeIfPresent(String.self, forKey: .language).flatMap(VoiceLanguage.init(rawValue:))
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -52,6 +56,7 @@ public struct ContentPresentationRequest: Codable, Hashable, Sendable {
         try c.encode(target, forKey: .target)
         try c.encode(purpose, forKey: .purpose)
         if voiceStyle != .standard { try c.encode(voiceStyle.rawValue, forKey: .voiceStyle) }
+        try c.encodeIfPresent(language?.rawValue, forKey: .language)
     }
 }
 

@@ -32,6 +32,7 @@ private struct ReadAloudPreferenceControls: View {
     @ObservedObject var tests: SettingsTestCoordinator
     @ObservedObject var credential: SettingsCredential
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
+    @AppStorage(VoiceSettings.summaryLanguageKey) private var summaryLanguage = ""
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
     @AppStorage private var modelID: String
@@ -52,7 +53,7 @@ private struct ReadAloudPreferenceControls: View {
         _styleID = AppStorage(wrappedValue: VoiceStyle.standard.rawValue, VoiceSettings.readAloudStyleKey(provider))
     }
 
-    private var spokenLanguage: VoiceLanguage { VoiceLanguage(rawValue: language) ?? .english }
+    private var spokenLanguage: VoiceLanguage { VoiceLanguage(rawValue: summaryLanguage) ?? VoiceLanguage(rawValue: language) ?? .english }
     /// What will actually be spoken. A provider picked for the first time has
     /// nothing stored yet, and the picker shows the language default without
     /// writing it — so preview and the request must resolve it the same way
@@ -102,11 +103,15 @@ private struct ReadAloudPreferenceControls: View {
                     VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
                                 language: spokenLanguage,
                                 fallback: VoiceSettings.readAloudVoice(provider, language: spokenLanguage),
-                                voiceID: Binding(get: { configuration.styledVoice?.voice ?? voiceID },
+                                voiceID: Binding(get: { configuration.effectiveVoice },
                                                  set: { voiceID = $0 }), trailing: { EmptyView() }, showsDetails: false)
                         .frame(maxWidth: 340, alignment: .leading)
                         .disabled(configuration.styledVoice != nil)
                 }
+            }
+            if configuration.effectiveModel != configuration.model {
+                LabeledContent("Voice model", value: configuration.effectiveModel)
+                    .foregroundStyle(MacTheme.ink2)
             }
             HStack(spacing: 12) {
                 Text("Announcer style").frame(width: 100, alignment: .leading)
@@ -143,7 +148,7 @@ private struct ReadAloudPreferenceControls: View {
         }
         .font(MacTheme.font(12)).controlSize(.small)
         .onAppear { credential.refresh() }
-        .onChange(of: [modelID, voiceID, styleID, language, workspace, String(intl), String(credential.revision)]) { _, _ in
+        .onChange(of: [modelID, voiceID, styleID, language, summaryLanguage, workspace, String(intl), String(credential.revision)]) { _, _ in
             if tests.purpose == .readAloud { tests.invalidate() }
         }
         .onChange(of: voiceChat.isActive) { _, active in
@@ -168,7 +173,7 @@ private struct ReadAloudPreferenceControls: View {
         guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.readAloud) }
         let config = configuration, reader = reader
         let text = config.style.previewLine(config.language)
-            ?? NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Synthetic read-aloud preview")
+            ?? config.language.readAloudPreview
         tests.start(.readAloud, timeout: .seconds(35), operation: {
             switch await reader.preview(text, apiKey: key, configuration: config) {
             case .completed:

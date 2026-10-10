@@ -268,6 +268,11 @@ For source ownership and checks, use the [development map](docs/agents/developme
   (ADR-0001).
 - **Conversation language** — the language the voice companion speaks (English /
   中文); independent of the **UI language** (English).
+- **Summary and reading language** — the language used to generate summaries and
+  speak them on the Mac (English / 中文 / 日本語), following conversation language
+  until explicitly selected. The phone can request its own speech language without
+  changing the Mac's preference. Japanese reading uses Japanese text and a compatible
+  voice; it does not apply a Japanese timbre to the original Chinese summary.
 - **Presence** — whether the person is at the Mac for a session:
   `PresencePolicy` (pure, in core) says *present* when the session's own
   surface (its terminal app, or Codex Desktop for a Desktop thread) is

@@ -17,12 +17,14 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
     let model: String
     let voice: String
     let persona: VoicePersona?
+    let language: VoiceLanguage?
 
     public init(model: String = defaultModel, voice: String = defaultVoice,
-                persona: VoicePersona? = nil) {
+                persona: VoicePersona? = nil, language: VoiceLanguage? = nil) {
         self.model = model.isEmpty ? Self.defaultModel : model
         self.voice = voice.isEmpty ? Self.defaultVoice : voice
         self.persona = persona
+        self.language = language
     }
 
     public func synthesize(_ text: String, apiKey: String) async throws -> Data {
@@ -54,8 +56,11 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
     func requestBody(_ text: String) -> [String: Any] {
         var params: [String: Any] = ["text": text, "speaker": voice,
                                      "audio_params": ["format": "mp3", "sample_rate": 24_000]]
-        if let persona,
-           let additions = try? JSONSerialization.data(withJSONObject: ["context_texts": [persona.cue]]) {
+        var options: [String: Any] = [:]
+        if let persona { options["context_texts"] = [persona.cue] }
+        if language == .japanese { options["explicit_language"] = "ja" }
+        if !options.isEmpty,
+           let additions = try? JSONSerialization.data(withJSONObject: options) {
             params["additions"] = String(decoding: additions, as: UTF8.self)
         }
         return ["req_params": params]

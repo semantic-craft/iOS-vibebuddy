@@ -80,6 +80,7 @@ enum SpokenProjectName {
 
     /// Prepended only when the generated speech never names the project.
     static func lead(_ name: String, language: VoiceLanguage) -> String {
-        language == .chinese ? "\(name) 项目：" : "An update from the \(name) project. "
+        if language == .japanese { return "\(name)プロジェクトの報告です。" }
+        return language == .chinese ? "\(name) 项目：" : "An update from the \(name) project. "
     }
 }

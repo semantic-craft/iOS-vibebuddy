@@ -13,14 +13,16 @@ public struct QwenSpeechSynthesizer: SpeechSynthesizer {
     let workspaceID: String?
     let useIntl: Bool
     let persona: VoicePersona?
+    let language: VoiceLanguage?
 
     public init(model: String = defaultModel, voice: String = defaultVoice,
-                workspaceID: String?, useIntl: Bool, persona: VoicePersona? = nil) {
+                workspaceID: String?, useIntl: Bool, persona: VoicePersona? = nil, language: VoiceLanguage? = nil) {
         self.model = model.isEmpty ? Self.defaultModel : model
         self.voice = voice.isEmpty ? Self.defaultVoice : voice
         self.workspaceID = workspaceID
         self.useIntl = useIntl
         self.persona = persona
+        self.language = language
     }
 
     /// `run-task` parameters. Alibaba's style lever is 指令控制 — the
@@ -36,6 +38,7 @@ public struct QwenSpeechSynthesizer: SpeechSynthesizer {
                                          "sample_rate": 22050, "volume": 50, "rate": 1, "pitch": 1,
                                          "enable_ssml": false]
         if let persona { parameters["instruction"] = persona.speaker }
+        if language == .japanese { parameters["language_hints"] = ["ja"] }
         return parameters
     }
 

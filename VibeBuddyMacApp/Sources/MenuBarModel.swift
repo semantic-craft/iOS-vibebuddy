@@ -284,7 +284,7 @@ final class MenuBarModel: ObservableObject {
 
     private func enqueueSpeech(_ original: AgentSession, sound: NotificationSound, sourceID: String, manual: Bool) {
         guard let identity = speechIdentity(original, sound: sound, sourceID: sourceID),
-              let text = AnnouncementCopy.text(for: original, sound: sound, language: VoiceSettings.conversationLanguage()) else { return }
+              let text = AnnouncementCopy.text(for: original, sound: sound, language: VoiceSettings.summaryLanguage()) else { return }
         var preparedRevision: String?
         readAloud.speak(text, id: identity, title: original.displayTitle, manual: manual,
             priority: !manual && sound != .agentDone, prepareText: { [weak self] in
@@ -333,7 +333,7 @@ final class MenuBarModel: ObservableObject {
             prepareText: { [weak self] in
                 guard let self, let result = await self.store.presentation(request) else { return nil }
                 preparedRevision = result.revision
-                return (VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + result.text
+                return VoiceSettings.summaryLanguage().replayIntroduction + result.text
             }, validatePreparedText: {
                 preparedRevision == CompletionSummaryConfiguration.load().presentationRevision
             }, validate: { [weak self] in

@@ -106,7 +106,7 @@ final class ReadAloud: ObservableObject {
 
     func replayLatest() {
         guard let latest else { return }
-        speak((VoiceSettings.conversationLanguage() == .chinese ? "重播原播报。" : "Replaying the original announcement. ") + latest.text,
+        speak(VoiceSettings.summaryLanguage().replayIntroduction + latest.text,
             id: "replay/" + UUID().uuidString, title: latest.title, manual: true, remember: false)
     }
 

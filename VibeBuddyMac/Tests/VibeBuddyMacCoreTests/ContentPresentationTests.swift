@@ -5,6 +5,41 @@ import VibeBuddyKit
 
 @Suite(.serialized)
 struct ContentPresentationTests {
+    @Test func japaneseSummaryRejectsTheObservedChineseResponse() {
+        #expect(!CompletionSummaryHTTP.isJapaneseSummary("japanese summary replay 官方 SDK 源码研究已完成，建议保留现有的单 Key 接入与独立选择体验，并使用推荐的模型组合分别处理摘要、朗读和实时通话。"))
+        #expect(CompletionSummaryHTTP.isJapaneseSummary("Gemini の公式 SDK の調査が完了しました。Swift での実装と実機での確認はまだ行っていません。"))
+    }
+
+    @Test func phoneJapaneseOverrideUsesSeparateGenerationAndKeepsMacRevision() async throws {
+        let store = SessionStore(sourceID: "mac")
+        let network = await configure(store)
+        defer { network.invalidateAndCancel() }
+        let date = Date()
+        await wait(store, at: date)
+        let waiting = try #require(await store.snapshot(now: date).sessions.first)
+        let target = try #require(ContentPresentationTarget(session: waiting))
+        let english = try #require(await store.presentation(.init(sourceID: "mac", target: target)))
+        let japanese = try #require(await store.presentation(.init(sourceID: "mac", target: target, language: .japanese)))
+        #expect(japanese.revision == english.revision)
+        #expect(japanese.request.language == .japanese)
+        #expect(PresentationStub.state.requestCount == 2)
+        _ = await store.presentation(.init(sourceID: "mac", target: target, language: .japanese))
+        #expect(PresentationStub.state.requestCount == 2)
+        let instructions = CompletionSummaryHTTP.instructions(style: .default, purpose: .speech, language: .japanese)
+        #expect(instructions.contains("Always reply in natural Japanese"))
+    }
+
+    @Test func japaneseNoticeBriefMatchesDecoderSentenceLimit() {
+        for style in [ContentStyleConfiguration.default,
+                      ContentStyleConfiguration(style: .decision),
+                      ContentStyleConfiguration(style: .custom, customPrompt: "三文で書いてください")] {
+            let instructions = CompletionSummaryHTTP.instructions(style: style, purpose: .notice, language: .japanese)
+            #expect(instructions.contains("厳密に一〜二文"))
+            #expect(!instructions.contains("通常は三〜五つ"))
+            #expect(!instructions.contains("Chinese characters"))
+        }
+    }
+
     private func configure(_ store: SessionStore, held: Bool = false) async -> URLSession {
         PresentationStub.state.reset(held: held)
         let config = URLSessionConfiguration.ephemeral

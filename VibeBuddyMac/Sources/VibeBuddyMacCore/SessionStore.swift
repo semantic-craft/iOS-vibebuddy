@@ -47,7 +47,9 @@ public actor SessionStore {
             return nil
         }
         var config = presentationConfiguration()
+        let revision = config.presentationRevision
         config.speechStyle = request.voiceStyle
+        if request.purpose == .speech, let language = request.language { config.language = language }
         var input = await presentationInput(request)
         if request.purpose == .speech, case .completion = request.target {
             for _ in 0..<8 {
@@ -68,7 +70,7 @@ public actor SessionStore {
             ContentPresentationService.diagnose(stage: "target", reason: "cancelledOrChangedDuringGeneration")
             return nil
         }
-        guard config.presentationRevision == presentationConfiguration().presentationRevision else {
+        guard revision == presentationConfiguration().presentationRevision else {
             ContentPresentationService.diagnose(stage: "configuration", reason: "changedDuringGeneration")
             return nil
         }
@@ -83,7 +85,7 @@ public actor SessionStore {
            let project = spokenProject(session), !SpokenProjectName.isMentioned(project, in: spokenText) {
             spokenText = SpokenProjectName.lead(project, language: config.language) + spokenText
         }
-        return ContentPresentation(request: request, revision: config.presentationRevision,
+        return ContentPresentation(request: request, revision: revision,
             text: spokenText, generated: text != nil)
     }
 
@@ -155,6 +157,11 @@ public actor SessionStore {
         case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return "" }
             let title = spokenProject(session) ?? session.displayTitle
+            if language == .japanese {
+                if session.status == .needsResponse { return "\(title)の判断をお待ちしています。詳しい要約を生成できないため、タスクを開いて確認してください。" }
+                if session.isStuck { return "\(title)は問題が発生して停止しました。タスクを開いて原因を確認してください。" }
+                return "\(title)の今回の応答が終了しました。日本語の要約を生成できないため、タスクを開いて結果を確認してください。"
+            }
             if session.status == .needsResponse {
                 return chinese ? "\(title) 项目在等你决定，请打开任务查看。当前无法生成详细摘要。" : "The \(title) project is waiting for your decision. Open the task to review it. A detailed summary is unavailable."
             }

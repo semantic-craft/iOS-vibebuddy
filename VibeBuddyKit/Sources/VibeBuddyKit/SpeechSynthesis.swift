@@ -20,7 +20,7 @@ public struct SpeechSynthesisConfiguration: Sendable, Equatable {
                 style: VoiceStyle = .standard, language: VoiceLanguage = .english) {
         self.provider = provider
         self.model = model
-        self.voice = voice
+        self.voice = VoiceCatalog.readingVoice(voice, provider: provider, language: language)
         self.qwenWorkspaceID = qwenWorkspaceID
         self.qwenUseIntl = qwenUseIntl
         self.style = style
@@ -34,7 +34,11 @@ public struct SpeechSynthesisConfiguration: Sendable, Equatable {
     public var styledVoice: StyledVoice? { style.voice(for: provider, language: language, qwenUseIntl: qwenUseIntl) }
     /// What is actually sent, after the style has had its say.
     public var effectiveVoice: String { styledVoice?.voice ?? voice }
-    public var effectiveModel: String { styledVoice?.model ?? model }
+    public var effectiveModel: String {
+        styledVoice?.model
+            ?? VoiceCatalog.voices(.readAloud, provider).first { $0.id == voice }?.requiredModel
+            ?? model
+    }
 }
 
 /// Graded so the UI can say something the user can act on without echoing a
@@ -112,7 +116,7 @@ public enum SpeechSynthesis {
                            supportsStyle: true) {
                 QwenSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice,
                                       workspaceID: $0.qwenWorkspaceID, useIntl: $0.qwenUseIntl,
-                                      persona: $0.persona)
+                                      persona: $0.persona, language: $0.language)
             }
         case .openai:
             // `/v1/audio/speech` does take an `instructions` field; it is left
@@ -125,12 +129,12 @@ public enum SpeechSynthesis {
             return Support(defaultModel: DoubaoSpeechSynthesizer.defaultModel,
                            defaultVoice: DoubaoSpeechSynthesizer.defaultVoice,
                            supportsStyle: true) {
-                DoubaoSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, persona: $0.persona)
+                DoubaoSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, persona: $0.persona, language: $0.language)
             }
         case .minimax:
             return Support(defaultModel: MiniMaxSpeechSynthesizer.defaultModel,
                            defaultVoice: MiniMaxSpeechSynthesizer.defaultVoice, supportsStyle: true) {
-                MiniMaxSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, style: $0.style)
+                MiniMaxSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, style: $0.style, language: $0.language)
             }
         case .gemini:
             return Support(defaultModel: GeminiSpeechSynthesizer.defaultModel,

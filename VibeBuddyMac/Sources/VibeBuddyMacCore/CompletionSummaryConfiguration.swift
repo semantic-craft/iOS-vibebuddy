@@ -52,7 +52,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         } ?? ""
         return Self(enabled: defaults.bool(forKey: enabledKey), provider: provider,
                     modelID: model,
-                    language: VoiceLanguage(rawValue: defaults.string(forKey: VoiceSettings.conversationLanguageKey) ?? "") ?? .english,
+                    language: VoiceSettings.summaryLanguage(defaults: defaults),
                     qwenUseIntl: defaults.bool(forKey: VoiceSettings.regionIntlKey),
                     qwenWorkspaceID: defaults.string(forKey: VoiceSettings.qwenWorkspaceIDKey),
                     contentStyle: ContentStyleConfiguration.load(defaults: defaults))
