@@ -29,6 +29,17 @@ struct ContentPresentationTests {
         #expect(instructions.contains("Always reply in natural Japanese"))
     }
 
+    @Test func japaneseNoticeBriefMatchesDecoderSentenceLimit() {
+        for style in [ContentStyleConfiguration.default,
+                      ContentStyleConfiguration(style: .decision),
+                      ContentStyleConfiguration(style: .custom, customPrompt: "三文で書いてください")] {
+            let instructions = CompletionSummaryHTTP.instructions(style: style, purpose: .notice, language: .japanese)
+            #expect(instructions.contains("厳密に一〜二文"))
+            #expect(!instructions.contains("通常は三〜五つ"))
+            #expect(!instructions.contains("Chinese characters"))
+        }
+    }
+
     private func configure(_ store: SessionStore, held: Bool = false) async -> URLSession {
         PresentationStub.state.reset(held: held)
         let config = URLSessionConfiguration.ephemeral

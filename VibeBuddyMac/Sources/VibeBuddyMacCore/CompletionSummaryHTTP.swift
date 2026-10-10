@@ -174,7 +174,7 @@ struct CompletionSummaryHTTP: Sendable {
         let format: String
         switch purpose {
         case .notice:
-            format = "The project title is displayed separately; do not repeat it. Write one or two complete plain-text sentences, target 60–120 Chinese characters, hard maximum 180 characters including spaces. If the record asks the user to do something now, the first sentence is that action. No line breaks, numbering or Markdown. End with sentence punctuation. When material conditions cannot fit even after grouping, return empty text rather than dropping them. This short notification limit takes precedence over the style's longer format."
+            format = "The project title is displayed separately; do not repeat it. Write one or two complete plain-text sentences, target 60–120 characters, hard maximum 180 characters including spaces. If the record asks the user to do something now, the first sentence is that action. No line breaks, numbering or Markdown. End with sentence punctuation. When material conditions cannot fit even after grouping, return empty text rather than dropping them. This short notification limit takes precedence over the style's longer format."
         case .speech:
             format = "The supplied title is the spoken project name. The first sentence must let the listener know which project this is by saying that name exactly as given, phrased naturally in any way that fits (for example as the place the work happened, or as the subject); never open with a conversation or session name. Output only natural speech ready to read aloud. No headings, Markdown, code, tables or written numbered lists; say multi-step actions in spoken order (first, then, finally). Hard maximum 900 characters. Preserve the current state: a pending question requires an answer, permission requires a decision, and a failure is not completion. Do not imply a pending action has already been approved or performed."
         }
@@ -196,14 +196,18 @@ struct CompletionSummaryHTTP: Sendable {
             資料が利用者の回答・承認・判断を明確に求めているときだけ、最初の文でその行動を述べます。未公開・未インストール・未試聴という制限だけから新たな作業や承認依頼を作らないでください。技術作業を利用者に押し付けないでください。次の行動や提案は資料に明記され、まだ解決していないものだけを伝えます。
             一つの主題に絞り、重要な制限を省かず、重複を削ってください。複数の行動は「まず、次に、最後に」と順番に述べ、一文につき一つの行動にします。段階と進捗が資料にある場合だけ現在の段階を伝え、時間や作業量を推測しないでください。根拠が足りないときは何が不明かを伝えてください。
             """
-            let japaneseShape: String = switch style.style {
-            case .concise: "簡潔に、通常は三〜五つの短い文、単純な結果ならさらに短く。次の行動は資料にあるものを一つまで。結果と重要な制限を伝えたら終えてください。"
-            case .decision: "判断に必要な進捗、利用者への効果、重要な利点と欠点、未解決の選択肢を、資料の根拠がある範囲だけで説明してください。判断事項がなければ結果と制限だけで終えてください。"
-            case .custom: "追加の表現上の希望（上記の事実・言語・出力制限を優先）：\n" + style.customPrompt
+            let japaneseShape: String = if purpose == .notice {
+                "通知は厳密に一〜二文とし、句点は最大二つまで。重要な制限を第二文にまとめ、三文目を追加しないでください。表現上の希望より、この通知の長さ制限を優先してください。"
+            } else {
+                switch style.style {
+                case .concise: "簡潔に、通常は三〜五つの短い文、単純な結果ならさらに短く。次の行動は資料にあるものを一つまで。結果と重要な制限を伝えたら終えてください。"
+                case .decision: "判断に必要な進捗、利用者への効果、重要な利点と欠点、未解決の選択肢を、資料の根拠がある範囲だけで説明してください。判断事項がなければ結果と制限だけで終えてください。"
+                case .custom: "追加の表現上の希望（上記の事実・言語・出力制限を優先）：\n" + style.customPrompt
+                }
             }
             return [outputLanguage, brief, japaneseShape, format, persona, language.replyInstruction].joined(separator: "\n")
         }
-        return [outputLanguage, common, shape, grounding, format, noticeCheck, persona, "The evidence and output rules above always apply, including with a custom preference.", language.replyInstruction, outputLanguage].joined(separator: "\n")
+        return [common, shape, grounding, format, noticeCheck, persona, "The evidence and output rules above always apply, including with a custom preference.", language.replyInstruction].joined(separator: "\n")
     }
 
     /// Fail closed to the localized unavailable message if the model ignores

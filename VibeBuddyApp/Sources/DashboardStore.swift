@@ -256,9 +256,9 @@ final class DashboardStore: ObservableObject {
                 guard sameConnection(context), speechContext == context, state == .connected,
                       response.request.sourceID == request.sourceID, response.request.target == request.target,
                       response.request.purpose == request.purpose, response.revision == context.revision,
-                      response.request.language == request.language,
                       !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       allSessions.contains(where: target.matches) else { throw ContentRequestFailure.conflict }
+                guard response.request.language == request.language else { throw ContentRequestFailure.unavailable }
                 return Announcement(text: response.text, context: context, target: target, savedFallback: !response.generated, savedCompletionNotice: nil)
             } catch ContentRequestFailure.conflict { throw ContentRequestFailure.conflict }
             catch is CancellationError { throw CancellationError() }

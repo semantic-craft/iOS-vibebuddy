@@ -205,7 +205,8 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
         }
     }
 
-    /// `language_type` value for the Qwen TTS API.
+    /// Retained for callers using the older Qwen `language_type` API.
+    /// The current synthesizer sends `language_hints` instead.
     public var qwenTTSLanguage: String {
         switch self {
         case .english: return "English"
