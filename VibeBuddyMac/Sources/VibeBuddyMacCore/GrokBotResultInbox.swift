@@ -84,7 +84,7 @@ public actor GrokBotResultInbox {
         if !duplicate {
             if !recovered { _ = try journal.claim([result.sessionID]) }
             await store.ingestGrokBotResult(result, now: now, recovered: recovered)
-        } else if try journal.unread(account: account, now: now).contains(where: { $0.result.sessionID == result.sessionID }) {
+        } else if try journal.isUnread(result.sessionID, account: account, now: now) {
             // A prior attempt may have committed the payload and then stopped
             // before projection. Reconstruct quietly, never reannounce a retry.
             await store.ingestGrokBotResult(result, now: now, recovered: true)

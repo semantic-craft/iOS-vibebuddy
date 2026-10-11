@@ -95,9 +95,17 @@ final class GrokBotInboxJournal: @unchecked Sendable {
         return state.records.values.filter { $0.account == account && !$0.read && $0.result.completedAt > now.addingTimeInterval(-7 * 86_400) }
             .sorted { $0.result.completedAt < $1.result.completedAt }
     }
+    func isUnread(_ id: String, account: String?, now: Date) throws -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let state else { throw GrokBotResult.Failure.storage }
+        guard let record = state.records[id] else { return false }
+        return record.account == account && !record.read && record.result.completedAt > now.addingTimeInterval(-7 * 86_400)
+    }
     func setRead(_ id: String, unread: Bool) throws {
         try transaction { state in
-            guard state.records[id] != nil else { throw GrokBotResult.Failure.storage }
+            // An expired record may still have a visible card in a long-lived app.
+            // Its retention tombstone is implicit; acknowledging it cannot resurrect it.
+            guard state.records[id] != nil else { return }
             state.records[id]?.read = !unread
             // Mark unread is a card action, never permission to reannounce.
             state.records[id]?.announced = true

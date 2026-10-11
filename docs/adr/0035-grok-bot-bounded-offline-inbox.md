@@ -25,7 +25,10 @@ on storage failure or capacity exhaustion. The source cache's retention can be
 shorter than seven days. Collector status reports retention and a possible gap
 when preceding-cache timestamps overlap the recovery interval.
 
-Restore unread cards quietly with original source timestamps. Suppress their
+Restore unread cards quietly with original source timestamps. Rebuild their local
+result capture from the durable inbox, including when the same Mac result ledger
+already retains the previous process capture. Account reactivation and cache
+messages delayed over 30 seconds are backlog even without a process restart. Suppress their
 individual Mac notifications and speech; after a short settling interval claim all
 unannounced recovered IDs atomically and enqueue one fixed Japanese count summary.
 Respect quiet mode, summary/read-aloud switches and the voice-call gate. Manual

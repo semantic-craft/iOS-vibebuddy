@@ -2233,6 +2233,7 @@ extension SessionStore {
         let id = result.sessionID
         // Do not reproject an existing result.
         guard reducer.sessions[id] == nil else { return }
+        completionResults.resetGrokBotProjection(id)
         if recovered { recoveredGrokIDs.insert(id); recoveredGrokDates[id] = result.completedAt; grokRecoveryUpdatedAt = now }
         // A notification's delivery is observed now. The remote timestamp stays
         // in the receipt and must not expire speech before the message arrives.

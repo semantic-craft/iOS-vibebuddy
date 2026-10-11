@@ -207,6 +207,39 @@ struct GrokBotResultTests {
         #expect(try journal.unread(account: nil, now: now).isEmpty)
     }
 
+    @Test("Restart with the same source and persistent result ledger keeps recovered bodies readable")
+    func persistentResultRecovery() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(), event = result(now: Date())
+        let journalURL = root.appendingPathComponent("lifecycle.json")
+        let inbox = GrokBotResultInbox(token: "test", directory: root.appendingPathComponent("inbox"))
+        let original = SessionStore(sourceID: "same-mac", journalURL: journalURL, now: now, resultClock: { now })
+        _ = try await inbox.receive(event, store: original, now: now, recovered: true)
+        #expect(await original.completionBody(sessionID: event.sessionID, completionID: event.id).text == event.text)
+        let later = now.addingTimeInterval(60)
+        let restarted = SessionStore(sourceID: "same-mac", journalURL: journalURL, now: later, resultClock: { later })
+        try await GrokBotResultInbox(token: "test", directory: root.appendingPathComponent("inbox"))
+            .restore(account: nil, store: restarted, now: later)
+        #expect(await restarted.completionBody(sessionID: event.sessionID, completionID: event.id).text == event.text)
+    }
+
+    @Test("Account reactivation and delayed synchronization aggregate; expired cards remain dismissible")
+    func recoveryBoundaries() throws {
+        let now = Date()
+        #expect(GrokBotCacheMonitor.isRecovery(completedAt: now.addingTimeInterval(-5), now: now, activationTime: now))
+        #expect(GrokBotCacheMonitor.isRecovery(completedAt: now.addingTimeInterval(-60), now: now, activationTime: now.addingTimeInterval(-120)))
+        #expect(!GrokBotCacheMonitor.isRecovery(completedAt: now.addingTimeInterval(-2), now: now, activationTime: now.addingTimeInterval(-120)))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = GrokBotInboxJournal(directory: root), old = result(now: now)
+        #expect(try !journal.accept(old, account: nil, now: now))
+        let later = now.addingTimeInterval(8 * 86_400)
+        #expect(try !journal.accept(result(now: later, id: "new"), account: nil, now: later))
+        try journal.setRead(old.sessionID, unread: false)
+        #expect(try !journal.isUnread(old.sessionID, account: nil, now: later))
+    }
+
     private static func base32(_ text: String) -> String {
         let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
         var bits = 0, buffer = 0, output = ""
