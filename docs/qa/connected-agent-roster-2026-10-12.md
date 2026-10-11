@@ -63,12 +63,13 @@ No installer behavior was changed in this task.
 - PUA READY confirmed an unlocked phone, usable control session, readable
   foreground app and viewport before the UI drive.
 - In the ordinary connected app, the horizontal agent strip retained
-  **Cursor · 0**. Selecting Cursor kept that entry visible and displayed
+  **Cursor · 0**, with the button accessibility value beginning **0 个会话**
+  followed by quota readings. Selecting Cursor kept that entry visible and displayed
   **Nothing running** / **Cursor has nothing running right now.** The connection
   label remained **已连接**. This establishes a zero-current-session state
   without hiding the agent, rather than relying on a cached offline screen.
 - No app source or preference changes were needed for this acceptance. No
-  App Store or TestFlight release was performed.
+  App Store or TestFlight release was performed. Watch UI was not exercised.
 
 Durable local evidence under the existing run's `iphone/` directory:
 `metadata.json`, `install.json`, `acceptance.md`,
