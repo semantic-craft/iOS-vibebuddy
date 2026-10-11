@@ -11,7 +11,7 @@ public enum AgentKind: String, Codable, Sendable, CaseIterable {
     case kimi
     case antigravity
     case grok
-    // Quota only: Grok Bot has no session integration, just its account allowance.
+    // Account allowance and immutable result/notification cards; no CLI control.
     case grokBot
     case opencode
     case copilot

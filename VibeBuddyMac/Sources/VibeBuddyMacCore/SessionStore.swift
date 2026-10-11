@@ -50,6 +50,11 @@ public actor SessionStore {
         let revision = config.presentationRevision
         config.speechStyle = request.voiceStyle
         if request.purpose == .speech, let language = request.language { config.language = language }
+        let targetID: String
+        switch request.target {
+        case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _): targetID = id
+        }
+        if reducer.sessions[targetID]?.agent == .grokBot { config.language = .japanese }
         var input = await presentationInput(request)
         if request.purpose == .speech, case .completion = request.target {
             for _ in 0..<8 {
@@ -77,10 +82,6 @@ public actor SessionStore {
         var spokenText = text ?? presentationFallback(request, language: config.language)
         // Speech must let the listener know which project this is; the model
         // phrases it freely, and only a text that never names it gets a lead.
-        let targetID: String
-        switch request.target {
-        case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _): targetID = id
-        }
         if request.purpose == .speech, let session = reducer.sessions[targetID],
            let project = spokenProject(session), !SpokenProjectName.isMentioned(project, in: spokenText) {
             spokenText = SpokenProjectName.lead(project, language: config.language) + spokenText
@@ -116,7 +117,8 @@ public actor SessionStore {
             }
             sessionID = id; identity = completionID
             title = spokenProject(session) ?? session.displayTitle
-            material = "This round ended. The final answer reports the following; ending is not proof of project completion.\n" + original
+            material = session.agent == .grokBot ? original
+                : "This round ended. The final answer reports the following; ending is not proof of project completion.\n" + original
         case .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return nil }
             sessionID = id
@@ -158,6 +160,7 @@ public actor SessionStore {
             guard let session = reducer.sessions[id] else { return "" }
             let title = spokenProject(session) ?? session.displayTitle
             if language == .japanese {
+                if session.agent == .grokBot { return "\(title)から通知が届きました。日本語の要約を生成できませんでした。" }
                 if session.status == .needsResponse { return "\(title)の判断をお待ちしています。詳しい要約を生成できないため、タスクを開いて確認してください。" }
                 if session.isStuck { return "\(title)は問題が発生して停止しました。タスクを開いて原因を確認してください。" }
                 return "\(title)の今回の応答が終了しました。日本語の要約を生成できないため、タスクを開いて結果を確認してください。"
@@ -565,7 +568,7 @@ public actor SessionStore {
             }
             return existing
         }
-        guard eligible, [.claudeCode, .codex, .cursor].contains(session.agent),
+        guard eligible, [.claudeCode, .codex, .cursor, .grokBot].contains(session.agent),
               now < session.statusSince.addingTimeInterval(12), let handler = noticeHandler else { return nil }
         var notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
         let contentConfig = presentationConfiguration()
@@ -2200,5 +2203,37 @@ public actor SessionStore {
               ((attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0) & 0o444 != 0
         else { return .sourceUnreadable }
         return .healthy
+    }
+}
+
+extension SessionStore {
+    /// One native turn is one retained result card. No fake live bot state,
+    /// approval path, local working directory, or cross-turn reassignment.
+    public func ingestGrokBotResult(_ result: GrokBotResult, now: Date) {
+        let id = result.sessionID
+        // Do not reproject an existing result.
+        guard reducer.sessions[id] == nil else { return }
+        // A notification's delivery is observed now. The remote timestamp stays
+        // in the receipt and must not expire speech before the message arrives.
+        let timestamp = now
+        ingest(HookEvent(kind: .userPromptSubmit, sessionID: id, agent: .grokBot,
+                         sessionName: result.botName + " · " + result.title,
+                         observationSource: .gateway, timestamp: timestamp, turnID: result.turnID,
+                         turnStartedAt: timestamp))
+        ingest(HookEvent(kind: .stop, sessionID: id, agent: .grokBot,
+                         sessionName: result.botName + " · " + result.title,
+                         observationSource: .gateway, timestamp: timestamp, turnID: result.turnID,
+                         turnStartedAt: timestamp, completionText: result.text,
+                         completionSucceeded: true, sourceCompletionID: result.id))
+    }
+}
+
+extension SessionStore {
+    public func retireGrokBotResults(now: Date) {
+        let targets = reducer.sessions.values.filter { $0.agent == .grokBot && $0.id.hasPrefix("grokbot-result:") }
+        for session in targets {
+            ingest(HookEvent(kind: .sessionEnd, sessionID: session.id, agent: .grokBot,
+                             observationSource: .gateway, timestamp: now))
+        }
     }
 }

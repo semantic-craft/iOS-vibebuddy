@@ -48,6 +48,12 @@ public struct GrokBotLocalAccount: Sendable {
         try cacheIdentity(Data(contentsOf: storeURL))
     }
 
+    /// Account selector only; never decrypts or returns credentials.
+    /// The official client stores SHA-256(JWT subject) in `active`, not the raw subject.
+    public static func activeAccountScope(store: URL = storeURL) throws -> String {
+        try record(Data(contentsOf: store)).active
+    }
+
     static func cacheIdentity(_ data: Data) throws -> String {
         let accounts = try record(data)
         let team = accounts.accounts[accounts.active]?["cursor-selected-team-id"] ?? "personal"
@@ -60,8 +66,8 @@ public struct GrokBotLocalAccount: Sendable {
     }
 
     private static func record(_ data: Data) throws -> Accounts {
-        guard let store = try? JSONDecoder().decode([String: String].self, from: data),
-              let raw = store["cursor-accounts"],
+        guard let store = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = store["cursor-accounts"] as? String,
               let accounts = try? JSONDecoder().decode(Accounts.self, from: Data(raw.utf8)),
               accounts.accounts[accounts.active] != nil else { throw AccountUsageError.notLoggedIn }
         return accounts

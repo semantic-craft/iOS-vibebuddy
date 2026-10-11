@@ -283,14 +283,15 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func enqueueSpeech(_ original: AgentSession, sound: NotificationSound, sourceID: String, manual: Bool) {
+        let language: VoiceLanguage = original.agent == .grokBot ? .japanese : VoiceSettings.summaryLanguage()
         guard let identity = speechIdentity(original, sound: sound, sourceID: sourceID),
-              let text = AnnouncementCopy.text(for: original, sound: sound, language: VoiceSettings.summaryLanguage()) else { return }
+              let text = AnnouncementCopy.text(for: original, sound: sound, language: language) else { return }
         var preparedRevision: String?
         readAloud.speak(text, id: identity, title: original.displayTitle, manual: manual,
-            priority: !manual && sound != .agentDone, prepareText: { [weak self] in
+            priority: !manual && sound != .agentDone, language: language, prepareText: { [weak self] in
             guard let self, let target = ContentPresentationTarget(session: original) else { return nil }
             let request = ContentPresentationRequest(sourceID: sourceID, target: target,
-                                                     voiceStyle: VoiceSettings.activeReadAloudStyle())
+                                                     voiceStyle: VoiceSettings.activeReadAloudStyle(), language: language)
             let result = await self.store.presentation(request)
             preparedRevision = result?.revision
             return result?.text
@@ -326,14 +327,16 @@ final class MenuBarModel: ObservableObject {
 
     func replayResult(_ original: AgentSession, body: CompletionBody? = nil) {
         guard let sourceID = snapshotSourceID, let target = ContentPresentationTarget(session: original) else { return }
+        let language: VoiceLanguage = original.agent == .grokBot ? .japanese : VoiceSettings.summaryLanguage()
         let request = ContentPresentationRequest(sourceID: sourceID, target: target,
-                                                 voiceStyle: VoiceSettings.activeReadAloudStyle())
+                                                 voiceStyle: VoiceSettings.activeReadAloudStyle(), language: language)
         var preparedRevision: String?
         readAloud.speak(original.displayTitle, id: "replay/" + UUID().uuidString, manual: true, remember: false,
+            language: language,
             prepareText: { [weak self] in
                 guard let self, let result = await self.store.presentation(request) else { return nil }
                 preparedRevision = result.revision
-                return VoiceSettings.summaryLanguage().replayIntroduction + result.text
+                return language.replayIntroduction + result.text
             }, validatePreparedText: {
                 preparedRevision == CompletionSummaryConfiguration.load().presentationRevision
             }, validate: { [weak self] in
@@ -667,7 +670,9 @@ final class MenuBarModel: ObservableObject {
                                          guard let self else { return false }
                                          return await self.deliverCompletionReminder(session)
                                      },
-                                     cursorFollowups: cursorFollowups)
+                                     cursorFollowups: cursorFollowups,
+                                     grokBotResults: GrokBotResultInbox.configured(),
+                                     grokBotCache: E2ERunConfiguration.current == nil ? GrokBotCacheMonitor.local() : nil)
         Task.detached(priority: .utility) {
             do {
                 try await server.runService()
@@ -837,7 +842,9 @@ final class MenuBarModel: ObservableObject {
 
     private func generateCompletionNotice(_ session: AgentSession) async -> String? {
         let log = Logger(subsystem: "com.vibebuddy.mac", category: "completionSummary")
-        let config = CompletionSummaryConfiguration.load()
+        let baselineConfig = CompletionSummaryConfiguration.load()
+        var config = baselineConfig
+        if session.agent == .grokBot { config.language = .japanese }
         guard config.configurationFailure == nil, let completionID = session.completionID,
               !Self.effectiveQuiet() else { log.notice("Skipped: configuration or quiet mode"); return nil }
         let focused: Set<String> = !alwaysAskPhone && isViewing(session.id) ? [session.id] : []
@@ -857,7 +864,7 @@ final class MenuBarModel: ObservableObject {
             completionID: result.completionID, turnID: result.turnID, title: session.displayTitle,
             finalText: result.finalText, completedAt: result.completedAt, observedAt: result.observedAt)
         let summary = await completionSummaryService.generate(input, configuration: config)
-        guard !Task.isCancelled, config == CompletionSummaryConfiguration.load(), !Self.effectiveQuiet() else { return nil }
+        guard !Task.isCancelled, baselineConfig == CompletionSummaryConfiguration.load(), !Self.effectiveQuiet() else { return nil }
         log.notice("Generation outcome: \(summary.failure?.rawValue ?? "success", privacy: .public)")
         return summary.text
     }

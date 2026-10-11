@@ -653,14 +653,12 @@ For source ownership and checks, use the [development map](docs/agents/developme
   utility task behind a size+mtime memo, so a refresh costs the files that
   actually changed.
 - **Grok Bot** — the cloud bot product opened by `com.anysphere.sand`, distinct
-  from Grok Build CLI (`grok`). It is an **account-usage provider only**
-  (ADR-0031): the independent `grokBot` provider identity reads the signed-in
-  account's Sand allowance, and nothing else. There is no task observation, no
-  Session, no jump and no approval path — `AgentKind.grokBot` exists so a quota
-  row can carry the brand mark, and a `?agent=grokbot` hook is rejected rather
-  than mistaken for another CLI. `ObservationSource.gateway` and
-  `WaitHandling.macGrokBot` remain in their wire enums only so a snapshot
-  written by an older build still decodes; nothing produces them.
+  from Grok Build CLI (`grok`). Its `grokBot` provider reads account allowance.
+  The optional result bridge also projects delivered text notifications into
+  immutable result cards (`grokbot-result:`), with Japanese summary/read-aloud.
+  These cards describe message delivery, not independently verified task success.
+  It has no live task control, jump or approval path. See ADR-0034; the old gateway
+  observer stays retired. `gateway` is reused as the wire source for result delivery.
 
 ## Completion summaries and Mac reading
 
