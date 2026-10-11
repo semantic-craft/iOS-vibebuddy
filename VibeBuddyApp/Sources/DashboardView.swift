@@ -67,7 +67,9 @@ struct DashboardView: View {
         InboxProjection(sessions: dashboard.allSessions, now: now, agent: filters.agent)
     }
     private var roster: [AgentRoster.Item] {
-        var items = AgentRoster.items(dashboard.allSessions, keeping: filters.agent, now: now)
+        var items = AgentRoster.items(dashboard.allSessions, keeping: filters.agent,
+                                      diagnostics: dashboard.observationDiagnostics,
+                                      dispatchAgents: dashboard.dispatchAgents, now: now)
         if dashboard.grokMonitoring != nil && !items.contains(where: { $0.agent == .grok }) {
             items.append(.init(agent: .grok, tally: .init()))
         }

@@ -34,15 +34,24 @@ public enum AgentRoster {
         }
     }
 
-    /// One entry per agent reporting in the current window, "All agents"
-    /// first. `keeping` is the surface's own selection: an agent whose last
-    /// session has just aged out stays listed, so the tiles never shift under
-    /// the pointer and the page being read does not empty itself.
+    /// Connected agents stay listed even when all their sessions have aged out.
+    /// Existing sessions, configured/observed sources and dispatch capability
+    /// establish membership; only current sessions contribute to the tallies.
+    /// `keeping` also preserves the surface's selection during source recovery.
     public static func items(_ sessions: [AgentSession], keeping: AgentKind? = nil,
+                             diagnostics: [AgentObservationDiagnostic] = [],
+                             dispatchAgents: [AgentKind] = [],
                              now: Date = Date()) -> [Item] {
         let current = SessionCurrency.current(sessions, now: now)
-        var present = SessionFilter.presentAgents(current)
-        if let keeping, !present.contains(keeping) { present.append(keeping) }
+        var connected = Set(sessions.map(\.agent)).union(dispatchAgents)
+        for diagnostic in diagnostics where diagnostic.sources.contains(where: {
+            !$0.configuredCoverage.isEmpty || !$0.observedCoverage.isEmpty
+                || $0.lastObservedAt != nil || $0.health == .healthy
+        }) {
+            connected.insert(diagnostic.agent)
+        }
+        if let keeping { connected.insert(keeping) }
+        let present = AgentKind.allCases.filter { connected.contains($0) }
         return [Item(agent: nil, tally: tally(current))]
             + present.map { agent in Item(agent: agent, tally: tally(current.filter { $0.agent == agent })) }
     }

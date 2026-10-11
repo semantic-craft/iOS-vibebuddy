@@ -108,3 +108,22 @@ the reader wanted.
 - `DashboardAgentColumn` is pure projection in `VibeBuddyMacCore` and tested
   there (`DashboardAgentColumnTests`); the rail and the column read it and never
   re-derive counts of their own.
+
+## Amendment (2026-10-12): connected agents remain visible while idle
+
+The owner observed Cursor disappearing from the rail after all 22 of its
+completed sessions aged out of the 24-hour current window. The sessions and
+Cursor dispatch capability were still present. Hiding the agent made a quiet
+integration look disconnected.
+
+The Mac rail and iPhone strip now derive membership from the complete session
+set, configured or previously observed diagnostic sources, and agents available
+for dispatch. The current selection is also retained. Generic idle ACP or
+not-installed diagnostics alone do not establish a connection. Entries remain
+in `AgentKind.allCases` order, with All agents first.
+
+Tallies still use `SessionCurrency.current`: a connected agent with no current
+sessions displays zero. Older sessions remain behind the existing older-task
+toggle; they do not inflate any count or notification. This replaces decision
+1's current-window membership rule and applies to the shared roster in decision
+10. No wire-format change or new persistent registry is introduced.
