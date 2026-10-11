@@ -45,6 +45,8 @@ def main():
                 private_transport = destination.hostname == "localhost"
             if not private_transport:
                 parser.error("Plain HTTP requires loopback or a Tailscale address; otherwise use HTTPS")
+        if not token_path.is_file():
+            parser.error("Receiver credential missing; run enable or provision the owner-only token first")
         if token_path.stat().st_mode & 0o077:
             parser.error("Token file must be owner-only")
         payload = args.file.read_bytes()

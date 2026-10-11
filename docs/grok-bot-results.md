@@ -28,6 +28,8 @@ It accepts JSON fields `version` (1), `evidence` (`notification` or `finalReply`
 `completedAt` (ISO-8601). Keep identifiers stable on retries. Text is limited to
 11,800 characters, HTTP bodies to 64 KiB, and receipts to seven days old.
 The response acknowledges the ID and indicates whether it was a duplicate.
+Both whole-second and fractional-second timestamps are supported. Playback
+freshness is measured from local receipt, so a delayed message can still be read.
 
 `python3 tools/grok-bot-results.py send --file receipt.json` sends one receipt;
 `--url` selects the receiver. Use HTTPS or an encrypted private network. No

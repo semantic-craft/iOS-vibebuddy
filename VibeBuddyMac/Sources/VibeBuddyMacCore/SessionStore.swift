@@ -2212,7 +2212,9 @@ extension SessionStore {
         let id = result.sessionID
         // Do not reproject an existing result.
         guard reducer.sessions[id] == nil else { return }
-        let timestamp = min(result.completedAt, now)
+        // A notification's delivery is observed now. The remote timestamp stays
+        // in the receipt and must not expire speech before the message arrives.
+        let timestamp = now
         ingest(HookEvent(kind: .userPromptSubmit, sessionID: id, agent: .grokBot,
                          sessionName: result.botName + " · " + result.title,
                          observationSource: .gateway, timestamp: timestamp, turnID: result.turnID,

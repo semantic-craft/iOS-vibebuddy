@@ -63,11 +63,14 @@ struct GrokBotResultTests {
         let scope = SHA256.hash(data: Data(subject.utf8)).map { String(format: "%02x", $0) }.joined()
         let monitor = GrokBotCacheMonitor(directory: root, scope: { scope })
         let start = Date()
-        func write(_ subject: String, _ id: String, _ date: Date, type: String = "text") throws {
+        let rosterKey = "sand.client.slice.account.\(subject).roster.last-roster"
+        try JSONSerialization.data(withJSONObject: ["value": ["rows": [["id": "bot", "name": "Bot", "isGroup": false]]]])
+            .write(to: root.appendingPathComponent(Self.base32(rosterKey) + ".blob"))
+        func write(_ subject: String, _ id: String, _ date: Date, type: String = "text", author: String = "bot") throws {
             let key = "sand.client.slice.account.\(subject).transcript.replicas.group-chat"
             let data = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "value": ["entries": [
                 ["kind": "send-message", "id": id, "timestampMs": date.timeIntervalSince1970 * 1000,
-                 "author": ["id": "bot", "name": "Bot"], "message": ["type": type, "content": "Test notice"]]
+                 "author": ["id": author, "name": "Bot"], "message": ["type": type, "content": "Test notice"]]
             ]]])
             try data.write(to: root.appendingPathComponent(Self.base32(key) + ".blob"), options: .atomic)
         }
@@ -82,6 +85,25 @@ struct GrokBotResultTests {
         #expect(try await monitor.poll(now: start.addingTimeInterval(3)).isEmpty)
         try write(subject, "secret", start.addingTimeInterval(4), type: "secret-request")
         #expect(try await monitor.poll(now: start.addingTimeInterval(5)).isEmpty)
+        try write(subject, "human", start.addingTimeInterval(6), author: "unknown-human")
+        #expect(try await monitor.poll(now: start.addingTimeInterval(7)).isEmpty)
+    }
+
+    @Test("Delayed receipts remain readable and Japanese fallback describes delivery only")
+    func delayedReceipt() async throws {
+        let now = Date()
+        let store = SessionStore(sourceID: "mac", resultClock: { now })
+        let event = result(now: now.addingTimeInterval(-120))
+        await store.ingestGrokBotResult(event, now: now)
+        let session = try #require(await store.snapshot(now: now).sessions.first)
+        #expect(session.statusSince == now)
+        guard case .ready = await store.completionResult(sessionID: event.sessionID, completionID: event.id) else {
+            Issue.record("A newly delivered notification expired using the remote send time"); return
+        }
+        let speech = try #require(await store.presentation(.init(sourceID: "mac",
+            target: .completion(sessionID: event.sessionID, completionID: event.id), language: .japanese)))
+        #expect(speech.text.contains("通知が届きました"))
+        #expect(!speech.text.contains("応答が終了"))
     }
 
     @Test("Desktop direct notifications omit author and resolve their Bot from the roster")

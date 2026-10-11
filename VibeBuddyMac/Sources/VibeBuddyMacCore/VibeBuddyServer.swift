@@ -529,7 +529,15 @@ public struct VibeBuddyServer: Sendable {
             resultRoutes.post("grok-bot/result") { request, _ -> Response in
                 let body = try await request.body.collect(upTo: 65_536)
                 let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
+                decoder.dateDecodingStrategy = .custom { value in
+                    let raw = try value.singleValueContainer().decode(String.self)
+                    let format = ISO8601DateFormatter()
+                    format.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    if let date = format.date(from: raw) { return date }
+                    format.formatOptions = [.withInternetDateTime]
+                    guard let date = format.date(from: raw) else { throw GrokBotResult.Failure.invalid }
+                    return date
+                }
                 guard let result = try? decoder.decode(GrokBotResult.self, from: Data(buffer: body)) else {
                     throw HTTPError(.badRequest)
                 }

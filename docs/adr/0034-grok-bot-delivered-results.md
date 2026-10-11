@@ -23,7 +23,8 @@ undocumented client cache and may change.
 Opt in to reading new user-facing text notifications from the active account's
 local client replicas. Resolve direct-chat authors only through non-group roster
 rows. Skip user prompts, streamed reasoning, attachments, secret requests and
-explicitly addressed messages. No cloud polling, model calls or Bot reminder is
+explicitly addressed messages. Group authors must match a known non-group Bot
+in the active roster. No cloud polling, model calls or Bot reminder is
 needed to collect a notification. Each message becomes one immutable result card.
 
 A separate ingest-only bearer credential also protects `POST /grok-bot/result`
@@ -34,6 +35,10 @@ acknowledged; conflicting retries fail. Receipts retain at most seven days/4096
 files. A crash between reservation and projection can lose that one presentation;
 we prefer this to reannouncing a dismissed receipt. This is not an exactly-once
 transaction across the inbox and session journal.
+Speech deadlines use local delivery time; the remote send time remains in the
+receipt. Transient cache-file rotation does not retire existing cards. Capacity
+exhaustion applies backpressure (503) until receipts age out rather than evicting
+deduplication records early and allowing repeated announcements.
 
 Japanese summary and speech reuse the existing presentation and voice queues,
 including manual replay. Notification wording attributes reported facts to the

@@ -49,7 +49,11 @@ public actor GrokBotCacheMonitor {
                 }
             } catch {
                 health.available = false
-                await store.retireGrokBotResults(now: Date())
+                // Cache rotation/read failure is not logout. Only loss/change
+                // of the active account is allowed to retire visible results.
+                if (try? scope()) != activeScope {
+                    await store.retireGrokBotResults(now: Date())
+                }
             }
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
         }
@@ -71,7 +75,7 @@ public actor GrokBotCacheMonitor {
             let encoded = String(key[key.index(key.startIndex, offsetBy: "sand.client.slice.account.".count)..<marker.lowerBound])
             guard let subject = encoded.removingPercentEncoding,
                   Self.hash(subject) == account else { continue }
-            let info = try file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey])
+            guard let info = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]) else { continue }
             guard info.isRegularFile == true, info.isSymbolicLink != true, let size = info.fileSize,
                   size <= 8 * 1_024 * 1_024, let modified = info.contentModificationDate else { continue }
             let value: [String: Any]
@@ -102,7 +106,8 @@ public actor GrokBotCacheMonitor {
                       let id = entry["id"] as? String,
                       let stamp = entry["timestampMs"] as? NSNumber else { continue }
                 let author = entry["author"] as? [String: Any]
-                guard let bot = author?["id"] as? String ?? (directBots.contains(conversation) ? conversation : nil) else { continue }
+                guard let bot = author?["id"] as? String ?? (directBots.contains(conversation) ? conversation : nil),
+                      directBots.contains(bot) else { continue }
                 let date = Date(timeIntervalSince1970: stamp.doubleValue / 1000)
                 let result = GrokBotResult(version: 1, evidence: .notification,
                     id: id, botID: account + ":" + bot, conversationID: conversation, turnID: id,

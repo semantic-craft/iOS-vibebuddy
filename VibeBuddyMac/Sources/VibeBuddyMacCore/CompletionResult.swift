@@ -456,7 +456,7 @@ struct CompletionResults {
 
     private static func freeze(_ text: String, candidate: Candidate, sourceID: String,
                        sessionID: String, agent: AgentKind, now: Date) -> CompletionResultAvailability {
-        guard now <= candidate.completedAt.addingTimeInterval(agent == .grokBot ? 12 : 2) else { return .expired }
+        guard now <= candidate.completedAt.addingTimeInterval(2) else { return .expired }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .resultUnavailable }
         guard text.count <= Self.textLimit(for: agent) else { return .resultTooLong }
         return .ready(FrozenCompletionResult(sourceID: sourceID, sessionID: sessionID,
