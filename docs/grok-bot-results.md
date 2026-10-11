@@ -4,9 +4,12 @@ The Mac can automatically read new text notifications already synchronized by th
 official Grok Bot desktop client, then summarize/read them in Japanese. This is
 notification coverage, not a guarantee that every Bot task reaches a terminal
 state. Keep Grok Bot running. Quota is separately enabled in Usage sources.
-Notification cards are retained for the current app run; restarting starts a
-fresh inbox without reading historical notifications aloud. Deduplication receipts
-survive restart, so retrying an already received message will not reannounce it.
+Unread notifications survive restart in an account-scoped, durable inbox. After
+first enablement, cached text notifications from the last seven days are rescanned
+and deduplicated by stable ID. Read notifications stay read. Missing or trimmed
+upstream cache entries cannot be recovered. Recovered cards retain the source time;
+backlog is announced once as a Japanese count, never one automatic speech per card.
+See [ADR-0035](adr/0035-grok-bot-bounded-offline-inbox.md).
 
 ## Enable
 
@@ -42,7 +45,7 @@ receiver. `VIBEBUDDY_GROK_BOT_HOME` selects the official client data root. The
 ordinary phone-authenticated `GET /grok-bot/status` reports cache health without
 returning messages or credentials.
 
-## Validation on 2026-10-11
+## Initial bridge validation on 2026-10-11 (before offline inbox)
 
 - An isolated daemon on port 18785 received a fresh notification from the real
   owner-operated Bot through the official Mac client's cache, without a callback
@@ -64,3 +67,29 @@ returning messages or credentials.
 
 Local evidence is under `.scratch/verify-vibebuddy/grok-20261011/` and
 `.scratch/grok-bridge/gui/`; these artifacts are not public source files.
+
+## Bounded offline inbox
+
+The first enablement establishes a per-account boundary. Later restarts rescan the
+available cache inside seven days; this is not a promise that the upstream cache
+retains seven days. The durable inbox holds at most 4096 records. `/grok-bot/status`
+reports `retentionDays` and `historyMayBeIncomplete`; a detected cache gap means
+some notifications may be unavailable, not that the bridge recovered everything.
+
+Old receipt-only files migrate with the lifecycle journal's known read state.
+Known unread cards restore quietly, known read cards stay read, and unknown legacy
+state remains a deduplication tombstone. New payloads and read state commit together.
+A crash after receiving a notification but before creating its card is recoverable.
+
+Recovered notifications do not each trigger a Mac alert or speech. After the batch
+settles, enabled Japanese reading says how many notifications were received and
+where to find them. Quiet mode, voice calls and disabled reading defer claiming.
+Automatic speech is claimed before playback to avoid repeating on restart; a crash
+or audio failure in that gap leaves the unread cards available for manual reading.
+
+Offline validation used two real messages sent by the owner's Bot while an isolated
+receiver was stopped. Restart recovered both original bodies and timestamps; after
+explicitly reading A and restarting again, only unread B returned. The official
+client remained online: this proves receiver downtime, not upstream cloud retention
+or whole-Mac offline synchronization. Native audio and installation evidence are
+recorded with the implementation delivery.

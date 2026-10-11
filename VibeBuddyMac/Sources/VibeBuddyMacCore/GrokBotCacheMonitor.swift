@@ -7,6 +7,8 @@ public actor GrokBotCacheMonitor {
     private let directory: URL
     private let scope: @Sendable () throws -> String
     private var baseline: Date?
+    private var activationTime = Date()
+    private var persistedBaseline: Date?
     private var seen: Set<String> = []
     private var activeScope: String?
     private var cache: [URL: (Date, Int, [String: Any])] = [:]
@@ -16,6 +18,8 @@ public actor GrokBotCacheMonitor {
         public var lastPollAt: Date?
         public var lastDeliveryAt: Date?
         public var deliveryFailed = false
+        public var historyMayBeIncomplete = false
+        public let retentionDays = 7
     }
     private var health = Status()
     public func status() -> Status { health }
@@ -37,8 +41,16 @@ public actor GrokBotCacheMonitor {
         while !Task.isCancelled {
             do {
                 let currentScope = try scope()
-                if activeScope != currentScope { await store.retireGrokBotResults(now: Date()) }
-                let results = try poll(now: Date())
+                await store.setGrokBotRecoveryCollecting(true)
+                if activeScope != currentScope {
+                    activationTime = Date()
+                    await store.retireGrokBotResults(now: Date())
+                    persistedBaseline = try await inbox.enabledAt(account: currentScope, now: Date())
+                    guard try scope() == currentScope else { continue }
+                    try await inbox.restore(account: currentScope, store: store)
+                    try await inbox.restore(account: nil, store: store)
+                }
+                let results = try poll(now: Date(), since: persistedBaseline)
                 for (index, result) in results.enumerated() {
                     guard !Task.isCancelled else { return }
                     do {
@@ -48,7 +60,7 @@ public actor GrokBotCacheMonitor {
                         throw error
                     }
                     do {
-                        _ = try await inbox.receive(result, store: store)
+                        _ = try await inbox.receive(result, store: store, account: currentScope, recovered: Self.isRecovery(completedAt: result.completedAt, now: Date(), activationTime: activationTime))
                         health.lastDeliveryAt = Date(); health.deliveryFailed = false
                     } catch GrokBotResult.Failure.invalid { health.deliveryFailed = true
                     } catch GrokBotResult.Failure.conflict { health.deliveryFailed = true
@@ -63,14 +75,15 @@ public actor GrokBotCacheMonitor {
                     await store.retireGrokBotResults(now: Date())
                 }
             }
+            await store.setGrokBotRecoveryCollecting(false)
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
         }
     }
 
-    public func poll(now: Date) throws -> [GrokBotResult] {
+    public func poll(now: Date, since: Date? = nil) throws -> [GrokBotResult] {
         let account = try scope()
         if activeScope != account {
-            activeScope = account; baseline = now; seen.removeAll(); cache.removeAll()
+            activeScope = account; baseline = since ?? now; seen.removeAll(); cache.removeAll()
         }
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey])
         var names: [String: String] = [:]
@@ -105,7 +118,13 @@ public actor GrokBotCacheMonitor {
         }
         cache = cache.filter { files.contains($0.key) }
         var results: [GrokBotResult] = []
+        var retainedIDs: Set<String> = []
+        health.historyMayBeIncomplete = false
         for (conversation, value) in replicas {
+            if let preceding = value["precedingTimestampMs"] as? NSNumber,
+               Date(timeIntervalSince1970: preceding.doubleValue / 1000) > max(baseline ?? now, now.addingTimeInterval(-7 * 86_400)) {
+                health.historyMayBeIncomplete = true
+            }
             for entry in value["entries"] as? [[String: Any]] ?? [] {
                 guard entry["kind"] as? String == "send-message",
                       entry["deliverTo"] == nil,
@@ -125,7 +144,9 @@ public actor GrokBotCacheMonitor {
                     id: id, botID: account + ":" + bot, conversationID: conversation, turnID: id,
                     botName: String(botName.prefix(120)),
                     title: "Grok Bot 通知", text: text, completedAt: date)
-                guard date >= (baseline ?? now), date <= now, !seen.contains(result.sessionID) else { continue }
+                guard date >= max(baseline ?? now, now.addingTimeInterval(-7 * 86_400)), date <= now else { continue }
+                retainedIDs.insert(result.sessionID)
+                guard !seen.contains(result.sessionID) else { continue }
                 seen.insert(result.sessionID)
                 results.append(result)
             }
@@ -137,8 +158,14 @@ public actor GrokBotCacheMonitor {
             throw error
         }
         health.available = true; health.replicaCount = replicas.count; health.lastPollAt = now
-        if seen.count > 20_000 { seen.removeAll(); baseline = now }
+        seen.formIntersection(retainedIDs)
         return results.sorted { $0.completedAt < $1.completedAt }
+    }
+
+    // An account reactivation or a delayed cache sync is backlog, even if this
+    // process stayed alive during sleep/network loss. Recent arrivals stay live.
+    static func isRecovery(completedAt: Date, now: Date, activationTime: Date) -> Bool {
+        completedAt < activationTime || now.timeIntervalSince(completedAt) > 30
     }
 
     private static func hash(_ value: String) -> String {

@@ -80,6 +80,13 @@ struct CompletionResults {
         records = ledger?.results ?? [:]
     }
 
+    /// The durable Grok inbox owns these payloads. Reprojection is a new local
+    /// capture of the same notification, not a new agent turn after an old result.
+    mutating func resetGrokBotProjection(_ id: String) {
+        removeSession(id)
+        records = records.filter { !($0.value.sessionID == id && $0.value.agent == .grokBot) }
+    }
+
     mutating func removeSession(_ id: String) {
         runs[id] = nil
         candidates[id] = nil

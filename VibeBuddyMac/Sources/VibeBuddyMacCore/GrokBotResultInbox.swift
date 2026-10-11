@@ -37,10 +37,12 @@ public struct GrokBotResult: Codable, Equatable, Sendable {
 public actor GrokBotResultInbox {
     public let token: String
     private let directory: URL
+    private let journal: GrokBotInboxJournal
 
     public init(token: String, directory: URL) {
         self.token = token
         self.directory = directory
+        self.journal = GrokBotInboxJournal(directory: directory)
     }
 
     /// Opt-in: installation provisions a separate owner-only token file.
@@ -57,40 +59,36 @@ public actor GrokBotResultInbox {
         return GrokBotResultInbox(token: token, directory: root.appendingPathComponent("grok-bot-results"))
     }
 
-    public func receive(_ result: GrokBotResult, store: SessionStore, now: Date = Date()) async throws -> Bool {
-        try result.validate(now: now)
-        let key = result.sessionID
-        let file = directory.appendingPathComponent(key + ".json")
-        let decoder = JSONDecoder()
-        let duplicate: Bool
-        if FileManager.default.fileExists(atPath: file.path) {
-            guard let data = try? Data(contentsOf: file), let previous = try? decoder.decode(GrokBotResult.self, from: data)
-            else { throw GrokBotResult.Failure.storage }
-            guard previous == result else { throw GrokBotResult.Failure.conflict }
-            duplicate = true
-        } else {
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                       attributes: [.posixPermissions: 0o700])
-                let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
-                for old in files where old.pathExtension == "json" {
-                    if let date = try? old.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                       date < now.addingTimeInterval(-7 * 86_400) { try? FileManager.default.removeItem(at: old) }
-                }
-                guard try FileManager.default.contentsOfDirectory(atPath: directory.path).count < 4096 else {
-                    throw GrokBotResult.Failure.storage
-                }
-                try JSONEncoder().encode(result).write(to: file, options: .atomic)
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-            } catch { throw GrokBotResult.Failure.storage }
-            duplicate = false
+    public func enabledAt(account: String, now: Date) throws -> Date {
+        try journal.enable(account: account, now: now)
+    }
+
+    public func restore(account: String?, store: SessionStore, now: Date = Date()) async throws {
+        await bind(store)
+        try journal.migrateLegacy(account: account, unread: await store.grokBotLegacyUnreadStates(), now: now)
+        for record in try journal.unread(account: account, now: now) {
+            await store.ingestGrokBotResult(record.result, now: now, recovered: true)
         }
-        // The durable file reserves identity before awaiting the store, including
-        // after restart or user dismissal. Retrying must never reannounce a result.
+    }
+
+    private func bind(_ store: SessionStore) async {
+        let journal = self.journal
+        await store.configureGrokBotInbox(read: { try journal.setRead($0, unread: $1) }, claim: { try journal.claim($0) })
+    }
+
+    public func receive(_ result: GrokBotResult, store: SessionStore, now: Date = Date(),
+                        account: String? = nil, recovered: Bool = false) async throws -> Bool {
+        try result.validate(now: now)
+        let duplicate = try journal.accept(result, account: account, now: now)
+        await bind(store)
         if !duplicate {
-            await store.ingestGrokBotResult(result, now: now)
+            if !recovered { _ = try journal.claim([result.sessionID]) }
+            await store.ingestGrokBotResult(result, now: now, recovered: recovered)
+        } else if try journal.isUnread(result.sessionID, account: account, now: now) {
+            // A prior attempt may have committed the payload and then stopped
+            // before projection. Reconstruct quietly, never reannounce a retry.
+            await store.ingestGrokBotResult(result, now: now, recovered: true)
         }
         return duplicate
     }
 }
-

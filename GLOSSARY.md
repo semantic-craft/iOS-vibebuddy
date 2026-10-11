@@ -656,6 +656,8 @@ For source ownership and checks, use the [development map](docs/agents/developme
   from Grok Build CLI (`grok`). Its `grokBot` provider reads account allowance.
   The optional result bridge also projects delivered text notifications into
   immutable result cards (`grokbot-result:`), with Japanese summary/read-aloud.
+  A bounded inbox restores unread cards and preserves read acknowledgements;
+  recovered backlog receives one Japanese count announcement (ADR-0035).
   These cards describe message delivery, not independently verified task success.
   It has no live task control, jump or approval path. See ADR-0034; the old gateway
   observer stays retired. `gateway` is reused as the wire source for result delivery.

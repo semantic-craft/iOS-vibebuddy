@@ -242,6 +242,7 @@ public struct VibeBuddyServer: Sendable {
     }
 
     public func runService() async throws {
+        if let grokBotResults { try? await grokBotResults.restore(account: nil, store: store) }
         let grokBotTask: Task<Void, Never>?
         if let grokBotResults, let grokBotCache {
             grokBotTask = Task { await grokBotCache.run(inbox: grokBotResults, store: store) }
