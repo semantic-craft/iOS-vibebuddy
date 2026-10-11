@@ -45,6 +45,8 @@ public actor GrokBotCacheMonitor {
                     do {
                         _ = try await inbox.receive(result, store: store)
                         health.lastDeliveryAt = Date(); health.deliveryFailed = false
+                    } catch GrokBotResult.Failure.invalid { health.deliveryFailed = true
+                    } catch GrokBotResult.Failure.conflict { health.deliveryFailed = true
                     } catch { seen.remove(result.sessionID); health.deliveryFailed = true }
                 }
             } catch {
@@ -102,7 +104,8 @@ public actor GrokBotCacheMonitor {
                 guard entry["kind"] as? String == "send-message",
                       entry["deliverTo"] == nil,
                       let message = entry["message"] as? [String: Any], message["type"] as? String == "text",
-                      let text = message["content"] as? String, !text.isEmpty, text.count <= 11_800,
+                      let text = message["content"] as? String,
+                      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.count <= 11_800,
                       let id = entry["id"] as? String,
                       let stamp = entry["timestampMs"] as? NSNumber else { continue }
                 let author = entry["author"] as? [String: Any]

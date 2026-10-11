@@ -49,6 +49,7 @@ public struct GrokBotLocalAccount: Sendable {
     }
 
     /// Account selector only; never decrypts or returns credentials.
+    /// The official client stores SHA-256(JWT subject) in `active`, not the raw subject.
     public static func activeAccountScope(store: URL = storeURL) throws -> String {
         try record(Data(contentsOf: store)).active
     }

@@ -50,6 +50,11 @@ public actor SessionStore {
         let revision = config.presentationRevision
         config.speechStyle = request.voiceStyle
         if request.purpose == .speech, let language = request.language { config.language = language }
+        let targetID: String
+        switch request.target {
+        case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _): targetID = id
+        }
+        if reducer.sessions[targetID]?.agent == .grokBot { config.language = .japanese }
         var input = await presentationInput(request)
         if request.purpose == .speech, case .completion = request.target {
             for _ in 0..<8 {
@@ -77,10 +82,6 @@ public actor SessionStore {
         var spokenText = text ?? presentationFallback(request, language: config.language)
         // Speech must let the listener know which project this is; the model
         // phrases it freely, and only a text that never names it gets a lead.
-        let targetID: String
-        switch request.target {
-        case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _): targetID = id
-        }
         if request.purpose == .speech, let session = reducer.sessions[targetID],
            let project = spokenProject(session), !SpokenProjectName.isMentioned(project, in: spokenText) {
             spokenText = SpokenProjectName.lead(project, language: config.language) + spokenText
@@ -2229,7 +2230,8 @@ extension SessionStore {
 
 extension SessionStore {
     public func retireGrokBotResults(now: Date) {
-        for session in reducer.sessions.values where session.agent == .grokBot && session.id.hasPrefix("grokbot-result:") {
+        let targets = reducer.sessions.values.filter { $0.agent == .grokBot && $0.id.hasPrefix("grokbot-result:") }
+        for session in targets {
             ingest(HookEvent(kind: .sessionEnd, sessionID: session.id, agent: .grokBot,
                              observationSource: .gateway, timestamp: now))
         }

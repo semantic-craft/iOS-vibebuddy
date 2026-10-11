@@ -49,10 +49,19 @@ def main():
             parser.error("Receiver credential missing; run enable or provision the owner-only token first")
         if token_path.stat().st_mode & 0o077:
             parser.error("Token file must be owner-only")
-        payload = args.file.read_bytes()
+        try:
+            payload = args.file.read_bytes()
+        except OSError:
+            parser.error("Receipt file cannot be read")
         if len(payload) > 65_536:
             parser.error("Receipt exceeds 64 KiB")
-        expected_id = json.loads(payload)["id"]
+        try:
+            receipt_input = json.loads(payload)
+        except (ValueError, UnicodeError):
+            parser.error("Receipt file must contain valid JSON")
+        if not isinstance(receipt_input, dict) or not isinstance(receipt_input.get("id"), str) or not receipt_input["id"]:
+            parser.error("Receipt file must contain a nonempty id string")
+        expected_id = receipt_input["id"]
         request = urllib.request.Request(args.url, payload, headers={"Authorization": "Bearer " + token_path.read_text().strip(), "Content-Type": "application/json"})
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *args, **kwargs):

@@ -74,8 +74,8 @@ public actor GrokBotResultInbox {
                                                        attributes: [.posixPermissions: 0o700])
                 let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
                 for old in files where old.pathExtension == "json" {
-                    if let date = try old.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-                       date < now.addingTimeInterval(-7 * 86_400) { try FileManager.default.removeItem(at: old) }
+                    if let date = try? old.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                       date < now.addingTimeInterval(-7 * 86_400) { try? FileManager.default.removeItem(at: old) }
                 }
                 guard try FileManager.default.contentsOfDirectory(atPath: directory.path).count < 4096 else {
                     throw GrokBotResult.Failure.storage

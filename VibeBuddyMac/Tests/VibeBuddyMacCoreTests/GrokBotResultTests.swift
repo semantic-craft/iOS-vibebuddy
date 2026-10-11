@@ -101,7 +101,7 @@ struct GrokBotResultTests {
             Issue.record("A newly delivered notification expired using the remote send time"); return
         }
         let speech = try #require(await store.presentation(.init(sourceID: "mac",
-            target: .completion(sessionID: event.sessionID, completionID: event.id), language: .japanese)))
+            target: .completion(sessionID: event.sessionID, completionID: event.id))))
         #expect(speech.text.contains("通知が届きました"))
         #expect(!speech.text.contains("応答が終了"))
     }
