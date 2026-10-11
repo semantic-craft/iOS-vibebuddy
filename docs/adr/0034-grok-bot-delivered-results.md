@@ -1,6 +1,6 @@
 # ADR-0034: Grok Bot delivered results and Japanese reading
 
-- Status: accepted
+- Status: accepted; restart, storage and backfill policy superseded by [ADR-0035](0035-grok-bot-bounded-offline-inbox.md)
 - Date: 2026-10-11
 - Supersedes the quota-only scope in [ADR-0031](0031-grok-bot-is-account-usage-only.md)
 

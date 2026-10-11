@@ -804,8 +804,15 @@ final class MenuBarModel: ObservableObject {
                 // which Codex/terminal tab the person is reading.
                 let viewed = Set(snapshot.sessions.filter { self.isViewing($0.id) }.map(\.id))
                 let focused: Set<String> = self.alwaysAskPhone ? [] : viewed
+                let recoveredGrok = await self.store.grokBotQuietRecoveryIDs()
+                if !Self.effectiveQuiet(), UserDefaults.standard.bool(forKey: ReadAloud.enabledKey),
+                   CompletionSummaryConfiguration.load().enabled, self.readAloud.canSpeak(),
+                   let summary = await self.store.claimGrokBotRecoverySummary() {
+                    self.readAloud.speak(summary, id: "grok-recovery/" + UUID().uuidString,
+                        title: "Grok Bot 通知", language: .japanese)
+                }
                 let alerts = await self.notificationCoordinator.observe(
-                    snapshot.sessions,
+                    snapshot.sessions.filter { !recoveredGrok.contains($0.id) },
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
                     focusedSessionIDs: focused,                // exact task view, not app presence

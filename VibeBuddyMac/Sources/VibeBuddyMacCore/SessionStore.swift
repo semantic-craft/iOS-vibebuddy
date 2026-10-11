@@ -5,6 +5,13 @@ import VibeBuddyKit
 /// reads/subscriptions happen concurrently, so the mutable reducer lives behind
 /// an actor. WebSocket clients subscribe for a live snapshot stream.
 public actor SessionStore {
+    private var grokInboxRead: (@Sendable (String, Bool) throws -> Void)?
+    private var grokInboxClaim: (@Sendable (Set<String>) throws -> Int)?
+    private var recoveredGrokIDs: Set<String> = []
+    private var recoveredGrokDates: [String: Date] = [:]
+    private var grokRecoveryUpdatedAt = Date.distantPast
+    private var grokRecoveryCollecting = false
+
     private var contentPresenter = ContentPresentationService()
     private var presentationConfiguration: @Sendable () -> CompletionSummaryConfiguration = { .load() }
     private var savePresentationStyle: @Sendable (ContentStyleConfiguration) -> Bool = { style in
@@ -555,6 +562,7 @@ public actor SessionStore {
     }
 
     private func completionNotice(for session: AgentSession, now: Date) -> CompletionNotice? {
+        guard !recoveredGrokIDs.contains(session.id) else { return nil }
         guard let sourceID, let completionID = session.completionID, noticeLedger != nil else { return nil }
         let id = sourceID + "/" + session.id + "/" + completionID
         let eligible = session.status == .done && session.hasUnreadCompletion && !session.isStuck
@@ -1658,6 +1666,15 @@ public actor SessionStore {
             lifecycleJournal = previousJournal
             return CompletionReadResponse(outcome: .failed)
         }
+        if session.agent == .grokBot, session.id.hasPrefix("grokbot-result:") {
+            do {
+                guard let grokInboxRead else { throw GrokBotResult.Failure.storage }
+                try grokInboxRead(request.sessionID, unread)
+            } catch {
+                reducer = previousReducer; lifecycleJournal = previousJournal
+                return CompletionReadResponse(outcome: .failed)
+            }
+        }
         broadcast()
         return CompletionReadResponse(outcome: .accepted)
     }
@@ -1805,6 +1822,9 @@ public actor SessionStore {
                 ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
             session.completionNotice = completionNotice(for: session, now: now)
             session.completionText = completionResults.snapshotText(for: session, sourceID: sourceID)
+            if let date = recoveredGrokDates[session.id] {
+                session.updatedAt = date; session.statusSince = date
+            }
             session.controlChannel = controlChannel(for: session, now: now)
             if let recovery = acpRecoveryRows[session.id], !acpHosted.contains(session.id) {
                 session.historyOnly = true
@@ -2209,10 +2229,11 @@ public actor SessionStore {
 extension SessionStore {
     /// One native turn is one retained result card. No fake live bot state,
     /// approval path, local working directory, or cross-turn reassignment.
-    public func ingestGrokBotResult(_ result: GrokBotResult, now: Date) {
+    public func ingestGrokBotResult(_ result: GrokBotResult, now: Date, recovered: Bool = false) {
         let id = result.sessionID
         // Do not reproject an existing result.
         guard reducer.sessions[id] == nil else { return }
+        if recovered { recoveredGrokIDs.insert(id); recoveredGrokDates[id] = result.completedAt; grokRecoveryUpdatedAt = now }
         // A notification's delivery is observed now. The remote timestamp stays
         // in the receipt and must not expire speech before the message arrives.
         let timestamp = now
@@ -2229,7 +2250,29 @@ extension SessionStore {
 }
 
 extension SessionStore {
+    func grokBotLegacyUnreadStates() -> [String: Bool] {
+        lifecycleJournal?.grokBotUnreadStates() ?? [:]
+    }
+
+    func configureGrokBotInbox(read: @escaping @Sendable (String, Bool) throws -> Void,
+                               claim: @escaping @Sendable (Set<String>) throws -> Int) {
+        grokInboxRead = read; grokInboxClaim = claim
+    }
+
+    public func grokBotQuietRecoveryIDs() -> Set<String> { recoveredGrokIDs }
+    func setGrokBotRecoveryCollecting(_ value: Bool) { grokRecoveryCollecting = value }
+
+    /// Claim before audio for at-most-once automatic speech. Cards survive audio failure.
+    public func claimGrokBotRecoverySummary(now: Date = Date()) -> String? {
+        guard !grokRecoveryCollecting, now.timeIntervalSince(grokRecoveryUpdatedAt) >= 3,
+              let claim = grokInboxClaim else { return nil }
+        let unread = recoveredGrokIDs.filter { reducer.sessions[$0]?.hasUnreadCompletion == true }
+        guard !unread.isEmpty, let count = try? claim(unread), count > 0 else { return nil }
+        return "オフライン中の通知を\(count)件受信しました。未読の通知は受信トレイで確認できます。"
+    }
+
     public func retireGrokBotResults(now: Date) {
+        recoveredGrokIDs.removeAll(); recoveredGrokDates.removeAll()
         let targets = reducer.sessions.values.filter { $0.agent == .grokBot && $0.id.hasPrefix("grokbot-result:") }
         for session in targets {
             ingest(HookEvent(kind: .sessionEnd, sessionID: session.id, agent: .grokBot,

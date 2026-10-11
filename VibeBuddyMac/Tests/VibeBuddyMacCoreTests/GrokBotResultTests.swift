@@ -9,9 +9,9 @@ import VibeBuddyKit
 
 @Suite("Grok Bot result bridge")
 struct GrokBotResultTests {
-    private func result(now: Date, text: String = "通知：接続を確認しました。") -> GrokBotResult {
-        .init(version: 1, evidence: .notification, id: "message-1", botID: "bot-1",
-              conversationID: "chat-1", turnID: "message-1", botName: "Test Bot",
+    private func result(now: Date, text: String = "通知：接続を確認しました。", id: String = "message-1") -> GrokBotResult {
+        .init(version: 1, evidence: .notification, id: id, botID: "bot-1",
+              conversationID: "chat-1", turnID: id, botName: "Test Bot",
               title: "Grok Bot notification", text: text, completedAt: now)
     }
 
@@ -51,7 +51,7 @@ struct GrokBotResultTests {
         #expect(await store.snapshot(now: now).sessions.filter { $0.id == event.sessionID }.count == 1)
         let emptyStore = SessionStore(resultClock: { now })
         #expect(try await restarted.receive(decoder.decode(GrokBotResult.self, from: encoder.encode(event)), store: emptyStore, now: now))
-        #expect(await emptyStore.snapshot(now: now).sessions.isEmpty)
+        #expect(await emptyStore.snapshot(now: now).sessions.filter { $0.id == event.sessionID }.count == 1)
     }
 
     @Test("Cache observes new text only, includes groups, rejects another account and never replays history")
@@ -88,6 +88,9 @@ struct GrokBotResultTests {
         #expect(try await monitor.poll(now: start.addingTimeInterval(5)).isEmpty)
         try write(subject, "human", start.addingTimeInterval(6), author: "unknown-human")
         #expect(try await monitor.poll(now: start.addingTimeInterval(7)).isEmpty)
+        try write(subject, "offline", start.addingTimeInterval(8))
+        let resumed = GrokBotCacheMonitor(directory: root, scope: { scope })
+        #expect(try await resumed.poll(now: start.addingTimeInterval(60), since: start).first?.id == "offline")
     }
 
     @Test("Delayed receipts remain readable and Japanese fallback describes delivery only")
@@ -130,6 +133,78 @@ struct GrokBotResultTests {
         #expect(results.count == 1)
         #expect(results.first?.botName == "Test Bot")
         #expect(try await monitor.poll(now: now.addingTimeInterval(3)).isEmpty)
+    }
+
+    @Test("Unread recovery survives restart; read tombstones and speech claims persist")
+    func offlineRecovery() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date()
+        let event = result(now: now.addingTimeInterval(-120))
+        let inbox = GrokBotResultInbox(token: "test", directory: root)
+        let store = SessionStore(sourceID: "mac", resultClock: { now })
+        let enabled = try await inbox.enabledAt(account: "account", now: now.addingTimeInterval(-300))
+        #expect(try await inbox.enabledAt(account: "account", now: now) == enabled)
+        #expect(try await !inbox.receive(event, store: store, now: now, account: "account", recovered: true))
+        #expect(try await !inbox.receive(result(now: now.addingTimeInterval(-100), id: "message-2"),
+            store: store, now: now, account: "account", recovered: true))
+        #expect(await store.grokBotQuietRecoveryIDs().contains(event.sessionID))
+        #expect(await store.claimGrokBotRecoverySummary(now: now.addingTimeInterval(4))?.contains("2件") == true)
+        #expect(await store.claimGrokBotRecoverySummary(now: now.addingTimeInterval(5)) == nil)
+
+        let reopened = GrokBotResultInbox(token: "test", directory: root)
+        let restored = SessionStore(sourceID: "mac", resultClock: { now })
+        try await reopened.restore(account: "other", store: restored, now: now)
+        #expect(await restored.snapshot(now: now).sessions.isEmpty)
+        try await reopened.restore(account: "account", store: restored, now: now)
+        #expect(await restored.snapshot(now: now).sessions.first?.hasUnreadCompletion == true)
+        let restoredCard = await restored.snapshot(now: now).sessions.first { $0.id == event.sessionID }
+        #expect(restoredCard?.completionText != nil)
+        #expect(restoredCard?.updatedAt == event.completedAt)
+        #expect(await restored.completionBody(sessionID: event.sessionID, completionID: event.id).text == event.text)
+        #expect(await restored.claimGrokBotRecoverySummary(now: now.addingTimeInterval(10)) == nil)
+        let ack = await restored.acknowledgeCompletion(.init(sourceID: "mac", sessionID: event.sessionID, completionID: event.id))
+        #expect(ack.outcome == .accepted)
+        let readRestart = GrokBotResultInbox(token: "test", directory: root)
+        let empty = SessionStore(sourceID: "mac", resultClock: { now })
+        try await readRestart.restore(account: "account", store: empty, now: now)
+        #expect(await empty.snapshot(now: now).sessions.map(\.completionID) == ["message-2"])
+        #expect(try await readRestart.receive(event, store: empty, now: now, account: "account"))
+        #expect(await empty.snapshot(now: now).sessions.map(\.completionID) == ["message-2"])
+    }
+
+    @Test("Durable pending is restored after a crash before projection and corruption fails closed")
+    func pendingRecovery() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(), event = result(now: Date())
+        let journal = GrokBotInboxJournal(directory: root)
+        #expect(try !journal.accept(event, account: "account", now: now))
+        let inbox = GrokBotResultInbox(token: "test", directory: root)
+        let store = SessionStore(sourceID: "mac", resultClock: { now })
+        try await inbox.restore(account: "account", store: store, now: now)
+        #expect(await store.snapshot(now: now).sessions.count == 1)
+        #expect(await store.claimGrokBotRecoverySummary(now: now.addingTimeInterval(4)) != nil)
+        try Data("broken".utf8).write(to: root.appendingPathComponent("inbox-state.json"))
+        let corrupt = GrokBotResultInbox(token: "test", directory: root)
+        await #expect(throws: (any Error).self) { try await corrupt.restore(account: "account", store: store, now: now) }
+        #expect(try String(contentsOf: root.appendingPathComponent("inbox-state.json"), encoding: .utf8) == "broken")
+    }
+
+    @Test("Legacy migration restores only known unread cards without replaying speech")
+    func legacyMigration() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let now = Date(), event = result(now: Date())
+        try JSONEncoder().encode(event).write(to: root.appendingPathComponent(event.sessionID + ".json"))
+        let journal = GrokBotInboxJournal(directory: root)
+        try journal.migrateLegacy(account: nil, unread: [event.sessionID: true], now: now)
+        #expect(try journal.unread(account: nil, now: now).count == 1)
+        #expect(try journal.claim([event.sessionID]) == 0)
+        try journal.setRead(event.sessionID, unread: false)
+        try journal.migrateLegacy(account: nil, unread: [event.sessionID: true], now: now)
+        #expect(try journal.unread(account: nil, now: now).isEmpty)
     }
 
     private static func base32(_ text: String) -> String {

@@ -154,6 +154,13 @@ struct LifecycleJournal {
         return persistBestEffort()
     }
 
+    func grokBotUnreadStates() -> [String: Bool] {
+        var latest: [String: LifecycleJournalEntry] = [:]
+        for entry in entries where entry.agent == .grokBot { latest[entry.sessionID] = entry }
+        for (id, entry) in completions where entry.agent == .grokBot { latest[id] = entry }
+        return latest.compactMapValues(\.hasUnreadCompletion)
+    }
+
     func recent(limit: Int) -> [LifecycleJournalEntry] {
         Array(entries.suffix(max(0, limit)).reversed())
     }
@@ -165,8 +172,8 @@ struct LifecycleJournal {
         for entry in entries { latest[entry.sessionID] = entry }
         for (id, entry) in completions { latest[id] = entry }
         return latest.values.compactMap { entry in
-            // Bot notifications start fresh after restart: this minimal journal
-            // cannot restore their account identity, sender or message body.
+            // Bot payloads/read state restore through their account-scoped inbox;
+            // this minimal journal cannot reconstruct sender or body.
             guard entry.agent != .grokBot,
                   let status = entry.status,
                   (status == .working || status == .needsResponse || entry.completionID != nil),
