@@ -188,11 +188,11 @@ struct DashboardView: View {
     private var filtered: [AgentSession] { projection.visible }
     private var selectedSession: AgentSession? { projection.selected }
 
-    /// The rail's tiles: every agent reporting, the chosen one kept listed
-    /// even after its last session ages out, so the rail never shifts under
-    /// the pointer.
+    /// Connected agents remain available; their tallies count current sessions.
     private var railItems: [AgentRoster.Item] {
-        var items = AgentRoster.items(model.sessions, keeping: agentFilter)
+        var items = AgentRoster.items(model.sessions, keeping: agentFilter,
+                                      diagnostics: model.observationDiagnostics,
+                                      dispatchAgents: model.dispatchAgents)
         if model.grokMonitoring?.discoveredSessions.isEmpty == false, !items.contains(where: { $0.agent == .grok }) {
             items.append(.init(agent: .grok, tally: .init()))
         }

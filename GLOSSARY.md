@@ -155,7 +155,8 @@ For source ownership and checks, use the [development map](docs/agents/developme
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
 - **Agent rail** — the dashboard's leftmost 48 pt column (`DashboardAgentRail`,
-  ADR-0031): one tile per agent reporting in the current window, led by **All
+  ADR-0031): one tile per connected agent, including idle agents with zero
+  current sessions, led by **All
   agents**, each ringed by that account's tightest allowance (`AgentQuotaReading`)
   and dotted when one of its sessions needs you, with Settings at the foot.
   Choosing a tile is the window's first axis; it sets the live list's agent.

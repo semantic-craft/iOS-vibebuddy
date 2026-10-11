@@ -15,6 +15,28 @@ struct AgentRosterTests {
 
     private let now = Date(timeIntervalSince1970: 100)
 
+    @Test func anIdleCursorRemainsListedWithZeroCurrentSessions() {
+        let oldCursor = session("cursor-old", .cursor, .done, at: -90_000, unread: true)
+        let items = AgentRoster.items([oldCursor, session("codex-live", .codex, .working)], now: now)
+        #expect(items.map(\.id) == ["all", "codex", "cursor"])
+        #expect(items.first { $0.agent == .cursor }?.tally == .init())
+        #expect(items.first?.tally.total == 1)
+    }
+
+    @Test func configuredAndDispatchableAgentsAreListedBeforeTheirFirstSession() {
+        let diagnostics = [
+            AgentObservationDiagnostic(agent: .cursor, sources: [
+                .init(source: .hook, health: .temporarilySilent, configuredCoverage: [.turn])]),
+            AgentObservationDiagnostic(agent: .claudeCode, sources: [
+                .init(source: .hook, health: .notInstalled)]),
+            AgentObservationDiagnostic(agent: .grok, sources: [
+                .init(source: .acp, health: .temporarilySilent, reasonCode: "acpIdle")])
+        ]
+        let items = AgentRoster.items([], diagnostics: diagnostics, dispatchAgents: [.codex, .cursor], now: now)
+        #expect(items.map(\.id) == ["all", "codex", "cursor"])
+        #expect(items.allSatisfy { $0.tally == .init() })
+    }
+
     @Test func theRosterLeadsWithAllAgentsAndTalliesEachOne() {
         let input = [session("a", .claudeCode, .needsResponse),
                      session("b", .claudeCode, .working),
