@@ -66,21 +66,22 @@ struct GrokBotResultTests {
         let rosterKey = "sand.client.slice.account.\(subject).roster.last-roster"
         try JSONSerialization.data(withJSONObject: ["value": ["rows": [["id": "bot", "name": "Bot", "isGroup": false]]]])
             .write(to: root.appendingPathComponent(Self.base32(rosterKey) + ".blob"))
-        func write(_ subject: String, _ id: String, _ date: Date, type: String = "text", author: String = "bot") throws {
+        func write(_ subject: String, _ id: String, _ date: Date, type: String = "text", author: String = "bot", name: String = "Bot") throws {
             let key = "sand.client.slice.account.\(subject).transcript.replicas.group-chat"
             let data = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "value": ["entries": [
                 ["kind": "send-message", "id": id, "timestampMs": date.timeIntervalSince1970 * 1000,
-                 "author": ["id": author, "name": "Bot"], "message": ["type": type, "content": "Test notice"]]
+                 "author": ["id": author, "name": name], "message": ["type": type, "content": "Test notice"]]
             ]]])
             try data.write(to: root.appendingPathComponent(Self.base32(key) + ".blob"), options: .atomic)
         }
         try write(subject, "old", start.addingTimeInterval(-100))
         #expect(try await monitor.poll(now: start).isEmpty)
         try write("other-owner", "other", start.addingTimeInterval(1))
-        try write(subject, "new", start.addingTimeInterval(1))
+        try write(subject, "new", start.addingTimeInterval(1), name: "  ")
         let notices = try await monitor.poll(now: start.addingTimeInterval(2))
         #expect(notices.count == 1)
         #expect(notices.first?.id == "new")
+        #expect(notices.first?.botName == "Bot")
         #expect(notices.first?.evidence == .notification)
         #expect(try await monitor.poll(now: start.addingTimeInterval(3)).isEmpty)
         try write(subject, "secret", start.addingTimeInterval(4), type: "secret-request")

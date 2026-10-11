@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import secrets
 import urllib.parse
+import urllib.error
 import urllib.request
 
 
@@ -67,8 +68,13 @@ def main():
             def redirect_request(self, *args, **kwargs):
                 return None
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-        with opener.open(request, timeout=15) as response:
-            receipt = json.load(response)
+        try:
+            with opener.open(request, timeout=15) as response:
+                receipt = json.load(response)
+        except urllib.error.HTTPError as error:
+            parser.error(f"Receiver returned HTTP {error.code}")
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            parser.error("Receiver is unavailable or returned an invalid acknowledgement")
         if receipt.get("id") != expected_id or receipt.get("accepted") is not True:
             raise SystemExit("Receiver did not acknowledge this result")
         print(json.dumps({"accepted": True, "duplicate": receipt.get("duplicate")}))

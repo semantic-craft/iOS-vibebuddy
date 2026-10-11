@@ -39,9 +39,14 @@ public actor GrokBotCacheMonitor {
                 let currentScope = try scope()
                 if activeScope != currentScope { await store.retireGrokBotResults(now: Date()) }
                 let results = try poll(now: Date())
-                for result in results {
+                for (index, result) in results.enumerated() {
                     guard !Task.isCancelled else { return }
-                    if try scope() != currentScope { break }
+                    do {
+                        if try scope() != currentScope { break }
+                    } catch {
+                        for pending in results.dropFirst(index) { seen.remove(pending.sessionID) }
+                        throw error
+                    }
                     do {
                         _ = try await inbox.receive(result, store: store)
                         health.lastDeliveryAt = Date(); health.deliveryFailed = false
@@ -54,6 +59,7 @@ public actor GrokBotCacheMonitor {
                 // Cache rotation/read failure is not logout. Only loss/change
                 // of the active account is allowed to retire visible results.
                 if (try? scope()) != activeScope {
+                    activeScope = nil
                     await store.retireGrokBotResults(now: Date())
                 }
             }
@@ -112,16 +118,24 @@ public actor GrokBotCacheMonitor {
                 guard let bot = author?["id"] as? String ?? (directBots.contains(conversation) ? conversation : nil),
                       directBots.contains(bot) else { continue }
                 let date = Date(timeIntervalSince1970: stamp.doubleValue / 1000)
+                let botName = [author?["name"] as? String, names[bot]]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first { !$0.isEmpty } ?? "Grok Bot"
                 let result = GrokBotResult(version: 1, evidence: .notification,
                     id: id, botID: account + ":" + bot, conversationID: conversation, turnID: id,
-                    botName: String((author?["name"] as? String ?? names[bot] ?? "Grok Bot").prefix(120)),
+                    botName: String(botName.prefix(120)),
                     title: "Grok Bot 通知", text: text, completedAt: date)
                 guard date >= (baseline ?? now), date <= now, !seen.contains(result.sessionID) else { continue }
                 seen.insert(result.sessionID)
                 results.append(result)
             }
         }
-        guard try scope() == account else { return [] }
+        do {
+            guard try scope() == account else { return [] }
+        } catch {
+            for result in results { seen.remove(result.sessionID) }
+            throw error
+        }
         health.available = true; health.replicaCount = replicas.count; health.lastPollAt = now
         if seen.count > 20_000 { seen.removeAll(); baseline = now }
         return results.sorted { $0.completedAt < $1.completedAt }
