@@ -10,6 +10,13 @@ Mac and iPhone consume the same projection; no snapshot schema changed.
 
 ## Verification
 
+The native isolated run and installed Chinese UI evidence below were collected
+on the original `d260da04` baseline plus this patch (`a6d5adc2`), before the
+change was cherry-picked onto `main`. Their binary hash does not describe the
+complete rebased PR app. On the independent PR head `f611df5d`, the same 13
+AgentRoster tests, Mac Debug build, iOS Simulator build and docs checks passed;
+installed-app and physical-iPhone acceptance were not repeated at that head.
+
 - Baseline: d260da04. Scoped source patch SHA-256: f603eadd8520156c88c499982e673a81a48884684853236a0babf72e82bfffad.
 - Existing pattern regression failed before the fix, then 13 AgentRoster tests
   passed, including idle Cursor and configured/dispatchable agents with no rows.
