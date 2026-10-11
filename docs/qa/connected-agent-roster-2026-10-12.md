@@ -2,6 +2,11 @@
 
 Date: 2026-10-12 (Asia/Shanghai)
 
+Current status: the physical-iPhone acceptance gap is closed. On merged
+`main` commit `3b4f03cd` (PR #356), the updated iPhone app retained Cursor with
+zero current sessions while connected live to Helios. Details are recorded in
+the physical-iPhone section below.
+
 The Cursor rail entry disappeared because all 22 observed sessions were older
 than the 24-hour current window. AgentRoster used that filtered set both for
 membership and counts. Membership now uses all sessions, configured/observed
@@ -26,7 +31,8 @@ installed-app and physical-iPhone acceptance were not repeated at that head.
   journal. Health returned ok; unauthenticated snapshot returned 401.
 - Computer use confirmed `Cursor · 0 sessions`, selection opened a Cursor
   column with zero, and expanding 20 older tasks kept the current count at zero.
-- Physical iPhone installation/acceptance has not been run.
+- Physical iPhone installation/acceptance was pending during this initial Mac
+  run; the subsequent merged-source acceptance below closes that gap.
 
 Durable sanitized evidence:
 `/Users/xianweizhang/Projects/_shared-work/iOS-vibebuddy/connected-agent-roster-20261012/`.
@@ -44,3 +50,29 @@ not exit on SIGTERM. Its explicit quit also stayed pending. After confirming
 the exact installed PID, it was stopped and the normal installer retried;
 the second receipt reports installed and the unique production listener healthy.
 No installer behavior was changed in this task.
+
+## Physical iPhone acceptance (2026-10-12 06:53 Asia/Shanghai)
+
+- Source: merged `main`, `3b4f03cd8020062e9c5e79fbf5cf64b865294f64` (PR #356).
+- Built and signed VibeBuddy **1.3.37 / build 72**, bundle `com.vibebuddy.app`,
+  from the clean source. Executable SHA-256:
+  `77ea08b91b064f391d0e78508ec206cb440fddc6b9ed343acd56660bf6546920`.
+- Updated the app in place on a physical **iPhone 17 Pro Max** using CoreDevice;
+  the installation receipt confirmed success. The existing Helios pairing
+  remained available. This was a local development installation.
+- PUA READY confirmed an unlocked phone, usable control session, readable
+  foreground app and viewport before the UI drive.
+- In the ordinary connected app, the horizontal agent strip retained
+  **Cursor · 0**. Selecting Cursor kept that entry visible and displayed
+  **Nothing running** / **Cursor has nothing running right now.** The connection
+  label remained **已连接**. This establishes a zero-current-session state
+  without hiding the agent, rather than relying on a cached offline screen.
+- No app source or preference changes were needed for this acceptance. No
+  App Store or TestFlight release was performed.
+
+Durable local evidence under the existing run's `iphone/` directory:
+`metadata.json`, `install.json`, `acceptance.md`,
+`cursor-zero-all-agents.jpg` and `cursor-zero-selected.jpg`.
+Device identifiers, provisioning details, private screen captures and logs
+remain outside Git. The prior Mac evidence retains its original baseline;
+this later phone acceptance is on the merged source.
