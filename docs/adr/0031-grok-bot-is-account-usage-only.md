@@ -1,6 +1,6 @@
 # ADR-0031: Grok Bot is an account-usage provider only
 
-- Status: accepted
+- Status: superseded in part by [ADR-0034](0034-grok-bot-delivered-results.md)
 - Date: 2026-09-21
 - Related: [ADR-0024](0024-dashboard-session-reader.md), [ADR-0030](0030-grok-build-hosted-over-acp.md)
 

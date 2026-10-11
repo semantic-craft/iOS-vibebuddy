@@ -116,7 +116,8 @@ public actor SessionStore {
             }
             sessionID = id; identity = completionID
             title = spokenProject(session) ?? session.displayTitle
-            material = "This round ended. The final answer reports the following; ending is not proof of project completion.\n" + original
+            material = session.agent == .grokBot ? original
+                : "This round ended. The final answer reports the following; ending is not proof of project completion.\n" + original
         case .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return nil }
             sessionID = id
@@ -158,6 +159,7 @@ public actor SessionStore {
             guard let session = reducer.sessions[id] else { return "" }
             let title = spokenProject(session) ?? session.displayTitle
             if language == .japanese {
+                if session.agent == .grokBot { return "\(title)から通知が届きました。日本語の要約を生成できませんでした。" }
                 if session.status == .needsResponse { return "\(title)の判断をお待ちしています。詳しい要約を生成できないため、タスクを開いて確認してください。" }
                 if session.isStuck { return "\(title)は問題が発生して停止しました。タスクを開いて原因を確認してください。" }
                 return "\(title)の今回の応答が終了しました。日本語の要約を生成できないため、タスクを開いて結果を確認してください。"
@@ -565,7 +567,7 @@ public actor SessionStore {
             }
             return existing
         }
-        guard eligible, [.claudeCode, .codex, .cursor].contains(session.agent),
+        guard eligible, [.claudeCode, .codex, .cursor, .grokBot].contains(session.agent),
               now < session.statusSince.addingTimeInterval(12), let handler = noticeHandler else { return nil }
         var notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
         let contentConfig = presentationConfiguration()
@@ -2200,5 +2202,34 @@ public actor SessionStore {
               ((attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0) & 0o444 != 0
         else { return .sourceUnreadable }
         return .healthy
+    }
+}
+
+extension SessionStore {
+    /// One native turn is one retained result card. No fake live bot state,
+    /// approval path, local working directory, or cross-turn reassignment.
+    public func ingestGrokBotResult(_ result: GrokBotResult, now: Date) {
+        let id = result.sessionID
+        // Do not reproject an existing result.
+        guard reducer.sessions[id] == nil else { return }
+        let timestamp = min(result.completedAt, now)
+        ingest(HookEvent(kind: .userPromptSubmit, sessionID: id, agent: .grokBot,
+                         sessionName: result.botName + " · " + result.title,
+                         observationSource: .gateway, timestamp: timestamp, turnID: result.turnID,
+                         turnStartedAt: timestamp))
+        ingest(HookEvent(kind: .stop, sessionID: id, agent: .grokBot,
+                         sessionName: result.botName + " · " + result.title,
+                         observationSource: .gateway, timestamp: timestamp, turnID: result.turnID,
+                         turnStartedAt: timestamp, completionText: result.text,
+                         completionSucceeded: true, sourceCompletionID: result.id))
+    }
+}
+
+extension SessionStore {
+    public func retireGrokBotResults(now: Date) {
+        for session in reducer.sessions.values where session.agent == .grokBot && session.id.hasPrefix("grokbot-result:") {
+            ingest(HookEvent(kind: .sessionEnd, sessionID: session.id, agent: .grokBot,
+                             observationSource: .gateway, timestamp: now))
+        }
     }
 }

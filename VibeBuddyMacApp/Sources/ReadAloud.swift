@@ -35,7 +35,7 @@ final class ReadAloud: ObservableObject {
         if canSpeak() { paused = false }
         else { paused = true; status = "Reading paused for voice; resume when ready" }
     }
-    private var latest: (text: String, id: String, title: String)?
+    private var latest: (text: String, id: String, title: String, language: VoiceLanguage?)?
     @Published private(set) var busy = false
     @Published private(set) var status = ""
     @Published private(set) var previewStatus = ""
@@ -106,8 +106,8 @@ final class ReadAloud: ObservableObject {
 
     func replayLatest() {
         guard let latest else { return }
-        speak(VoiceSettings.summaryLanguage().replayIntroduction + latest.text,
-            id: "replay/" + UUID().uuidString, title: latest.title, manual: true, remember: false)
+        speak((latest.language ?? VoiceSettings.summaryLanguage()).replayIntroduction + latest.text,
+            id: "replay/" + UUID().uuidString, title: latest.title, manual: true, remember: false, language: latest.language)
     }
 
     func voiceStarted() {
@@ -162,6 +162,7 @@ final class ReadAloud: ObservableObject {
 
     func speak(_ fallbackText: String, id: String = UUID().uuidString, title: String? = nil,
                manual: Bool = false, priority: Bool = false, remember: Bool = true,
+               language: VoiceLanguage? = nil,
                prepareText: (@MainActor () async -> String?)? = nil,
                validatePreparedText: @escaping @MainActor () -> Bool = { true },
                validate: @escaping @MainActor () async -> Bool = { true }) {
@@ -210,7 +211,7 @@ final class ReadAloud: ObservableObject {
                     self.status = String(format: NSLocalizedString("Save your %@ API key first.", comment: "Read-aloud needs a key"), provider.display); return
                 }
                 self.status = "Generating speech…"
-                guard let synthesizer = self.makeSynthesizer(VoiceSettings.readAloudConfiguration(provider)) else {
+                guard let synthesizer = self.makeSynthesizer(VoiceSettings.readAloudConfiguration(provider, language: language)) else {
                     self.status = SpeechSynthesisFailure.configuration.message; return
                 }
                 let data = try await synthesizer.synthesize(text, apiKey: key)
@@ -230,7 +231,7 @@ final class ReadAloud: ObservableObject {
                 self.player = player
                 guard player.play() else { self.status = "Your Mac could not play the audio."; self.player = nil; return }
                 self.recordPlayback("started", id: evidenceID, text: text)
-                if remember { self.latest = (text, id, title ?? String(text.prefix(100))); self.canReplay = true }
+                if remember { self.latest = (text, id, title ?? String(text.prefix(100)), language); self.canReplay = true }
                 self.status = "Playing speech"
                 while (player.isPlaying || self.playerNeedsResume || self.paused || !self.canSpeak()) && !Task.isCancelled {
                     try await self.waitUntilAllowed()

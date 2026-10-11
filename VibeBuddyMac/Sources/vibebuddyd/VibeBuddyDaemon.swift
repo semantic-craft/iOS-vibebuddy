@@ -125,7 +125,9 @@ struct VibeBuddyDaemon {
             antigravityCLIMonitor: AntigravityCLIMonitor.forCurrentRun(),
             antigravityDesktopMonitor: env["VIBEBUDDY_E2E_ROOT"] == nil ? AntigravityDesktopMonitor() : nil,
             cursorCloudMonitor: cloudMonitor(environment: env, port: port),
-            cursorFollowups: cursorFollowups)
+            cursorFollowups: cursorFollowups,
+            grokBotResults: GrokBotResultInbox.configured(),
+            grokBotCache: env["VIBEBUDDY_E2E_ROOT"] == nil ? GrokBotCacheMonitor.local() : nil)
         // The phone's Usage sheet reads token spend off the snapshot, so a
         // headless hub has to fill it too; otherwise that section is
         // permanently empty for everyone who does not run the menu-bar app.

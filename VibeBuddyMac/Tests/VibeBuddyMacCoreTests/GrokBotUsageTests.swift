@@ -6,6 +6,17 @@ import Testing
 struct GrokBotUsageTests {
     private let now = Date(timeIntervalSince1970: 1_789_000_000)
 
+    @Test("Account selector accepts the current numeric store version without decrypting tokens")
+    func versionedAccountStore() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let accounts = #"{"active":"owner","accounts":{"owner":{"cursor-access-token":"encrypted-test"}}}"#
+        let data = try JSONSerialization.data(withJSONObject: ["version": 1, "cursor-accounts": accounts])
+        try data.write(to: file)
+        #expect(try GrokBotLocalAccount.activeAccountScope(store: file) == "owner")
+        #expect(try GrokBotLocalAccount.cacheIdentity(data).count == 64)
+    }
+
     @Test("Real observed response normalizes to a distinct weekly allowance")
     func observedResponse() throws {
         let sample = try GrokBotUsageDecoder.decode(Data(#"{"usagePercent":10.650043,"hasAvailableUsage":true,"nextResetTimestampUtc":"2026-09-13T23:21:36.519Z","grokPlanLabel":"Grok Bot Plan"}"#.utf8), fetchedAt: now)

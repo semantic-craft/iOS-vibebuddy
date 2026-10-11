@@ -107,6 +107,8 @@ public struct VibeBuddyServer: Sendable {
     public let onCompletionReminder: (@Sendable (AgentSession) async -> Bool)?
     /// Dedup for `/answer` request ids across the life of this process.
     public let actionRequests: ActionRequestLog
+    public let grokBotResults: GrokBotResultInbox?
+    public let grokBotCache: GrokBotCacheMonitor?
     /// Follow-ups queued for Cursor conversations, collected by Cursor's own
     /// `stop` hook. Cursor cannot be steered mid-turn; this is the one
     /// documented way a phone instruction reaches a running Cursor task.
@@ -156,7 +158,9 @@ public struct VibeBuddyServer: Sendable {
                 cursorCloudMonitor: CursorCloudAgentMonitor? = nil,
                 onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
                 actionRequests: ActionRequestLog = ActionRequestLog(),
-                cursorFollowups: CursorFollowupQueue = CursorFollowupQueue()) {
+                cursorFollowups: CursorFollowupQueue = CursorFollowupQueue(),
+                grokBotResults: GrokBotResultInbox? = nil,
+                grokBotCache: GrokBotCacheMonitor? = nil) {
         self.historyReader = historyReader
         self.store = store
         self.token = token
@@ -203,6 +207,8 @@ public struct VibeBuddyServer: Sendable {
         self.onCompletionReminder = onCompletionReminder
         self.actionRequests = actionRequests
         self.cursorFollowups = cursorFollowups
+        self.grokBotResults = grokBotResults
+        self.grokBotCache = grokBotCache
     }
 
     /// Run the HTTP service and its Codex rollout source under one lifetime.
@@ -236,6 +242,11 @@ public struct VibeBuddyServer: Sendable {
     }
 
     public func runService() async throws {
+        let grokBotTask: Task<Void, Never>?
+        if let grokBotResults, let grokBotCache {
+            grokBotTask = Task { await grokBotCache.run(inbox: grokBotResults, store: store) }
+        } else { grokBotTask = nil }
+        defer { grokBotTask?.cancel() }
         await store.refreshCopilotHistory()
         await store.refreshCursorComposers()
         let historyTask = Task {
@@ -511,6 +522,31 @@ public struct VibeBuddyServer: Sendable {
             .add(middleware: BearerAuthMiddleware(auth: BearerAuth(token: token, allowsQueryToken: false)))
         let hookAuthed = router.group()
             .add(middleware: BearerAuthMiddleware(auth: BearerAuth(token: token, allowsQueryToken: true)))
+
+        if let inbox = grokBotResults {
+            let resultRoutes = router.group()
+                .add(middleware: BearerAuthMiddleware(auth: BearerAuth(token: inbox.token, allowsQueryToken: false)))
+            resultRoutes.post("grok-bot/result") { request, _ -> Response in
+                let body = try await request.body.collect(upTo: 65_536)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                guard let result = try? decoder.decode(GrokBotResult.self, from: Data(buffer: body)) else {
+                    throw HTTPError(.badRequest)
+                }
+                do {
+                    let duplicate = try await inbox.receive(result, store: store)
+                    let data = try JSONSerialization.data(withJSONObject: ["id": result.id, "accepted": true, "duplicate": duplicate])
+                    return Response(status: .ok, headers: [.contentType: "application/json"], body: .init(byteBuffer: ByteBuffer(data: data)))
+                } catch GrokBotResult.Failure.invalid { throw HTTPError(.badRequest)
+                } catch GrokBotResult.Failure.conflict { throw HTTPError(.conflict)
+                } catch { throw HTTPError(.serviceUnavailable) }
+            }
+        }
+
+        authed.get("grok-bot/status") { _, _ -> Response in
+            let data = try JSONEncoder().encode(await grokBotCache?.status())
+            return Response(status: .ok, headers: [.contentType: "application/json"], body: .init(byteBuffer: ByteBuffer(data: data)))
+        }
 
         // Register an iOS device. Token-gated. Body is `{"token","name","model",
         // "systemVersion"}` (or a raw APNs token string). `token` -> APNs
