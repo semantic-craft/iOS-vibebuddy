@@ -1,6 +1,9 @@
 # macOS 商店版开发准备 spec
 
-Status: needs-triage
+2026-10-12 当前状态：商店施工票已按用户要求关闭；本文保留有效候选设计与历史依据，以下日期下的实施/triage 说明是历史范围，不是待领取任务。见 [计划收尾](../../../qa/deferred-plan-closeout-2026-10-12.md)。
+
+
+Disposition: reference-only; implementation tickets closed by owner on 2026-10-12
 
 日期：2026-09-06。基线：`90da1f7ce78eee7a4bc8e3c4197f5defdec449da`；Mac 工程声明 1.3 (7)。本文件是开发准备候选，不代表已实现、沙盒实测通过或 Apple 接受。用户已确认直接分发版继续做；本轮只交付评估、spec 与 Claude Code 评审提示词。
 

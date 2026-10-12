@@ -33,3 +33,7 @@ ADR-0013 明确不运营中转服务，同时没有批准把项目 APNs 私钥�
 Apple [QA1888](https://developer.apple.com/library/archive/qa/qa1888/_index.html) 特别指出，向 Finder / System Events 请求 Apple Events 临时例外很可能被拒绝。因此终端跳转票应优先公开 API 与最小目标，不用广泛系统自动化权限作为默认解决方案。该页面为归档资料，实施时结合当前 SDK 与最新审核指南复核。
 
 本轮静态资料仍不能证明 Codex Unix socket 在目标沙盒中可连接。把这一未知转成 MAS-03 的可失败实验，比继续泛泛查询“沙盒能否控制 agent”更有信息价值。尚未运行实验，也未调用 Claude Code 获取外部意见。
+
+## 已关闭票中的审核线索（历史，2026-09-23）
+
+原票 18 曾记录同类 App 线索 Earcon、SessionRadar、Opsnook，分别涉及 hooks 接入、授权文件夹/本机连接和 Claude 审批。这里只保留研究线索；本轮未重查其商店状态、当前能力或审核过程，没有本产品审核结论，也不能从未找到公开拒绝报告推导允许修改任何配置。未来重新评估须查原始来源与当时规则。原记录和措辞由 Git 中的 18-submission-readiness.md 保留。

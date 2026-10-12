@@ -1,5 +1,8 @@
 # 项目收尾与清理 — 2026-10-12
 
+后续当前状态：[暂不实施计划收尾](deferred-plan-closeout-2026-10-12.md) 关闭商店/Web 11 票，SQLite 移为观察；正式开放施工票为 0。本文“保留 12 票/21 票”等措辞是对应历史收尾时点，不代表当前队列。
+
+
 后续状态：[自动补验与结案](acceptance-closeout-2026-10-12.md) 已关闭 9 票、保留 12 票；本文各条件和“21 票保留”措辞是第一轮时点的历史核对结果，闭票以新版记录为准。
 
 核对基线：`9bf62eecfaa96b59d0b494814ff9f51ce55fc445`（main 与 origin/main 同步）。21 份开放工单全部按原验收条目登记如下。**历史证据已核对**指读取已有 QA 和主分支实现/合并记录，不代表本次重新运行整套验收；**部分 / 未核实**不能勾选整个条件，21 票均继续保留。代码存在、开放状态、当前发布版本三者不互相替代。
@@ -34,7 +37,7 @@
 
 <a id="agent-integration-2026-09-07"></a>
 
-### [agent-integration-2026-09/07](../planning/backlog/agent-integration-2026-09/issues/07-codex-rollout-degradation.md)
+### [agent-integration-2026-09/07](../planning/backlog/agent-integration-2026-09/rollout-sqlite-observation.md)
 
 主分支：VibeBuddyMac/Sources/VibeBuddyMacCore/CodexRolloutMonitor.swift 与 CodexAppServerMonitor.swift；现行主源仍按 ADR-0011。
 
@@ -172,7 +175,7 @@
 
 <a id="mac-app-store-09"></a>
 
-### [mac-app-store/09](../planning/backlog/mac-app-store/issues/09-store-target-pairs.md)
+### [mac-app-store/09](deferred-plan-closeout-2026-10-12.md#mac-app-store-09)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -189,7 +192,7 @@
 
 <a id="mac-app-store-10"></a>
 
-### [mac-app-store/10](../planning/backlog/mac-app-store/issues/10-container-storage.md)
+### [mac-app-store/10](deferred-plan-closeout-2026-10-12.md#mac-app-store-10)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -206,7 +209,7 @@
 
 <a id="mac-app-store-11"></a>
 
-### [mac-app-store/11](../planning/backlog/mac-app-store/issues/11-authorized-locations.md)
+### [mac-app-store/11](deferred-plan-closeout-2026-10-12.md#mac-app-store-11)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -223,7 +226,7 @@
 
 <a id="mac-app-store-12"></a>
 
-### [mac-app-store/12](../planning/backlog/mac-app-store/issues/12-native-installer-claude.md)
+### [mac-app-store/12](deferred-plan-closeout-2026-10-12.md#mac-app-store-12)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -241,7 +244,7 @@
 
 <a id="mac-app-store-13"></a>
 
-### [mac-app-store/13](../planning/backlog/mac-app-store/issues/13-approval-gate.md)
+### [mac-app-store/13](deferred-plan-closeout-2026-10-12.md#mac-app-store-13)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -259,7 +262,7 @@
 
 <a id="mac-app-store-14"></a>
 
-### [mac-app-store/14](../planning/backlog/mac-app-store/issues/14-native-installer-other-clis.md)
+### [mac-app-store/14](deferred-plan-closeout-2026-10-12.md#mac-app-store-14)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -277,7 +280,7 @@
 
 <a id="mac-app-store-15"></a>
 
-### [mac-app-store/15](../planning/backlog/mac-app-store/issues/15-codex-desktop-remind-only.md)
+### [mac-app-store/15](deferred-plan-closeout-2026-10-12.md#mac-app-store-15)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -294,7 +297,7 @@
 
 <a id="mac-app-store-16"></a>
 
-### [mac-app-store/16](../planning/backlog/mac-app-store/issues/16-capability-switches.md)
+### [mac-app-store/16](deferred-plan-closeout-2026-10-12.md#mac-app-store-16)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -312,7 +315,7 @@
 
 <a id="mac-app-store-17"></a>
 
-### [mac-app-store/17](../planning/backlog/mac-app-store/issues/17-coexistence-keychain.md)
+### [mac-app-store/17](deferred-plan-closeout-2026-10-12.md#mac-app-store-17)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -330,7 +333,7 @@
 
 <a id="mac-app-store-18"></a>
 
-### [mac-app-store/18](../planning/backlog/mac-app-store/issues/18-submission-readiness.md)
+### [mac-app-store/18](deferred-plan-closeout-2026-10-12.md#mac-app-store-18)
 
 主分支：VibeBuddyMacApp/project.yml 仅有直接版 application target，依赖 Sparkle；main 无商店 target。
 
@@ -368,7 +371,7 @@
 
 <a id="web-workbench-01"></a>
 
-### [web-workbench/01](../planning/backlog/web-workbench/issues/01-integration-contract.md)
+### [web-workbench/01](deferred-plan-closeout-2026-10-12.md#web-workbench-01)
 
 主分支：main Snapshot 是现有可复用接口；工单要求跨项目契约与真实研究工作项，不是原生 Dashboard 本身。
 
