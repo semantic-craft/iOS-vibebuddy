@@ -7,6 +7,10 @@ Owner: unassigned
 Blocked by: 11 外部目录授权可记住、撤销并恢复；13 关卡：真实 Claude 任务从手机批准、拒绝与回答
 Spec: Spec v2（本工作线综合稿）+ 2026-09-08 用户范围裁定
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-15)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
+
 ## What to build
 
 用户授权 Codex 配置目录后，商店版通过 Codex rollout stream 观察真实 Desktop Session 的开始、进行与结束，并在 Mac、iPhone 与通知里如实呈现进度。**不提供审批或回答入口，也不提示「正在等待批准」**——2026-09-08 实测确认 Codex 不把审批等待写入 rollout，沙盒又连不上 app-server 实时通道，用户已裁定砍掉等待提醒。Jump 只激活宿主应用，不定位线程。

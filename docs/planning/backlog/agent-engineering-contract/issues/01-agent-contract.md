@@ -20,6 +20,10 @@ unverified; retain this ticket for that product acceptance boundary. See
 
 批次引用：AI-20261005-23；本功能内编号01。
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#agent-engineering-contract-01)。检查与隔离计划有历史证据；本次 Cursor 发布有实际安装，但不能覆盖全部语音、恢复及用户验收。 本票仍开放；表中未核实条件不是验收通过。
+
 ## Parent / Spec
 
 [本项目实施规格](../PRD.md)

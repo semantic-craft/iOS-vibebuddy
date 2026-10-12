@@ -7,6 +7,10 @@ Owner: unassigned
 Blocked by: 14 Codex CLI 可从手机放行，其它 CLI 可观察；15 Codex Desktop 等待时收到明确只读提醒；16 商店界面只提供可执行能力，用量与 Jump 如实反馈；17 两版接管 Hook 不争抢，Keychain 状态如实呈现
 Spec: Spec v2（本工作线综合稿）
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-18)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
+
 ## What to build
 
 准备本地可核验的商店 Archive、隐私说明、截图与 reviewer 演示步骤，让审核材料准确反映已完成能力；不上传、不提交、不修改 App Store Connect 记录。

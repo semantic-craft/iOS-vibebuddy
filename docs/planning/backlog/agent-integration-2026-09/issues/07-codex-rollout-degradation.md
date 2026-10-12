@@ -6,6 +6,10 @@
 
 **Status:** needs-triage（等 Codex 真正停写 rollout 再动手；先记录）
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#agent-integration-2026-09-07)。未复现 rollout 停写触发条件；SQLite 降级与 queue 兜底未核实，观察项保留。 本票仍开放；表中未核实条件不是验收通过。
+
 ## Comments
 
 - 2026-09-21：0.153.4 仍写 rollout；`thread/list` 已报 `historyMode: paginated`。

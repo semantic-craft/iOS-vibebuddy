@@ -56,3 +56,7 @@ MiniMax 原本缺少项目环境白名单接线：本机 `.envrc` 已加入 `MIN
 - 首轮 Mac 构建虽编译成功，但检查器发现 SwiftPM 裁剪 GUI-only Package.resolved 造成源漂移；核对后只恢复该已知裁剪，后续用仓库 `tools/with-resolved.py` 包装重新构建成功。
 
 尚未完成物理 iPhone 播放、配对手机的端到端验收、用户听感确认或已安装版本更新。本次不据模拟器构建或音频解码声称这些已经完成。
+
+## 2026-10-11 实体 iPhone 补验
+
+原文末尾的物理 iPhone 缺口已被后续设备结果部分取代：安装版 1.3.37/72，保持现有豆包 Vivi 2.0，选择日语朗读，原生试听完成；真实 Codex 完成结果经 Mac 生成日文，iPhone 从合成、播放到“已播 1 条／没有标为已读”。这覆盖豆包手机播放和配对摘要路径，不覆盖手机 Gemini/MiniMax/Qwen 实听或人耳听感确认。见 [PR #353 补验记录](https://github.com/semantic-craft/iOS-vibebuddy/pull/353#issuecomment-6105350130)；原截图与结果位于既有 japanese-summary-20261010 持久证据目录。

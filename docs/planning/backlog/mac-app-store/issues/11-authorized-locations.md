@@ -7,6 +7,10 @@ Owner: unassigned
 Blocked by: 09 商店版启动后可与 iPhone Pairing
 Spec: Spec v2（本工作线综合稿）
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-11)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
+
 ## What to build
 
 用户在 Settings 选择 Claude 与 Codex 配置目录后看到正确授权状态，重启可恢复；跳过、撤销或访问失效时知道哪些观察能力不可用，并能重新授权。目录授权覆盖安装器在配置旁备份与原子替换所需权限。

@@ -7,6 +7,10 @@ Owner: unassigned
 Blocked by: 10 商店版重启后保留 Pairing 与应用数据；11 外部目录授权可记住、撤销并恢复
 Spec: Spec v2（本工作线综合稿）
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-12)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
+
 ## What to build
 
 用户在商店 Settings 安装、修复或卸载 Claude Hook 与 Status line 包装，无需 Python。安装后真实 Claude 生命周期和 Status line sample 到达商店 Daemon，已有 Session 显示名称与上下文；完整手机审批闭环由 13 验收。

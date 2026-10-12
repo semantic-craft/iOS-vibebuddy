@@ -7,6 +7,10 @@ Owner: unassigned
 Blocked by: 09 商店版启动后可与 iPhone Pairing；12 从 Settings 安装 Claude Hook 并收到真实事件；13 关卡：真实 Claude 任务从手机批准、拒绝与回答；14 Codex CLI 可从手机放行，其它 CLI 可观察
 Spec: Spec v2（本工作线综合稿）
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-17)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
+
 ## What to build
 
 用户切换 Hook 拥有者后，一个真实请求只由当前版本接收，原 Status line 与用户设置不被破坏；两版 Pairing 独立。API key 能否继承先验证，不能在签名不变边界内成立时如实引导重输，不承诺未经验证的共享。

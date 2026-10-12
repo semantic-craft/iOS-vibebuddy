@@ -4,6 +4,10 @@ Status: needs-triage
 
 Parent: [SPEC](../SPEC.md) · [验收证据](../../../../qa/antigravity-monitor-20261004.md)
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#antigravity-monitor-05)。未重放同会话紧接新问题；未定位为 APNs/Watch 故障，保留 needs-triage。 本票仍开放；表中未核实条件不是验收通过。
+
 ## 观察
 
 2026-10-04 实体 Watch 验收：真实 CLI 首轮问题产生 local scheduled / APNs accepted。在原 CLI 回答、看到最终结果后立即发起第二轮问题，产品快照已显示 `AGWATCH-70-R2` / needsResponse / question，但最终发送日志只有首轮 needs_answer。新建会话 R3 能正常推送，用户确认可见与震动。

@@ -8,6 +8,10 @@ Parent: [Gemini 三用途接入 PRD](../PRD.md)
 
 **What to build:** 用户在两端发起 Gemini Live 通话，连续查询任务，通过现有受控工具操作指定任务，并得到应用真实回执；打断、挂断、失败和重拨行为明确。
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#gemini-provider-suite-03)。三用途已实现。日语 QA 补充了 Gemini Mac 试听和四家音频解码，手机实际结果播放使用豆包；不能据此关闭 Gemini 两端实听、连续队列及实时操作验收。 本票仍开放；表中未核实条件不是验收通过。
+
 ## 工作边界
 
 - 增加 GeminiRealtimeSession 并接入两端现有通话与设置连接检查，使用 `gemini-3.8-live`。

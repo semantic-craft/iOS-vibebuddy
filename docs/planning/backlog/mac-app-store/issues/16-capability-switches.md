@@ -7,6 +7,10 @@ Owner: unassigned
 Blocked by: 13 关卡：真实 Claude 任务从手机批准、拒绝与回答
 Spec: Spec v2（本工作线综合稿）
 
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-16)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
+
 ## What to build
 
 用户连接商店版时看不到 Dispatch、Attach 等不可用控制入口，跳转实际激活宿主应用，Claude 用量反映 Live usage feed，未知额度明确显示未知。商店运行时隔离覆盖所有入口，保留已通过 13 的审批与问题回答。
