@@ -60,7 +60,12 @@ Installed native AX and screenshot show Inbox badge 4, first-up 1 / 4, and
 649 completed results separately (8 working at the final observation). Thus
 completed results no longer inflate the installed dashboard's pending badge.
 The UI tool exposes the dashboard window but not the system status item;
-direct visual verification of the menu-bar icon remains unavailable. Do not
+agent-side direct visual verification of the menu-bar icon was unavailable. Do not
 conflate the shared counter implementation or dashboard evidence with that check.
 The summary also shows the untranslated phrase `649 done`.
 No physical iPhone/Watch acceptance, provider/audio acceptance or release is claimed.
+
+Owner acceptance: on 2026-10-12, after the installed-app report identified the
+menu-bar visual check as the remaining item, the owner confirmed “验收完了”.
+The installed menu-bar acceptance is therefore closed by user confirmation,
+not by an agent screenshot or additional device test.
