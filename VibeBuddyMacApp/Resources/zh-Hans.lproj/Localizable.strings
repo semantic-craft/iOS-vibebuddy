@@ -1450,3 +1450,6 @@
 "More results remain in Done" = "更多结果可在已完成任务中查看";
 
 "Task status changed. A newer result is available." = "任务状态已变化，有新的结果。";
+
+/* Task reading-state removal */
+"%lld done" = "%lld 项完成";
