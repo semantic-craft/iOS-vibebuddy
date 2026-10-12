@@ -11,12 +11,26 @@ The owner's App Manager team key is stored as a Document in 1Password's Private
 vault, titled `App Store Connect｜VibeBuddy Release CLI｜API Key`. Its original
 bytes are preserved. Key ID and Issuer ID are metadata, not key material.
 
-The existing `helios` Environment mounted at `~/.env` supplies `ASC_KEY_ID`,
-`ASC_ISSUER_ID`, and single-line `ASC_PRIVATE_KEY_B64`. The local, globally ignored `.envrc` whitelists these
-names. `bash tools/appstore.sh` explicitly invokes the existing Helios loader,
-so a non-login process does not assume direnv was already loaded. Only these
-three ASC variables enter the CLI; other ASC profiles/overrides are removed.
-Missing 1Password access fails instead of falling back to another credential.
+The existing `helios` Environment mounted at `~/.env` has two credential sets:
+
+| Purpose | Environment names | Commands |
+| --- | --- | --- |
+| Daily query, existing Developer key | `ASC_STATUS_KEY_ID`, `ASC_STATUS_ISSUER_ID`, `ASC_STATUS_PRIVATE_KEY_B64` | `status` |
+| Release, dedicated App Manager key | `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_PRIVATE_KEY_B64` | `upload`, `stage`, `submit` |
+
+The Developer original is also a Private Document titled
+`App Store Connect｜Developer（日常查询）｜API Key`. Developer is not an Apple
+read-only role: it can upload builds. Our entry uses it only for status queries.
+The existing original file remains in place for Anamra; rotating it requires
+coordinating that consumer, the Document and the Environment derivative.
+
+The local, globally ignored `.envrc` whitelists only the daily-query set. Release
+credentials load only when explicitly invoking a confirmed release command.
+`bash tools/appstore.sh` invokes the existing Helios loader from a non-login
+process, clears inherited ASC variables and requests only the selected set.
+For `status`, Python maps `ASC_STATUS_*` to asc's canonical `ASC_*` names only
+in the child environment. Other ASC variables/profiles are removed. Missing
+selected credentials fail; status never falls back to the App Manager key.
 
 Do not use `asc auth login`, which copies key material to Keychain/config.
 Do not print the FIFO, environment, base64, PEM or JWT; do not enable shell
@@ -75,4 +89,5 @@ Run `python3 tools/tests/appstore-regression.py`, `bash -n tools/appstore.sh
 tools/archive-ios.sh`, and `tools/check.py docs`. Use the real read-only status
 command to prove authentication. Live upload/stage/submit must wait for an
 authorized new release; a mock or command plan does not prove those mutations.
-Record results in [the asc QA record](qa/asc-release-workflow-2026-10-12.md).
+Record results in [the original asc QA record](qa/asc-release-workflow-2026-10-12.md) and
+[credential split acceptance](qa/asc-developer-status-key-2026-10-12.md).

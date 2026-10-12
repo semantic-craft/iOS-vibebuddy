@@ -24,18 +24,20 @@ def run(args, env=None, capture=False):
     return json.loads(result.stdout) if capture else None
 
 
-def auth_env():
+def auth_env(command="release"):
     env = os.environ.copy()
     # Do not silently combine another account/profile with this project's key.
     for key in list(env):
         if key.startswith("ASC_"):
             del env[key]
-    required = ("ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_PRIVATE_KEY_B64")
+    prefix = "ASC_STATUS_" if command == "status" else "ASC_"
+    fields = ("KEY_ID", "ISSUER_ID", "PRIVATE_KEY_B64")
+    required = tuple(prefix + field for field in fields)
     if any(not os.environ.get(k) for k in required):
         raise RuntimeError("missing ASC credentials; run tools/appstore.sh with 1Password unlocked")
     # asc supports ASC_PRIVATE_KEY_B64 directly; only pass the three selected variables.
-    for key in required:
-        env[key] = os.environ[key]
+    for field in fields:
+        env["ASC_" + field] = os.environ[prefix + field]
     base64.b64decode(env["ASC_PRIVATE_KEY_B64"], validate=True)
     env.update(ASC_BYPASS_KEYCHAIN="1", ASC_STRICT_AUTH="1")
     return env
@@ -95,7 +97,7 @@ def main():
     version, build = release_identity()
     if args.command == "status":
         run(["asc", "review", "status", "--app", APP, "--platform", "IOS",
-             "--version", args.version or version, "--pretty"], auth_env())
+             "--version", args.version or version, "--pretty"], auth_env("status"))
         return
     if args.command == "plan":
         metadata = notes(version)
