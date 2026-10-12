@@ -93,15 +93,8 @@ struct PhoneSessionReader: View {
                     }
                     if let id = completionNotificationID,
                        !dashboard.matchesCompletionNotification(id, sessionID: session.id) {
-                        if session.isUnboundCompletionNotification(id) {
-                            Text("This notification does not identify a completion round. Review the current result before marking it read.")
-                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                            Button("Mark current result read") { if authorityIsCurrent { dashboard.acknowledgeDisplayedCompletion(session) } }
-                                .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
-                        } else {
-                            Text("This task has moved on. You are viewing its current state, not the result from that notification.")
-                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                        }
+                        Text("This task has moved on. You are viewing its current state, not the result from that notification.")
+                            .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                     }
                     if let summary = session.detailProgress, !summary.isEmpty {
                         Text(summary).font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink)

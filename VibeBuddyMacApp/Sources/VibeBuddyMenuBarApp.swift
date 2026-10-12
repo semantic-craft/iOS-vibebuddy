@@ -1010,8 +1010,7 @@ struct MenuContent: View {
             // One element: title, state word, activity or summary, age.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: [session.displayTitle, session.presentationState.label,
-                                                presentation.activityOrResult, presentation.progress ?? "",
-                                                presentation.unread ? String(localized: "Unread") : ""]
+                                                presentation.activityOrResult, presentation.progress ?? ""]
                 .filter { !$0.isEmpty }.joined(separator: ", ")))
             .accessibilityValue(Text(session.updatedAt, style: .relative))
             .accessibilityHint("Jump to this session")

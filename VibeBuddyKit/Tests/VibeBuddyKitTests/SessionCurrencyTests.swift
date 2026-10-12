@@ -38,15 +38,14 @@ struct SessionCurrencyTests {
     }
 
     @Test func legacyUnreadDoesNotKeepOldCompletionsCurrent() {
-        // The Mac keeps reminding about a followed, unread completion, so the
-        // phone must keep showing what the reminder is about.
+        // Legacy reading flags and attention do not extend the 24-hour current window.
         #expect(!SessionCurrency.isCurrent(session("followed", .done, hoursAgo: 30, unread: true,
                                                   attention: .followed), now: now))
         #expect(!SessionCurrency.isCurrent(session("normal", .done, hoursAgo: 30, unread: true), now: now))
         #expect(!SessionCurrency.isCurrent(session("muted", .done, hoursAgo: 30, unread: true,
                                                    attention: .muted), now: now))
         #expect(SessionCurrency.isCurrent(session("fresh", .done, hoursAgo: 3, unread: true), now: now))
-        // Read and followed is just finished work: the person already saw it.
+        // Followed completions use the same age cutoff.
         #expect(!SessionCurrency.isCurrent(session("seen", .done, hoursAgo: 30, attention: .followed), now: now))
     }
 
@@ -70,8 +69,7 @@ struct SessionCurrencyTests {
     }
 
     @Test func theWidgetSnapshotLeadsWithACurrentSession() {
-        // An old unread completion outranks a running task by attention, but it
-        // is not current, so the widget must not name it.
+        // Old completions are outside the current window and cannot lead the widget.
         let input = [session("old", .done, hoursAgo: 48, unread: true), session("run", .working, hoursAgo: 1)]
         let snapshot = TaskPresentationSnapshot(sessions: input, updatedAt: now)
         #expect(snapshot.topSessionId == "run")

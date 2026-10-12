@@ -49,7 +49,7 @@ DashboardStore 有 relayToWatch；HookParser 读取 background_tasks/session_cro
 
 | 原验收条件或观察项 | 本轮结论 |
 |---|---|
-| **AI-07**：Codex rollout → SQLite 迁移仅作观察，触发前提未成立；见 [观察记录](agent-integration-2026-09/rollout-sqlite-observation.md)。 | **未核实**：保留原条件；本轮未重现该真机/外部服务/时序，既有代码或历史报告不能代替此项验收。 |
+| **AI-07**：Codex rollout → SQLite 迁移仅作观察，触发前提未成立；见 [观察记录](../planning/backlog/agent-integration-2026-09/rollout-sqlite-observation.md)。 | **未核实**：保留原条件；本轮未重现该真机/外部服务/时序，既有代码或历史报告不能代替此项验收。 |
 | **活跃时的写盘**：每个 hook 事件都整份写回日志和最近目录（PERF-02 留下的建议），真实使用中出现卡顿再开票。 | **未核实**：保留原条件；本轮未重现该真机/外部服务/时序，既有代码或历史报告不能代替此项验收。 |
 | **推送已被苹果接受但手表没出现**：2026-09-24 出现过 2 次，原因未查明，再出现再查。 | **未核实**：保留原条件；本轮未重现该真机/外部服务/时序，既有代码或历史报告不能代替此项验收。 |
 | **WR-08 余留**：手机锁屏时，刷新成功后中继状态仍显示「连不上 Mac」；手表下拉刷新不发请求（`DashboardStore.relayToWatch`）。 | **未核实**：保留原条件；本轮未重现该真机/外部服务/时序，既有代码或历史报告不能代替此项验收。 |
@@ -75,6 +75,27 @@ DashboardStore 有 relayToWatch；HookParser 读取 background_tasks/session_cro
 - 当前对话承载收尾结果；其他可见最近 50 个对话没有本项目可归档项。
   工具只提供该范围，未声称遍历全部历史对话。
 
-## 最终交付
+## 清理与评审记录
 
-独立评审、PR、同步及清理结果在完成后回填；本记录不提前宣称合并完成。
+本轮删除旧 Swift 编译中间产物、两个重复导出目录、七个已被替代的安装
+bundle，按删除前分配大小合计约 **1.95 GiB**。保留最近一次安装回滚 bundle、
+安装回执、当前运行版和发布证据。机器同时有其他项目构建，磁盘可用量波动，
+这个数字不是 `df` 净增量。逐路径本机记录在 `.scratch/housekeeping-final-review/cleanup.json`。
+
+独立 AGY `gemini-3.8-flash-high` 首轮审阅 head `827d0c07`，结论
+MERGE WITH FIXES：一个 should-fix（iPhone 旧通知仍含“标记已读”按钮）和
+三个 nit（闲置周期提醒、无效 AX token、旧注释）。已逐项修正，并更新兼容
+`/acknowledge` 的回归断言：旧客户端请求可接受，但任务仍显示 Done。
+保留纯兼容数据结构与旧请求协议，不删除持久数据或更改线协议。
+
+**发布边界**：已提交审核的 iOS 1.3.39 (74) 含那个旧通知 fallback 入口。
+本次在源码补正，未重新提交或额外发版；该入口的真机触发验收未核实。
+Mac 安装版的历史失败计数修正已在此前完成；本轮未替换它，生产 health 正常。
+
+最终精确 head 的复审结论、测试结果、PR 合并与 main 同步状态记录在本次 PR
+及本机检查报告中；本记录不提前宣称合并或全项目验收完成。
+
+复审前验证：21 项 Server 路由测试通过，Mac 与 iOS 编译通过。首轮检查
+因补正断言及 SwiftPM 临时裁剪锁文件标记 source drift，已保留原报告。
+核对依赖 pins 完全一致后仅恢复自动变动的 originHash；最终复审 packet
+与 PR 记录固定源码的后续检查结果，依赖版本未更新。
