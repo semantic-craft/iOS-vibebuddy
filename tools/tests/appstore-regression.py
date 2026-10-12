@@ -108,6 +108,23 @@ class ReleaseBoundaries(unittest.TestCase):
             self.assertNotIn("ASC_PRIVATE_KEY_PATH", env)
             self.assertNotIn("ASC_PRIVATE_KEY", env)
 
+    def test_status_uses_developer_and_strips_release_credentials(self):
+        fixtures = {"ASC_KEY_ID": "manager", "ASC_ISSUER_ID": "manager-issuer",
+                    "ASC_PRIVATE_KEY_B64": "bWFuYWdlcg==", "ASC_STATUS_KEY_ID": "developer",
+                    "ASC_STATUS_ISSUER_ID": "developer-issuer", "ASC_STATUS_PRIVATE_KEY_B64": "ZGV2ZWxvcGVy"}
+        with patch.dict(appstore.os.environ, fixtures, clear=True):
+            env = appstore.auth_env("status")
+            self.assertEqual(env["ASC_KEY_ID"], "developer")
+            self.assertEqual(env["ASC_PRIVATE_KEY_B64"], "ZGV2ZWxvcGVy")
+            self.assertFalse(any(k.startswith("ASC_STATUS_") for k in env))
+            self.assertEqual(appstore.auth_env()["ASC_KEY_ID"], "manager")
+
+    def test_missing_status_key_never_falls_back_to_manager(self):
+        with patch.dict(appstore.os.environ, {"ASC_KEY_ID": "manager", "ASC_ISSUER_ID": "manager",
+                          "ASC_PRIVATE_KEY_B64": "bWFuYWdlcg==", "ASC_STATUS_KEY_ID": "developer"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "missing ASC credentials"):
+                appstore.auth_env("status")
+
 
 if __name__ == "__main__":
     unittest.main()

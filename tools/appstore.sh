@@ -15,10 +15,15 @@ case "${1:-}" in
     if (( ! confirmed )); then exec python3 "$REPO/tools/appstore.py" "$@"; fi
     ;;
 esac
+case "${1:-}" in
+  status) credentials=(ASC_STATUS_KEY_ID ASC_STATUS_ISSUER_ID ASC_STATUS_PRIVATE_KEY_B64) ;;
+  upload|stage|submit) credentials=(ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64) ;;
+  *) exec python3 "$REPO/tools/appstore.py" "$@" ;;
+esac
 log_error() { printf '%s\n' "$*" >&2; }
 LOADER="$HOME/.config/direnv/lib/helios-secrets.sh"
 [[ -f "$LOADER" ]] || { log_error "Missing helios secrets loader: $LOADER"; exit 1; }
 source "$LOADER"
-unset ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64
-use_secrets ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY_B64
+for name in "${!ASC_@}"; do unset "$name"; done
+use_secrets "${credentials[@]}"
 exec python3 "$REPO/tools/appstore.py" "$@"
