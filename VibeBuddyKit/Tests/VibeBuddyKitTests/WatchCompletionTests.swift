@@ -10,8 +10,10 @@ struct WatchCompletionTests {
             status: .done, hasUnreadCompletion: unread, attention: .followed,
             statusSince: date, updatedAt: date)
         session.completionID = round
+        var legacy = WatchFollowedTask(session)
+        if !unread { legacy.presentation = .idle } // Old-client wire snapshot.
         return WatchDashboardState(sourceID: "mac-a", pairingEpoch: "pair-1",
-            followedTasks: [WatchFollowedTask(session)], relay: .live, observedAt: date)
+            followedTasks: [legacy], relay: .live, observedAt: date)
     }
     var link: WatchTaskLink {
         WatchTaskLink(sourceID: "mac-a", pairingEpoch: "pair-1",

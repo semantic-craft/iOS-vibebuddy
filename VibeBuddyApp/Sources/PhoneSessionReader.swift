@@ -20,9 +20,6 @@ struct PhoneSessionReader: View {
     @State private var showChanges = false
     @StateObject private var resultReader = CompletionBodyReader()
     @State private var resultAttempt = 0
-    @State private var resultIsVisible = false
-    @State private var acknowledgedBodyID: String?
-    private var resultKey: String { (dashboard.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
     private var resultRefresh: CompletionBodyRefresh {
         CompletionBodyRefresh(sourceID: dashboard.completionSourceID, session: session,
                               context: dashboard.completionConnectionID, attempt: resultAttempt,
@@ -96,15 +93,8 @@ struct PhoneSessionReader: View {
                     }
                     if let id = completionNotificationID,
                        !dashboard.matchesCompletionNotification(id, sessionID: session.id) {
-                        if session.isUnboundCompletionNotification(id) {
-                            Text("This notification does not identify a completion round. Review the current result before marking it read.")
-                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                            Button("Mark current result read") { if authorityIsCurrent { dashboard.acknowledgeDisplayedCompletion(session) } }
-                                .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
-                        } else {
-                            Text("This task has moved on. You are viewing its current state, not the result from that notification.")
-                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                        }
+                        Text("This task has moved on. You are viewing its current state, not the result from that notification.")
+                            .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                     }
                     if let summary = session.detailProgress, !summary.isEmpty {
                         Text(summary).font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink)
@@ -116,9 +106,6 @@ struct PhoneSessionReader: View {
                                 Text(text).font(.body).foregroundStyle(CompanionPalette.ink)
                                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                                     .accessibilityIdentifier("phone-result-body")
-                                .completionReadingVisibility { visible in
-                                    resultIsVisible = visible; acknowledgeVisibleBody()
-                                }
                                 Text("Agent final response · this completion · not independently verified")
                                     .accessibilityIdentifier("phone-result-end")
                                     .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3)
@@ -133,13 +120,6 @@ struct PhoneSessionReader: View {
                             Button("Retry") { resultAttempt += 1 }
                                 .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
                         }
-                        Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                            guard authorityIsCurrent else { return }
-                            acknowledgedBodyID = resultKey
-                            if session.hasUnreadCompletion {
-                                dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
-                            } else { dashboard.markUnread(session) }
-                        }.buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
                     }
                     Text(ToolActivity.label(for: session)).font(CompanionType.font(12))
                         .foregroundStyle(CompanionPalette.ink2)
@@ -203,10 +183,9 @@ struct PhoneSessionReader: View {
                 PhoneHistoryView(session: session, scope: draftScope, newTask: newTask)
             }
         }
-        .onAppear { isOnScreen = true; acknowledgeVisibleBody() }
+        .onAppear { isOnScreen = true }
         .onDisappear { isOnScreen = false }
         .onChange(of: completionNotificationID) { _, _ in choseCurrentTask = false }
-        .onChange(of: isUnobscured) { _, _ in acknowledgeVisibleBody() }
         .tint(CompanionPalette.accent)
         .sheet(isPresented: $showChanges) {
             WorkspaceChangesView { scope, baseline, file in
@@ -216,21 +195,11 @@ struct PhoneSessionReader: View {
         }
         .task { if authorityIsCurrent { await dashboard.loadRecentOutput(session.id) } }
         .task(id: resultRefresh) {
-            if currentBody?.text?.isEmpty != false { resultIsVisible = false }
             await resultReader.load(resultRefresh) { guard authorityIsCurrent else { return nil }; return await dashboard.completionBody(for: session) }
         }
-        .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
-        .onChange(of: scenePhase) { _, _ in acknowledgeVisibleBody() }
-        .onChange(of: showChanges) { _, _ in acknowledgeVisibleBody() }
         }
     }
 
-    private func acknowledgeVisibleBody() {
-        guard authorityIsCurrent, scenePhase == .active, isOnScreen, isUnobscured, !showChanges, !showHistory, notificationIsCurrent, resultIsVisible, currentBody?.text?.isEmpty == false,
-              session.hasUnreadCompletion, acknowledgedBodyID != resultKey else { return }
-        acknowledgedBodyID = resultKey
-        dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
-    }
 
     private var notificationIsCurrent: Bool {
         choseCurrentTask || (completionNotificationID.map { dashboard.matchesCompletionNotification($0, sessionID: session.id) } ?? true)
@@ -279,7 +248,7 @@ struct PhoneSessionReader: View {
                     if let receipt = dashboard.phoneActionState(for: session) { Text(receipt.message).font(.caption) }
                 }
             } else {
-                Button("Open current task") { guard authorityIsCurrent else { return }; choseCurrentTask = true; acknowledgeVisibleBody() }
+                Button("Open current task") { guard authorityIsCurrent else { return }; choseCurrentTask = true }
             }
         }
         .padding(.horizontal, PhoneMetrics.gutter).padding(.vertical, 8)

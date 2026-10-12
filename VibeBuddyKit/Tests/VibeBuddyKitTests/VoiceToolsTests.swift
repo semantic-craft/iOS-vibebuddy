@@ -8,7 +8,7 @@ struct VoiceToolsTests {
     @Test("Qwen and Doubao wire configurations include fresh status and hangup")
     func conversationToolsOnBothWires() throws {
         let expected: Set<String> = ["get_session_status", "end_voice_call", "approve_session", "deny_session", "answer_session",
-                                     "mark_read_session", "instruct_session"]
+                                     "instruct_session"]
         let qwen = QwenRealtimeSession.sessionConfig(instructions: "test", voice: "Cherry", tools: VoiceTools.conversation)
         let qwenTools = try #require(qwen["tools"] as? [[String: Any]])
         #expect(Set(qwenTools.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }) == expected)

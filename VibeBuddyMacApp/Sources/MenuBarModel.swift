@@ -243,7 +243,8 @@ final class MenuBarModel: ObservableObject {
                 self.readAloud.report("Task state is unavailable. Try again when connected.")
                 return
             }
-            let pending = PendingTasks.ordered(SessionCurrency.current(snapshot.sessions, now: Date()))
+            let current = SessionCurrency.current(snapshot.sessions, now: Date())
+            let pending = PendingTasks.ordered(current) + StateGroups(current).done
             guard !pending.isEmpty else { self.readAloud.report("No current pending tasks to read"); return }
             let batch: [(AgentSession, NotificationSound, String)] = pending.prefix(10).compactMap { session in
                 let sound: NotificationSound = session.status == .needsResponse
@@ -317,7 +318,7 @@ final class MenuBarModel: ObservableObject {
                 }
             }
             switch sound {
-            case .agentDone: return current.status == .done && current.hasUnreadCompletion && !current.isStuck
+            case .agentDone: return current.status == .done && !current.isStuck
             case .agentStuck: return current.status == .done && current.isStuck
             case .needsApproval, .needsAnswer: return current.status == .needsResponse
             default: return false
@@ -666,10 +667,6 @@ final class MenuBarModel: ObservableObject {
                                      antigravityCLIMonitor: AntigravityCLIMonitor.forCurrentRun(),
                                      antigravityDesktopMonitor: E2ERunConfiguration.current == nil ? AntigravityDesktopMonitor() : nil,
                                      cursorCloudMonitor: cursorCloudMonitor,
-                                     onCompletionReminder: { [weak self] session in
-                                         guard let self else { return false }
-                                         return await self.deliverCompletionReminder(session)
-                                     },
                                      cursorFollowups: cursorFollowups,
                                      grokBotResults: GrokBotResultInbox.configured(),
                                      grokBotCache: E2ERunConfiguration.current == nil ? GrokBotCacheMonitor.local() : nil)
@@ -1129,26 +1126,6 @@ final class MenuBarModel: ObservableObject {
         await deliveryRecorder.record(NotificationDeliveryRecord(
             channel: pusher == nil && cloudKit != nil ? .cloudkit : .apns, outcome: .skipped, sessionID: alert.sessionID,
             sound: alert.sound.rawValue, failureReason: reason.rawValue, timestamp: Date()))
-    }
-
-    /// The server's reminder schedule asks this to deliver one `agentDone`
-    /// reminder for a followed, unread completion: a local banner (this Mac's
-    /// categories and Focus mode permitting) and a push to every paired phone
-    /// whose switches allow it. Returns whether any channel took it — a
-    /// reminder nobody could show does not spend one of the session's slots.
-    @MainActor
-    private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
-        let local = await notificationCoordinator.remind(
-            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.loadMac())
-        let devices = await deviceTokens.devices()
-        let level = DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention)
-        // `recordSkips: false`: an undelivered reminder is re-proposed on every
-        // pass of the server's 30s loop until something takes it, so recording
-        // each one would bury the log. The completion's own cue already said why.
-        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level, isReminder: true),
-                                to: devices, recordSkips: false, standDownForPhone: false)
-        if local || pushed { await refreshNotificationDeliveryHealth() }
-        return local || pushed
     }
 
     /// Fire a one-time budget heads-up (local + push) for sessions that just

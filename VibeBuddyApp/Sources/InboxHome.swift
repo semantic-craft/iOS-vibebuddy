@@ -27,7 +27,7 @@ enum InboxBucket: String, CaseIterable, Identifiable {
     func title(for summary: TaskPresentationSummary) -> String {
         switch self {
         case .all: String(localized: "All sessions")
-        case .unreadResults: String(localized: "Unread results")
+        case .unreadResults: String(localized: "Done")
         case .needsYou: summary.requiresInput == 0 ? String(localized: "Stuck") : String(localized: "Needs you")
         case .working: String(localized: "Working")
         }
@@ -175,7 +175,7 @@ struct InboxHomeView: View {
     @State private var selectedProjectPath: String?
 
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// Two tiles a row, one at accessibility sizes so "Unread results" is
+    /// Two tiles a row, one at accessibility sizes so "Done" is
     /// read whole instead of shrinking to a few letters.
     private var tileColumns: [GridItem] {
         typeSize.isAccessibilitySize

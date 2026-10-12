@@ -17,7 +17,6 @@ struct SessionReaderPane: View {
     @ObservedObject var reader: SessionReaderModel
     var draft: Binding<String>? = nil
     @State private var localDrafts: [String: String] = [:]
-    @State private var acknowledgedBodyID: String?
     @State private var tab: Tab = .conversation
     @State private var exportError: String?
 
@@ -191,11 +190,6 @@ struct SessionReaderPane: View {
             Button("Stop task") { model.stop(live) }
         }
         if live.status == .done, live.completionID != nil {
-            Button(live.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                acknowledgedBodyID = (model.completionSourceID ?? "unknown") + "/" + live.id + "/" + (live.completionID ?? "working")
-                if live.hasUnreadCompletion { model.acknowledge(live.id, displayedCompletionID: live.completionID) }
-                else { model.markUnread(live) }
-            }
             Button("Replay this previous result") { model.replayResult(live) }
         }
         if let transcript = reader.transcript {
@@ -324,7 +318,7 @@ struct SessionReaderPane: View {
                 EmptyView()
             } tail: {
                 if live.status == .done, live.completionID != nil {
-                    ReaderResultCard(session: live, model: model, acknowledgedBodyID: $acknowledgedBodyID)
+                    ReaderResultCard(session: live, model: model)
                 }
             }
             .id(subject.id)
@@ -493,12 +487,8 @@ struct ReaderResultCard: View {
     @ObservedObject var model: MenuBarModel
     @StateObject private var resultReader = CompletionBodyReader()
     @State private var resultAttempt = 0
-    @State private var resultIsVisible = false
-    @Binding var acknowledgedBodyID: String?
 
-    private var resultKey: String { (model.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
     private var resultRefresh: CompletionBodyRefresh {
-        // Local result reads can finish while inactive; acknowledgement still requires foreground visibility.
         CompletionBodyRefresh(sourceID: model.completionSourceID, session: session, attempt: resultAttempt)
     }
     private var currentBody: CompletionBody? { resultReader.body(for: resultRefresh) }
@@ -508,17 +498,11 @@ struct ReaderResultCard: View {
             HStack {
                 Text("Result · this completion").font(MacTheme.font(10.5, .semibold)).foregroundStyle(MacTheme.ink3)
                 Spacer()
-                if session.hasUnreadCompletion {
-                    Text("Unread").font(MacTheme.font(10.5, .semibold)).foregroundStyle(MacTheme.accentText)
-                }
             }
             if let body = currentBody {
                 if let text = body.text {
                     Text(text).font(MacTheme.font(13)).foregroundStyle(MacTheme.ink)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                        .completionReadingVisibility { visible in
-                            resultIsVisible = visible; acknowledgeVisibleBody()
-                        }
                     Text("Agent final response · this completion · not independently verified")
                         .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
                 } else if let reason = body.unavailableReason {
@@ -535,11 +519,6 @@ struct ReaderResultCard: View {
                     .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             }
             HStack(spacing: 6) {
-                Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                    acknowledgedBodyID = resultKey
-                    if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
-                    else { model.markUnread(session) }
-                }.buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                 Button("Replay this result") { model.replayResult(session, body: currentBody) }
                     .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             }
@@ -549,25 +528,14 @@ struct ReaderResultCard: View {
         .background(MacTheme.bg3, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline))
         .task(id: resultRefresh) {
-            if currentBody?.text?.isEmpty != false { resultIsVisible = false }
             await resultReader.load(resultRefresh) { await model.completionBody(for: session) }
         }
-        .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             resultAttempt += 1
-            acknowledgeVisibleBody()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             resultAttempt += 1
-            acknowledgeVisibleBody()
         }
     }
 
-    private func acknowledgeVisibleBody() {
-        guard resultIsVisible, currentBody?.text?.isEmpty == false, session.hasUnreadCompletion,
-              acknowledgedBodyID != resultKey, model.isViewing(session.id), NSApp.isActive,
-              NSApp.keyWindow?.identifier?.rawValue == "com.vibebuddy.dashboard" else { return }
-        acknowledgedBodyID = resultKey
-        model.acknowledge(session.id, displayedCompletionID: session.completionID)
-    }
 }

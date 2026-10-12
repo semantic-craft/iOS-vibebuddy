@@ -1,6 +1,10 @@
 # PRD — 五家 agent 集成补齐（2026-09 评估后的工单集）
 
-Status: ready-for-agent (2026-09-21)
+Status: historical-reference (2026-10-12; original ready-for-agent: 2026-09-21)
+
+Current scope: implementation tickets are closed; SQLite remains observation-only.
+See [current backlog](../README.md) and [owner closeout](../../../qa/deferred-plan-closeout-2026-10-12.md).
+The original requirements and research below are retained, not a new execution queue.
 Owner: vibebuddy
 Source: `docs/research/agent-integration-assessment-2026-09-21.md`（worktree 分支 `claude/agent-integration-assessment-8b8054`）：对照 Claude Code 2.1.27x、Codex 0.153.4、Cursor CLI 2026.09.18、Grok Build 1.0.40 官方文档与 happy / claudecodeui / vibe-kanban / grok-app 等开源项目的评估；Grok ACP 报文形状来自本机只读探针（scratchpad `acp_probe*.py`，2026-09-21）。
 Related: ADR-0011（Codex app-server）、ADR-0016（Cursor 观测与控制，ACP 托管在其修正案 1/2）、ADR-0018（Cursor Cloud）、`docs/multi-cli-hook-setup.md`、`docs/codex-integration.md`、`.scratch/mac-app-store/`（分发形态与沙盒边界）

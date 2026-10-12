@@ -28,8 +28,8 @@ struct DashboardSessionListTests {
         let list = projection(input, project: .project("Alpha"), status: .working, query: "needle")
         #expect(list.visible.map(\.id) == ["new", "old"])
         #expect(list.total == 7)
-        #expect(list.projects.first?.count == 4)
-        #expect(list.projects.first { $0.id == .project("Alpha") }?.count == 1)
+        #expect(list.projects.first?.count == 1)
+        #expect(list.projects.first { $0.id == .project("Alpha") }?.count == 0)
         #expect(list.projects.contains { $0.id == .unknown })
         #expect(list.projects.contains { $0.id == .project("Unknown project") })
         #expect(projection(input).visible.first?.id == "b")
@@ -54,14 +54,14 @@ struct DashboardSessionListTests {
         let codex = session("codex-result", "Alpha", .done)
         let list = DashboardSessionList([claude, codex], status: .done, agent: .claudeCode,
                                         selection: codex.id, now: Date(timeIntervalSince1970: 100))
-        #expect(list.pending.map(\.id) == [claude.id])
+        #expect(list.pending.isEmpty)
         #expect(list.summary.completeUnread == 2)
-        #expect(list.globalPending.count == 2)
+        #expect(list.globalPending.isEmpty)
         #expect(list.selected?.id == codex.id)
         claude.hasUnreadCompletion = false
         let read = DashboardSessionList([claude, codex], status: .done, agent: .claudeCode,
                                         selection: claude.id, now: Date(timeIntervalSince1970: 100))
-        #expect(read.visible.isEmpty && read.pending.isEmpty)
+        #expect(read.visible.map(\.id) == [claude.id] && read.pending.isEmpty)
         #expect(read.selected?.hasUnreadCompletion == false)
     }
 
@@ -112,54 +112,37 @@ struct DashboardSessionListTests {
                               recentDirectories: ["/recent"])
         #expect(list.total == 9)
         #expect(list.summary.needsYou == 3)
-        #expect(list.summary.completeUnread == 2)
+        #expect(list.summary.completeUnread == 3)
         #expect(list.summary.thinking == 3)
-        #expect(list.globalPending.map(\.id) == ["ask", "approve", "failed", "done1", "done2"])
-        #expect(list.pending.map(\.id) == ["done1"])
+        #expect(list.globalPending.map(\.id) == ["ask", "approve", "failed"])
+        #expect(list.pending.isEmpty)
         #expect(list.projects.dropFirst().prefix(2).map(\.id) == [.project("/one/shared"), .project("/two/shared")])
-        #expect(list.projects.first { $0.id == .project("/one/shared") }?.count == 3)
-        #expect(list.projects.contains { $0.id == .unknown && $0.count == 1 })
+        #expect(list.projects.first { $0.id == .project("/one/shared") }?.count == 2)
+        #expect(list.projects.contains { $0.id == .unknown && $0.count == 0 })
         #expect(list.projects.contains { $0.id == .project("/recent") && $0.count == 0 })
         #expect(list.olderCount == 1)
-        #expect(projection(input, status: .idle).visible.map(\.id) == ["read"])
+        #expect(projection(input, status: .idle).visible.isEmpty)
         let older = projection(input, project: .project("/old"), status: .done, showOlder: true)
         #expect(older.visible.map(\.id) == ["old"])
-        #expect(older.pending.map(\.id) == ["old"])
+        #expect(older.pending.isEmpty)
         #expect(older.total == 9)
         var branch = input[5]
         branch.branch = "codex/inbox"
         #expect(projection([branch], query: "inbox").visible.map(\.id) == [branch.id])
     }
 
-    @Test func scopedTourKeepsReadingSelectionAndRecognizesANewRound() {
+    @Test func resultSelectionSurvivesWithoutEnteringPendingNavigation() {
         let ask = session("ask", "Alpha", .needsResponse)
-        var first = session("first", "Alpha", .done)
-        first.completionID = "round-1"
-        let second = session("second", "Alpha", .done)
-        let otherProject = session("elsewhere", "Beta", .needsResponse)
-        var input = [ask, first, second, otherProject]
-        var manualTour = PendingTaskNavigation()
-        let initial = projection(input, project: .project("Alpha"))
-        manualTour.select(first, in: initial.pending)
-        var manuallyRead = input
-        manuallyRead[1].hasUnreadCompletion = false
-        let afterManualRead = projection(manuallyRead, project: .project("Alpha"), selection: first.id)
-        #expect(manualTour.next(in: afterManualRead.pending, after: afterManualRead.selected)?.id == second.id)
-        var tour = PendingTaskNavigation()
-        let scoped = projection(input, project: .project("Alpha"), query: "needle", selection: ask.id)
-        #expect(tour.next(in: scoped.pending, after: ask)?.id == first.id)
-        input[1].hasUnreadCompletion = false
-        let read = projection(input, project: .project("Alpha"), query: "needle", selection: first.id)
-        #expect(read.selected?.id == first.id)
-        #expect(tour.next(in: read.pending, after: read.selected)?.id == second.id)
-        input[1].hasUnreadCompletion = true
-        input[1].completionID = "round-2"
-        input[1].statusSince = Date(timeIntervalSince1970: 30)
-        let nextRound = projection(input, project: .project("Alpha"), query: "needle", selection: second.id)
-        #expect(tour.next(in: nextRound.pending, after: second)?.completionID == "round-2")
-        let removed = projection(input.filter { $0.id != first.id }, status: .done, selection: first.id)
-        #expect(removed.selected == nil)
-        #expect(projection(input, status: .working).pending.isEmpty)
+        var result = session("result", "Alpha", .done)
+        result.completionID = "round-1"
+        for legacyUnread in [true, false] {
+            result.hasUnreadCompletion = legacyUnread
+            let list = projection([ask, result], project: .project("Alpha"), selection: result.id)
+            #expect(list.selected?.id == result.id)
+            #expect(list.visible.map(\.id) == [ask.id, result.id])
+            #expect(list.pending.map(\.id) == [ask.id])
+            #expect(list.summary.pendingCount == 1)
+        }
     }
 
     @Test func checkoutIdentityJoinsRecentDirectoriesWithoutMergingSameNamedProjects() {
@@ -173,7 +156,7 @@ struct DashboardSessionListTests {
         let input = [first, sibling, cloud, unknown]
         let list = projection(input, recentDirectories: ["/tmp/vb-fixture/results", "/tmp/other-worktree/results"])
         #expect(list.projects.filter { $0.id == .project("/tmp/vb-fixture/results") }.count == 1)
-        #expect(list.projects.first { $0.id == .project("/tmp/vb-fixture/results") }?.count == 1)
+        #expect(list.projects.first { $0.id == .project("/tmp/vb-fixture/results") }?.count == 0)
         #expect(list.projects.first { $0.id == .project("/tmp/other-worktree/results") }?.count == 1)
         #expect(!list.projects.contains { $0.id == .project("results") })
         #expect(list.projects.contains { $0.id == .project("owner/repository") })
@@ -181,7 +164,7 @@ struct DashboardSessionListTests {
         #expect(projection(input, project: .project("/tmp/vb-fixture/results")).visible.map(\.id) == [first.id])
         #expect(projection(input, project: .project("/tmp/other-worktree/results")).pending.map(\.id) == [sibling.id])
         #expect(projection(input, query: "vb-fixture/results").visible.map(\.id) == [first.id])
-        #expect(list.summary.pendingCount == 2)
+        #expect(list.summary.pendingCount == 1)
     }
 
 }

@@ -81,7 +81,6 @@ struct WatchTaskDetailView: View {
                         Text("Previously viewed result")
                             .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
                         summaryBody(retainedResult)
-                        completionStatus
                         footer
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,19 +139,11 @@ struct WatchTaskDetailView: View {
             }
             .accessibilityElement(children: .combine)
             if task.completionID != link.completionID {
-                Text("Task status changed. This newer result has not been marked read.")
+                Text("Task status changed. A newer result is available.")
                     .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
             }
             CompanionHairline()
             summaryBody(task)
-            completionStatus
-            if task.presentation == .completeUnread,
-               let displayedLink = displayedCompletionLink, displayedLink.readRequest != nil,
-               !completionPending {
-                Button("Mark as read") { store.markCompletionRead(displayedLink) }
-                    .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
-                    .accessibilityIdentifier("watch-mark-completion-read")
-            }
             if let alert = link.alert(in: store.state), task.presentation == .requiresInput {
                 WatchAlertCard(store: store, alert: alert, now: Date(), alsoWaiting: 0)
             } else {
@@ -238,34 +229,13 @@ struct WatchTaskDetailView: View {
         }
     }
 
-    @ViewBuilder private var completionStatus: some View {
-        if completionPending {
-            Text(displayedCompletionLink.map { store.completionQueue.confirmedLinks.contains($0) } == true || store.isPhoneReachable
-                 ? String(localized: "Marked · awaiting Mac confirmation")
-                 : String(localized: "Marked · syncs when connected"))
-                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("watch-completion-marked")
-        }
-    }
-
-    /// Notification/deep-link identity never acknowledges a newer round by itself.
-    /// The explicit button binds to the result currently rendered on this page.
-    private var displayedCompletionLink: WatchTaskLink? {
-        guard let task = link.task(in: store.state) ?? retainedResult else { return nil }
-        return WatchTaskLink(sourceID: link.sourceID, pairingEpoch: link.pairingEpoch,
-                             sessionID: link.sessionID, completionID: task.completionID)
-    }
-    private var completionPending: Bool {
-        displayedCompletionLink.map { store.completionQueue.markedLinks.contains($0) } ?? false
-    }
     private func status(_ task: WatchFollowedTask) -> String {
         switch task.presentation {
         case .requiresInput: String(localized: "Needs response")
         case .error: String(localized: "Error")
-        case .completeUnread: String(localized: "Done, unread")
+        case .completeUnread: String(localized: "Done")
         case .thinking: String(localized: "Working")
-        default: String(localized: "Read")
+        default: String(localized: "Done")
         }
     }
 }

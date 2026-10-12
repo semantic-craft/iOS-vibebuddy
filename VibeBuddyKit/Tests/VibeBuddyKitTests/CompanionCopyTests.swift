@@ -60,7 +60,7 @@ struct CompanionCopyTests {
         let value = TaskPresentationSummary(currentIn: [failed, unread], now: now)
         #expect(value.needsYou == 1)
         #expect(value.completeUnread == 1)
-        #expect(value.pendingCount == 2)
-        #expect(CompanionCopy.attentionLine(value) == "Needs you 1 · Unread results 1")
+        #expect(value.pendingCount == 1)
+        #expect(CompanionCopy.attentionLine(value) == "Needs you 1")
     }
 }

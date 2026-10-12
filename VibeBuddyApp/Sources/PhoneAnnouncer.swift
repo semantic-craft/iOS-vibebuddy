@@ -267,7 +267,7 @@ final class PhoneAnnouncer: ObservableObject {
         // Skipping changes the item, not the user's pause decision. A call
         // ending also leaves reading paused until an explicit Resume.
         queue.skip()
-        status = String(localized: "Skipped · still unread")
+        status = String(localized: "Skipped")
     }
 
     func replayLatest(live: @escaping @MainActor () -> [AgentSession]) {

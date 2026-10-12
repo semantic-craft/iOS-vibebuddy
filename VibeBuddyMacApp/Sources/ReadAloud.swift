@@ -101,7 +101,7 @@ final class ReadAloud: ObservableObject {
         player?.stop(); player = nil
         generation = UUID()
         queue.skip()
-        status = "Skipped; result remains unread"
+        status = "Skipped"
     }
 
     func replayLatest() {

@@ -41,7 +41,7 @@ struct CopilotHistoryTests {
         #expect(session.name == "Inspect this project")
         #expect(session.branch == "main")
         #expect(session.historyOnly == true)
-        #expect(session.presentationState == .idle)
+        #expect(session.presentationState == .completeUnread)
         #expect(!session.hasUnreadCompletion && session.completionID == nil)
         #expect(!SessionActionSupport.resolve(for: session).isAvailable)
         #expect(!session.canJump)

@@ -99,12 +99,6 @@ public struct VibeBuddyServer: Sendable {
     public let cursorCloud: CursorCloudAgentClient
     /// Polls that API. Optional for the same reason the transcript monitor is.
     public let cursorCloudMonitor: CursorCloudAgentMonitor?
-    /// Deliver one completion reminder for a followed, unread, done session.
-    /// Returns whether any channel actually took it, so a reminder every
-    /// channel suppressed does not spend one of the session's slots. The
-    /// default pushes to paired phones over APNs (the headless daemon); the
-    /// menu-bar app supplies its own that also posts a local banner.
-    public let onCompletionReminder: (@Sendable (AgentSession) async -> Bool)?
     /// Dedup for `/answer` request ids across the life of this process.
     public let actionRequests: ActionRequestLog
     public let grokBotResults: GrokBotResultInbox?
@@ -156,7 +150,6 @@ public struct VibeBuddyServer: Sendable {
                 antigravityDesktopMonitor: AntigravityDesktopMonitor? = nil,
                 cursorCloud: CursorCloudAgentClient = CursorCloudAgentClient(),
                 cursorCloudMonitor: CursorCloudAgentMonitor? = nil,
-                onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
                 actionRequests: ActionRequestLog = ActionRequestLog(),
                 cursorFollowups: CursorFollowupQueue = CursorFollowupQueue(),
                 grokBotResults: GrokBotResultInbox? = nil,
@@ -204,7 +197,6 @@ public struct VibeBuddyServer: Sendable {
         self.cursorCloud = cursorCloud
         self.cursorCloudMonitor = cursorCloudMonitor
         self.onDevicePaired = onDevicePaired
-        self.onCompletionReminder = onCompletionReminder
         self.actionRequests = actionRequests
         self.cursorFollowups = cursorFollowups
         self.grokBotResults = grokBotResults
@@ -364,19 +356,6 @@ public struct VibeBuddyServer: Sendable {
             }
         }
 
-        // Followed completions (effective attention `followed`, set by hand or
-        // inferred): propose reminders on a schedule, deliver through
-        // the app's handler or the daemon's own APNs push, and count only what
-        // was actually handed to a channel.
-        let reminderServer = self
-        Task {
-            var schedule = CompletionReminderSchedule()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                await reminderServer.remindFollowedCompletions(&schedule, now: Date())
-            }
-        }
-
         // APNs: push a "needs you" alert to registered devices on each fresh
         // needsResponse transition. Off until a pusher is configured.
         if let pusher = self.pusher {
@@ -440,68 +419,6 @@ public struct VibeBuddyServer: Sendable {
     }
 
     /// Built separately so in-process tests can exercise routes via `app.test(.router)`.
-    /// One reminder pass: ask the schedule what is owed, deliver each, and spend a
-    /// slot only for a session at least one channel took.
-    public func remindFollowedCompletions(_ schedule: inout CompletionReminderSchedule,
-                                          now: Date) async {
-        let sessions = await store.snapshot(now: now).sessions
-        for session in schedule.due(sessions, now: now) {
-            let delivered: Bool
-            if let onCompletionReminder {
-                delivered = await onCompletionReminder(session)
-            } else {
-                delivered = await pushCompletionReminder(session, now: now)
-            }
-            if delivered {
-                schedule.markReminded(session.id, now: now)
-            } else {
-                // Nobody took it: try again one interval from now, not on the
-                // next 30-second pass — otherwise one unread completion writes
-                // the same skip into the delivery log every pass.
-                schedule.markSkipped(session.id, now: now)
-            }
-        }
-    }
-
-    /// The daemon's own channel: the `agentDone` cue again, to every phone whose
-    /// switches allow it and that is not in Quiet mode. Same collapse id as the
-    /// completion, so the banner is replaced rather than stacked. A reminder that
-    /// reaches nobody records why, so it is not simply missing from the log.
-    private func pushCompletionReminder(_ session: AgentSession, now: Date) async -> Bool {
-        guard let pusher else {
-            // No APNs key on this Mac: a supported state, and one the log should
-            // show rather than leave as silence.
-            await deliveryRecorder?.record(NotificationDeliveryRecord(
-                channel: .apns, outcome: .skipped, sessionID: session.id,
-                sound: NotificationSound.agentDone.rawValue,
-                failureReason: CueSkipReason.apnsNotConfigured.rawValue, timestamp: now))
-            return false
-        }
-        let alert = SoundAlert(
-            session: session, sound: .agentDone,
-            delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))
-        let fanout = PushFanout.plan(alert, devices: await deviceTokens.devices(),
-                                     apnsConfigured: true)
-        // No skip record here, deliberately: the reason is already in the log
-        // once, against the completion's own cue, and it has not changed. A
-        // reminder nobody could take spends no slot; `remindFollowedCompletions`
-        // marks it skipped so it is proposed again one interval later, not on
-        // every 30 s pass.
-        guard !fanout.recipients.isEmpty else { return false }
-        let copy = PushCopy.copy(for: alert.sound, session: session)
-        for recipient in fanout.recipients {
-            guard let token = recipient.device.token else { continue }
-            let sound = recipient.level.makesSound && recipient.device.playSound != false
-                ? alert.sound.fileName : ""
-            let result = await pusher.send(title: copy.title, body: copy.body,
-                                           to: token, sound: sound,
-                                           now: now, sessionID: session.id, soundCategory: alert.sound.rawValue,
-                                           localized: PushLocalization(copy))
-            await deviceTokens.applySendResult(result, token: token)
-        }
-        return true
-    }
-
     public func router() -> Router<BasicRequestContext> {
         let router = Router()
         let store = self.store
@@ -790,8 +707,7 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
-        // Explicit read acknowledgement. Merely receiving/rendering a snapshot
-        // never clears unread state; a client calls this only after selection or open.
+        // Compatibility endpoint for older clients; acknowledgement does not change task state.
         authed.post("acknowledge") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 4096)
             guard let read = try? JSONDecoder().decode(CompletionReadRequest.self, from: Data(buffer: buffer)),

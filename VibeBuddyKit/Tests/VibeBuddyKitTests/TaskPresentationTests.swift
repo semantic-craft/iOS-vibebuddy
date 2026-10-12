@@ -41,7 +41,7 @@ struct TaskPresentationTests {
                             switch status {
                             case .needsResponse: .requiresInput
                             case .working: .thinking
-                            case .done: unread ? .completeUnread : .idle
+                            case .done: .completeUnread
                             }
                         }
                         #expect(session("case-\(combinations)", status: status,
@@ -54,6 +54,21 @@ struct TaskPresentationTests {
         }
 
         #expect(combinations == 36)
+    }
+
+    @Test("Imported historical failures never accumulate pending badges")
+    func historicalFailuresAreNotPending() {
+        let history = (0..<500).map { index in
+            var row = session("history-\(index)", status: .done, failed: true, unread: true)
+            row.historyOnly = true
+            return row
+        }
+        let question = session("live-question", status: .needsResponse, waitKind: .question)
+        let rows = history + [question]
+        #expect(TaskPresentationSummary(sessions: rows).pendingCount == 1)
+        #expect(PendingTasks.ordered(rows).map(\.id) == ["live-question"])
+        #expect(StateGroups(rows).done.count == 500)
+        #expect(history.allSatisfy { $0.isStuck }) // Failure evidence is preserved.
     }
 
     @Test("priority is error, input, thinking, unread completion, idle")
@@ -87,7 +102,7 @@ struct TaskPresentationTests {
         let groups = StateGroups(sessions)
         #expect(groups.needsYou.map(\.id) == ["question", "plan", "approval", "failed"])
         #expect(groups.working.map(\.id) == ["recovering", "disconnected"])
-        #expect(groups.done.map(\.id) == ["unread", "read"])
+        #expect(groups.done.map(\.id) == ["read", "unread"])
         let summary = TaskPresentationSummary(currentIn: sessions, now: Date(timeIntervalSince1970: 11))
         #expect(summary.requiresInput + summary.error == groups.needsYou.count)
         #expect(summary.thinking == groups.working.count)
@@ -104,7 +119,7 @@ struct TaskPresentationTests {
             session("error", status: .done, failed: true, updatedAt: 5),
         ]
         let summary = TaskPresentationSummary(sessions: sessions)
-        #expect(summary == TaskPresentationSummary(idle: 1, thinking: 1, completeUnread: 1,
+        #expect(summary == TaskPresentationSummary(idle: 0, thinking: 1, completeUnread: 2,
                                                    requiresInput: 1, error: 1))
         #expect(summary.primaryState == .error)
         #expect(sessions.leadingPresentationSession?.id == "error")

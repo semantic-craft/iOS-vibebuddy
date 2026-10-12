@@ -270,12 +270,6 @@ struct DashboardSidebar: View {
                                         model.toggleBuddy(session.id)
                                     }
                                 }
-                                if session.status == .done, session.completionID != nil {
-                                    Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                                        if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
-                                        else { model.markUnread(session) }
-                                    }
-                                }
                                 ContinueWithMenu(session: session, model: model)
                             }
                         }

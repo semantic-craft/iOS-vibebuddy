@@ -33,13 +33,13 @@ struct WatchPendingOrderTests {
                         session("result-new", .done, minutesAgo: 2, unread: true),
                         session("run", .working, minutesAgo: 1)]
         let queue = PendingTasks.ordered(SessionCurrency.current(sessions, now: now)).map(\.id)
-        #expect(queue == ["ask", "approve", "stuck", "result-new", "result-old"])
+        #expect(queue == ["ask", "approve", "stuck"])
 
         let state = WatchDashboardProjection.make(snapshot: Snapshot(sessions: sessions, serverTime: now),
                                                   quotas: [], relay: .live, now: now)
         #expect(state.alerts.map(\.sessionId) == ["ask", "approve"], "the first card is the phone's First up")
         #expect(state.results?.map(\.sessionID) == ["stuck", "result-new", "result-old"])
-        let wrist = state.alerts.map(\.sessionId) + (state.results ?? []).map(\.sessionID)
+        let wrist = state.alerts.map(\.sessionId) + (state.results ?? []).filter { $0.presentation == .error }.map(\.sessionID)
         #expect(wrist == queue.filter(wrist.contains), "same relative order, the wrist may only omit")
     }
 }

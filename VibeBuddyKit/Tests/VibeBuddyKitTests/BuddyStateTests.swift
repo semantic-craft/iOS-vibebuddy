@@ -39,10 +39,10 @@ struct BuddyStateTests {
         #expect(BuddyState.from(groups(session("a", .working), session("b", .done))) == .working)
     }
 
-    @Test("done only while a clean completion is unread")
+    @Test("done regardless of legacy reading state")
     func done() {
         #expect(BuddyState.from(groups(session("a", .done, unread: true))) == .done)
-        #expect(BuddyState.from(groups(session("a", .done))) == .idle)
+        #expect(BuddyState.from(groups(session("a", .done))) == .done)
     }
 
     @Test("error beats a simultaneous input wait")

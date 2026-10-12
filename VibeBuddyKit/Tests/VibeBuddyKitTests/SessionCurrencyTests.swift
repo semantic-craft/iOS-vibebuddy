@@ -24,22 +24,28 @@ struct SessionCurrencyTests {
         #expect(!SessionCurrency.isCurrent(session("old", .done, hoursAgo: 5 * 24), now: now))
     }
 
+    @Test func historicalFailuresAgeOut() {
+        var row = session("history-failure", .done, hoursAgo: 48, failed: true)
+        row.historyOnly = true
+        #expect(!SessionCurrency.isCurrent(row, now: now))
+        #expect(SessionCurrency.older([row], now: now).map(\.id) == [row.id])
+    }
+
     @Test func aWaitAFailureAndARunNeverAgeOut() {
         #expect(SessionCurrency.isCurrent(session("wait", .needsResponse, hoursAgo: 5 * 24), now: now))
         #expect(SessionCurrency.isCurrent(session("broke", .done, hoursAgo: 5 * 24, failed: true), now: now))
         #expect(SessionCurrency.isCurrent(session("stalled", .working, hoursAgo: 5 * 24), now: now))
     }
 
-    @Test func anUnreadCompletionStaysOnlyWhileFollowedOrFresh() {
-        // The Mac keeps reminding about a followed, unread completion, so the
-        // phone must keep showing what the reminder is about.
-        #expect(SessionCurrency.isCurrent(session("followed", .done, hoursAgo: 30, unread: true,
+    @Test func legacyUnreadDoesNotKeepOldCompletionsCurrent() {
+        // Legacy reading flags and attention do not extend the 24-hour current window.
+        #expect(!SessionCurrency.isCurrent(session("followed", .done, hoursAgo: 30, unread: true,
                                                   attention: .followed), now: now))
         #expect(!SessionCurrency.isCurrent(session("normal", .done, hoursAgo: 30, unread: true), now: now))
         #expect(!SessionCurrency.isCurrent(session("muted", .done, hoursAgo: 30, unread: true,
                                                    attention: .muted), now: now))
         #expect(SessionCurrency.isCurrent(session("fresh", .done, hoursAgo: 3, unread: true), now: now))
-        // Read and followed is just finished work: the person already saw it.
+        // Followed completions use the same age cutoff.
         #expect(!SessionCurrency.isCurrent(session("seen", .done, hoursAgo: 30, attention: .followed), now: now))
     }
 
@@ -55,7 +61,7 @@ struct SessionCurrencyTests {
                      session("c", .done, hoursAgo: 48), session("d", .working, hoursAgo: 1)]
         let whole = TaskPresentationSummary(sessions: input)
         let current = TaskPresentationSummary(currentIn: input, now: now)
-        #expect(whole.idle == 2)
+        #expect(whole.completeUnread == 3)
         #expect(current.idle == 0)
         #expect(current.completeUnread == 1)
         #expect(current.thinking == 1)
@@ -63,8 +69,7 @@ struct SessionCurrencyTests {
     }
 
     @Test func theWidgetSnapshotLeadsWithACurrentSession() {
-        // An old unread completion outranks a running task by attention, but it
-        // is not current, so the widget must not name it.
+        // Old completions are outside the current window and cannot lead the widget.
         let input = [session("old", .done, hoursAgo: 48, unread: true), session("run", .working, hoursAgo: 1)]
         let snapshot = TaskPresentationSnapshot(sessions: input, updatedAt: now)
         #expect(snapshot.topSessionId == "run")

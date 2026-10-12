@@ -9,12 +9,12 @@ public enum PendingTasks {
                 ? $0.offset < $1.offset : $0.element.updatedAt > $1.element.updatedAt
         }.map(\.element)
         let groups = StateGroups(ordered)
-        return groups.needsYou + groups.done.filter { $0.presentationState == .completeUnread }
+        return groups.needsYou
     }
 }
 
-/// Local navigation only. Remember the rounds already visited so removing a
-/// read result cannot restart the tour at an unresolved wait. No acknowledgements
+/// Local navigation only. Remember the rounds already visited so resolving a
+/// waiting task cannot restart the tour at an unresolved wait. No acknowledgements
 /// or task operations live here. Reset when the source or filter scope changes.
 public struct PendingTaskNavigation: Sendable {
     private struct Identity: Hashable, Sendable {
@@ -34,7 +34,7 @@ public struct PendingTaskNavigation: Sendable {
     public init() {}
 
     /// Capture an explicit selection while it still belongs to the queue.
-    /// Reading may remove it before the user presses Next for the first time.
+    /// Resolving a wait may remove it before the user presses Next for the first time.
     public mutating func select(_ session: AgentSession, in ordered: [AgentSession]) {
         let identity = Identity(session)
         if let index = ordered.firstIndex(where: { Identity($0) == identity }) {
@@ -48,7 +48,7 @@ public struct PendingTaskNavigation: Sendable {
     public mutating func next(in ordered: [AgentSession], after current: AgentSession?, wraps: Bool = true) -> AgentSession? {
         let currentIdentity = current.map(Identity.init)
         // A manually selected task starts a tour from its position, rather than
-        // jumping back to the first item. A read marker does not change identity.
+        // jumping back to the first item. Display changes do not change identity.
         if let currentIdentity, currentIdentity != lastSelection {
             if let index = ordered.firstIndex(where: { Identity($0) == currentIdentity }) {
                 visited = Set(ordered.prefix(through: index).map(Identity.init))

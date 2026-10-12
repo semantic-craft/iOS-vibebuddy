@@ -16,8 +16,8 @@ struct AnnouncementControls: View {
                 .help("Replay previous result").disabled(!reader.canReplay)
                 .accessibilityLabel("Replay previous result")
             if reader.hasMoreResults {
-                Image(systemName: "text.badge.plus").help("More results remain in the unread list")
-                    .accessibilityLabel("More results remain in the unread list")
+                Image(systemName: "text.badge.plus").help("More results remain in Done")
+                    .accessibilityLabel("More results remain in Done")
             }
         }
         .buttonStyle(.plain).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)

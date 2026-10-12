@@ -29,7 +29,7 @@ public enum TaskPresentationState: String, Codable, Sendable, CaseIterable, Hash
         switch self {
         case .idle: return String(localized: "Idle", bundle: .module)
         case .thinking: return String(localized: "Thinking", bundle: .module)
-        case .completeUnread: return String(localized: "Complete, unread update", bundle: .module)
+        case .completeUnread: return String(localized: "Done", bundle: .module)
         case .requiresInput: return String(localized: "Requires input", bundle: .module)
         case .error: return String(localized: "Error", bundle: .module)
         case .unassigned: return String(localized: "No assigned task", bundle: .module)
@@ -69,7 +69,8 @@ public enum TaskPresentationState: String, Codable, Sendable, CaseIterable, Hash
         if status == .done, failed { return .error }
         if status == .needsResponse { return .requiresInput }
         if status == .working { return .thinking }
-        if status == .done, hasUnreadCompletion { return .completeUnread }
+        // The legacy wire case now represents every successful completion.
+        if status == .done { return .completeUnread }
         return .idle
     }
 }
@@ -109,7 +110,9 @@ public extension AgentSession {
     }
 
     var presentationState: TaskPresentationState {
-        TaskPresentationState.project(
+        // Imported history has no live action, even when its recorded outcome failed.
+        if historyOnly == true { return .completeUnread }
+        return TaskPresentationState.project(
             status: status,
             waitKind: waitKind,
             failed: isStuck,
@@ -160,7 +163,7 @@ public struct TaskPresentationSummary: Codable, Sendable, Hashable {
 
     public var needsYou: Int { requiresInput + error }
     /// Presentation categories are disjoint, so a failed unread round counts once.
-    public var pendingCount: Int { needsYou + completeUnread }
+    public var pendingCount: Int { needsYou }
     public var total: Int { idle + thinking + completeUnread + requiresInput + error }
     public var isEmpty: Bool { total == 0 }
 

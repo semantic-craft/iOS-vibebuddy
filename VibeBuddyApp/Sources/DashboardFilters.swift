@@ -228,7 +228,7 @@ struct DashboardCustomizeSheet: View {
                 Section {
                     Toggle("Show tasks idle over 24 hours", isOn: $selection.includeInactive)
                 } footer: {
-                    Text("A finished task drops off the list a day after its last update. A task that is waiting on you, running, failed, or followed with an unread result always stays, however old it is.")
+                    Text("A finished task drops off the list a day after its last update. Waiting, running, and failed tasks stay visible.")
                 }
                 if selection.isActive || selection.grouping != .recent || selection.includeInactive {
                     Section {
