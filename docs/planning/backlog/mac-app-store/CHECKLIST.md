@@ -40,7 +40,7 @@ Grok Build 领取了 09 并在 `~/Projects/iOS-vibebuddy-wt/mac-app-store`（分
 
 | ID | 工作票 | Blocked by | 当前进度 |
 |---|---|---|---|
-| MAS-01 | 独立评审与规则复核（历史票已移除） | 无 | 用户决定暂不做，已关闭；未实施/未验收 |
+| MAS-01 | 独立评审与规则复核（历史票已移除） | 无 | **已完成** 2026-09-07 → [CLAUDE-REVIEW.md](CLAUDE-REVIEW.md) |
 | MAS-02…08 | 候选票 | — | 用户决定暂不做，已关闭；未实施/未验收 |
 | MAS-09 | [商店版启动后可与 iPhone Pairing](../../../qa/deferred-plan-closeout-2026-10-12.md#mac-app-store-09) | 无 | 用户决定暂不做，已关闭；未实施/未验收 |
 | MAS-10 | [商店版重启后保留 Pairing 与应用数据](../../../qa/deferred-plan-closeout-2026-10-12.md#mac-app-store-10) | 09 | 用户决定暂不做，已关闭；未实施/未验收 |
