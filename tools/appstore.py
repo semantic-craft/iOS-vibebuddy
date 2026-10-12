@@ -116,6 +116,10 @@ def main():
         return
     env = auth_env()
     if args.command == "submit":
+        current = run(["asc", "review", "status", "--app", APP, "--platform", "IOS",
+                       "--version", version], env, True)
+        if current["version"]["state"] not in ("PREPARE_FOR_SUBMISSION", "REJECTED", "DEVELOPER_REJECTED", "METADATA_REJECTED", "READY_FOR_REVIEW"):
+            raise ValueError("version is not submittable; inspect status, do not resubmit an active review")
         run(["asc", "review", "submit", "--app", APP, "--platform", "IOS",
              "--version", version, "--build-number", build, "--confirm"], env)
         return

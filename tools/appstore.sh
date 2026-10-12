@@ -2,6 +2,9 @@
 # Explicit launch entry: load only the ASC whitelist, never a login shell.
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+for arg in "$@"; do
+  case "$arg" in -h|--help) exec python3 "$REPO/tools/appstore.py" "$@" ;; esac
+done
 case "${1:-}" in
   plan|-h|--help|"") exec python3 "$REPO/tools/appstore.py" "$@" ;;
 esac

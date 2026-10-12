@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Critical release-boundary checks; never load real credentials or call Apple."""
 import importlib.util
-import json
 from pathlib import Path
 import plistlib
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,14 @@ spec.loader.exec_module(appstore)
 
 
 class ReleaseBoundaries(unittest.TestCase):
+    def setUp(self):
+        identity = patch.object(appstore, "release_identity", return_value=("1.3.38", "73"))
+        notes = patch.object(appstore, "notes", return_value={"en-US": {"whatsNew": "Fixture"}})
+        identity.start()
+        notes.start()
+        self.addCleanup(identity.stop)
+        self.addCleanup(notes.stop)
+
     def test_wrong_ipa_is_rejected_before_upload(self):
         with tempfile.TemporaryDirectory() as directory:
             ipa = Path(directory) / "wrong.ipa"
@@ -43,6 +52,26 @@ class ReleaseBoundaries(unittest.TestCase):
              patch.object(appstore, "auth_env", side_effect=AssertionError("must not read credentials")):
             with self.assertRaisesRegex(ValueError, "requires --confirm"):
                 appstore.main()
+
+    def test_active_review_cannot_be_resubmitted(self):
+        with patch.object(sys, "argv", ["appstore.py", "submit", "--confirm"]), \
+             patch.object(appstore, "auth_env", return_value={}), \
+             patch.object(appstore, "run", return_value={"version": {"state": "WAITING_FOR_REVIEW"}}) as run:
+            with self.assertRaisesRegex(ValueError, "do not resubmit"):
+                appstore.main()
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0][:3], ["asc", "review", "status"])
+
+    def test_subcommand_help_needs_no_loader_or_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "asc"
+            fake.write_text("#!/bin/sh\nexit 97\n")
+            fake.chmod(0o755)
+            env = dict(os.environ, HOME=directory, PATH=directory + os.pathsep + os.environ["PATH"])
+            result = subprocess.run(["bash", str(appstore.ROOT / "tools/appstore.sh"), "upload", "--help"],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--ipa", result.stdout)
 
     def test_asc_profile_and_foreign_secrets_are_not_combined(self):
         with patch.dict(appstore.os.environ, {"ASC_KEY_ID": "fixture", "ASC_ISSUER_ID": "fixture",
