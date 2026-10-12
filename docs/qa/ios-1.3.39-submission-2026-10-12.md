@@ -25,4 +25,27 @@ No claim is made that a growing collection of unresolved live failures is bounde
 
 ## Store delivery
 
-Pending archive export, upload, processing, staging and submission evidence.
+Source commit: `6780171e`. Archive export and distribution signatures passed for
+app, widget and Watch. IPA SHA-256:
+`7499e2d39bb5e13d967063c6b55bba947f4dfd742017123150d653e9276bc3df`.
+
+Used the project `tools/appstore.sh` entry and asc 5.14.1 with the existing
+1Password credentials. Uploaded build 74 processed as VALID; version 1.3.39
+received the two release-note localizations and updated reviewer notes. Initial
+readiness found missing `socialMedia` and `socialMediaAgeRestricted`; both were
+set to false to match this non-social app, leaving other responses unchanged.
+The resumed staging/readiness check passed. The IPA targets iPhone only
+(`UIDeviceFamily = [1]`); no iPad screenshots were added.
+
+Submitted at 2026-10-12 21:53:33 Asia/Shanghai. A separate status query confirmed
+both version and submission `WAITING_FOR_REVIEW` (not approved or released).
+Release type remains `AFTER_APPROVAL`.
+
+- App: `6777469338`
+- Version ID: `427d1bbc-e861-4a11-95a7-b6495c937d6a`
+- Build ID: `21371032-913e-46e5-a48b-e0174730915b`
+- Submission ID: `076f595e-a6e1-4a99-9815-8998b768fb9d`
+- Durable evidence: `/Users/xianweizhang/Projects/_shared-work/iOS-vibebuddy/20261012-ios-1.3.39/`.
+
+The isolated Demo simulator was shut down after checking launch. The new
+historical-attention change has not been installed in the Mac app.
