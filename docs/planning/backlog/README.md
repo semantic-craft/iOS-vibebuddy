@@ -2,7 +2,9 @@
 
 这里只列**尚未全部验收**的施工项。已完成的改动看 `git log` 和已合并的 PR；各版本做了什么：Mac 看 [GitHub Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases)，iOS 看 App Store 的 What's New。票据做完就删文件和行（见 `docs/agents/issue-tracker.md`）。
 
-2026-10-12 已逐项核对 21 份开放票，见 [收尾验收表](../../qa/housekeeping-2026-10-12.md)。实现已合并的票不再重复开发；剩余产品验收保留，未核实的条件明确列为缺口。下方无独立工单的开发建议、真机清单和观察项，本次未重新复现或补充完整验收，均为**未核实**，不得据此宣告全项目验收完成。
+2026-10-12 第一轮已逐项核对 21 份开放票，见 [收尾验收表](../../qa/housekeeping-2026-10-12.md)。实现已合并的票不再重复开发；剩余产品验收保留，未核实的条件明确列为缺口。下方无独立工单的开发建议、真机清单和观察项，本次未重新复现或补充完整验收，均为**未核实**，不得据此宣告全项目验收完成。
+
+后续 [补验与结案](../../qa/acceptance-closeout-2026-10-12.md) 已补自动检查并按用户要求关闭 9 票，现剩 12 份开放票。真机/耳听及剩余完整产品验收的取消不等于通过；历史规格与证据保留。
 
 优先级（2026-09-23 起）：先完善本机 GitHub 公开版的性能和已知问题；Mac App Store 版延后。领取一张票时先核对当前源码。
 
@@ -10,19 +12,9 @@
 
 | ID | 内容 | 票据 | 状态 | 说明 |
 |---|---|---|---|---|
-| AIC-23 | Agent工程检查与安装计划 | [ticket](agent-engineering-contract/issues/01-agent-contract.md) · [PRD](agent-engineering-contract/PRD.md) | ready-for-human | PR #350 已合并；检查、只读计划和隔离安装回执已验。后续指定的生产安装及用户验收未核实。 |
-| GEM-PRD | Gemini 摘要、朗读与实时通话 | [PRD](gemini-provider-suite/PRD.md) · [依赖总览](gemini-provider-suite/TICKET-PLAN.md) | ready-for-human | 三用途代码已集成；设备实听、配对手机与真实操作验收待完成 |
-| GEM-01 | 配置 Gemini 并获得真实任务摘要 | [ticket](gemini-provider-suite/issues/01-configuration-summary.md) | ready-for-human | 默认摘要模型比较及应用呈现通过；待配对手机与重启验收 |
-| GEM-02 | 在 Mac/iPhone 用 Gemini 朗读结果 | [ticket](gemini-provider-suite/issues/02-read-aloud.md) | ready-for-human | 原生TTS与WAV分段已接通；待两端实听及队列控制 |
-| GEM-03 | 在 Mac/iPhone 用 Gemini 通话并操作任务 | [ticket](gemini-provider-suite/issues/03-live-conversation.md) | ready-for-human | 原生Live两轮/工具回执通过；待实机语音操作指定任务 |
-| GEM-04 | 三用途联合验收与现有供应商回归 | [ticket](gemini-provider-suite/issues/04-integration-acceptance.md) | ready-for-human | 构建、回归与评审已执行；剩余设备联合验收 |
-| AG-05 | 同会话连续提问的新提醒核查 | [ticket](antigravity-monitor/issues/05-repeat-wait-cue.md) | needs-triage | 实体验收发现 R2 无新发送记录；R3 表盘提醒与触觉通过 |
-| IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 仅余 MiniMax 真机耳听/音频路由/VoiceOver 和持有真实目标及多页终端的 app-server；模拟器已验 |
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
-| SET-01 | macOS 设置易用性与 Agent 可操作性 | [工单、清单与实施计划](mac-settings-usability/issues/01-settings-ux-dx-ax.md) | ready-for-human | 已随 PR #336 合并；保留最小窗口及真实设备／服务体验验收缺口，见工单当前状态 |
 | WEB-01 | 跨项目 Web 工作台：项目分类、任务与 agent 看板 | [PRD](web-workbench/PRD.md) · [接入设计](web-workbench/issues/01-integration-contract.md) | needs-triage | 2026-10-01 用户提出方向；整合 Anamra 信息分类、Writing Infra 进度驱动安排及 VibeBuddy 执行；优先评估 Cloudflare Access 入口 |
-| GROK-01 | Grok Build 自动接入、活跃会话发现与就地状态反馈 | [工单](grok-build-onboarding/issues/01-automatic-connection.md) | ready-for-human | 已实现并安装；仅余真实终端重载后事件接入及手机画面验收，见工单当前状态 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后** | 代码已丢失，重启时从 09 重做，见下节 |
 
 

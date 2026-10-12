@@ -1,5 +1,7 @@
 # 项目收尾与清理 — 2026-10-12
 
+后续状态：[自动补验与结案](acceptance-closeout-2026-10-12.md) 已关闭 9 票、保留 12 票；本文各条件和“21 票保留”措辞是第一轮时点的历史核对结果，闭票以新版记录为准。
+
 核对基线：`9bf62eecfaa96b59d0b494814ff9f51ce55fc445`（main 与 origin/main 同步）。21 份开放工单全部按原验收条目登记如下。**历史证据已核对**指读取已有 QA 和主分支实现/合并记录，不代表本次重新运行整套验收；**部分 / 未核实**不能勾选整个条件，21 票均继续保留。代码存在、开放状态、当前发布版本三者不互相替代。
 
 本次不补做所有真机/收费调用，也不启动延后的 Mac 商店开发。当前 Cursor Mac/iPhone 零会话验收与正式版本记录见 [连接代理 QA](connected-agent-roster-2026-10-12.md)、[发布流程 QA](asc-release-workflow-2026-10-12.md)；它们不覆盖 Gemini 实听、MiniMax 音频路由、Grok Build 重载或商店沙盒。
@@ -17,7 +19,7 @@
 
 <a id="agent-engineering-contract-01"></a>
 
-### [agent-engineering-contract/01](../planning/backlog/agent-engineering-contract/issues/01-agent-contract.md)
+### [agent-engineering-contract/01](acceptance-closeout-2026-10-12.md#agent-engineering-contract-01)
 
 主分支：tools/check.py、tools/redeploy-mac.sh、tools/lib/install-mac-app.sh；PR #350 已进入基线。
 
@@ -45,7 +47,7 @@
 
 <a id="antigravity-monitor-05"></a>
 
-### [antigravity-monitor/05](../planning/backlog/antigravity-monitor/issues/05-repeat-wait-cue.md)
+### [antigravity-monitor/05](acceptance-closeout-2026-10-12.md#antigravity-monitor-05)
 
 主分支：现行 Antigravity monitor 与 SoundPolicy；已有 R2 漏提醒、R3 送达的真实证据。
 
@@ -59,7 +61,7 @@
 
 <a id="gemini-provider-suite-01"></a>
 
-### [gemini-provider-suite/01](../planning/backlog/gemini-provider-suite/issues/01-configuration-summary.md)
+### [gemini-provider-suite/01](acceptance-closeout-2026-10-12.md#gemini-provider-suite-01)
 
 主分支：VibeBuddyKit/Sources/VibeBuddyKit/GeminiSpeechSynthesizer.swift、GeminiRealtimeSession.swift；Mac CompletionSummaryService/ContentPresentationService；PR #346 已进入基线。
 
@@ -77,7 +79,7 @@
 
 <a id="gemini-provider-suite-02"></a>
 
-### [gemini-provider-suite/02](../planning/backlog/gemini-provider-suite/issues/02-read-aloud.md)
+### [gemini-provider-suite/02](acceptance-closeout-2026-10-12.md#gemini-provider-suite-02)
 
 主分支：VibeBuddyKit/Sources/VibeBuddyKit/GeminiSpeechSynthesizer.swift、GeminiRealtimeSession.swift；Mac CompletionSummaryService/ContentPresentationService；PR #346 已进入基线。
 
@@ -95,7 +97,7 @@
 
 <a id="gemini-provider-suite-03"></a>
 
-### [gemini-provider-suite/03](../planning/backlog/gemini-provider-suite/issues/03-live-conversation.md)
+### [gemini-provider-suite/03](acceptance-closeout-2026-10-12.md#gemini-provider-suite-03)
 
 主分支：VibeBuddyKit/Sources/VibeBuddyKit/GeminiSpeechSynthesizer.swift、GeminiRealtimeSession.swift；Mac CompletionSummaryService/ContentPresentationService；PR #346 已进入基线。
 
@@ -114,7 +116,7 @@
 
 <a id="gemini-provider-suite-04"></a>
 
-### [gemini-provider-suite/04](../planning/backlog/gemini-provider-suite/issues/04-integration-acceptance.md)
+### [gemini-provider-suite/04](acceptance-closeout-2026-10-12.md#gemini-provider-suite-04)
 
 主分支：VibeBuddyKit/Sources/VibeBuddyKit/GeminiSpeechSynthesizer.swift、GeminiRealtimeSession.swift；Mac CompletionSummaryService/ContentPresentationService；PR #346 已进入基线。
 
@@ -133,7 +135,7 @@
 
 <a id="grok-build-onboarding-01"></a>
 
-### [grok-build-onboarding/01](../planning/backlog/grok-build-onboarding/issues/01-automatic-connection.md)
+### [grok-build-onboarding/01](acceptance-closeout-2026-10-12.md#grok-build-onboarding-01)
 
 主分支：现行 GrokBuild monitor/HookInstaller 与 Mac Agent 接入 UI；另核对 grok-mobile-1.3.34.md、grok-ios-1.3.34-distribution.md。
 
@@ -152,7 +154,7 @@
 
 <a id="ios-companion-parity-06"></a>
 
-### [ios-companion-parity/06](../planning/backlog/ios-companion-parity/issues/06-integration-acceptance.md)
+### [ios-companion-parity/06](acceptance-closeout-2026-10-12.md#ios-companion-parity-06)
 
 主分支：VibeBuddyApp/Sources 的语音、历史及终端实现；原 01–05 已合并。
 
@@ -345,7 +347,7 @@
 
 <a id="mac-settings-usability-01"></a>
 
-### [mac-settings-usability/01](../planning/backlog/mac-settings-usability/issues/01-settings-ux-dx-ax.md)
+### [mac-settings-usability/01](acceptance-closeout-2026-10-12.md#mac-settings-usability-01)
 
 主分支：VibeBuddyMacApp/Sources/SettingsView.swift、SettingsCredentials.swift 及 VoiceSettingsTab.swift；PR #336 与后续额度修复已进入基线。
 

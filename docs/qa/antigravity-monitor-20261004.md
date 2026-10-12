@@ -108,7 +108,7 @@
 
 - 手机安装 1.3.35 (70) Debug；签名 `aps-environment=development`，Mac 现有 APNs `sandbox=true`，未改动凭据或 provider 配置。手表真实回传 `build=70`，且有 `refresh.active.received`，证据 `watch-ready.json`。
 - 第一轮 `AGWATCH-70` 于 10:02:53（Asia/Shanghai）APNs accepted；用户当时正在手表应用内，报告没看到提醒，故不计作表盘通知通过。
-- 同一 CLI 会话 `9b527596-6e50-497f-818a-1cc5b3e824a4` 回答完成后立即提交 R2，快照显示新问题 `AGWATCH-70-R2`，但最终发送日志中没有该轮新 needs_answer。未查明是快照转换、去重还是其他原因；单列 [AG-05](../planning/backlog/antigravity-monitor/issues/05-repeat-wait-cue.md)，不将重试问题隐藏在本轮通过结论中。
+- 同一 CLI 会话 `9b527596-6e50-497f-818a-1cc5b3e824a4` 回答完成后立即提交 R2，快照显示新问题 `AGWATCH-70-R2`，但最终发送日志中没有该轮新 needs_answer。未查明是快照转换、去重还是其他原因；单列 [AG-05](acceptance-closeout-2026-10-12.md#antigravity-monitor-05)，不将重试问题隐藏在本轮通过结论中。
 - 改用新真实 CLI 会话 `abd82ed0-4a4c-43ec-a124-7efe88cd5327`，问题 `AGWATCH-70-R3: 手表通知测试`，10:05:12 APNs accepted。用户明确回报在手机锁屏、手表表盘状态下“看到了，也震动了”。这是物理观察证据；Apple 接收记录本身不证明腕上送达。
 - 在原 CLI 回答 Continue 后，两会话均 done、waitKind 清空；R3 正文 `AGWATCH_70_R3_DONE`，completion `antigravity-cli-0-3`。两个本任务 CLI 均已 `/exit`，保留真实会话历史。Antigravity 为只读接入，本轮不要求或宣称手表远程批准通过；未补做 Mac 重启后的重复推送及手机重开后的不重播检查。
 - 持久证据同前述 `physical-watch/`：`setup.json`、`watch-ready.json`、`r3-waiting-snapshot.json`、`r3-delivery.json`、`watch-after-r3.json`、`resolved-snapshot.json`、`final-delivery.json`、`result.json`。记录已区分第一轮无效条件、R2 待核查和 R3 物理通过。

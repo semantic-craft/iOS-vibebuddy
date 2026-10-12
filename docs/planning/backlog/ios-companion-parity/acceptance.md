@@ -50,7 +50,7 @@ Spec：评审未参与实现的朗读及任务读取部分，发现终端 15 秒
 
 本地证据位于工作树 `.scratch/ios-parity/`：`kit-final-tests.log`、`mac-final-tests.log`、`mac-app-build.log`、`ios-simulator-tests.log`、`ios-tests.xcresult`、`ios-live-signed-tests.log`、`evidence/`。不提交真实会话正文或临时令牌。
 
-[IOSP-06](issues/06-integration-acceptance.md) 保留：真机 MiniMax 凭据与耳听、真实音频中断 / VoiceOver，以及拥有目标和后台终端的原线程只读展示。未替换生产安装，未发布 App Store / 新 macOS 版本；用户尚未验收。
+[IOSP-06](../../../qa/acceptance-closeout-2026-10-12.md#ios-companion-parity-06) 保留：真机 MiniMax 凭据与耳听、真实音频中断 / VoiceOver，以及拥有目标和后台终端的原线程只读展示。未替换生产安装，未发布 App Store / 新 macOS 版本；用户尚未验收。
 
 ## 追加：仅本批改动的 E2E 与性能修复
 
