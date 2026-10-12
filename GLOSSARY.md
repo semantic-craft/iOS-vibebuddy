@@ -916,3 +916,11 @@ Notification suppression requires a positively identified task view (currently t
   Uncommitted compares the tracked working tree with HEAD, including staged
   changes; staged compares the index with HEAD; branch uses the selected
   baseline’s merge base.
+
+## Historical attention amendment (2026-10-12)
+
+The owner excludes all read-only history (`historyOnly`) from pending attention.
+Its recorded lifecycle/failure evidence is retained, but it presents in Done and
+ages into Older after 24 hours, including failed outcomes. This supersedes the
+historical-failure exception to currency in ADR-0017. Live waits and confirmed
+live terminal failures retain their existing attention behavior.

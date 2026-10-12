@@ -119,3 +119,11 @@ a result. Closing the panel stops nothing. A live conversation pauses manual
 reading, which remains paused after the call until an explicit resume. Mac
 voice, summary and read-aloud provider choices stay independent as configured;
 there is no imported phone system-speech fallback.
+
+## Historical attention amendment (2026-10-12)
+
+The owner excludes all read-only history (`historyOnly`) from pending attention.
+Its recorded lifecycle/failure evidence is retained, but it presents in Done and
+ages into Older after 24 hours, including failed outcomes. This supersedes the
+historical-failure exception to currency in ADR-0017. Live waits and confirmed
+live terminal failures retain their existing attention behavior.

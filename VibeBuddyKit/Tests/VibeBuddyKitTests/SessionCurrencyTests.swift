@@ -24,6 +24,13 @@ struct SessionCurrencyTests {
         #expect(!SessionCurrency.isCurrent(session("old", .done, hoursAgo: 5 * 24), now: now))
     }
 
+    @Test func historicalFailuresAgeOut() {
+        var row = session("history-failure", .done, hoursAgo: 48, failed: true)
+        row.historyOnly = true
+        #expect(!SessionCurrency.isCurrent(row, now: now))
+        #expect(SessionCurrency.older([row], now: now).map(\.id) == [row.id])
+    }
+
     @Test func aWaitAFailureAndARunNeverAgeOut() {
         #expect(SessionCurrency.isCurrent(session("wait", .needsResponse, hoursAgo: 5 * 24), now: now))
         #expect(SessionCurrency.isCurrent(session("broke", .done, hoursAgo: 5 * 24, failed: true), now: now))

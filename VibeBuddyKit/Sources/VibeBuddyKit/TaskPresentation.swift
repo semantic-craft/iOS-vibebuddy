@@ -110,7 +110,9 @@ public extension AgentSession {
     }
 
     var presentationState: TaskPresentationState {
-        TaskPresentationState.project(
+        // Imported history has no live action, even when its recorded outcome failed.
+        if historyOnly == true { return .completeUnread }
+        return TaskPresentationState.project(
             status: status,
             waitKind: waitKind,
             failed: isStuck,

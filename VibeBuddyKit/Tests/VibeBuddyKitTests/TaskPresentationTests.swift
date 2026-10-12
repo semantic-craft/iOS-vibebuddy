@@ -56,6 +56,21 @@ struct TaskPresentationTests {
         #expect(combinations == 36)
     }
 
+    @Test("Imported historical failures never accumulate pending badges")
+    func historicalFailuresAreNotPending() {
+        let history = (0..<500).map { index in
+            var row = session("history-\(index)", status: .done, failed: true, unread: true)
+            row.historyOnly = true
+            return row
+        }
+        let question = session("live-question", status: .needsResponse, waitKind: .question)
+        let rows = history + [question]
+        #expect(TaskPresentationSummary(sessions: rows).pendingCount == 1)
+        #expect(PendingTasks.ordered(rows).map(\.id) == ["live-question"])
+        #expect(StateGroups(rows).done.count == 500)
+        #expect(history.allSatisfy { $0.isStuck }) // Failure evidence is preserved.
+    }
+
     @Test("priority is error, input, thinking, unread completion, idle")
     func conflictPriority() {
         #expect(session("failed-wait", status: .needsResponse, waitKind: .permission,

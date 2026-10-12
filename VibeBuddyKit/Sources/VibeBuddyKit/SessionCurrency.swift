@@ -23,6 +23,10 @@ public enum SessionCurrency {
 
     public static func isCurrent(_ session: AgentSession, now: Date,
                                  window: TimeInterval = window) -> Bool {
+        // Read-only history never gains permanent currency from a recorded failure/wait.
+        if session.historyOnly == true {
+            return now.timeIntervalSince(session.updatedAt) <= window
+        }
         switch session.status {
         case .needsResponse, .working: return true
         case .done: break
