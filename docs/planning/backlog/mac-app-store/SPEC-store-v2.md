@@ -1,6 +1,9 @@
 # Mac App Store Spec v2：守望与放行
 
-Status: needs-triage
+2026-10-12 当前状态：商店施工票已按用户要求关闭；本文保留有效候选设计与历史依据，以下日期下的实施/triage 说明是历史范围，不是待领取任务。见 [计划收尾](../../../qa/deferred-plan-closeout-2026-10-12.md)。
+
+
+Disposition: reference-only; implementation tickets closed by owner on 2026-10-12
 日期：2026-09-08
 基线：main 053a87b
 范围：既有产品定义与第一阶段源码评估的综合稿
@@ -97,9 +100,9 @@ Claude Code 和 Codex CLI 保留 Hook 审批；Codex Desktop 目标是只读观�
 
 ## Further Notes
 
-本稿按 to-spec 模板综合已有讨论，不重新访谈。Status 为 needs-triage，因为上述实质问题及实施确认尚未关闭；不是 ready-for-agent，也不是第二阶段授权。
+本稿在 2026-09-08 按 to-spec 模板综合讨论，开票时曾为 needs-triage。2026-10-12 转为设计参考，旧实施确认和领取条件不再是活动队列。
 
-现有工作票 09–18 仍是逐票实施与证据的权威，本稿承接产品定义和评估修订。历史 [Spec v1](SPEC-store-v1.md) 保留裁决修正背景；[实施方案](IMPLEMENTATION-PLAN.html) 承载具体步骤与文件定位；[评估记录](evidence/PLAN-REVIEW.md) 区分静态检查与未测事项；[CHECKLIST](CHECKLIST.md) 维护状态与下一次入口。
+原 09–18 已于 2026-10-12 按用户要求关闭；本稿保留产品定义和评估修订。历史 [Spec v1](SPEC-store-v1.md) 保留裁决背景；原 `IMPLEMENTATION-PLAN.html` 的历史存放指针见 [CHECKLIST](CHECKLIST.md)，不是当前仓库文件。原 `evidence/PLAN-REVIEW.md` 当前仓库未保留，不作为可访问证据；仍有效的保留评审和实测见 [CLAUDE-REVIEW](CLAUDE-REVIEW.md) 与 `evidence/`，不冒充缺失的原记录。
 
 修订依赖顺序：09 → 10/11 → 12 → 13；13 通过后推进 14、15、16；17 依赖 09、12、13、14；18 依赖 14–17。每票领取写 Owner，全部验收有证据后才写 Progress: completed。13 失败先定因。
 
