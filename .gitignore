@@ -51,3 +51,7 @@ docs/qa-screenshots/
 # Playwright MCP page dumps (local tooling noise)
 .playwright-mcp/
 tools/a11y-audit/A11yAudit.xcodeproj/
+
+# App Store credentials are held by 1Password, never source control.
+*.p8
+.asc/

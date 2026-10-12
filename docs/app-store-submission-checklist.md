@@ -10,9 +10,9 @@ App 已上架（`com.vibebuddy.app`，Team `LQAVR62TK2`）。每次提交新版�
 
 1. 版本号：`project.yml` 里每个 target 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 保持一致。
 2. `tools/archive-ios.sh`（用 Xcode 登录的 Apple ID 签名，也支持 `--api-key`）：核对配置、archive、导出，验证 `.ipa` 里 app / Widget / 通知扩展 / Watch app 都正确内嵌与签名，最后打印上传命令。脚本从不上传。
-3. 上传：Organizer → Distribute App → App Store Connect，或脚本打印的 `xcrun altool` 命令。等几分钟 build 出现在版本页。
+3. 上传：优先走 [asc 发版入口](app-store-cli.md) 的 `bash tools/appstore.sh upload --confirm`；保留 Organizer 或 `xcrun altool` 作为既有账户入口。等待 build 处理为 VALID。
 4. 更新说明写进 `docs/release-notes-ios-<version>.md`，粘到 What's New。文案、隐私标签和审核备注见 [app-store-listing.md](app-store-listing.md)。
-5. 选 build → Submit for Review。提交要有所有者的明确指令。
+5. 用 asc `stage` 关联精确 build、更新中英文说明及已批准的审核备注；再用 `submit --confirm` 提交并用 `status` 读回。提交要有所有者的明确指令，不能把 upload 或 stage 当成提交完成。
 
 ## 被拒风险
 

@@ -262,7 +262,9 @@ cat > "$OPTS" <<PLIST
 PLIST
 
 rm -rf "$EXPORT_DIR"
-xcodebuild -exportArchive \
+# Xcode invokes Apple's rsync flags. Homebrew rsync rejects -E on this host.
+# Restrict only export's PATH; archive still uses the usual XcodeGen/tool paths.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportOptionsPlist "$OPTS" \
   -exportPath "$EXPORT_DIR" \
@@ -346,8 +348,13 @@ note "size:    $(du -h "$IPA" | cut -f1)"
 
 cat <<UPLOAD
 
-  Uploading is deliberately manual — it puts a build in front of Apple and your
-  testers. When you mean to, easiest first:
+  The archive/export is complete; no build was uploaded or submitted.
+  With owner authorization, continue through the project's asc entry:
+
+    bash tools/appstore.sh plan
+    bash tools/appstore.sh upload --ipa "$IPA" --confirm
+
+  Or use Xcode's existing Apple account:
 
     Xcode ▸ Window ▸ Organizer ▸ select this archive ▸ Distribute App
 
