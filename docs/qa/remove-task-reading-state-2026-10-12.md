@@ -41,8 +41,26 @@ fingerprint changes are superseded by the scoped passing reports above.
 
 ## Delivery boundary
 
-Source implemented and native isolated flow checked. No installed-app replacement,
-physical iPhone/Watch acceptance, provider/audio acceptance or release is claimed.
-The shared-app peer check found other active sessions; their device ownership was
-not confirmed. Follow `docs/sparkle-setup.md`, "The installed app is shared", before
-replacing `/Applications/VibeBuddyMacApp.app`. No production token was changed.
+Source implemented and native isolated flow checked. The owner subsequently
+confirmed there was no other device acceptance and requested installed replacement.
+Signed Release 1.3.47 (65), source `725098c7`, was installed at
+`/Applications/VibeBuddyMacApp.app` on 2026-10-12 at 13:38 UTC. Candidate and
+installed executable SHA-256 match:
+`1e165dfca30727e78c03c155a5c30dcd76204b75117e9f9e44adf69a1d97da5f`.
+
+Installation receipt and logs are retained under
+`/Users/xianweizhang/Projects/_shared-work/iOS-vibebuddy/20261012-no-read-state-install/`.
+`receipt-retry.json` reports installed/complete. The initial attempt safely
+stopped before replacement because the previous app did not exit after SIGTERM.
+Its verified process was terminated before retry; the leftover isolated process
+was also verified and terminated. The installer verified the new service on 9876.
+No production token was changed.
+
+Installed native AX and screenshot show Inbox badge 4, first-up 1 / 4, and
+649 completed results separately (8 working at the final observation). Thus
+completed results no longer inflate the installed dashboard's pending badge.
+The UI tool exposes the dashboard window but not the system status item;
+direct visual verification of the menu-bar icon remains unavailable. Do not
+conflate the shared counter implementation or dashboard evidence with that check.
+The summary also shows the untranslated phrase `649 done`.
+No physical iPhone/Watch acceptance, provider/audio acceptance or release is claimed.
