@@ -1,8 +1,8 @@
 # Gemini 摘要、朗读与实时通话
 
-Status: ready-for-human
+Disposition: implementation retained; remaining product acceptance cancelled by owner on 2026-10-12
 日期：2026-10-04
-阶段：三用途实现已随 PR #346 合入 main；设备实听、配对手机及真实任务操作验收未完成。
+阶段：三用途实现已随 PR #346 合入 main；自动部分已补验，用户取消剩余设备/实听及完整产品验收，四票结案。规格保留作实现依据，不宣称所有门槛已通过。
 本 PRD 的问题陈述记录原始基线；当前交付与剩余项见 [验收记录](../../../qa/gemini-suite-20261004.md)。
 代码基线：`5af77f161cd28386beeda8b6c98853811013f43e`
 

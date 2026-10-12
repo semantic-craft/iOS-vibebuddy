@@ -13,3 +13,5 @@
 ## Comments
 
 - 2026-09-21：0.153.4 仍写 rollout；`thread/list` 已报 `historyMode: paginated`。
+
+- 2026-10-12 补验：Codex CLI 0.162.1，sqlite removed=true；仅核对本机 rollout 文件元数据，当日 48 份、最新仍在写入。旧 codex-dev.db 存在不证明迁移完成。触发前提未成立，保留观察项，见 [补验记录](../../../../qa/acceptance-closeout-2026-10-12.md)。
