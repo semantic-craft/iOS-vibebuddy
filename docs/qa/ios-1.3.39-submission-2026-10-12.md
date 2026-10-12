@@ -47,5 +47,27 @@ Release type remains `AFTER_APPROVAL`.
 - Submission ID: `076f595e-a6e1-4a99-9815-8998b768fb9d`
 - Durable evidence: `/Users/xianweizhang/Projects/_shared-work/iOS-vibebuddy/20261012-ios-1.3.39/`.
 
-The isolated Demo simulator was shut down after checking launch. The new
-historical-attention change has not been installed in the Mac app.
+The isolated Demo simulator was shut down after checking launch. The historical-attention change was subsequently installed on Mac; see the
+Mac follow-up below.
+
+
+## Mac installed follow-up — 2026-10-12
+
+Owner explicitly requested installing the historical-attention change on Mac.
+Built source `b1b00f9b` without source changes, installed 1.3.47 (65) at 22:02
+Asia/Shanghai. Installed and candidate executable hashes match:
+`50202096ec0bdc087fc86eec187cbfd4d702f190890edba11f45ecf3b744c02d`.
+The installer verified unique service ownership on 9876. The previous process
+again ignored SIGTERM, so the first install stopped before replacement; its
+verified PID was terminated before the successful retry.
+
+After observers recovered, installed native AX shows the global Inbox summary
+`0 个需要你 662 done 9 个进行中` and the Needs-you bucket `0`; the previous four
+historical failures no longer add pending attention. This is installed dashboard
+evidence, not a new direct screenshot of the system menu-bar status item.
+
+Durable evidence:
+`/Users/xianweizhang/Projects/_shared-work/iOS-vibebuddy/20261012-history-attention-mac-install/`.
+The prepared candidate/build cache and failed-install staging copy were removed
+following the owner's cleanup preference. The successful installation retains
+its previous.app recovery copy.
