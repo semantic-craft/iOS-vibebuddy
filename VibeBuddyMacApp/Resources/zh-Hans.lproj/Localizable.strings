@@ -1440,3 +1440,13 @@
 "Voice model" = "当前音色模型";
 "Summaries follow this language unless a summary and reading language is selected." = "未单独选择摘要与播报语言时，摘要跟随对话语言。";
 "Choose a language for the voice and newly generated spoken summaries. Connect to an updated Mac to generate Japanese summaries." = "选择音色和新生成的语音摘要所用的语言。生成日语摘要需要连接已更新的 Mac。";
+
+"No tasks need your response right now." = "目前没有需要你回应的任务。";
+
+"Completed tasks remain in All sessions." = "已完成任务保留在全部任务中。";
+
+"Tasks that need your response." = "需要你回应的任务。";
+
+"More results remain in Done" = "更多结果可在已完成任务中查看";
+
+"Task status changed. A newer result is available." = "任务状态已变化，有新的结果。";

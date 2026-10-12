@@ -185,7 +185,7 @@ public enum CompanionCopy {
 
     public static func needsYou(_ s: TaskPresentationSummary) -> Int { s.needsYou }
     public static func attentionLine(_ s: TaskPresentationSummary) -> String {
-        String(localized: "Needs you \(s.needsYou) · Unread results \(s.completeUnread)", bundle: .module)
+        String(localized: "Needs you \(s.needsYou)", bundle: .module)
     }
 
     /// `3 things need you` / `1 thing needs you` / `All quiet — 2 working` / `All quiet`.
@@ -247,9 +247,6 @@ public struct StateGroups: Equatable, Sendable {
         done = sessions.enumerated()
             .filter { $0.element.presentationState == .completeUnread || $0.element.presentationState == .idle }
             .sorted {
-                if $0.element.hasUnreadCompletion != $1.element.hasUnreadCompletion {
-                    return $0.element.hasUnreadCompletion
-                }
                 if $0.element.updatedAt != $1.element.updatedAt {
                     return $0.element.updatedAt > $1.element.updatedAt
                 }

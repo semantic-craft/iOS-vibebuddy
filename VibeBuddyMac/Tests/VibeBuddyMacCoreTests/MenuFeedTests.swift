@@ -99,22 +99,22 @@ struct MenuFeedTests {
         #expect(sessions(f, .done).map(\.id) == ["today"])
         #expect(sessions(f, .older).map(\.id) == ["readLater", "lastWeek"])
         // The panel's line counts what is current, like the phone and the Watch.
-        #expect(f.summary.idle == 1)
-        #expect(f.summary.completeUnread == 0)
+        #expect(f.summary.idle == 0)
+        #expect(f.summary.completeUnread == 1)
         #expect(f.summary.thinking == 1)
         #expect(f.totalCount == 4)
     }
 
-    @Test func aWaitAFailureARunAndAFollowedUnreadNeverFold() {
+    @Test func onlyWaitFailureAndRunningNeverFold() {
         var followed = unread("followed", ago: stale)
         followed.attention = .followed
         let input = [session("wait", ago: stale, .needsResponse), failed("broke", ago: stale),
                      session("stalled", ago: stale), followed]
         let f = make(input)
-        #expect(sessions(f, .older).isEmpty)
+        #expect(sessions(f, .older).map(\.id) == ["followed"])
         #expect(sessions(f, .needsYou).map(\.id) == ["wait", "broke"])
         #expect(sessions(f, .working).map(\.id) == ["stalled"])
-        #expect(sessions(f, .done).map(\.id) == ["followed"])
+        #expect(sessions(f, .done).isEmpty)
     }
 
     @Test func returnNeverLandsInOlderWhileSomethingCurrentMatches() {
@@ -205,12 +205,12 @@ struct MenuFeedTests {
     }
     @Test func unreadAndNextPendingUseAttentionOrder() {
         let feed = make([session("read", .done), unread("unread", ago: 30), session("wait", .needsResponse)])
-        #expect(sessions(feed, .done).map(\.id) == ["unread", "read"])
+        #expect(sessions(feed, .done).map(\.id) == ["read", "unread"])
         var navigation = PendingTaskNavigation()
         let first = navigation.next(in: feed.pending, after: nil)
         #expect(first?.id == "wait")
         let next = navigation.next(in: feed.pending, after: first)
-        #expect(next?.id == "unread")
+        #expect(next == nil)
         #expect(navigation.next(in: feed.pending, after: next)?.id == "wait")
     }
 }

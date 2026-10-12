@@ -12,22 +12,17 @@ struct PendingTaskNavigationTests {
         return s
     }
 
-    @Test("Reading removes a result without sending the tour back to an unresolved wait")
-    func removedRead() {
+    @Test("Completed results never inflate pending counts, regardless of legacy read state")
+    func completedResultsAreNotPending() {
         let wait = task("wait", .needsResponse)
-        let first = task("first", .done)
-        let second = task("second", .done)
-        var tour = PendingTaskNavigation()
-        let ordered = PendingTasks.ordered([first, second, wait])
-        #expect(ordered.map(\.id) == ["wait", "first", "second"])
-        #expect(tour.next(in: ordered, after: nil)?.id == "wait")
-        #expect(tour.next(in: ordered, after: wait)?.id == "first")
-        var read = first; read.hasUnreadCompletion = false
-        let remaining = PendingTasks.ordered([read, second, wait])
-        #expect(tour.next(in: remaining, after: read)?.id == "second")
-        #expect(tour.next(in: [wait], after: second)?.id == "wait")
-        #expect(tour.next(in: [wait], after: wait) == nil)
-        #expect(tour.next(in: [], after: wait) == nil)
+        var finished = (0..<496).map { task("done-\($0)", .done) }
+        finished[0].hasUnreadCompletion = false
+        let sessions = finished + [wait, task("wait2", .needsResponse),
+                                   task("wait3", .needsResponse), task("wait4", .needsResponse)]
+        #expect(PendingTasks.ordered(sessions).count == 4)
+        #expect(TaskPresentationSummary(sessions: sessions).pendingCount == 4)
+        #expect(StateGroups(sessions).done.count == 496)
+        #expect(!RowPresentation(session: finished[1]).unread)
     }
 
     @Test("Manual selection and new rounds keep a stable order without revisiting the current task")

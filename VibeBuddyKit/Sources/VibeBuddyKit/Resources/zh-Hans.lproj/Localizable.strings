@@ -229,3 +229,5 @@
 /* Voice task action held because the user's words did not name its target (RV-03) */
 "Not sent to %@: you said %@." = "没有发给 %@：你说的是 %@。";
 "Not sent to %@: say “%@” to confirm." = "没有发给 %@：请说出“%@”确认。";
+
+"Needs you %lld" = "需要处理 %lld";

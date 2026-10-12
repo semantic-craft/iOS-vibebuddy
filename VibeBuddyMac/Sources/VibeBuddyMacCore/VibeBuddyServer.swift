@@ -364,19 +364,6 @@ public struct VibeBuddyServer: Sendable {
             }
         }
 
-        // Followed completions (effective attention `followed`, set by hand or
-        // inferred): propose reminders on a schedule, deliver through
-        // the app's handler or the daemon's own APNs push, and count only what
-        // was actually handed to a channel.
-        let reminderServer = self
-        Task {
-            var schedule = CompletionReminderSchedule()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                await reminderServer.remindFollowedCompletions(&schedule, now: Date())
-            }
-        }
-
         // APNs: push a "needs you" alert to registered devices on each fresh
         // needsResponse transition. Off until a pusher is configured.
         if let pusher = self.pusher {

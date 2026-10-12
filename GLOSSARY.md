@@ -10,6 +10,17 @@ Jump to: [Core](#core) · [Mac side](#mac-side) · [Buddy / pet](#buddy--pet) ·
 [Autonomous task desk](#autonomous-task-desk-2026-09-13).
 For source ownership and checks, use the [development map](docs/agents/development.md).
 
+## Reading-state removal (2026-10-12)
+
+The owner's current decision supersedes the historical read/unread descriptions
+below (ADR-0020 amendment). **Done** includes every successful finished task.
+**Pending** includes only questions, approvals and confirmed terminal failures;
+completed results never inflate its count. Viewing a result changes no task state.
+Completion results remain available for viewing and speech, ordered by recency;
+finished tasks age out after 24 hours even when followed. No read/unread controls
+or repeated unread reminders are offered. Legacy protocol fields retain their wire
+names for older installed clients, not as product concepts.
+
 ## Core
 
 - **Session** (`AgentSession`) — one coding-agent run on the Mac (Claude Code or

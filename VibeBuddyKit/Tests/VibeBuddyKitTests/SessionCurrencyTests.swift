@@ -30,10 +30,10 @@ struct SessionCurrencyTests {
         #expect(SessionCurrency.isCurrent(session("stalled", .working, hoursAgo: 5 * 24), now: now))
     }
 
-    @Test func anUnreadCompletionStaysOnlyWhileFollowedOrFresh() {
+    @Test func legacyUnreadDoesNotKeepOldCompletionsCurrent() {
         // The Mac keeps reminding about a followed, unread completion, so the
         // phone must keep showing what the reminder is about.
-        #expect(SessionCurrency.isCurrent(session("followed", .done, hoursAgo: 30, unread: true,
+        #expect(!SessionCurrency.isCurrent(session("followed", .done, hoursAgo: 30, unread: true,
                                                   attention: .followed), now: now))
         #expect(!SessionCurrency.isCurrent(session("normal", .done, hoursAgo: 30, unread: true), now: now))
         #expect(!SessionCurrency.isCurrent(session("muted", .done, hoursAgo: 30, unread: true,
@@ -55,7 +55,7 @@ struct SessionCurrencyTests {
                      session("c", .done, hoursAgo: 48), session("d", .working, hoursAgo: 1)]
         let whole = TaskPresentationSummary(sessions: input)
         let current = TaskPresentationSummary(currentIn: input, now: now)
-        #expect(whole.idle == 2)
+        #expect(whole.completeUnread == 3)
         #expect(current.idle == 0)
         #expect(current.completeUnread == 1)
         #expect(current.thinking == 1)

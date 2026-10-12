@@ -14,9 +14,6 @@ import Foundation
 /// - it failed, because a failure that nobody has looked at is not history;
 /// - it is still `working`: a stalled run is a run, and hiding it would make
 ///   every other surface's "working" count a lie;
-/// - it is followed and its completion is unread: the Mac is still reminding
-///   about it every five minutes (`CompletionReminderSchedule`), so the phone
-///   must still show what the reminder is about.
 ///
 /// The window is presentation only. Notifications, deep links, acknowledgements
 /// and the buddy's scope keep resolving against the complete session set.
@@ -31,7 +28,6 @@ public enum SessionCurrency {
         case .done: break
         }
         if session.isStuck { return true }
-        if session.hasUnreadCompletion && session.effectiveAttention == .followed { return true }
         return now.timeIntervalSince(session.updatedAt) <= window
     }
 

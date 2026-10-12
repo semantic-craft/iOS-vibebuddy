@@ -322,7 +322,7 @@ private struct GeneralPage: View {
                                        identifier: "settings.general.shortcut.openDashboard",
                                        onRecord: model.setHotkey)
                 }
-                SettingsRow("Next pending task", detail: "Needs you, then unread results.") {
+                SettingsRow("Next pending task", detail: "Tasks that need your response.") {
                     HotkeyRecorderView(current: model.nextPendingHotkey,
                                        recordLabel: "Record shortcut for Next pending task",
                                        cancelLabel: "Cancel recording shortcut for Next pending task",

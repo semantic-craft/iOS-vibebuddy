@@ -13,7 +13,7 @@ public struct RowPresentation: Equatable, Sendable {
 
     public init(session: AgentSession) {
         title = session.displayTitle
-        unread = session.status == .done && session.hasUnreadCompletion
+        unread = false // Retained for older consumers; reading is not task state.
         updatedAt = session.updatedAt
         if session.status == .done && session.historyOnly != true && !session.isStuck
             && session.loopScheduled != true {

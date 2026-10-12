@@ -28,7 +28,7 @@ struct WatchFollowedTaskTests {
                                 session("normal", .done, unread: true, followed: false),
                                 session("read", .done, followed: false)])
         #expect(state.presentation.completeUnread == 2)
-        #expect(state.unfollowedUnreadCount == 1)
+        #expect(state.unfollowedUnreadCount == 2)
         #expect(state.stuckTasks.first?.presentation == .error)
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
         json.removeValue(forKey: "unfollowedUnreadCount")
@@ -54,7 +54,7 @@ struct WatchFollowedTaskTests {
         b.status = .working
         #expect(WatchComplicationSnapshot(state: projection([a,b,c])).selectedTask?.sessionID == "a")
         a.hasUnreadCompletion = false
-        #expect(WatchComplicationSnapshot(state: projection([a,b,c])).selectedTask?.sessionID == "b")
+        #expect(WatchComplicationSnapshot(state: projection([a,b,c])).selectedTask?.sessionID == "a")
     }
 
     @Test("Stable running selection, identity and actual observation survive the compact cache")

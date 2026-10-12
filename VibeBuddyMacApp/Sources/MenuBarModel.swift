@@ -243,7 +243,8 @@ final class MenuBarModel: ObservableObject {
                 self.readAloud.report("Task state is unavailable. Try again when connected.")
                 return
             }
-            let pending = PendingTasks.ordered(SessionCurrency.current(snapshot.sessions, now: Date()))
+            let current = SessionCurrency.current(snapshot.sessions, now: Date())
+            let pending = PendingTasks.ordered(current) + StateGroups(current).done
             guard !pending.isEmpty else { self.readAloud.report("No current pending tasks to read"); return }
             let batch: [(AgentSession, NotificationSound, String)] = pending.prefix(10).compactMap { session in
                 let sound: NotificationSound = session.status == .needsResponse
@@ -317,7 +318,7 @@ final class MenuBarModel: ObservableObject {
                 }
             }
             switch sound {
-            case .agentDone: return current.status == .done && current.hasUnreadCompletion && !current.isStuck
+            case .agentDone: return current.status == .done && !current.isStuck
             case .agentStuck: return current.status == .done && current.isStuck
             case .needsApproval, .needsAnswer: return current.status == .needsResponse
             default: return false

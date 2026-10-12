@@ -149,7 +149,7 @@ private struct WatchHeadline: View {
                         Text("\(state.counts.working) working")
                             .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
                     }
-                    Text("Done \(state.counts.done) · \(state.presentation.completeUnread) unread")
+                    Text("Done \(state.counts.done)")
                         .font(CompanionType.font(10)).monospacedDigit()
                         .foregroundStyle(CompanionPalette.ink2)
                         .fixedSize(horizontal: false, vertical: true)

@@ -85,16 +85,6 @@ public enum VoiceTools {
             ],
             required: ["project", "text"]),
         VoiceTool(
-            name: "mark_read_session",
-            description: "Mark the current unread result of a finished coding session as read. "
-                + "Only call this when the user explicitly says they are done with that result; "
-                + "it confirms reading, not review or acceptance.",
-            parameters: [
-                .init(name: "project", type: "string",
-                      description: "The project name of the session whose result to mark read, taken from the session list."),
-            ],
-            required: ["project"]),
-        VoiceTool(
             name: "instruct_session",
             description: "Send free-text instructions to a coding session that is running or finished — "
                 + "a supplement to the running turn or the next turn. Not for answering a pending question. "

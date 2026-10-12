@@ -41,7 +41,7 @@ struct TaskPresentationTests {
                             switch status {
                             case .needsResponse: .requiresInput
                             case .working: .thinking
-                            case .done: unread ? .completeUnread : .idle
+                            case .done: .completeUnread
                             }
                         }
                         #expect(session("case-\(combinations)", status: status,
@@ -87,7 +87,7 @@ struct TaskPresentationTests {
         let groups = StateGroups(sessions)
         #expect(groups.needsYou.map(\.id) == ["question", "plan", "approval", "failed"])
         #expect(groups.working.map(\.id) == ["recovering", "disconnected"])
-        #expect(groups.done.map(\.id) == ["unread", "read"])
+        #expect(groups.done.map(\.id) == ["read", "unread"])
         let summary = TaskPresentationSummary(currentIn: sessions, now: Date(timeIntervalSince1970: 11))
         #expect(summary.requiresInput + summary.error == groups.needsYou.count)
         #expect(summary.thinking == groups.working.count)
@@ -104,7 +104,7 @@ struct TaskPresentationTests {
             session("error", status: .done, failed: true, updatedAt: 5),
         ]
         let summary = TaskPresentationSummary(sessions: sessions)
-        #expect(summary == TaskPresentationSummary(idle: 1, thinking: 1, completeUnread: 1,
+        #expect(summary == TaskPresentationSummary(idle: 0, thinking: 1, completeUnread: 2,
                                                    requiresInput: 1, error: 1))
         #expect(summary.primaryState == .error)
         #expect(sessions.leadingPresentationSession?.id == "error")

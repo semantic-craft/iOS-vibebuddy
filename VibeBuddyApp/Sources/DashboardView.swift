@@ -416,7 +416,8 @@ struct DashboardView: View {
     /// Speak the pending queue of the page in view: the whole snapshot from
     /// the hub, the scope from a list. Reading never marks anything read.
     private func readPending() {
-        let pending = page == .inbox ? inbox.pending : pendingCandidates
+        let scope = page == .inbox ? SessionCurrency.current(dashboard.allSessions, now: now) : stream
+        let pending = PendingTasks.ordered(scope) + StateGroups(scope).done
         announcer.announce(pending, startPaused: voice.phase != .idle, live: { dashboard.allSessions },
                            source: { dashboard.speechSourceIdentity },
                            content: { try await dashboard.announcement(for: $0) },
@@ -782,13 +783,6 @@ extension DashboardView {
     /// you drove the session, normal otherwise.
     @ViewBuilder
     fileprivate func attentionMenu(_ session: AgentSession) -> some View {
-        if session.status == .done, session.completionID != nil {
-            Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                if session.hasUnreadCompletion {
-                    dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
-                } else { dashboard.markUnread(session) }
-            }
-        }
         Picker(selection: Binding(get: { session.attentionOverride },
                                   set: { dashboard.setAttention(session.id, $0) })) {
             Label(String(localized: "Automatic"), systemImage: "wand.and.stars")

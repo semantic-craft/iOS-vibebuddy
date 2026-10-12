@@ -30,7 +30,7 @@ struct MacInboxHomeView: View {
                     }
                     HStack(spacing: 16) {
                         Label("\(summary.needsYou) need you", systemImage: "exclamationmark.circle")
-                        Label("\(summary.completeUnread) unread", systemImage: "checkmark.circle")
+                        Label("\(summary.completeUnread) done", systemImage: "checkmark.circle")
                         Label("\(summary.thinking) working", systemImage: "ellipsis.circle")
                     }
                     .font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2)
@@ -65,16 +65,16 @@ struct MacInboxHomeView: View {
                         Label(summary.thinking > 0 ? "Work is continuing" : "Nothing pending",
                               systemImage: summary.thinking > 0 ? "ellipsis.circle" : "moon.zzz")
                             .font(MacTheme.font(14, .medium)).foregroundStyle(MacTheme.ink)
-                        Text(summary.thinking > 0 ? "No decisions or unread results need you right now."
+                        Text(summary.thinking > 0 ? "No tasks need your response right now."
                              : summary.isEmpty && projection.olderCount > 0 ? "Nothing has moved in the last 24 hours."
                              : summary.isEmpty ? "Start a Claude Code or Codex session and it'll show up here."
-                             : "Read results remain in All sessions.")
+                             : "Completed tasks remain in All sessions.")
                             .font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2)
                     }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
                     bucket("All sessions", count: summary.total, symbol: "line.3.horizontal", filter: nil)
-                    bucket("Unread results", count: summary.completeUnread, symbol: "checkmark.circle", filter: .done)
+                    bucket("Done", count: summary.completeUnread, symbol: "checkmark.circle", filter: .done)
                     bucket(needsTitle, count: summary.needsYou, symbol: "exclamationmark.triangle", filter: .needsYou)
                     bucket("Working", count: summary.thinking, symbol: "ellipsis.circle", filter: .working)
                 }

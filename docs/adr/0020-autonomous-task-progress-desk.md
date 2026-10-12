@@ -3,6 +3,20 @@
 **Status:** Accepted (2026-09-13). Implements the owner's subsequent implementation
 request for `.scratch/yolo-first-attention/PRD.md`, Revision 2.
 
+## Amendment: remove reading state (2026-10-12)
+
+The owner removed the read/unread task concept. This supersedes the reading-state
+and pending-result rules below and in ADR-0017, ADR-0021, ADR-0022 and ADR-0024.
+Successful tasks are Done regardless of whether their result has been viewed.
+Only questions, approvals and confirmed terminal failures enter pending navigation
+and the menu badge. Completed results sort by time and age out after 24 hours,
+including followed tasks. Results remain available to view and read aloud.
+No user-facing read markers, mark-read actions, automatic reading acknowledgements
+or periodic unread-completion reminders remain. One-shot completion notices and
+verified-result speech keep their existing identities and evidence requirements.
+Legacy wire/storage fields remain for installed-client compatibility and delivery
+bookkeeping; they do not determine presentation or pending counts.
+
 ## Context
 
 The owner's everyday agents usually run autonomously. The desktop must make

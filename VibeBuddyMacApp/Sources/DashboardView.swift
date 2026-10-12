@@ -510,7 +510,7 @@ struct DashboardView: View {
         switch group {
         case .needsYou: "Needs you"
         case .working: "Working"
-        case .done: "Unread results"
+        case .done: "Done"
         case .idle: "Idle"
         }
     }

@@ -967,10 +967,6 @@ struct MenuContent: View {
                                 .foregroundStyle(MacTheme.ink)
                                 .lineLimit(1)
                             Spacer(minLength: 0)
-                            if presentation.unread {
-                                Text("Unread").font(MacTheme.font(9.5, .medium))
-                                    .foregroundStyle(MacTheme.status(.completeUnread))
-                            }
                             if isTarget { jumpBadge }
                             TimelineView(.periodic(from: .now, by: 2)) { context in
                                 Text(verbatim: MenuFeed.age(of: session.updatedAt, now: context.date))
@@ -1008,12 +1004,6 @@ struct MenuContent: View {
             .buttonStyle(.plain)
             .contextMenu {
                 AttentionPicker(session: session, model: model, style: .menu)
-                if session.status == .done, session.completionID != nil {
-                    Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                        if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
-                        else { model.markUnread(session) }
-                    }
-                }
             }
             .onHover { hoveredSessionID = $0 ? session.id : nil }
             .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.statusLabel)\n\(session.summary ?? "")")

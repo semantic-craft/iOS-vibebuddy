@@ -479,7 +479,7 @@ public enum WatchDashboardProjection {
             sourceID: snapshot.sourceID,
             followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
             workingTasks: current.filter { $0.presentationState == .thinking }.map(WatchFollowedTask.init),
-            results: results(in: pending),
+            results: results(in: pending + StateGroups(current).done),
             unfollowedUnreadCount: current.filter {
                 $0.presentationState == .completeUnread && $0.effectiveAttention != .followed
             }.count,

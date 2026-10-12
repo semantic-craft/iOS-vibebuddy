@@ -9,7 +9,7 @@ public enum PendingTasks {
                 ? $0.offset < $1.offset : $0.element.updatedAt > $1.element.updatedAt
         }.map(\.element)
         let groups = StateGroups(ordered)
-        return groups.needsYou + groups.done.filter { $0.presentationState == .completeUnread }
+        return groups.needsYou
     }
 }
 

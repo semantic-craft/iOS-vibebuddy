@@ -259,7 +259,7 @@ struct WatchDashboardStateTests {
         #expect(state.presentation == TaskPresentationSummary(sessions: sessions))
         #expect(state.presentation.requiresInput == 1)
         #expect(state.presentation.thinking == 1)
-        #expect(state.presentation.idle == 1)
+        #expect(state.presentation.completeUnread == 1)
     }
 
     // MARK: coalescing
@@ -517,7 +517,7 @@ struct WatchResultsTests {
             session("newer", unread: true, agoSeconds: 30),
             session("running", .working),
         ])
-        #expect(state.unreadResults.map(\.sessionID) == ["newer", "older"])
+        #expect(state.unreadResults.map(\.sessionID) == ["newer", "read", "older"])
         #expect(state.stuckTasks.isEmpty)
         #expect(state.followedTasks.isEmpty)
         #expect(state.unreadResults.first?.presentation == .completeUnread)
@@ -568,10 +568,10 @@ struct WatchResultsTests {
         var read = project([session("done", unread: false)])
         read.pairingEpoch = "epoch-1"
         queue.reconcile(with: read)
-        #expect(queue.links == [link])
+        #expect(queue.links.isEmpty)
         queue.received(.accepted, for: link)
         #expect(queue.links.isEmpty)
-        #expect(read.results?.isEmpty == true)
+        #expect(read.results?.map(\.sessionID) == ["done"])
     }
 
     @Test("a link to a waiting session finds its alert, not a task")

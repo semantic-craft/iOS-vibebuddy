@@ -19,7 +19,7 @@ struct VoiceCallCoordinatorTests {
             return "Request accepted"
         }, sendToolResult: { _, name, result in
             delivered += 1
-            if VoiceTools.all.contains(where: { $0.name == name }) { receipt = result }
+            if name == "mark_read_session" { receipt = result } // Legacy incoming call; no longer advertised.
         }, continuousPlayback: true, contextProvider: { scope })
         coordinator.handle(.toolCall(name: "mark_read_session", arguments: #"{"project":"project"}"#, callID: "first"))
         for _ in 0..<100 where delivered < 1 { await Task.yield() }

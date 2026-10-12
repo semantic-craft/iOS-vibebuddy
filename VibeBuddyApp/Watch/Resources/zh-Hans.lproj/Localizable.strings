@@ -215,3 +215,15 @@
 "The banner's button wasn't sent: your iPhone can't reach your Mac. Use the buttons here when it's back." = "通知按钮未送出：iPhone 连不上你的 Mac。恢复连接后可用这里的按钮。";
 "Not sent: “%@”" = "未发送：“%@”";
 "Use my reply" = "用我的回答";
+
+"Skipped" = "已跳过";
+
+"No tasks need your response right now." = "目前没有需要你回应的任务。";
+
+"Completed tasks remain in All sessions." = "已完成任务保留在全部任务中。";
+
+"Tasks that need your response." = "需要你回应的任务。";
+
+"More results remain in Done" = "更多结果可在已完成任务中查看";
+
+"Task status changed. A newer result is available." = "任务状态已变化，有新的结果。";
