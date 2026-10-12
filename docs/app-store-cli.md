@@ -56,7 +56,8 @@ leaves other listing fields/locales unmanaged, updates only reviewer notes and
 release type, and sets automatic release after approval. Existing review contact
 details must be present; a missing detail is an explicit preparation boundary.
 
-Stage stops before submission. Its checkpoint is under ignored
+Stage stops before submission. Generated notes are retained in the ignored stable
+`VibeBuddyApp/build/asc-metadata-<version>-<build>/` directory. Its checkpoint is under ignored
 `VibeBuddyApp/build/asc-stage-<version>-<build>.json`; after failure inspect actual
 remote state and blockers before rerunning. Metadata and review details may
 already be applied. Submit selects the exact project build number and version.

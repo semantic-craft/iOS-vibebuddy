@@ -10,7 +10,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,7 +42,7 @@ def auth_env():
 
 
 def release_identity():
-    source = (ROOT / "VibeBuddyApp/project.yml").read_text()
+    source = (ROOT / "VibeBuddyApp/project.yml").read_text(encoding="utf-8")
     values = []
     for key in ("MARKETING_VERSION", "CURRENT_PROJECT_VERSION"):
         found = set(re.findall(rf'^\s*{key}:\s*"([^"\n]+)"', source, re.M))
@@ -54,7 +53,7 @@ def release_identity():
 
 
 def notes(version):
-    source = (ROOT / f"docs/release-notes-ios-{version}.md").read_text()
+    source = (ROOT / f"docs/release-notes-ios-{version}.md").read_text(encoding="utf-8")
     result = {}
     for heading, locale in (("English", "en-US"), ("简体中文", "zh-Hans")):
         match = re.search(rf'^## {heading}\s*\n(.*?)(?=^## |\Z)', source, re.M | re.S)
@@ -98,8 +97,8 @@ def main():
         run(["asc", "review", "status", "--app", APP, "--platform", "IOS",
              "--version", args.version or version, "--pretty"], auth_env())
         return
-    metadata = notes(version)
     if args.command == "plan":
+        metadata = notes(version)
         print(json.dumps({"app": APP, "version": version, "build": build,
                           "localizations": metadata, "steps": [
                               "tools/archive-ios.sh", "bash tools/appstore.sh upload --confirm",
@@ -118,12 +117,13 @@ def main():
     if args.command == "submit":
         current = run(["asc", "review", "status", "--app", APP, "--platform", "IOS",
                        "--version", version], env, True)
-        if current["version"]["state"] not in ("PREPARE_FOR_SUBMISSION", "REJECTED", "DEVELOPER_REJECTED", "METADATA_REJECTED", "READY_FOR_REVIEW"):
+        if (current.get("version") or {}).get("state") not in ("PREPARE_FOR_SUBMISSION", "REJECTED", "DEVELOPER_REJECTED", "METADATA_REJECTED", "READY_FOR_REVIEW"):
             raise ValueError("version is not submittable; inspect status, do not resubmit an active review")
         run(["asc", "review", "submit", "--app", APP, "--platform", "IOS",
              "--version", version, "--build-number", build, "--confirm"], env)
         return
-    review_notes = args.review_notes.read_text().strip()
+    metadata = notes(version)
+    review_notes = args.review_notes.read_text(encoding="utf-8").strip()
     if not 0 < len(review_notes) <= 4000:
         raise ValueError("review notes must contain 1–4000 characters")
     # asc stage validates build ownership/version and resumes its own checkpoint.
@@ -133,11 +133,14 @@ def main():
     if not any(b["id"] == args.build_id and b["attributes"]["processingState"] == "VALID"
                for b in builds["data"]):
         raise ValueError("build-id is not the VALID build for this app/version/build number")
-    run(["asc", "versions", "create", "--app", APP, "--platform", "IOS",
-         "--version", version, "--release-type", "AFTER_APPROVAL", "--if-exists", "skip"], env)
+    versions = run(["asc", "versions", "list", "--app", APP, "--platform", "IOS",
+                    "--version", version, "--paginate"], env, True)
+    if not versions["data"]:
+        run(["asc", "versions", "create", "--app", APP, "--platform", "IOS",
+             "--version", version, "--release-type", "AFTER_APPROVAL", "--if-exists", "skip"], env)
     current = run(["asc", "review", "status", "--app", APP, "--platform", "IOS",
                    "--version", version], env, True)
-    if current["version"]["state"] not in ("PREPARE_FOR_SUBMISSION", "REJECTED", "DEVELOPER_REJECTED", "METADATA_REJECTED"):
+    if (current.get("version") or {}).get("state") not in ("PREPARE_FOR_SUBMISSION", "REJECTED", "DEVELOPER_REJECTED", "METADATA_REJECTED", "READY_FOR_REVIEW"):
         raise ValueError("version is not editable; inspect status, do not remove a live submission")
     detail = current.get("reviewDetailId")
     if not detail:
@@ -145,16 +148,16 @@ def main():
     run(["asc", "versions", "update", "--version-id", current["version"]["id"],
          "--release-type", "AFTER_APPROVAL"], env)
     run(["asc", "review", "details-update", "--id", detail, "--notes", review_notes], env)
-    with tempfile.TemporaryDirectory(prefix="vibebuddy-asc-") as directory:
-        location = Path(directory) / "version" / version
-        location.mkdir(parents=True)
-        for locale, value in metadata.items():
-            (location / f"{locale}.json").write_text(json.dumps(value, ensure_ascii=False))
-        checkpoint = ROOT / "VibeBuddyApp/build" / f"asc-stage-{version}-{build}.json"
-        checkpoint.parent.mkdir(parents=True, exist_ok=True)
-        run(["asc", "release", "stage", "--app", APP, "--platform", "IOS",
-             "--version", version, "--build-id", args.build_id, "--metadata-dir", directory,
-             "--checkpoint-file", str(checkpoint), "--confirm"], env)
+    directory = ROOT / "VibeBuddyApp/build" / f"asc-metadata-{version}-{build}"
+    location = directory / "version" / version
+    location.mkdir(parents=True, exist_ok=True)
+    for locale, value in metadata.items():
+        (location / f"{locale}.json").write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    checkpoint = ROOT / "VibeBuddyApp/build" / f"asc-stage-{version}-{build}.json"
+    run(["asc", "release", "stage", "--app", APP, "--platform", "IOS",
+         "--version", version, "--build-id", args.build_id, "--metadata-dir", str(directory),
+         "--checkpoint-file", str(checkpoint), "--confirm"], env)
+
 
 
 if __name__ == "__main__":
@@ -162,6 +165,6 @@ if __name__ == "__main__":
         if not shutil.which("asc"):
             raise RuntimeError("install asc first: brew install asc")
         main()
-    except (RuntimeError, ValueError, OSError, KeyError, zipfile.BadZipFile) as error:
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, zipfile.BadZipFile) as error:
         print(f"appstore: {error}", file=sys.stderr)
         sys.exit(1)

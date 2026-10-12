@@ -14,10 +14,11 @@ reviewed head. This change affects release tooling, not app/daemon behavior.
   version `1.3.38`, `WAITING_FOR_REVIEW`, and submission
   `cd7c12ff-a495-4ac4-95cd-5126cd0587e9`. This agrees with the prior native web
   submission. Querying does not alter that submission.
-- Six credential-free boundary regressions passed: wrong IPA build rejected,
+- Eight credential-free boundary regressions passed: wrong IPA build rejected,
   wrong remote build blocked before version mutation, missing confirmation
   blocked before credential read, foreign ASC profiles/key paths removed, active review resubmission blocked, and
-  subcommand help works without any loader/credentials.
+  subcommand help and missing confirmation work without any loader/credentials,
+  upload does not need release notes, and staging an active review never mutates it.
 - Offline plan parsed both existing release-note sections; asc metadata validation
   accepted the two notes-only locale files with zero warnings/errors. Shell syntax
   and project documentation checks passed.

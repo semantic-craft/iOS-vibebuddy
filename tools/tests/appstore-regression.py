@@ -72,6 +72,32 @@ class ReleaseBoundaries(unittest.TestCase):
                                     env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("--ipa", result.stdout)
+            result = subprocess.run(["bash", str(appstore.ROOT / "tools/appstore.sh"), "submit"],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("requires --confirm", result.stderr)
+            self.assertNotIn("loader", result.stderr)
+
+    def test_upload_does_not_require_release_notes(self):
+        with patch.object(sys, "argv", ["appstore.py", "upload", "--confirm"]), \
+             patch.object(appstore, "notes", side_effect=AssertionError("upload must not read notes")), \
+             patch.object(appstore, "check_ipa"), patch.object(appstore, "auth_env", return_value={}), \
+             patch.object(appstore, "run") as run:
+            appstore.main()
+            self.assertEqual(run.call_args.args[0][:3], ["asc", "builds", "upload"])
+
+    def test_stage_active_review_never_mutates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            review = Path(directory) / "notes.txt"
+            review.write_text("Approved notes")
+            replies = [{"data": [{"id": "right", "attributes": {"processingState": "VALID"}}]},
+                       {"data": [{"id": "existing"}]}, {"version": {"state": "WAITING_FOR_REVIEW"}}]
+            with patch.object(sys, "argv", ["appstore.py", "stage", "--build-id", "right", "--review-notes", str(review), "--confirm"]), \
+                 patch.object(appstore, "auth_env", return_value={}), patch.object(appstore, "run", side_effect=replies) as run:
+                with self.assertRaisesRegex(ValueError, "do not remove"):
+                    appstore.main()
+                self.assertEqual([c.args[0][:3] for c in run.call_args_list],
+                                 [["asc", "builds", "list"], ["asc", "versions", "list"], ["asc", "review", "status"]])
 
     def test_asc_profile_and_foreign_secrets_are_not_combined(self):
         with patch.dict(appstore.os.environ, {"ASC_KEY_ID": "fixture", "ASC_ISSUER_ID": "fixture",
