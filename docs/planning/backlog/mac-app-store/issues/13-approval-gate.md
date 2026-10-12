@@ -4,7 +4,7 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned
-Blocked by: 12 从 Settings 安装 Claude Hook 并收到真实事件
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：12 从 Settings 安装 Claude Hook 并收到真实事件
 Spec: Spec v2（本工作线综合稿）
 
 ## 2026-10-12 收尾核对

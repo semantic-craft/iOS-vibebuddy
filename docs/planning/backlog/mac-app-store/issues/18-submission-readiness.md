@@ -4,7 +4,7 @@ Status: needs-triage
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned
-Blocked by: 14 Codex CLI 可从手机放行，其它 CLI 可观察；15 Codex Desktop 等待时收到明确只读提醒；16 商店界面只提供可执行能力，用量与 Jump 如实反馈；17 两版接管 Hook 不争抢，Keychain 状态如实呈现
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：14 Codex CLI 可从手机放行，其它 CLI 可观察；15 Codex Desktop 等待时收到明确只读提醒；16 商店界面只提供可执行能力，用量与 Jump 如实反馈；17 两版接管 Hook 不争抢，Keychain 状态如实呈现
 Spec: Spec v2（本工作线综合稿）
 
 ## 2026-10-12 收尾核对

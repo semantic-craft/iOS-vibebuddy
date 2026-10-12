@@ -4,7 +4,7 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned
-Blocked by: 09 商店版启动后可与 iPhone Pairing
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：09 商店版启动后可与 iPhone Pairing
 Spec: Spec v2（本工作线综合稿）
 
 ## 2026-10-12 收尾核对

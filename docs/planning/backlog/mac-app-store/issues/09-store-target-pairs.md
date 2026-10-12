@@ -4,7 +4,7 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned（旧领取已失效；2026-09-23 确认未提交实现丢失）
-Blocked by: None (can start immediately)
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：None (can start immediately)
 Spec: Spec v2（本工作线综合稿）
 
 ## 2026-10-12 收尾核对

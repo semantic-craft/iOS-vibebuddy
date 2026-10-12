@@ -4,7 +4,7 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned
-Blocked by: 13 关卡：真实 Claude 任务从手机批准、拒绝与回答
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：13 关卡：真实 Claude 任务从手机批准、拒绝与回答
 Spec: Spec v2（本工作线综合稿）
 
 ## 2026-10-12 收尾核对

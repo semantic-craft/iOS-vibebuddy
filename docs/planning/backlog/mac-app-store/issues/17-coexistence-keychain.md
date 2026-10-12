@@ -4,7 +4,7 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned
-Blocked by: 09 商店版启动后可与 iPhone Pairing；12 从 Settings 安装 Claude Hook 并收到真实事件；13 关卡：真实 Claude 任务从手机批准、拒绝与回答；14 Codex CLI 可从手机放行，其它 CLI 可观察
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：09 商店版启动后可与 iPhone Pairing；12 从 Settings 安装 Claude Hook 并收到真实事件；13 关卡：真实 Claude 任务从手机批准、拒绝与回答；14 Codex CLI 可从手机放行，其它 CLI 可观察
 Spec: Spec v2（本工作线综合稿）
 
 ## 2026-10-12 收尾核对

@@ -4,7 +4,7 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned
-Blocked by: 10 商店版重启后保留 Pairing 与应用数据；11 外部目录授权可记住、撤销并恢复
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：10 商店版重启后保留 Pairing 与应用数据；11 外部目录授权可记住、撤销并恢复
 Spec: Spec v2（本工作线综合稿）
 
 ## 2026-10-12 收尾核对
