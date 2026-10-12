@@ -4,8 +4,12 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned（旧领取已失效；2026-09-23 确认未提交实现丢失）
-Blocked by: None (can start immediately)
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：None (can start immediately)
 Spec: Spec v2（本工作线综合稿）
+
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-09)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
 
 ## 当前状态（2026-10-05 核对）
 

@@ -1,6 +1,8 @@
-# 施工清单（2026-10-04 更新）
+# 施工清单（2026-10-12 更新）
 
-这里只列**未完成**的施工项。已完成的改动看 `git log` 和已合并的 PR；各版本做了什么：Mac 看 [GitHub Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases)，iOS 看 App Store 的 What's New。票据做完就删文件和行（见 `docs/agents/issue-tracker.md`）。
+这里只列**尚未全部验收**的施工项。已完成的改动看 `git log` 和已合并的 PR；各版本做了什么：Mac 看 [GitHub Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases)，iOS 看 App Store 的 What's New。票据做完就删文件和行（见 `docs/agents/issue-tracker.md`）。
+
+2026-10-12 已逐项核对 21 份开放票，见 [收尾验收表](../../qa/housekeeping-2026-10-12.md)。实现已合并的票不再重复开发；剩余产品验收保留，未核实的条件明确列为缺口。下方无独立工单的开发建议、真机清单和观察项，本次未重新复现或补充完整验收，均为**未核实**，不得据此宣告全项目验收完成。
 
 优先级（2026-09-23 起）：先完善本机 GitHub 公开版的性能和已知问题；Mac App Store 版延后。领取一张票时先核对当前源码。
 
@@ -15,7 +17,7 @@
 | GEM-03 | 在 Mac/iPhone 用 Gemini 通话并操作任务 | [ticket](gemini-provider-suite/issues/03-live-conversation.md) | ready-for-human | 原生Live两轮/工具回执通过；待实机语音操作指定任务 |
 | GEM-04 | 三用途联合验收与现有供应商回归 | [ticket](gemini-provider-suite/issues/04-integration-acceptance.md) | ready-for-human | 构建、回归与评审已执行；剩余设备联合验收 |
 | AG-05 | 同会话连续提问的新提醒核查 | [ticket](antigravity-monitor/issues/05-repeat-wait-cue.md) | needs-triage | 实体验收发现 R2 无新发送记录；R3 表盘提醒与触觉通过 |
-| IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 真机、MiniMax 凭据及可操作的模拟器图形界面 |
+| IOSP-06 | iOS 设备端最终验收 | [ticket](ios-companion-parity/issues/06-integration-acceptance.md) | ready-for-human | 仅余 MiniMax 真机耳听/音频路由/VoiceOver 和持有真实目标及多页终端的 app-server；模拟器已验 |
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
 | SET-01 | macOS 设置易用性与 Agent 可操作性 | [工单、清单与实施计划](mac-settings-usability/issues/01-settings-ux-dx-ax.md) | ready-for-human | 已随 PR #336 合并；保留最小窗口及真实设备／服务体验验收缺口，见工单当前状态 |
@@ -65,7 +67,7 @@
 
 ## Mac App Store：代码已丢失
 
-`CHECKLIST.md` 记的是「09 只差真机 Pairing」，这已经不成立：09 的实现是未提交改动，所在目录、分支和 stash 都已不存在，`main` 上没有商店 target。
+`CHECKLIST.md` 与 09 工单已经更正为从零实现；历史「09 只差真机 Pairing」不成立：09 的实现是未提交改动，所在目录、分支和 stash 都已不存在，`main` 上没有商店 target。
 
 还留着的产品与技术结论，重做时直接沿用：
 

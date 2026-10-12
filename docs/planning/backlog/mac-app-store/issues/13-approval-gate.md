@@ -4,8 +4,12 @@ Status: ready-for-agent
 Progress: not-started
 Priority: next-cycle-important
 Owner: unassigned
-Blocked by: 12 从 Settings 安装 Claude Hook 并收到真实事件
+Blocked by: 项目优先级已延后；恢复开发前重新确认范围。原技术依赖：12 从 Settings 安装 Claude Hook 并收到真实事件
 Spec: Spec v2（本工作线综合稿）
+
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#mac-app-store-13)。09–18 全部保留并延后。直接版或 iPhone App Store 发布不能代替 Mac 商店沙盒的签名、容器、Pairing、原生安装器及审批验收。历史探针/决策保留，未启动商店开发。 本票仍开放；表中未核实条件不是验收通过。
 
 ## What to build
 

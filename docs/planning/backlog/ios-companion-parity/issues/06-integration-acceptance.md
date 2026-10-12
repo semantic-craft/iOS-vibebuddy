@@ -14,3 +14,7 @@ Status: ready-for-human
 - [ ] 在拥有真实目标及后台终端的 Codex app-server 上核验目标数值与多页终端；本轮隔离 app-server 未持有原线程运行时及完整原生项目索引。
 
 不包含发布、替换 /Applications 或生产 token。当前实现保留旧 Mac 的明确降级。
+
+## 2026-10-12 收尾核对
+
+已逐项核对当前 main、合并记录与已有证据，见 [逐项验收表](../../../../qa/housekeeping-2026-10-12.md#ios-companion-parity-06)。模拟器、真实合成及协议证据保持；物理 MiniMax 音色耳听/路由/VoiceOver 与拥有目标及多页终端的真实 app-server 仍未核实。Cursor 零会话手机验收不覆盖这些条件。 本票仍开放；表中未核实条件不是验收通过。
