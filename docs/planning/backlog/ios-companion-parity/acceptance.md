@@ -18,7 +18,7 @@ iOS 后续正式提交见 [1.3.34 发布记录](../../../qa/grok-ios-1.3.34-dist
 - IOSP-05：生成 / 播放 / 暂停 / 失败文案，主动系统语音恢复，轮次及来源复核；通话、拔耳机和 VoiceOver 暂停，跳过不擅自恢复。
 
 源、会话、连接代次和游标边界保持独立；历史、目标和终端读取不确认完成，不启动或终止终端。
-ADR-0024 已补充手机只读契约。01–05 完成票按仓库规则删除；06 留存设备验收缺口。
+ADR-0024 已补充手机只读契约。01–05 完成票按仓库规则删除；06 在本记录原时点留存设备验收缺口，2026-10-12 已按用户要求取消剩余产品验收并结案，未验边界见后续结案记录。
 
 ## 已验证
 
@@ -50,7 +50,7 @@ Spec：评审未参与实现的朗读及任务读取部分，发现终端 15 秒
 
 本地证据位于工作树 `.scratch/ios-parity/`：`kit-final-tests.log`、`mac-final-tests.log`、`mac-app-build.log`、`ios-simulator-tests.log`、`ios-tests.xcresult`、`ios-live-signed-tests.log`、`evidence/`。不提交真实会话正文或临时令牌。
 
-[IOSP-06](../../../qa/acceptance-closeout-2026-10-12.md#ios-companion-parity-06) 保留：真机 MiniMax 凭据与耳听、真实音频中断 / VoiceOver，以及拥有目标和后台终端的原线程只读展示。未替换生产安装，未发布 App Store / 新 macOS 版本；用户尚未验收。
+[IOSP-06](../../../qa/acceptance-closeout-2026-10-12.md#ios-companion-parity-06) 已按用户要求于 2026-10-12 关闭，取消剩余产品验收；原未验边界作为记录保留：真机 MiniMax 凭据与耳听、真实音频中断 / VoiceOver，以及拥有目标和后台终端的原线程只读展示。未替换生产安装，未发布 App Store / 新 macOS 版本；用户尚未验收。
 
 ## 追加：仅本批改动的 E2E 与性能修复
 

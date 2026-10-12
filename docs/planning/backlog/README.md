@@ -14,6 +14,7 @@
 |---|---|---|---|---|
 | E-1 | Icon Composer 分层图标 | — | 可开工 | 仓库只有 `AppIcon.appiconset` PNG；Xcode 27 已在用，原先的阻塞已解除 |
 | C-3 / C-5 | 首次运行流程；一等 / 社区级 agent 标注 | — | 部分完成 | #224 加了引导清单；README 已标出部分社区适配。缩小范围后再做 |
+| AI-07 | Codex rollout → SQLite 退化观察 | [工单](agent-integration-2026-09/issues/07-codex-rollout-degradation.md) | needs-triage | 2026-10-12 rollout 仍持续写入；触发前提未成立，保留观察，不启动第二来源改造 |
 | WEB-01 | 跨项目 Web 工作台：项目分类、任务与 agent 看板 | [PRD](web-workbench/PRD.md) · [接入设计](web-workbench/issues/01-integration-contract.md) | needs-triage | 2026-10-01 用户提出方向；整合 Anamra 信息分类、Writing Infra 进度驱动安排及 VibeBuddy 执行；优先评估 Cloudflare Access 入口 |
 | MAS-09…18 | Mac App Store 沙盒版 | [CHECKLIST](mac-app-store/CHECKLIST.md) | **延后** | 代码已丢失，重启时从 09 重做，见下节 |
 
