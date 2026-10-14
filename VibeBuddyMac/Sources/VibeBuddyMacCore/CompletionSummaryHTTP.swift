@@ -61,6 +61,12 @@ struct CompletionSummaryHTTP: Sendable {
             endpoint = "https://\(host)/compatible-mode/v1/chat/completions"
             body = ["model": c.modelID, "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
                     "stream": false, "max_tokens": purpose == .notice ? 512 : 2400, "enable_thinking": false]
+        case .gemini:
+            endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+            body = ["model": c.modelID,
+                    "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
+                    "stream": false, "max_tokens": purpose == .notice ? 1024 : 3000,
+                    "reasoning_effort": "low"]
         case .minimax:
             endpoint = "https://api.minimax.cn/v1/chat/completions"
             var miniMax: [String: Any] = ["model": c.modelID,
@@ -176,7 +182,7 @@ struct CompletionSummaryHTTP: Sendable {
         switch provider {
         case .doubao: return fail(.missingProvider)
         // DeepSeek mirrors the OpenAI chat-completions schema Qwen also serves.
-        case .qwen, .deepseek, .minimax:
+        case .qwen, .deepseek, .minimax, .gemini:
             guard let choices = root["choices"] as? [[String: Any]], choices.count == 1,
                   let choice = choices.first, let message = choice["message"] as? [String: Any] else { return fail(.invalidResponse) }
             guard choice["finish_reason"] as? String == "stop" else { return fail(.incompleteOutput) }
@@ -224,7 +230,7 @@ struct CompletionSummaryHTTP: Sendable {
         func number(_ value: Any?) -> Int? { guard let n = value as? Int, n >= 0 else { return nil }; return n }
         switch provider {
         case .doubao: return nil
-        case .qwen, .deepseek, .minimax:
+        case .qwen, .deepseek, .minimax, .gemini:
             return .init(inputTokens: number(u["prompt_tokens"]), outputTokens: number(u["completion_tokens"]), totalTokens: number(u["total_tokens"]),
                          cachedInputTokens: number((u["prompt_tokens_details"] as? [String: Any])?["cached_tokens"]),
                          reasoningTokens: number((u["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"]))

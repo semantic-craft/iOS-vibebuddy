@@ -564,6 +564,8 @@ private struct SummaryFeatureRow: View {
     @AppStorage(CompletionSummaryConfiguration.enabledKey) private var enabled = false
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
+    @AppStorage(CompletionSummaryConfiguration.geminiTransportKey) private var transport = "localCLI"
+    private var localCLI: Bool { provider == .gemini && transport == "localCLI" }
     @AppStorage private var modelID: String
 
     init(provider: VoiceProvider?, tests: SettingsTestCoordinator, credentials: SettingsCredentials,
@@ -592,7 +594,8 @@ private struct SummaryFeatureRow: View {
         return .init(enabled: true, provider: provider, modelID: effectiveModel,
                      language: VoiceLanguage(rawValue: language) ?? .english,
                      qwenUseIntl: intl, qwenWorkspaceID: workspace,
-                     contentStyle: ContentStyleConfiguration.load())
+                     contentStyle: ContentStyleConfiguration.load(),
+                     geminiTransport: .init(rawValue: transport) ?? .localCLI)
     }
     private var detail: String? {
         if configuration?.contentStyle.isValid == false {
@@ -602,7 +605,7 @@ private struct SummaryFeatureRow: View {
     }
     private var status: VoiceFeatureStatus {
         guard let provider else { return .unconfigured }
-        if !credential.configured { return .needsKey(provider) }
+        if !localCLI && !credential.configured { return .needsKey(provider) }
         if detail != nil { return .needsAttention }
         if tests.purpose == .summary, tests.phase == .succeeded { return .verified("Sample generated") }
         return .unverified
@@ -615,7 +618,9 @@ private struct SummaryFeatureRow: View {
     }
 
     @ViewBuilder private var modelField: some View {
-        if let provider {
+        if localCLI {
+            Text("Gemini 3.8 Flash · low").accessibilityIdentifier("geminiCLIModel")
+        } else if let provider {
             IDField(label: "Text model ID",
                     placeholder: CompletionSummaryConfiguration.recommendedModel(provider),
                     text: $modelID, browse: provider.modelDocumentationURL(for: .text),
@@ -626,9 +631,9 @@ private struct SummaryFeatureRow: View {
     private var sampleButton: some View {
         Button("Generate sample", action: test)
             .disabled(tests.isBusy || provider == nil || configuration?.configurationFailure != nil
-                      || configuration?.contentStyle.isValid == false || !credential.configured || reader.busy)
+                      || configuration?.contentStyle.isValid == false || (!localCLI && !credential.configured) || reader.busy)
             .accessibilityIdentifier("completionSummaryTest")
-            .help("Generate one synthetic summary with this Mac’s saved key. Billed; no task history is sent.")
+            .help(localCLI ? "Generate one synthetic summary with the signed-in local Antigravity CLI. No task history is sent." : "Generate one synthetic summary with this Mac’s saved key. Billed; no task history is sent.")
     }
 
     var body: some View {
@@ -636,18 +641,32 @@ private struct SummaryFeatureRow: View {
                    detail: detail, tests: tests, reveal: reveal) {
             // Summaries are text: the two-tier line without a voice cell.
             ControlLine.textOnly(feature: .summaries, provider: { providerPicker }, model: { modelField }, trailing: { sampleButton })
+            if provider == .gemini {
+                Picker("Gemini connection", selection: $transport) {
+                    Text("Local Antigravity CLI").tag("localCLI")
+                    Text("Google API").tag("api")
+                }.accessibilityIdentifier("geminiSummaryTransport")
+                Text(localCLI ? "Uses this Mac’s signed-in agy. Text only; no tools. Failure does not switch to the paid API." : "Uses the configured Google API key. API billing is separate from Antigravity.")
+                    .font(.caption).foregroundStyle(MacTheme.ink2)
+            }
             SettingsOperationAvailability(tests: tests, purpose: .summary, reading: reader.busy)
         }
-        .onAppear { credential.refresh() }
-        .onChange(of: [modelID, language, workspace, String(intl),
+        .onAppear { if !localCLI { credential.refresh() } }
+        .onChange(of: transport) { _, _ in if !localCLI { credential.refresh() } }
+        .onChange(of: [modelID, transport, language, workspace, String(intl),
                        String(credential.revision), String(enabled)]) { _, _ in tests.invalidate() }
     }
 
     private func test() {
-        guard let configuration, credential.configured, configuration.configurationFailure == nil,
+        guard let configuration, (localCLI || credential.configured), configuration.configurationFailure == nil,
               configuration.contentStyle.isValid,
               !tests.isBusy, !reader.busy else { return }
-        guard let key = credential.loadForUse() else { return tests.reportUnreadableKey(.summary) }
+        let key: String
+        if localCLI { key = "" }
+        else {
+            guard let stored = credential.loadForUse() else { return tests.reportUnreadableKey(.summary) }
+            key = stored
+        }
         tests.start(.summary, timeout: .seconds(13), operation: {
             await SettingsModelTestOperations.summary(configuration: configuration, apiKey: key)
         })

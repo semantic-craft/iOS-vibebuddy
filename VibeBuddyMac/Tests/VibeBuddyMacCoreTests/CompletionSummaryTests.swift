@@ -5,6 +5,56 @@ import VibeBuddyKit
 
 @Suite(.serialized)
 struct CompletionSummaryTests {
+    /// Explicit, one-record live probe; never reads Keychain or changes preferences.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["VIBEBUDDY_GEMINI_E2E"] == "1"))
+    func realGeminiSummaryService() async throws {
+        let key = try #require(ProcessInfo.processInfo.environment["GEMINI_API_KEY"])
+        #expect(!key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        let service = CompletionSummaryService(key: { provider in provider == .gemini ? key : nil })
+        let config = CompletionSummaryConfiguration(enabled: true, provider: .gemini,
+            modelID: CompletionSummaryConfiguration.recommendedModel(.gemini), language: .chinese, geminiTransport: .api)
+        let result = await service.generate(input("gemini-live-synthetic", text:
+            "已修复重复通知，本地检查通过。真机效果尚未验证，应用尚未发布。"), configuration: config)
+        #expect(result.failure == nil)
+        #expect(result.text?.isEmpty == false)
+        await service.waitUntilIdle()
+    }
+
+    @Test func geminiSelectionSurvivesLaunchAndGeneratesThroughSummaryService() async throws {
+        let name = "gemini-summary-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(true, forKey: CompletionSummaryConfiguration.enabledKey)
+        defaults.set("gemini", forKey: VoiceSettings.summaryProviderKey)
+        defaults.set("api", forKey: CompletionSummaryConfiguration.geminiTransportKey)
+        VoiceSettings.removeRetiredGeminiSettings(defaults: defaults,
+            keyExists: { _ in Issue.record("Launch must not inspect the summary key"); return true },
+            deleteKey: { _ in Issue.record("Launch must preserve the summary key") })
+        let config = CompletionSummaryConfiguration.load(defaults: defaults)
+        #expect(config.provider == .gemini)
+        #expect(config.modelID == "gemini-3.8-flash")
+        #expect(!VoiceProvider.voiceProviders.contains(.gemini))
+        #expect(!VoiceProvider.readAloudProviders.contains(.gemini))
+        let request = try CompletionSummaryHTTP.request(input: input(), configuration: config, key: "synthetic", timeout: 12)
+        #expect(request.url?.absoluteString == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
+        let requestData = try #require(request.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: requestData) as? [String: Any])
+        #expect(body["reasoning_effort"] as? String == "low")
+        let session = session(body: try json(qwen()))
+        defer { session.invalidateAndCancel() }
+        let service = CompletionSummaryService(session: session, key: { provider in
+            #expect(provider == .gemini)
+            return "synthetic"
+        })
+        let source = input()
+        let result = await service.generate(source, configuration: config)
+        #expect(result.failure == nil)
+        #expect(result.text == "修复了重复跳转，单元测试通过；真机仍未验证。")
+        #expect(result.usage?.totalTokens == 102)
+        #expect(await service.generate(source, configuration: config).failure == .duplicate)
+        #expect(SummaryStub.state.requestCount == 1)
+    }
+
     @Test func miniMaxDefaultUsesLowReasoningInsteadOfRejectedDisabledMode() throws {
         let config = CompletionSummaryConfiguration(enabled: true, provider: .minimax,
             modelID: CompletionSummaryConfiguration.recommendedModel(.minimax))

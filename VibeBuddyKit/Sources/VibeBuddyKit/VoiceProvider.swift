@@ -2,8 +2,8 @@ import Foundation
 
 /// Which vendor the companion talks to. Most are WebSocket speech-to-speech
 /// backends that differ in endpoint, schema, audio sample rate and voice names —
-/// captured here so the UI and wiring stay uniform. One (DeepSeek) is text-only
-/// and serves completion summaries alone, so a purpose asks the capability
+/// captured here so the UI and wiring stay uniform. DeepSeek and Gemini are
+/// text-only and serve completion summaries, so a purpose asks the capability
 /// flags below rather than assuming every member can do everything.
 public enum VoiceProvider: String, CaseIterable, Sendable {
     case qwen
@@ -11,13 +11,14 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     case doubao
     case deepseek
     case minimax
+    case gemini
 
     public var supportsCompletionSummaries: Bool { self != .doubao }
     public static var summaryProviders: [Self] { allCases.filter(\.supportsCompletionSummaries) }
 
     /// Whether this integration supports realtime conversation. MiniMax has
     /// text and TTS adapters only; read-aloud has its own capability list.
-    public var supportsVoice: Bool { self != .deepseek && self != .minimax }
+    public var supportsVoice: Bool { self != .deepseek && self != .minimax && self != .gemini }
     public static var voiceProviders: [Self] { allCases.filter(\.supportsVoice) }
 
     public static var readAloudProviders: [Self] { allCases.filter { SpeechSynthesis.support($0) != nil } }
@@ -29,6 +30,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .doubao: return String(localized: "Doubao (Volcengine)", bundle: .module)
         case .deepseek: return "DeepSeek"
         case .minimax: return "MiniMax"
+        case .gemini: return "Gemini"
         }
     }
 
@@ -40,6 +42,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .doubao: return "doubao.realtime.apiKey"
         case .deepseek: return "deepseek.apiKey"
         case .minimax: return "minimax.apiKey"
+        case .gemini: return "gemini.apiKey"
         }
     }
 
@@ -50,7 +53,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return "qwen-audio-3.0-realtime-plus"
         case .openai: return "gpt-live-1"
         case .doubao: return "1.2.6.1"
-        case .deepseek, .minimax: return ""
+        case .deepseek, .minimax, .gemini: return ""
         }
     }
 
@@ -61,7 +64,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .openai:        return 24_000
         // No realtime adapter: no microphone path opens for this vendor. Kept plain rather
         // than zero so a mistaken caller misconfigures instead of trapping.
-        case .deepseek, .minimax: return 16_000
+        case .deepseek, .minimax, .gemini: return 16_000
         }
     }
 
@@ -75,7 +78,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return "longanqian"   // Qwen-Audio system voice (multilingual)
         case .openai: return "marin"
         case .doubao: return "zh_female_vv_jupiter_bigtts"   // Chinese; English → the catalog
-        case .deepseek, .minimax: return ""                            // No realtime conversation voice
+        case .deepseek, .minimax, .gemini: return ""                            // No realtime conversation voice
         }
     }
 
@@ -90,6 +93,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .openai: return URL(string: "https://platform.openai.com/docs/models")!
         case .doubao: return URL(string: "https://www.volcengine.com/docs/6561/2549778?lang=zh")!
         case .minimax: return URL(string: "https://platform.minimax.cn/docs/api-reference/text-chat-openai")!
+        case .gemini: return URL(string: "https://ai.google.dev/gemini-api/docs/models")!
         case .deepseek: return URL(string: "https://api-docs.deepseek.com/quick_start/pricing")!
         }
     }
@@ -125,7 +129,9 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
             address = "https://platform.minimax.cn/docs/api-reference/text-chat-openai"
         case (.minimax, .speechSynthesis):
             address = "https://platform.minimax.cn/docs/api-reference/speech-t2a-http"
-        case (.minimax, .conversation): return nil
+        case (.minimax, .conversation), (.gemini, .conversation), (.gemini, .speechSynthesis): return nil
+        case (.gemini, .text):
+            address = "https://ai.google.dev/gemini-api/docs/openai"
         case (.deepseek, .text):
             address = "https://api-docs.deepseek.com/quick_start/pricing/"
         case (.doubao, .text), (.deepseek, .conversation), (.deepseek, .speechSynthesis):
@@ -141,6 +147,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .openai: return URL(string: "https://developers.openai.com/api/docs/guides/live-conversations")!
         case .doubao: return URL(string: "https://www.volcengine.com/docs/6561/2549778?lang=zh")!
         case .minimax: return URL(string: "https://platform.minimax.cn/docs/faq/system-voice-id")!
+        case .gemini: return URL(string: "https://ai.google.dev/gemini-api/docs/models")!
         case .deepseek: return URL(string: "https://api-docs.deepseek.com/quick_start/pricing")!   // No voices; its model list
         }
     }
@@ -156,6 +163,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .openai: return URL(string: "https://platform.openai.com/api-keys")!
         case .doubao: return URL(string: "https://console.volcengine.com/speech/new/setting/apikeys?projectName=default")!
         case .minimax: return URL(string: "https://platform.minimax.cn/console/plan")!
+        case .gemini: return URL(string: "https://aistudio.google.com/apikey")!
         case .deepseek: return URL(string: "https://platform.deepseek.com/api_keys")!
         }
     }

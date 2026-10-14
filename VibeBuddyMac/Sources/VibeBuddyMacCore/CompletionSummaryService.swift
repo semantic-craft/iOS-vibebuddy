@@ -17,6 +17,8 @@ public actor CompletionSummaryService {
         let continuation: CheckedContinuation<CompletionSummaryResult, Never>
         let timer: Task<Void, Never>
     }
+    private var cli = GeminiCLI()
+    func setCLIRunnerForTesting(_ runner: @escaping GeminiCLI.Runner) { cli.run = runner }
     private let http: CompletionSummaryHTTP
     private let key: @Sendable (VoiceProvider) -> String?
     private var claimed: Set<CompletionSummaryIdentity> = []
@@ -92,12 +94,15 @@ public actor CompletionSummaryService {
                 job.continuation.resume(returning: result(job.input, failure: .expired))
                 continue
             }
-            let http = self.http, key = self.key
+            let http = self.http, key = self.key, cli = self.cli
             // Keep Keychain and JSON work off this actor so expiry/cancellation can return on time.
             workers[identity] = Task.detached { [weak self] in
                 let response: CompletionSummaryResponse
                 if Task.isCancelled || ContinuousClock.now >= job.deadline {
                     response = .init(failure: .expired)
+                } else if job.configuration.usesGeminiCLI {
+                    response = await cli.generate(input: job.input, configuration: job.configuration,
+                        timeout: Self.seconds(ContinuousClock.now.duration(to: job.deadline)), purpose: .notice)
                 } else if let provider = job.configuration.provider, let apiKey = key(provider), !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let budget = min(job.input.completedAt.addingTimeInterval(Self.deadlineSeconds).timeIntervalSinceNow,
                                      Self.seconds(ContinuousClock.now.duration(to: job.deadline)))

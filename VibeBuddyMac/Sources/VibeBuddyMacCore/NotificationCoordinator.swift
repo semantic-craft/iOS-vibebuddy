@@ -19,6 +19,7 @@ public protocol AttentionNotifier {
 /// the phone is built from one decision rather than a second policy.
 public final class NotificationCoordinator: @unchecked Sendable {
     private let notifier: AttentionNotifier
+    private let completionAttempts: CompletionNoticeAttempts
     private let policy: SoundPolicy
     private let onEligible: @Sendable (SoundAlert) -> Void
     private let onScheduled: @Sendable (SoundAlert) -> Void
@@ -33,12 +34,14 @@ public final class NotificationCoordinator: @unchecked Sendable {
     public init(
         notifier: AttentionNotifier,
         policy: SoundPolicy = SoundPolicy(),
+        completionAttempts: CompletionNoticeAttempts = .shared,
         delivery: (any NotificationDeliveryRecording)? = nil,
         onEligible: @escaping @Sendable (SoundAlert) -> Void = { _ in },
         onScheduled: @escaping @Sendable (SoundAlert) -> Void = { _ in }
     ) {
         self.notifier = notifier
         self.policy = policy
+        self.completionAttempts = completionAttempts
         self.delivery = delivery
         self.onEligible = onEligible
         self.onScheduled = onScheduled
@@ -131,7 +134,7 @@ public final class NotificationCoordinator: @unchecked Sendable {
         ledger.record(alerts)
         for alert in alerts {
             if alert.sound == .agentDone, let notice = alert.session.completionNotice,
-               !(await CompletionNoticeAttempts.shared.claim(notice, recipient: "mac-local")) { continue }
+               !(await completionAttempts.claim(notice, recipient: "mac-local")) { continue }
             // Speech is an independent eligible channel, including a list-only cue.
             if alert.session.completionID == nil || (alert.sound != .agentDone && alert.sound != .agentStuck) { onEligible(alert) }
             let localAlert = alert.sound == .agentDone && viewedSessionIDs.contains(alert.sessionID)

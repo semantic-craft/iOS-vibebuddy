@@ -3,6 +3,7 @@ import VibeBuddyKit
 
 public final class CompletionSummaryPreferences: @unchecked Sendable {
     private struct Stored: Codable {
+        var geminiTransport: String?
         var enabled: Bool
         var provider: String?
         var modelID: String
@@ -14,7 +15,8 @@ public final class CompletionSummaryPreferences: @unchecked Sendable {
         var configuration: CompletionSummaryConfiguration {
             .init(enabled: enabled, provider: provider.flatMap(VoiceProvider.init(rawValue:)),
                   modelID: modelID, language: VoiceLanguage(rawValue: language) ?? .english,
-                  qwenUseIntl: qwenUseIntl, qwenWorkspaceID: qwenWorkspaceID, contentStyle: contentStyle)
+                  qwenUseIntl: qwenUseIntl, qwenWorkspaceID: qwenWorkspaceID, contentStyle: contentStyle,
+                  geminiTransport: .init(rawValue: geminiTransport ?? "") ?? .localCLI)
         }
     }
     private let url: URL

@@ -132,7 +132,7 @@ public enum SpeechSynthesis {
                            defaultVoice: MiniMaxSpeechSynthesizer.defaultVoice, supportsStyle: true) {
                 MiniMaxSpeechSynthesizer(model: $0.effectiveModel, voice: $0.effectiveVoice, style: $0.style)
             }
-        case .deepseek:
+        case .deepseek, .gemini:
             return nil   // Text-only: DeepSeek publishes no speech API.
         }
     }

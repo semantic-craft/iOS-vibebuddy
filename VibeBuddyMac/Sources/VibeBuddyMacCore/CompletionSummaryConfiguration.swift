@@ -4,6 +4,11 @@ import VibeBuddyKit
 
 /// A separate opt-in and text model; never falls back to a realtime model.
 public struct CompletionSummaryConfiguration: Sendable, Equatable {
+    public enum GeminiTransport: String, Sendable { case api, localCLI }
+    public static let geminiTransportKey = "completionSummaryGeminiTransport"
+    public var geminiTransport: GeminiTransport = .localCLI
+    public var usesGeminiCLI: Bool { provider == .gemini && geminiTransport == .localCLI }
+    public var requiresAPIKey: Bool { !usesGeminiCLI }
     public var enabled: Bool
     public var provider: VoiceProvider?
     public var modelID: String
@@ -19,7 +24,8 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
 
     public init(enabled: Bool = false, provider: VoiceProvider? = nil, modelID: String = "",
                 language: VoiceLanguage = .english, qwenUseIntl: Bool = false,
-                qwenWorkspaceID: String? = nil, contentStyle: ContentStyleConfiguration = .default) {
+                qwenWorkspaceID: String? = nil, contentStyle: ContentStyleConfiguration = .default, geminiTransport: GeminiTransport = .localCLI) {
+        self.geminiTransport = geminiTransport
         self.contentStyle = contentStyle
         self.enabled = enabled
         self.provider = provider
@@ -37,6 +43,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         case .deepseek: "deepseek-flash"
         case .minimax: "MiniMax-M3.1-Flash-Preview"
         case .doubao: ""
+        case .gemini: "gemini-3.8-flash"
         }
     }
 
@@ -54,12 +61,13 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
                     language: VoiceLanguage(rawValue: defaults.string(forKey: VoiceSettings.conversationLanguageKey) ?? "") ?? .english,
                     qwenUseIntl: defaults.bool(forKey: VoiceSettings.regionIntlKey),
                     qwenWorkspaceID: defaults.string(forKey: VoiceSettings.qwenWorkspaceIDKey),
-                    contentStyle: ContentStyleConfiguration.load(defaults: defaults))
+                    contentStyle: ContentStyleConfiguration.load(defaults: defaults),
+                    geminiTransport: GeminiTransport(rawValue: defaults.string(forKey: geminiTransportKey) ?? "") ?? .localCLI)
     }
 
     public var presentationRevision: String {
         let fields = [contentStyle.fingerprint, language.rawValue, provider?.rawValue ?? "", modelID,
-                      qwenUseIntl ? "intl" : "cn", qwenWorkspaceID ?? ""]
+                      qwenUseIntl ? "intl" : "cn", qwenWorkspaceID ?? "", usesGeminiCLI ? "agy-gemini-3.8-flash-low" : "api"]
         let data = Data(fields.map { "\($0.utf8.count):\($0)" }.joined().utf8)
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
@@ -78,6 +86,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
             case .openai: name = "OPENAI_API_KEY"
             case .deepseek: name = "DEEPSEEK_API_KEY"
             case .minimax: name = "MINIMAX_API_KEY"
+            case .gemini: name = "GEMINI_API_KEY"
             case .doubao: return nil
             }
             return ProcessInfo.processInfo.environment[name]

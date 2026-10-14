@@ -5,7 +5,8 @@ targets Qwen-Audio 3.0 Realtime (`qwen-audio-3.0-realtime-plus`) instead of
 Qwen3.5-Omni Realtime, with an optional Bailian workspace-specific endpoint;
 amended 2026-09-23 — a provider's per-connection limit ends the call as
 `ended(providerLimit)` with a one-tap redial (below); amended 2026-09-25 —
-Gemini Live removed (below). Gemini mentions above that date are historical.
+Gemini Live removed (below); amended 2026-10-04 — Gemini text summaries restored.
+Historical Gemini Live descriptions below do not apply to the text integration.
 
 The voice companion talks to four cloud realtime vendors (Qwen-Audio
 Realtime, OpenAI GPT-Live or Realtime, Gemini Live, Doubao Realtime). We put them all behind one `RealtimeVoiceProvider`
@@ -189,3 +190,22 @@ live acceptance; the model defaults now have a bounded local benchmark (below).
 
 Sources and limits: `docs/agents/minimax-tts-research.md`; measured selection:
 `docs/agents/minimax-benchmark-2026-10-01.md`.
+
+## Gemini text summaries restored (2026-10-04)
+
+The owner's new Gemini integration request supersedes the 2026-09-25 removal
+for completion summaries only. Gemini is selectable in the existing summary
+preferences and uses Google's public OpenAI-compatible chat-completions API,
+with a separately configured API key and editable model ID. It does not reuse
+Antigravity subscription tokens or imply shared billing. Voice and cloud TTS
+remain retired. When read-aloud follows Gemini summaries, it reports that the
+summary provider cannot speak; select a supported read-aloud provider explicitly.
+Startup cleanup preserves Gemini summary configuration and its key while still
+removing retired voice settings and disabling inherited voice consent.
+
+The isolated follow-up implementation also offers an explicit local Antigravity
+text transport, using the already signed-in official `agy` with a no-tools agent
+and `gemini-3.8-flash-low`. It is a local experiment, not a production rollout.
+The summary adapter accepts text only and preserves summary deadlines; it never
+fails over to paid API. API remains independently selectable. This does not restore
+Gemini Live, cloud TTS, or tool execution through the summary service.

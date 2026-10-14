@@ -107,8 +107,7 @@ struct ReadAloudPurposeSettingsTests {
     }
 }
 
-/// Gemini was removed 2026-09-25. A user who had it selected falls back per
-/// purpose without a crash and without being moved to another vendor.
+/// Gemini voice remains retired; restored text summaries survive launch.
 @Suite("Retired Gemini settings")
 struct RetiredGeminiSettingsTests {
     private func suite() throws -> (UserDefaults, String) {
@@ -116,7 +115,7 @@ struct RetiredGeminiSettingsTests {
         return (try #require(UserDefaults(suiteName: name)), name)
     }
 
-    @Test func geminiEverywhereFallsBackPerPurpose() throws {
+    @Test func geminiVoiceFallsBackButSummaryConfigurationSurvives() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
         defaults.set("gemini", forKey: VoiceSettings.providerKey)       // summaries inherit it
@@ -140,12 +139,13 @@ struct RetiredGeminiSettingsTests {
         // Read-aloud: follows summaries, which are unconfigured — never Qwen.
         #expect(VoiceSettings.pinnedReadAloudProvider(defaults: defaults) == nil)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .waitingForSummaryProvider)
-        #expect(defaults.dictionaryRepresentation().keys.allSatisfy { !$0.hasSuffix(".gemini") })
-        #expect(deleted == ["gemini.apiKey"])
-        // A denied Keychain prompt must not come back at every launch.
+        #expect(defaults.string(forKey: "completionSummaryModel.gemini") == "x")
+        #expect(defaults.string(forKey: "voiceModel.gemini") == nil)
+        #expect(deleted.isEmpty)
+        // Repeated launches must not inspect or delete the restored summary key.
         VoiceSettings.removeRetiredGeminiSettings(defaults: defaults, keyExists: { _ in true },
                                                   deleteKey: { deleted.append($0) })
-        #expect(deleted == ["gemini.apiKey"])
+        #expect(deleted.isEmpty)
     }
 
     @Test func otherProvidersAreUntouched() throws {
@@ -160,7 +160,7 @@ struct RetiredGeminiSettingsTests {
                                                   deleteKey: { deleted.append($0) })
         #expect(defaults.string(forKey: VoiceSettings.providerKey) == "openai")
         #expect(defaults.bool(forKey: VoiceSettings.companionEnabledKey))
-        #expect(defaults.string(forKey: VoiceSettings.summaryProviderKey) == "")
+        #expect(defaults.string(forKey: VoiceSettings.summaryProviderKey) == "gemini")
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.doubao))
         #expect(deleted.isEmpty)
     }
